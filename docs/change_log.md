@@ -21,3 +21,10 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 - Added `docs/change_log.md`, `docs/status.md`, and `docs/architecture.md` to give future
   sessions persistent, accurate project memory — using V2.3's own milestones (M1–M7, from
   `planning/02-product-requirements.md`), not V2.2's.
+- Repaired `.env`. `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` had lost its `KEY=`, leaving the line
+  with no `=` at all, so dotenv skipped it and the key never loaded — the Supabase client would
+  have thrown on first import. Also deleted the two dead `EXPO_PUBLIC_GOOGLE_*_CLIENT_ID`
+  placeholders: the browser OAuth flow keeps Google's client ID and secret in the Supabase
+  dashboard, and no source file reads them. Verified via `npm run lint`, whose loader output now
+  exports both Supabase vars and no Google vars. Because `.env` is gitignored, this entry is the
+  only record of that change.
