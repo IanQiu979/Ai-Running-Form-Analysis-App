@@ -31,9 +31,11 @@ Run `npm run typecheck && npm run lint && npm test` clean before every commit.
 
 ## Secrets & env — read this before touching any env file
 
-- `.env` (gitignored) holds ONLY `EXPO_PUBLIC_SUPABASE_URL` and
-  `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. `.env.example` is the committed template — copy it,
-  never edit it in place.
+- `.env` (gitignored) should hold ONLY `EXPO_PUBLIC_SUPABASE_URL` and
+  `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — nothing Google-related belongs there, ever; the
+  browser OAuth flow never reads a client-ID var. The live file currently drifts from this
+  rule (a malformed key line, dead Google placeholders) — see `docs/status.md` #3 for the
+  fix. `.env.example` is the committed template — copy it, never edit it in place.
 - Anything prefixed `EXPO_PUBLIC_` is inlined in **plain text** into the compiled app bundle.
   Treat it as public. Always read it with static dot notation (`process.env.EXPO_PUBLIC_X`) —
   the `expo/no-dynamic-env-var` lint rule enforces this; destructuring or bracket access
