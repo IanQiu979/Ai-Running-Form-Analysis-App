@@ -28,3 +28,16 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   dashboard, and no source file reads them. Verified via `npm run lint`, whose loader output now
   exports both Supabase vars and no Google vars. Because `.env` is gitignored, this entry is the
   only record of that change.
+- Rewrote `AGENTS.md` into an agent routing map. All 70 subagents in `~/.claude/agents/` are now
+  mapped to the task each one owns, grouped by phase (plan / build / design / verify / test /
+  ship / config), with read-only agents marked `°`. Routing rows point back at `CLAUDE.md`'s
+  rules rather than restating them, so the two can't drift. The pinned-SDK note stays as the
+  opening section; the file is held to 100 lines.
+- Added a "How much process to run" tier table to `AGENTS.md`. Severity, not file count, decides
+  how many steps run: Trivial edits go straight in, Small edits get `verifier` and stop, and any
+  change to auth, RLS, payments, uploaded media, edge functions, schema, or the `analyze-form`
+  flow runs the full plan → build → verify → review → docs chain **even as a one-file diff**.
+  Small work stays inline because spawning a subagent is the expensive path — it starts cold and
+  re-derives context the session already has.
+- `CLAUDE.md` now says what its bare `@AGENTS.md` include actually pulls in: the routing map, and
+  that the rules in `CLAUDE.md` bind every agent it names.

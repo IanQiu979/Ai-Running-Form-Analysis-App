@@ -1,5 +1,8 @@
 @AGENTS.md
 
+The imported [`AGENTS.md`](AGENTS.md) pins the Expo SDK docs and maps every task to the subagent
+that should do it. The rules below bind those agents — they never override them.
+
 ## What this is
 
 V2.3 — Photo/Video Running Analysis (working title; final name is OPEN, see
