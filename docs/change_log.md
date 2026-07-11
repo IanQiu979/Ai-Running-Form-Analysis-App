@@ -41,3 +41,11 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   re-derives context the session already has.
 - `CLAUDE.md` now says what its bare `@AGENTS.md` include actually pulls in: the routing map, and
   that the rules in `CLAUDE.md` bind every agent it names.
+- Fixed "can't open the project in Expo Go". Root cause: `expo-dev-client` is a dependency, so
+  `expo start` defaults to a development build and advertises
+  `exp+v2.3-photo-video-analysis://expo-development-client/?url=…` — a deep link Expo Go cannot
+  open. Nothing was wrong with the network or the phone. Added a `start:go` script
+  (`expo start --go`), which serves `exp://192.168.x.x:8081` and reports "Using Expo Go";
+  verified by running it. Pressing `s` in the dev server does the same thing at runtime.
+  `expo-dev-client` was deliberately kept — a dev build is still the right target for Android and
+  for any future custom native module.

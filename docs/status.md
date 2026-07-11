@@ -49,9 +49,11 @@ milestone "done" criteria.
    user (needs an Apple Developer account).
 4. **`ANTHROPIC_API_KEY` is not set anywhere yet** — not in `supabase/functions/.env`, not
    pushed via `supabase secrets set`. Blocks M4. Owner: user/Claude.
-5. **Knowledge files not yet copied in.** `knowledge/pace_framework.md`, `injury_flags.md`, and
-   `drills.md` don't exist yet — this is planning's "build step 1" (copy Echo V1's knowledge
-   files and adapt ECHO → PACE). Blocks M3. Owner: Claude.
+5. ~~**Knowledge files not yet copied in.**~~ **DONE 2026-07-10.** `knowledge/pace_framework.md`,
+   `injury_flags.md`, and `drills.md` now exist — Posture/Arm-swing/Cadence adapted from the ECHO
+   library and refined against cited literature; **Elasticity authored from peer-reviewed sources**
+   (citations in `pace_framework.md`). **Pending: Ian's certification review** of the Elasticity
+   content + refinements before M3 ships (it carries his name).
 6. **Private Storage bucket for media not yet created** on the `v2.3Analysis` Supabase
    project. Blocks M2/M6. Owner: Claude.
 7. **EAS project not initialized** (`eas init` not run). No TestFlight pipeline exists yet.
@@ -64,7 +66,13 @@ milestone "done" criteria.
 
 ## Next action
 
-1. Build step 1: copy the 4 knowledge files in from Echo V1 and adapt ECHO → PACE
-   (`knowledge/pace_framework.md`, `injury_flags.md`, `drills.md`).
-2. Push `ANTHROPIC_API_KEY` to the project's edge-function secrets once it exists.
-3. Start M1: auth screens (Google + email sign-up/sign-in) and an empty Home.
+The build is now driven by [`docs/mvp-build-prompt.md`](mvp-build-prompt.md) (three-lens audit +
+rulings + decision gate). Immediate:
+
+1. ~~Build step 1: knowledge files~~ **done** — pending Ian's certification review of Elasticity.
+2. **Ian answers the remaining decision-gate items** (fallback-quota behavior; clip length / frames
+   per tier / max upload size; app name; Apple Developer timing; consent/privacy copy). The four
+   design/product decisions are already locked (distinct-but-related design, 0–100+band, frames-only
+   storage, minimal Elite compare) and the design brief is written.
+3. Push `ANTHROPIC_API_KEY` to the project's edge-function secrets once it exists.
+4. Start M1: auth screens (Google + email sign-up/sign-in) and an empty Home.

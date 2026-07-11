@@ -24,13 +24,20 @@ in [`docs/architecture.md`](docs/architecture.md).
 
 | Command | Does |
 |---|---|
-| `npm start` | `expo start` |
+| `npm start` | `expo start` — serves a **development build** URL, not Expo Go (see below) |
+| `npm run start:go` | `expo start --go` — serves `exp://…` for Expo Go on a phone |
 | `npm run ios` / `npm run android` / `npm run web` | `expo start --ios` / `--android` / `--web` |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | `expo lint` |
 | `npm test` | `jest` |
 
 Run `npm run typecheck && npm run lint && npm test` clean before every commit.
+
+`expo-dev-client` is a dependency, so plain `expo start` defaults to a development build and its
+QR code is an `exp+…://expo-development-client/` deep link that **Expo Go cannot open**. Use
+`npm run start:go` (or press `s` in the running dev server) to get an Expo Go `exp://` URL.
+Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project; Expo Go on the
+**Play Store tracks the newest SDK and will reject this project** — Android needs a dev build.
 
 ## Secrets & env — read this before touching any env file
 
