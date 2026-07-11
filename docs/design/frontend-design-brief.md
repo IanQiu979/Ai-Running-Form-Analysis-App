@@ -130,7 +130,7 @@ Route tree already in `docs/architecture.md`. Basic, but every screen names its 
    honesty mechanic: a short client-side step list ("Reading your form… Scoring the four pillars…"),
    and after a threshold a calm static line — *"Still analyzing — a full read takes a moment."* No
    fake progress bar, no spinner-forever. If it fails or times out: an error state with **Retry /
-   Cancel** (the modal must never trap the user — see build prompt Ruling 15).
+   Cancel** — Retry/Cancel must never trap the user; every error state needs an exit.
 7. **Results** — the PACE readout (§3) over a **hero: the runner's annotated frame** (ground rule +
    posture line + landing marker, hairline). Then per-pillar detail (feedback + flags + drills by
    tier), then the **"not medical advice" disclaimer footer** (always). Fallback/partial result:

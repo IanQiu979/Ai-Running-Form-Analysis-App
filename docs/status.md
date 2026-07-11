@@ -34,6 +34,15 @@ milestone "done" criteria.
   only record of changes to it.
 - Planning docs complete: `planning/01-brainstorm.md`, `02-product-requirements.md`,
   `03-engineering-requirements.md`, `planning/README.md`.
+- **Phase 0.5 (the design layer) complete 2026-07-11.** All four remainder items landed:
+  `docs/design/copy-deck.md` (full copy deck, every screen state), `constants/theme.ts` +
+  `constants/contrast.ts` rebuilt from the brief's §2 tokens with a 61-assertion Jest proof
+  every text/surface and band pair clears WCAG AA, `docs/design/motion-consult.md` (motion
+  feasibility addendum, binding alongside brief §6), and `docs/privacy-checklist-m7.md` (ranked
+  privacy/compliance checklist for M7). Font families installed via `npx expo install`
+  (`@expo-google-fonts/archivo`, `inter`, `ibm-plex-mono`); `expo-font` plugin auto-added to
+  `app.json`. The only Phase 0.5 item still open is **Ian's certification review of the
+  Elasticity content** (see Known Issue #5).
 - Full dated history: [`docs/change_log.md`](change_log.md).
 
 ## Known issues
@@ -69,6 +78,17 @@ milestone "done" criteria.
    (a few hundred KB per analysis, not the 60–130MB a full video would cost — see Ruling 1 in
    `docs/mvp-build-prompt.md`), which keeps this viable through the MVP; still worth watching
    before real-user scale.
+10. **NEW — the "runner's note" conflict (needs Ian, blocks M3/M4).** Surfaced by Phase 0.5's
+    `privacy-compliance` read: `knowledge/injury_flags.md` is written around a user-supplied
+    free-text injury/pain note, but the `analyze-form` contract, `planning/02`, and the design
+    brief have no note field or screen for it anywhere. Decide: drop it for MVP (the knowledge
+    file's note-handling guidance goes unused for now), or ship it — which makes it a new
+    health-data input channel needing its own consent line and App Store privacy-label entry
+    (see `docs/privacy-checklist-m7.md`). Don't start the M3 prompt-grounding or M4 request-body
+    work until this is decided — it changes both.
+11. **NEW — paywall pricing (needs Ian, blocks M5).** No dollar figure for Pro or Elite exists
+    anywhere in the docs. The dummy paywall (M5) still needs a display price per tier even
+    though no real payment processes in v1. Owner: user.
 
 ## Next action
 
@@ -82,8 +102,11 @@ into `planning/*` and `docs/architecture.md`. Immediate:
 
 1. ~~Build step 1: knowledge files~~ **done** — pending Ian's certification review of Elasticity.
 2. ~~Decision gate~~ **done 2026-07-11** — every item answered; see `docs/change_log.md`.
-3. Push `ANTHROPIC_API_KEY` to the project's edge-function secrets once it exists.
-4. **Start Phase 1 — the spine (M1)**: `env-config-manager` (secrets, private media bucket,
+3. ~~Phase 0.5: design layer~~ **done 2026-07-11** — copy deck, tokens + AA proof, motion
+   consult, privacy checklist all landed; pending Elasticity certification only (see #5 above).
+4. Push `ANTHROPIC_API_KEY` to the project's edge-function secrets once it exists.
+5. **Start Phase 1 — the spine (M1)**: `env-config-manager` (secrets, private media bucket,
    deep-link allowlist, app.json permission plugins) → `database-engineer` (migrations,
    reserve/settle RPC, storage RLS) → `supabase-auth` (Google + email sign-in/up) →
-   `security-auditor`, per `docs/mvp-build-prompt.md`'s Phase 1.
+   `security-auditor`, per `docs/mvp-build-prompt.md`'s Phase 1. Neither new Known Issue (#10
+   runner's note, #11 pricing) blocks M1 — resolve #10 before M3/M4 and #11 before M5.

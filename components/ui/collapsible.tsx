@@ -21,7 +21,8 @@ export function Collapsible({ children, title }: PropsWithChildren & { title: st
           name="chevron.right"
           size={18}
           weight="medium"
-          color={theme === 'light' ? Colors.light.icon : Colors.dark.icon}
+          // Icons follow the label/caption role (brief §2: `text.secondary` — "labels, captions").
+          color={Colors[theme].text.secondary}
           style={{ transform: [{ rotate: isOpen ? '90deg' : '0deg' }] }}
         />
 

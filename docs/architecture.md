@@ -19,15 +19,23 @@ app/
   modal.tsx              # still the create-expo-app template
 components/              # template UI (external-link, haptic-tab, hello-wave,
                           # parallax-scroll-view, themed-text, themed-view,
-                          # ui/collapsible, ui/icon-symbol)
-constants/theme.ts        # stock Expo template palette (Colors light/dark, Fonts) — no PACE
-                          # palette yet
+                          # ui/collapsible, ui/icon-symbol) — still the create-expo-app
+                          # components; a few were rewired to the new token names so the app
+                          # keeps compiling, not yet redesigned to the "Gait Plate" direction
+constants/theme.ts        # rebuilt from the design brief §2 (done 2026-07-11): light+dark
+                          # tokens, the score-band palette, spacing/radii/type scales
+constants/contrast.ts     # contrast-ratio helper backing the AA proof below
+constants/__tests__/theme-contrast.test.ts  # 61-assertion Jest proof every text/surface and
+                          # band pair clears WCAG AA (9 brief-§2 intent values were darkened/
+                          # lightened minimally to pass — each old → new value is a comment in
+                          # theme.ts next to the token it changed)
 hooks/                    # use-color-scheme, use-theme-color
 ```
 
 There is no `lib/`, no `supabase/functions/`, no `supabase/migrations/`; no auth screens, no
-intake/capture screens, no result view. The `knowledge/` files and the `docs/design/` brief now
-exist (see below) — those are the only exceptions to "nothing beyond the create-expo-app
+intake/capture screens, no result view. The `knowledge/` files, the `docs/design/` layer
+(brief + copy deck + motion consult), `docs/privacy-checklist-m7.md`, and the token layer above
+now exist (see below) — those are the only exceptions to "nothing beyond the create-expo-app
 scaffold exists yet."
 
 ## Planned — route tree
@@ -74,13 +82,29 @@ These files are meant to be bundled into the `analyze-form` edge function and in
 system context, so every analysis is grounded in certified biomechanics rather than the model's
 general knowledge. Echo V1 stays frozen — copy from it, never into it.
 
-## Planned — design brief
+## Current — design layer (Phase 0.5, done 2026-07-11)
 
-The single basic-MVP design brief lives at
-[`docs/design/frontend-design-brief.md`](design/frontend-design-brief.md) — the "Gait Plate"
-visual direction (distinct-but-related to V2.2), the 0–100 + band score display, all 11 screens
-with their states, motion, and the a11y floor. UI work builds from it rather than re-deriving
-the direction.
+- [`docs/design/frontend-design-brief.md`](design/frontend-design-brief.md) — the single
+  basic-MVP design brief: the "Gait Plate" visual direction (distinct-but-related to V2.2), the
+  0–100 + band score display, all 11 screens with their states, motion, and the a11y floor.
+- [`docs/design/copy-deck.md`](design/copy-deck.md) — every string the brief's screens/states
+  need: permission rationales, the consent line, error/empty/offline states, framing guidance,
+  quota captions (Free is always "1 lifetime," never "this month"), paywall copy, the disclaimer
+  + stop-running language, and tier labels.
+- [`docs/design/motion-consult.md`](design/motion-consult.md) — the motion-feasibility
+  addendum to brief §6; binding for `frontend-builder` alongside it (confirms every motion is
+  implementable on the already-installed Reanimated/gesture-handler stack, no new deps).
+- [`docs/privacy-checklist-m7.md`](privacy-checklist-m7.md) — the ranked privacy/
+  compliance checklist gating M7 (App Store privacy labels, consent upgrade, data inventory,
+  retention limits), plus two conflicts surfaced for Ian (see `docs/status.md`).
+- `constants/theme.ts` + `constants/contrast.ts` — the brief's §2 tokens as light+dark theme
+  values, spacing/radii/type scales, and the score-band palette, with a 61-assertion Jest test
+  (`constants/__tests__/theme-contrast.test.ts`) proving every text/surface and band pair clears
+  WCAG AA. Font families (`@expo-google-fonts/archivo`, `inter`, `ibm-plex-mono`) installed via
+  `npx expo install`; `expo-font` added to `app.json`'s plugins.
+
+UI work builds from these rather than re-deriving the direction. Still open from Phase 0.5:
+Ian's certification review of the drafted Elasticity content (`knowledge/pace_framework.md`).
 
 ## Planned — `analyze-form` edge function flow
 

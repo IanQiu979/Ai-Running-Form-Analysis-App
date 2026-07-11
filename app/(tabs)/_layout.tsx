@@ -3,16 +3,15 @@ import React from 'react';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Accent } from '@/constants/theme';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        // Accent is theme-invariant (brief §2: "the primary CTA and *only* the primary CTA" —
+        // reused here for the active tab, the closest scaffold equivalent to a highlight color).
+        tabBarActiveTintColor: Accent.value,
         headerShown: false,
         tabBarButton: HapticTab,
       }}>

@@ -56,10 +56,12 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
   into edge functions at runtime. Never set these by hand.
 - Google's OAuth client secret and Apple's sign-in credentials live only in the Supabase
   Dashboard, never in a repo file.
-- **Uploaded media is sensitive** (photos and video of people's bodies). It lives in a
-  **private Storage bucket with owner-scoped RLS**, is **kept by default** so it can appear in
-  Past Analyses, and is **purged** when the user deletes an analysis or deletes their account.
-  No public URLs; access via signed URLs or authenticated reads.
+- **Uploaded media is sensitive** (images of people's bodies). What's stored is **extracted
+  frames only** — the full-resolution video never leaves the device (Ruling 1,
+  `docs/mvp-build-prompt.md`). Frames live in a **private Storage bucket with owner-scoped
+  RLS**, are **kept by default** so they can appear in Past Analyses, and are **purged** when
+  the user deletes an analysis or deletes their account. No public URLs; access via signed
+  URLs or authenticated reads.
 
 ## Git etiquette
 

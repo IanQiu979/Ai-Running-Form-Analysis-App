@@ -44,6 +44,35 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 - Updated `docs/status.md`: Known Issues #1 (app name) and #2 (illegal slug) marked resolved;
   #3 (Apple) records the timing decision; #9 (storage) updated to reflect frames-only retention.
   "Next action" now points at Phase 1 (the spine, M1) since the decision gate is fully closed.
+- **Executed Phase 0.5 (the design layer) via four parallel agents**, closing its gate:
+  - `ux-copywriter` → `docs/design/copy-deck.md`: the full copy deck — every screen state,
+    permission rationales, the consent line, quota captions, and the disclaimer wording the
+    brief called for but didn't fully write out.
+  - `design-system` → rebuilt `constants/theme.ts` from the brief's §2 tokens (light+dark,
+    score-band palette, spacing/radii/type scales), added `constants/contrast.ts`, and added
+    `constants/__tests__/theme-contrast.test.ts` — a 61-assertion Jest proof every text/surface
+    and band pair clears WCAG AA. **9 of the brief's intent values needed adjustment** to pass
+    (darkened or lightened minimally); each old → new value is recorded inline in `theme.ts`
+    next to the token it changed, not repeated here. Installed the three font families
+    (`@expo-google-fonts/archivo`, `inter`, `ibm-plex-mono`) via `npx expo install`, which
+    auto-added the `expo-font` plugin to `app.json`.
+  - `motion-animation` → `docs/design/motion-consult.md`: confirmed every motion in brief §6 is
+    implementable on the already-installed Reanimated/gesture-handler stack (no new
+    dependencies) and specified the gaps the brief left open (wait-state pacing, reveal
+    triggers, reduced-motion mapping) as binding spec for `frontend-builder`.
+  - `privacy-compliance` → `docs/privacy-checklist-m7.md`: a ranked MUST/SHOULD privacy and
+    compliance checklist gating M7 (App Store privacy labels, consent upgrade, data inventory,
+    retention limits), which surfaced two new decisions for Ian, added to `docs/status.md` as
+    Known Issues #10 and #11: (a) `knowledge/injury_flags.md` assumes a user-supplied free-text
+    injury/pain note that has no field or screen anywhere in `planning/02` or the design brief —
+    ship it (a new health-data channel needing its own consent + label) or drop it for MVP,
+    decide before M3/M4; (b) no dollar figure exists anywhere for the Pro/Elite paywall, needed
+    before M5.
+  - Also fixed a dangling cross-reference in `docs/design/frontend-design-brief.md` screen 6:
+    it cited "build prompt Ruling 15" for the Retry/Cancel-must-never-trap-the-user rule, but
+    the build prompt's rulings end at 14. Replaced the citation with the rule stated inline.
+- `CLAUDE.md`'s Secrets & env section's media bullet was corrected to frames-only wording
+  (extracted frames are what's stored; the full-resolution video never leaves the device).
 
 ## 2026-07-10
 
