@@ -130,6 +130,16 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     for local dev, and pushed to production via `supabase secrets set` (confirmed present in the
     secrets list) — the long-standing M4 blocker (Known Issue #4) is gone.
   - Supabase CLI confirmed logged in and linked to the project for the session.
+- Replaced `AGENTS.md`'s "How much process to run" tier table with a mandatory **Subagent Usage
+  Policy** (written by `doc-writer` to Ian's spec): LOW / MEDIUM / HIGH-CRITICAL severity tiers
+  with a required minimum subagent chain per tier (HIGH runs the full 7-step
+  plan → architecture review → implement → test → security/review → docs → final-QA chain, and
+  keeps the existing hot list — auth, RLS, payments, uploaded media, edge functions, schema,
+  `analyze-form`), a category → agent lookup reaching all 70 subagents in `~/.claude/agents/`,
+  an explicit no-skipping rule (same-message user override only), and a default-to-the-higher-tier
+  escalation rule. This deliberately supersedes the old table's inline-first philosophy
+  ("spawning a subagent is the expensive path"); delegation is now the default for anything
+  non-trivial. `CLAUDE.md` needed no change — nothing in it contradicts the new policy.
 
 ## 2026-07-10
 
