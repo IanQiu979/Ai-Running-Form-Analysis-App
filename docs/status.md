@@ -10,11 +10,11 @@ milestone "done" criteria.
 | Milestone | Status |
 |---|---|
 | M1 — Foundation (sign-up creates an account → empty Home) | Not started — scaffold + Supabase project/auth partially provisioned |
-| M2 — Capture (upload-from-library and in-app record both hand off a valid file on iOS) | Not started |
-| M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files not yet copied in |
+| M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Not started |
+| M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files exist; Elasticity pending Ian's certification |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
-| M6 — Past Analyses (results + media persist and re-open; delete purges both row and media) | Not started |
+| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started |
 
 ## Done so far
@@ -38,15 +38,19 @@ milestone "done" criteria.
 
 ## Known issues
 
-1. **Final app name not picked.** Working title "V2.3 — Photo/Video Running Analysis" is used
-   everywhere until resolved; also blocks #2 below. Owner: user.
-2. **`app.json` slug `v2.3-photo-video-analysis` fails `expo-doctor`**: Expo requires
-   `^[a-zA-Z0-9_-]+$` and the `.` is illegal. Unresolved, tied to the still-open app-name
-   decision above. Owner: user.
+1. ~~**Final app name not picked.**~~ **RESOLVED 2026-07-11.** Name is **"Pace AnalysisAI"**
+   (repo/directory keeps the "V2.3" codename internally). `app.json` updated: `name`
+   "Pace AnalysisAI", `scheme` "paceanalysisai".
+2. ~~**`app.json` slug `v2.3-photo-video-analysis` fails `expo-doctor`**~~ **RESOLVED
+   2026-07-11.** `slug` fixed to `pace-analysis-ai` (dots removed); `ios.bundleIdentifier` and
+   `android.package` both set to `com.ian.paceanalysisai` (follows V2.2's `com.ian.*`
+   precedent).
 3. **Sign in with Apple is not yet possible**: `expo-apple-authentication` is not installed,
-   and `apple` is off on the live Supabase project's auth settings. It is an App Store gate
-   once Google ships — Apple requires it when a third-party social login is offered. Owner:
-   user (needs an Apple Developer account).
+   and `apple` is off on the live Supabase project's auth settings. **Decision recorded
+   2026-07-11**: build email + Google sign-in in M1 now; add Apple Sign-In the moment an Apple
+   Developer account exists, before TestFlight review — the App Store gate is never actually
+   hit because Apple is added ahead of submission. Owner: user (needs an Apple Developer
+   account).
 4. **`ANTHROPIC_API_KEY` is not set anywhere yet** — not in `supabase/functions/.env`, not
    pushed via `supabase secrets set`. Blocks M4. Owner: user/Claude.
 5. ~~**Knowledge files not yet copied in.**~~ **DONE 2026-07-10.** `knowledge/pace_framework.md`,
@@ -61,18 +65,25 @@ milestone "done" criteria.
 8. **Echo V1's Supabase project** (`IanQiu979's Project`, ref `trgpnnyqonaxhnyhtmlz`) is
    **paused**, which is what freed the Free-plan slot for `v2.3Analysis`. 90-day restore
    window from 2026-07-10.
-9. **Free-tier storage is 1 GB with 5 GB/month egress.** Since media is kept by default, this
-   is a known scaling limit before real users.
+9. **Free-tier storage is 1 GB with 5 GB/month egress.** Media retention is now **frames only**
+   (a few hundred KB per analysis, not the 60–130MB a full video would cost — see Ruling 1 in
+   `docs/mvp-build-prompt.md`), which keeps this viable through the MVP; still worth watching
+   before real-user scale.
 
 ## Next action
 
 The build is now driven by [`docs/mvp-build-prompt.md`](mvp-build-prompt.md) (three-lens audit +
-rulings + decision gate). Immediate:
+rulings + decision gate). **The decision gate is fully closed** — Ian answered every remaining
+item on 2026-07-11 (fallback/quota behavior, the clip-length/frame-count/upload-size numbers,
+the app name, Apple Developer timing, and the consent/privacy package), joining the four
+design/product decisions already locked on 2026-07-10 (distinct-but-related design, 0–100+band,
+frames-only storage, minimal Elite compare). All 14 rulings + the full decision gate are synced
+into `planning/*` and `docs/architecture.md`. Immediate:
 
 1. ~~Build step 1: knowledge files~~ **done** — pending Ian's certification review of Elasticity.
-2. **Ian answers the remaining decision-gate items** (fallback-quota behavior; clip length / frames
-   per tier / max upload size; app name; Apple Developer timing; consent/privacy copy). The four
-   design/product decisions are already locked (distinct-but-related design, 0–100+band, frames-only
-   storage, minimal Elite compare) and the design brief is written.
+2. ~~Decision gate~~ **done 2026-07-11** — every item answered; see `docs/change_log.md`.
 3. Push `ANTHROPIC_API_KEY` to the project's edge-function secrets once it exists.
-4. Start M1: auth screens (Google + email sign-up/sign-in) and an empty Home.
+4. **Start Phase 1 — the spine (M1)**: `env-config-manager` (secrets, private media bucket,
+   deep-link allowlist, app.json permission plugins) → `database-engineer` (migrations,
+   reserve/settle RPC, storage RLS) → `supabase-auth` (Google + email sign-in/up) →
+   `security-auditor`, per `docs/mvp-build-prompt.md`'s Phase 1.

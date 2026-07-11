@@ -45,16 +45,30 @@
   project and read by Claude before each analysis).
 - **Video depth:** multiple frames (real motion), not a single frame.
 - **Framework:** rebrand ECHO → **PACE** (Posture, Arm swing, Cadence, Elasticity).
-- **Knowledge files to copy in:** `ECHO_Framework_CORRECTED.md` (form biomechanics),
-  `injury_flags.md`, and `training_zones.md` / `workout_library.md` (for drill suggestions).
+- **Knowledge files:** 4 Echo source files map to **3** V2.3 targets. `ECHO_Framework_CORRECTED.md`
+  → `pace_framework.md` (form biomechanics; also the source of the certified drills/cues — the
+  five cadence drills around lines 153–229 and the posture/arm-swing cues around lines 453–478).
+  `injury_flags.md` → carried over as-is. `training_zones.md` / `workout_library.md` contain
+  **zero drills** and are **not** a `drills.md` source, despite what an earlier draft of this
+  plan assumed.
 
 ### Findings from the Echo codebase (inform the build)
 - Echo's form analysis lives in `app/form-analysis.tsx`; it sends a base64 image to the
   `anthropic-coach` edge function with a short **inline** prompt built on ECHO's 4 pillars
-  (Economy, Cadence, Harmony, Optimization). It does **not** read the knowledge md files.
-- Echo "video" analysis extracts a **single thumbnail frame** (`expo-video-thumbnails`) — no
-  real motion analysis. V2.3's multi-frame approach is new work.
-- Tier gating exists via `FORM_ANALYSIS_LIMITS` / `canDoFormAnalysis` in `lib/subscription.ts`.
+  (Economy, Cadence, Harmony, Optimization). It does **not** read the knowledge md files. This
+  client-side prompt construction is exactly the pattern V2.3 must NOT repeat — it lets any
+  authenticated caller run arbitrary prompts on the project's API key.
+- Echo "video" analysis extracts a **single thumbnail frame at t=1s** (`expo-video-thumbnails`)
+  — no real motion analysis. Its client caps were 15s / 8MB. V2.3's multi-frame approach is new
+  work; the 15s clip-length cap carries forward, the frame-count-per-tier and body-size caps do
+  not (see 03).
+- V1's real server-side enforcement (the atomic quota RPC, purpose allowlist, tier lookup via
+  service role, over-quota returned as `200 { rate_limited: true }`) lives in the
+  `anthropic-coach` **edge function**, not in `lib/subscription.ts` — that file is only the
+  client-side tier-read/dummy-purchase shape, cosmetic and never authoritative. V2.3 cherry-picks
+  the edge-function enforcement pattern, not the client file, for its business rules.
+- V1 never persisted analysis results anywhere — Past Analyses is entirely new work in V2.3, not
+  an inherited feature.
 - These are cherry-pick sources; Echo V1 stays frozen.
 
 ---
@@ -72,6 +86,7 @@
   analysis, which purges its media. User's choice.
 
 ### Remaining before coding
-- [ ] Copy the 4 knowledge files into the V2.3 repo and adapt ECHO → PACE pillars (build step 1)
-- [ ] Pick the app name
+- [x] Copy the 4 source files (mapping to 3 targets) into the V2.3 repo and adapt ECHO → PACE
+  pillars (build step 1) — done 2026-07-10, pending Ian's certification of the Elasticity content
+- [x] Pick the app name — **"Pace AnalysisAI"**, decided 2026-07-11
 - [ ] Provision infra (checklist in 03)

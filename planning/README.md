@@ -40,6 +40,8 @@ The **project spec doc** is the two Part-A / Part-B files (02 and 03).
   the PACE-adapted rule files before every analysis.
 
 ## Still open before coding
-1. **Build step 1:** copy the 4 knowledge files in and adapt ECHO → PACE (see 03).
-2. Pick the **app name**.
+1. ~~Build step 1: copy the 4 knowledge files in and adapt ECHO → PACE~~ **Done 2026-07-10** —
+   4 source files → 3 targets (`knowledge/pace_framework.md`, `injury_flags.md`, `drills.md`
+   exist; see 03). Pending Ian's certification of the drafted Elasticity content.
+2. ~~Pick the **app name**~~ **Done 2026-07-11 — "Pace AnalysisAI."**
 3. **Provision infra** (checklist in 03).

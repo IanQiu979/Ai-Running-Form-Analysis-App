@@ -1,15 +1,16 @@
 {
   "expo": {
-    "name": "v2.3-photo-video-analysis",
-    "slug": "v2.3-photo-video-analysis",
+    "name": "Pace AnalysisAI",
+    "slug": "pace-analysis-ai",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "v23photovideoanalysis",
+    "scheme": "paceanalysisai",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ian.paceanalysisai"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +20,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.ian.paceanalysisai"
     },
     "web": {
       "output": "static",

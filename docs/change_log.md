@@ -5,6 +5,46 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-11
+
+- Executed Phase 0 of `docs/mvp-build-prompt.md` ("Reconcile before building anything"),
+  committing the previous session's layer (the knowledge files, the `docs/design/` brief, and
+  the build prompt itself) and closing the decision gate.
+- **Ian answered the five remaining decision-gate items:**
+  - Fallback/quota (#4): a validation-failed analysis becomes an honest, clearly-labelled
+    partial result only when ≥2 pillars parsed, otherwise a clean failure; failures and
+    fallbacks never burn quota (the atomic reserve is released), capped at 3 free retries per
+    period against prompt-injection farming.
+  - The numbers (#5): max clip length 15s; frames analyzed per tier — Free 1 / Pro 5 / Elite 8;
+    max upload size 50MB pre-compress.
+  - App name (#6): **"Pace AnalysisAI."** Repo/directory keeps the "V2.3" codename internally.
+  - Apple Developer timing (#7): build email + Google sign-in in M1 now; add Sign in with Apple
+    the moment an Apple Developer account exists, before TestFlight review.
+  - Consent & privacy (#8): a one-line consent notice before first upload plus a Settings
+    disclosure ship in v1; the full privacy policy and App Store privacy labels are tracked for
+    M7, not dropped.
+- Renamed the app in `app.json` to match decision #6: `name` "Pace AnalysisAI", `slug`
+  `pace-analysis-ai` (dots removed — the previous slug was illegal), `scheme` "paceanalysisai",
+  `ios.bundleIdentifier` and `android.package` both `com.ian.paceanalysisai` (follows V2.2's
+  `com.ian.*` precedent).
+- Synced all 14 rulings from `docs/mvp-build-prompt.md` §0-B into `planning/README.md`,
+  `planning/01-brainstorm.md`, `planning/02-product-requirements.md`,
+  `planning/03-engineering-requirements.md`, and `docs/architecture.md`: frames-only media
+  pipeline (`media_path text` → `media_paths text[]`, direct-to-bucket upload, no video ever
+  stored), the atomic reserve/settle quota RPC replacing count-then-insert, the idempotency-key
+  design, the frame-sampling spec (5%–95% window, actual timestamps, ≤1568px/q≈0.7 downscale),
+  V2.2's purchase-anchored quota-period arithmetic with Free as lifetime, the new
+  `delete-account` edge function, the corrected Sonnet 5 model config (explicit thinking,
+  4–8k `max_tokens`, forced tool call), the `{ error, code }` error contract and the
+  `FunctionsHttpError`-unwrapping client note, the corrected 4-source-files-to-3-targets
+  knowledge mapping (`drills.md` sourced from `ECHO_Framework_CORRECTED.md`, not
+  `training_zones.md`/`workout_library.md`, which have zero drills), and the V1 ground-truth
+  corrections (real enforcement lives in `anthropic-coach`, not `lib/subscription.ts`; V1 video
+  "analysis" was one thumbnail at t=1s; V1 never persisted results).
+- Updated `docs/status.md`: Known Issues #1 (app name) and #2 (illegal slug) marked resolved;
+  #3 (Apple) records the timing decision; #9 (storage) updated to reflect frames-only retention.
+  "Next action" now points at Phase 1 (the spine, M1) since the decision gate is fully closed.
+
 ## 2026-07-10
 
 - Added `typecheck` (`tsc --noEmit`) and `test` (`jest`) npm scripts alongside the existing
