@@ -156,11 +156,38 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://127.0.0.1:3000"
+#
+# V2.3 has no web frontend, so this points at the app's own deep-link scheme (app.json's
+# "scheme": "paceanalysisai") rather than a marketing site. Applied live 2026-07-11 via a scoped
+# Management API PATCH to /v1/projects/{ref}/config/auth (site_url, uri_allow_list,
+# mailer_autoconfirm only) — see the `supabase config push` warning below before ever running
+# that command against this file.
+site_url = "paceanalysisai://"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
-# A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+# A list of URLs (supports glob wildcards: `*` within one path/host segment, `**` across
+# segments — segments are split on `.` and `/`) that auth providers are permitted to redirect to
+# post authentication.
+#
+#   - paceanalysisai://oauth-callback  — the exact redirect makeRedirectUri({ scheme:
+#     'paceanalysisai', path: 'oauth-callback' }) produces in a dev-client or production build
+#     (lib/auth.ts). This is what signInWithOAuth's redirectTo / WebBrowser.openAuthSessionAsync
+#     actually use today.
+#   - paceanalysisai://**               — wildcard covering future deep-link paths (password
+#     reset, magic links) under the same scheme, so this list doesn't need a new exact entry per
+#     route.
+#   - exp://**                          — Expo Go dev testing (`npm run start:go`). Expo Go's
+#     exp:// redirect embeds the dev server's LAN IP:port (e.g. exp://192.168.1.5:8081/--/...),
+#     which changes per machine/network, so only a wildcard can cover it; `*` alone would NOT
+#     match here because `.` is a glob separator and would stop the match inside the IP address —
+#     `**` is required to cross it. Scoped to the exp:// scheme only, which is inherently
+#     local-dev (Expo Go must be installed and pointed at this project), so this is not a
+#     production-facing risk.
+#
+# Replaces a stale entry found live on 2026-07-11: `v23photovideoanalysis://google-auth` — an
+# old app-scheme name that predates the "paceanalysisai" rename and matched nothing in the
+# current app. Removed rather than kept alongside the correct entries.
+additional_redirect_urls = ["paceanalysisai://oauth-callback", "paceanalysisai://**", "exp://**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -223,6 +250,17 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
+#
+# Decided OFF for the M1 spine (2026-07-11): the live project had this ON (mailer_autoconfirm =
+# false) with no transactional email provider wired up and no "check your email" UI built yet —
+# a fresh email sign-up would dead-end with a confirmation email that either never sends or the
+# app never handles. Disabling confirmations is the simplest honest path for the M1 gate (sign up
+# -> account exists -> lands on Home) without inventing a confirmation-pending screen the copy
+# deck doesn't spec. Revisit before public launch: re-enabling confirmations needs a transactional
+# email provider (auth.email.smtp) and copy-deck strings for the pending state, neither of which
+# exist yet. Applied live via the scoped Management API PATCH noted above, inverse-mapped to
+# `mailer_autoconfirm = true` (this key and that one are opposites: enable_confirmations = false
+# means autoconfirm = true).
 enable_confirmations = false
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
@@ -319,6 +357,19 @@ max_frequency = "5s"
 # Use an external OAuth provider. The full list of providers are: `apple`, `azure`, `bitbucket`,
 # `discord`, `facebook`, `github`, `gitlab`, `google`, `keycloak`, `linkedin_oidc`, `notion`, `twitch`,
 # `twitter`, `x`, `slack`, `spotify`, `workos`, `zoom`.
+#
+# WARNING before ever running `supabase config push` against this file: there is deliberately no
+# [auth.external.google] block below, because Google sign-in is configured live in the Supabase
+# Dashboard (Authentication > Sign In / Providers > Google) with a real client ID + secret that
+# must never be typed into this repo. `config push` reads config.toml as the full desired state
+# and PATCHes the project to match it — a section this file doesn't declare is not guaranteed to
+# be left alone; the CLI may apply the schema default (`enabled = false`) for any provider absent
+# from the file, which would silently disable live Google sign-in. Confirmed this project's live
+# auth settings were changed today via a scoped Management API PATCH (site_url, uri_allow_list,
+# mailer_autoconfirm only) specifically to avoid this — `config push` was not run. Before this
+# file is ever pushed wholesale: add an [auth.external.google] block with `enabled = true` and
+# `client_id`/`secret` sourced from `env(...)` vars (never literal values) that match the
+# dashboard's real credentials, or confirm some other way that push won't touch that provider.
 [auth.external.apple]
 enabled = false
 client_id = ""
