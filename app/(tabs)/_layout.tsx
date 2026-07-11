@@ -5,6 +5,9 @@ import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Accent } from '@/constants/theme';
 
+// Single Home tab for M1. The template's Explore tab is removed rather than left as dead
+// scaffolding; architecture.md's planned route tree adds (tabs)/history back in once M6
+// (Past Analyses) builds it — this file gets a second Tabs.Screen then, not before.
 export default function TabLayout() {
   return (
     <Tabs
@@ -20,13 +23,6 @@ export default function TabLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
         }}
       />
     </Tabs>

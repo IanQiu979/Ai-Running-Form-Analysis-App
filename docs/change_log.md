@@ -83,6 +83,53 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   - **Paywall pricing: Pro $6.99 / Elite $14.99 per month** — display prices for the M5 dummy
     paywall, chosen over Echo V1's $4.99/$9.99 as a higher anchor; real IAP (post-MVP) can
     re-decide. `docs/design/copy-deck.md`'s `{{price}}` placeholders resolved.
+- **Executed Phase 1 — the spine (M1)** on `feat/m1-spine`, four commits, built/reviewed/audited
+  same day:
+  - `943d04b` — `supabase init` (`config.toml`, `supabase/.gitignore`, project linked to
+    `vputdomdlknvthnzritt`); `app.json` got the `expo-camera` + `expo-image-picker` plugins with
+    the copy deck's exact `NSCameraUsageDescription` / `NSPhotoLibraryUsageDescription` strings,
+    mic permission stripped on both platforms (`microphonePermission: false` on both plugins,
+    `recordAudioAndroid: false`) — verified via a throwaway prebuild that no
+    `NSMicrophoneUsageDescription` lands in `Info.plist` and `RECORD_AUDIO` is actively removed
+    from the Android manifest.
+  - `2b1e6f6` — the DB spine, **7 migrations applied live** (`supabase db push`, advisors
+    clean): `profiles` (auto-created via an `auth.users` trigger), `subscriptions` (no row =
+    free), `analyses` (`UNIQUE(user_id, idempotency_key)`, `media_paths text[]`,
+    reserved/delivered/released lifecycle), the `reserve_analysis`/`settle_analysis`/
+    `release_analysis` RPC family (service-role-only, `pg_advisory_xact_lock`-serialized
+    concurrency, Free 1 lifetime / Pro 10 / Elite 30 purchase-anchored month-end-clamped
+    periods, 3-failed-attempt anti-farming cap), and the private `media` Storage bucket (5MB
+    cap, `image/jpeg` only, path-owner RLS).
+  - `31098f0` — the auth spine: `lib/supabase.ts` + `lib/crypto-polyfill.ts` (Hermes has no
+    WebCrypto, so PKCE silently degrades S256→plain without it — the root cause behind Echo
+    V1's "invalid flow state" failures, fixed with an `expo-crypto` shim), `lib/auth.ts` (browser
+    OAuth for Google), `lib/session-provider.tsx` + `Stack.Protected` guards, `app/(auth)/sign-in`
+    per design-brief screen 1, and the M1 empty Home per screen 2 (RLS-scoped, display-only
+    quota). Fonts wired at the root layout; the template Explore tab and modal deleted.
+  - `5f14b22` — code-review fixes (splash-screen `.catch` on a rejected session read, Home's
+    quota error state with last-known-value + Retry + focus refetch, a `crypto-polyfill`
+    byteOffset fix, Android OAuth double-exchange dedupe, hardcoded dimensions replaced with
+    `ControlHeight`/`HitTarget`/`Opacity` tokens) plus auth config hardening
+    (`minimum_password_length` 6→8).
+  - **Security audit: no Critical or High findings**; 5 findings fixed same-day (above).
+    Two config discoveries recorded in `supabase/config.toml`'s `[auth]` block rather than lost:
+    the hosted project has **no signup rate-limit field** at all (`sign_in_sign_ups` is
+    CLI/self-hosted-only; the Management API silently drops it), so CAPTCHA is the only real
+    anti-farming lever; and **HaveIBeenPwned leaked-password rejection is Pro-plan-gated** —
+    attempting to enable it returned HTTP 402, so it's documented as deferred, not applied.
+  - **Live auth config changes** (via a scoped Management API PATCH — `site_url`,
+    `uri_allow_list`, `mailer_autoconfirm` only; `supabase config push` deliberately not run
+    against this project, see `config.toml`'s warning): `site_url` set to the app's own
+    `paceanalysisai://` scheme (no web frontend); the redirect allowlist replaced a stale
+    pre-rename entry (`v23photovideoanalysis://google-auth`) with
+    `paceanalysisai://oauth-callback`, `paceanalysisai://**`, and `exp://**` (Expo Go dev
+    testing); `mailer_autoconfirm` turned on deliberately — no transactional email provider or
+    confirmation-pending screen exists yet, so requiring email confirmation would dead-end a
+    fresh signup; `minimum_password_length` raised 6→8.
+  - **`ANTHROPIC_API_KEY` rotated by Ian**, placed in the gitignored `supabase/functions/.env`
+    for local dev, and pushed to production via `supabase secrets set` (confirmed present in the
+    secrets list) — the long-standing M4 blocker (Known Issue #4) is gone.
+  - Supabase CLI confirmed logged in and linked to the project for the session.
 
 ## 2026-07-10
 

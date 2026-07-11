@@ -10,57 +10,111 @@ kept in clearly separate sections below; nothing in a "planned" section is built
 
 ## Current — what exists in the repo
 
+M1 (the spine) is **done** — built and reviewed on `feat/m1-spine`, gate passed 2026-07-11 with
+Ian's on-phone test (sign-up → account → empty Home), merged to `main` via PR — real, applied
+code and a live DB, not a plan.
+
 ```
 app/
-  _layout.tsx           # root layout — still the create-expo-app template
-  (tabs)/_layout.tsx     # still the create-expo-app template
-  (tabs)/index.tsx       # still the create-expo-app template
-  (tabs)/explore.tsx     # still the create-expo-app template
-  modal.tsx              # still the create-expo-app template
-components/              # template UI (external-link, haptic-tab, hello-wave,
-                          # parallax-scroll-view, themed-text, themed-view,
-                          # ui/collapsible, ui/icon-symbol) — still the create-expo-app
-                          # components; a few were rewired to the new token names so the app
-                          # keeps compiling, not yet redesigned to the "Gait Plate" direction
-constants/theme.ts        # rebuilt from the design brief §2 (done 2026-07-11): light+dark
-                          # tokens, the score-band palette, spacing/radii/type scales
+  _layout.tsx            # root layout: SessionProvider + font loading + splash gate, then
+                          # Stack.Protected routes to (tabs) or (auth) on `session`
+  (auth)/_layout.tsx      # unprotected stack, one screen
+  (auth)/sign-in.tsx      # combined sign-in/sign-up per design-brief screen 1 (email + Google;
+                          # no Apple yet, gate #7)
+  (tabs)/_layout.tsx      # protected stack; single Home tab for M1 (template Explore removed)
+  (tabs)/index.tsx        # M1 empty Home per screen 2 — RLS-scoped, display-only quota caption,
+                          # disabled Analyze stub, temporary sign-out
+components/              # still the create-expo-app template UI (external-link, haptic-tab,
+                          # hello-wave, parallax-scroll-view, themed-text, themed-view,
+                          # ui/collapsible, ui/icon-symbol); a few were rewired to the new token
+                          # names so the app keeps compiling, not yet redesigned to "Gait Plate"
+constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
+                          # palette, spacing/radii/type scales; M1 added
+                          # ControlHeight/ControlWidth/HitTarget/Opacity
+constants/copy.ts         # strings lifted verbatim from docs/design/copy-deck.md — sign-in and
+                          # Home's copy live here first (M1); more screens' copy lands with them
 constants/contrast.ts     # contrast-ratio helper backing the AA proof below
 constants/__tests__/theme-contrast.test.ts  # 61-assertion Jest proof every text/surface and
                           # band pair clears WCAG AA (9 brief-§2 intent values were darkened/
                           # lightened minimally to pass — each old → new value is a comment in
                           # theme.ts next to the token it changed)
 hooks/                    # use-color-scheme, use-theme-color
+lib/
+  supabase.ts             # the Supabase client — see "Current — auth flow" below
+  auth.ts
+  session-provider.tsx
+  crypto-polyfill.ts
+supabase/
+  config.toml              # local mirror of live auth config — see "Current — Supabase config"
+  functions/.env.example   # committed placeholder; the real ANTHROPIC_API_KEY is in the
+                          # gitignored functions/.env locally and in production secrets
+  migrations/               # 7 migrations, applied live — see "Current — DB schema" below
 ```
 
-There is no `lib/`, no `supabase/functions/`, no `supabase/migrations/`; no auth screens, no
-intake/capture screens, no result view. The `knowledge/` files, the `docs/design/` layer
-(brief + copy deck + motion consult), `docs/privacy-checklist-m7.md`, and the token layer above
-now exist (see below) — those are the only exceptions to "nothing beyond the create-expo-app
-scaffold exists yet."
+The template's `(tabs)/explore.tsx` and `modal.tsx` are deleted, not left as dead scaffolding.
+Still absent: `supabase/functions/analyze-form` (or any edge function), `lib/frames.ts`,
+`lib/pace.ts`, `lib/subscription.ts`, and every route beyond sign-in + empty Home (capture,
+result, paywall, settings, history).
 
-## Planned — route tree
+## Route tree — current (M1) vs planned
 
 ```
 app/
-  (auth)/sign-in, sign-up
-  (tabs)/index          # Home / Analyze (pick source)
-  (tabs)/history        # past analyses
-  capture/               # record or pick, framing guide (stack)
-  result/[id]            # analysis result view
-  paywall, settings
+  (auth)/sign-in         # current — sign-up folds into the same screen, no separate route
+  (tabs)/index           # current — Home / Analyze (pick source is still a disabled stub)
+  (tabs)/history         # planned — past analyses (M6)
+  capture/                # planned — record or pick, framing guide (stack) (M2)
+  result/[id]             # planned — analysis result view (M4/M6)
+  paywall, settings       # planned (M5)
 ```
 
-## Planned — `lib/` layout
+## `lib/` layout — current (M1) vs planned
 
 ```
 lib/
-  supabase.ts
-  frames.ts              # extract, downscale, and upload N frames from a video (client-side)
-                          # direct-to-bucket, for motion analysis
-  pace.ts                 # PACE pillar types + result parser, imported by app + edge functions
-  subscription.ts         # tier read + dummy purchase (adapted from Echo V1 / V2.2) — cosmetic
-                          # only; tier/quota are never authoritative on the client
+  supabase.ts             # current — the Supabase client; see "Current — auth flow" below
+  auth.ts                 # current — browser OAuth (Google), PKCE code exchange
+  session-provider.tsx    # current — session state + Stack.Protected guard source of truth
+  crypto-polyfill.ts      # current — WebCrypto shim; see "Current — auth flow" below
+  frames.ts               # planned (M2) — extract, downscale, and upload N frames from a video
+                          # (client-side) direct-to-bucket, for motion analysis
+  pace.ts                 # planned (M4) — PACE pillar types + result parser, imported by app +
+                          # edge functions
+  subscription.ts         # planned (M5) — tier read + dummy purchase (adapted from Echo V1 /
+                          # V2.2) — cosmetic only; tier/quota are never authoritative on the
+                          # client (the live reserve_analysis RPC is already the sole
+                          # enforcement point — see "Current — DB schema" below)
 ```
+
+## Current — auth flow (M1)
+
+- **PKCE browser OAuth (Google).** `signInWithOAuth({ skipBrowserRedirect: true })` gets the
+  provider URL, then `WebBrowser.openAuthSessionAsync` (with `preferEphemeralSession: true`, so
+  a stale silent Google session can't complete against an already-consumed PKCE verifier)
+  intercepts the redirect at the browser layer and resolves with the final URL directly — no app
+  route has to exist at the redirect path. `lib/auth.ts`'s `createSessionFromUrl` then exchanges
+  the `code` param for a session via `supabase.auth.exchangeCodeForSession`. Redirect URI:
+  `paceanalysisai://oauth-callback` (matches `app.json`'s `scheme`).
+- **`lib/session-provider.tsx`'s `Linking` listener is a defensive second path**, not the
+  primary one — if the browser sheet gets dismissed before `openAuthSessionAsync`'s promise
+  resolves (e.g. the app was backgrounded mid-flow), the OS may still deliver the redirect as a
+  plain deep link; a module-level `Set` of already-exchanged codes stops the two listeners from
+  racing to redeem the same code twice (a real Android double-delivery case, fixed in the M1
+  code-review pass).
+- **`lib/crypto-polyfill.ts` exists because Hermes has no WebCrypto.** Without it,
+  `@supabase/auth-js`'s PKCE helper silently falls back from `S256` to the weaker `plain`
+  challenge method (a `console.warn`, never a thrown error) — this was Echo V1's real root cause
+  for "invalid flow state, no valid flow state found" failures. The shim backs
+  `crypto.getRandomValues` and `crypto.subtle.digest('SHA-256', ...)` with `expo-crypto` and
+  must be imported before `@supabase/supabase-js` ever touches `crypto` (`lib/supabase.ts`
+  imports it first, before creating the client).
+- **`Stack.Protected` guards, not manual redirects.** `app/_layout.tsx` wraps two
+  `Stack.Protected` groups — `guard={!!session}` for `(tabs)`, `guard={!session}` for `(auth)` —
+  so a signed-out user's navigator has no `(tabs)` route to go to at all (and vice versa).
+  `onAuthStateChange` flipping `session` in `SessionProvider` is what moves the user between
+  them; no screen calls `router.replace()` after sign-in or sign-out.
+- Session storage is **AsyncStorage today, plaintext** — tracked as a known issue to move to a
+  SecureStore-backed adapter at M2 (`docs/status.md` Known Issue #13).
 
 ## Current — `knowledge/` (done 2026-07-10)
 
@@ -170,6 +224,11 @@ burn, no extra storage, no new edge function or API route.
 
 ## Planned — API
 
+None of these edge functions exist yet (no `supabase/functions/` beyond the `.env.example`
+placeholder) — but `analyze-form`'s core dependency, the reserve/settle/release quota RPC
+family, is already live; see "Current — DB schema" below and the M1-review contract notes in
+`docs/status.md` Known Issue #14 before building it.
+
 The client never talks to Postgres for privileged operations — those go through edge
 functions. Plain reads of the caller's own rows go through the Supabase client, protected by
 RLS.
@@ -191,38 +250,136 @@ Direct Supabase-client reads (RLS-guarded, `user_id = auth.uid()`): list own `an
 own `subscriptions`; read own frames from the private bucket via short-TTL signed URLs. Inserts
 into `analyses` happen only inside `analyze-form`.
 
-## Planned — DB schema (draft, not deployed)
+## Current — DB schema (LIVE, applied 2026-07-11)
 
-The live Supabase project (`v2.3Analysis`) currently has 0 tables, 0 migrations, and 0 edge
-functions. This schema is the draft in
-[`planning/03-engineering-requirements.md`](../planning/03-engineering-requirements.md), not
-deployed anywhere yet.
+The live Supabase project (`v2.3Analysis`) has **7 migrations applied** (`supabase db push`,
+security advisors clean) — this is the as-built schema, not the draft in `planning/03` (which
+drifted on a few points, noted inline below; `planning/03` and `planning/02` should be treated
+as the design intent, this section as ground truth for what's actually deployed).
 
 ```sql
-profiles       (id -> auth.users, created_at, display_name)
-subscriptions  (user_id, tier free|pro|elite, period_start, period_end, source dummy|revenuecat)
-analyses       (id, user_id, tier_at_run, media_type photo|video, frame_count,
-                media_paths text[],           -- private-bucket paths of the analyzed frames;
-                                               -- kept by default; NOT a single video path
-                idempotency_key text,         -- UNIQUE (user_id, idempotency_key)
-                result jsonb,                 -- 4 PACE pillars + flags + drills
-                is_fallback bool, created_at)
+-- public.profiles: one row per auth.users row, auto-created by an AFTER INSERT trigger
+-- (handle_new_user, SECURITY DEFINER) on signup for every provider.
+profiles       (id uuid pk -> auth.users(id) on delete cascade,
+                display_name text, created_at timestamptz)
+
+-- public.subscriptions: at most one row per user; NO row = free. subscription_tier is
+-- 'pro' | 'elite' ONLY — 'free' is never a value here (contrast analysis_tier below).
+subscriptions  (user_id uuid pk -> profiles(id) on delete cascade,
+                tier subscription_tier not null,      -- enum: 'pro' | 'elite'
+                purchased_at timestamptz not null,    -- the period anchor; no stored
+                                                       -- period_start/period_end, no cron —
+                                                       -- periods are derived at read time
+                status subscription_status not null,  -- enum: 'active' | 'canceled'
+                created_at, updated_at)
+
+-- public.analyses: one row per reserve_analysis() call. media_paths is plural (drift fix vs
+-- planning/03's earlier media_path text draft — plural was already correct there too, kept
+-- consistent here). No separate frame-count/tier duplication anywhere else to drift.
+analyses       (id uuid pk default gen_random_uuid(),
+                user_id uuid not null -> profiles(id) on delete cascade,
+                media_type media_type not null,          -- enum: 'photo' | 'video'
+                media_paths text[] not null default '{}',-- private-bucket paths; NOT a video
+                frame_count integer not null check (> 0),
+                tier_at_run analysis_tier not null,       -- enum: 'free' | 'pro' | 'elite'
+                status analysis_status not null default 'reserved', -- enum: 'reserved' |
+                                                                      -- 'delivered' | 'released'
+                result jsonb,                              -- 4 PACE pillars + flags + drills
+                is_fallback boolean not null default false,
+                idempotency_key text not null,             -- UNIQUE (user_id, idempotency_key)
+                release_reason text,                        -- e.g. 'validation_failed' — observability only
+                created_at, delivered_at, released_at, updated_at)
+-- indexes: (user_id, created_at desc) for "list my analyses"; (user_id, status, created_at)
+-- for the quota-window counts the RPCs below run.
 ```
 
-Quota check: `free → count(analyses) total` (against the Free limit of 1, lifetime — not
-per-period); `pro|elite → count(analyses) in currentPeriod(anchorDate, now)` (against 10 / 30).
-A user with no `subscriptions` row is `free`. Periods are purchase-day-anchored and month-end
-clamped (Jan 31 → Feb 28 → Mar 31), computed at read time by one pure, unit-tested
-`currentPeriod(anchorDate, now)` — no cron, no rollover writes. The count check runs inside the
-atomic reserve/settle RPC, never as a separate count-then-insert (that has a 20–60s TOCTOU
-race across the vision call) — no separate counter table to drift out of sync either way.
+**Quota RPC family — `reserve_analysis` / `settle_analysis` / `release_analysis`, live and the
+sole enforcement point.** All three are `SECURITY DEFINER`, `EXECUTE` revoked from
+`public`/`anon`/`authenticated` and granted only to `service_role` — so only a future edge
+function calling with the service-role key can invoke them, never the client directly.
 
-**RLS rule for every table**: `user_id = auth.uid()` for select/insert of the caller's own
-rows. Tier and quota columns are only ever written by edge functions running as the service
-role — the client can never write its own tier or quota.
+- **`reserve_analysis(p_user_id, p_idempotency_key, p_media_type, p_frame_count, p_media_paths)`**
+  — the sole write path for new `analyses` rows. Serializes concurrent calls for one user via
+  `pg_advisory_xact_lock(hashtext(p_user_id || ':analysis_reserve'))` (a bare
+  count-then-insert does not close the race on its own — see the migration's own comment for
+  why); `UNIQUE (user_id, idempotency_key)` is a second, unconditional backstop against a lock-
+  hash collision. An existing row for `(user_id, idempotency_key)` is returned as-is, **whatever
+  its status** — a caller MUST branch on the returned `status`, not just `allowed` (a replayed
+  request against a since-released reservation returns `allowed: true, existing: true, status:
+  "released"`). Tier is derived server-side from `subscriptions` (no row = `free`), never
+  trusted from the caller. Enforces, in order: frame-count cap per tier (Free 1 / Pro 5 /
+  Elite 8 — photo must be exactly 1 frame), the 3-failed-attempt anti-farming cap (counts
+  `'released'` rows in the window — a released reservation never counts toward the quota limit,
+  but does count here, since failures/fallbacks don't cost quota and would otherwise be a free
+  retry farm), then the quota limit itself (Free 1 **lifetime**, count of all
+  `'reserved'`/`'delivered'` rows ever; Pro 10 / Elite 30 **per current period**, via
+  `pace_current_period` below — Free does not reuse the period logic, a separate branch).
+- **`settle_analysis(p_user_id, p_analysis_id, p_result, p_is_fallback)`** — marks a `'reserved'`
+  row `'delivered'` with its result; guarded to only affect a still-`'reserved'` row, so a
+  duplicate/late call is a safe no-op rather than overwriting an already-delivered result.
+- **`release_analysis(p_user_id, p_analysis_id, p_reason)`** — the compensating release: a
+  `'reserved'` row that never gets settled (the vision call errored after its one retry, or the
+  response was a clean failure) moves to `'released'` so it stops counting toward quota, while
+  the row itself is kept (not hard-deleted) so it still counts toward the 3-failed-attempt cap.
+  **Must be called on every M4 failure path** — an unreleased `'reserved'` row silently eats a
+  quota slot forever (`docs/status.md` Known Issue #14).
+- **`pace_current_period(anchor, as_of)` / `pace_add_months_clamped(base, n)`** — SQL port of
+  V2.2's `currentPeriod(anchorDate, now)`: purchase-day-anchored, month-end clamped (Jan 31 →
+  Feb 28 → Mar 31, verified), computed inside the same transaction as the reserve, no cron, no
+  stored `period_start`/`period_end` columns (a drift fix vs `planning/03`'s draft schema, which
+  sketched those columns on `subscriptions` — the live schema derives the period from
+  `purchased_at` alone at read/reserve time instead).
 
-**Media privacy**: photos/videos of people are sensitive. Only the analyzed frames (never the
-original video) live in a private, owner-only-RLS Storage bucket, kept by default so they
-appear in Past Analyses via short-TTL signed URLs. Deleting an analysis (or the account) purges
-the row and its frame objects. No public URLs — access is via signed URLs or authenticated
-reads only.
+**RLS, as deployed** (all policies wrap `auth.uid()` as `(select auth.uid())` — a performance
+fix, InitPlan-evaluated once per statement instead of once per row, applied in the 7th
+migration; behavior is identical to bare `auth.uid()`): `profiles` and `subscriptions` are
+select-own only (no client insert/update/delete — writes are trigger- or future-service-role-
+only). `analyses` is select-own **and delete-own** (direct client `DELETE` is allowed by RLS as
+a fallback path; the planned `DELETE /functions/v1/analysis/:id` edge function is still
+preferred so the row and its Storage objects can't get out of sync) — no client insert/update,
+since rows are written only by the RPCs above.
+
+**Media privacy, as deployed**: the private `media` bucket (5MB/object cap, `image/jpeg` only)
+has owner-scoped `storage.objects` RLS for insert/select/delete — first path segment must equal
+`(select auth.uid())::text` — and deliberately **no UPDATE policy** (frames are write-once or
+deleted, never edited in place). Photos/videos of people are sensitive; only the analyzed
+frames (never the original video) are ever uploaded. No public URLs — access is via signed URLs
+or authenticated reads only.
+
+## Current — Supabase config: `config.toml` vs dashboard-only
+
+`supabase/config.toml` (added by `supabase init` in M1) is a **local mirror + audit trail**, not
+the live source of truth — most of it documents settings the hosted project's Management API
+either can't take from this file at all, or was only ever pushed via a narrowly scoped PATCH,
+never `supabase config push` (a warning to that effect lives in the file itself; running that
+command against this project would attempt to push unrelated settings this file was never meant
+to own).
+
+- **Pushed live via a scoped Management API PATCH (`site_url`, `uri_allow_list`,
+  `mailer_autoconfirm` only), and mirrored in `config.toml` for the record**: `site_url =
+  "paceanalysisai://"` (no web frontend, so this is the app's own deep-link scheme, not a
+  marketing site); `additional_redirect_urls` = `paceanalysisai://oauth-callback` (the exact URI
+  `lib/auth.ts`'s `makeRedirectUri` produces), `paceanalysisai://**` (future deep links —
+  password reset, magic links — under the same scheme), and `exp://**` (Expo Go dev testing via
+  `npm run start:go`; scoped to a local-dev-only scheme, tracked as a pre-EAS-build cleanup item
+  in `config.toml`); `mailer_autoconfirm = true` (`enable_confirmations = false` in the file —
+  the two are inverses) since no transactional email provider or confirmation-pending screen
+  exists yet; `minimum_password_length = 8` (raised from 6, a security-audit LOW finding).
+- **Dashboard-only, never pushed from this file**: which providers are enabled (`google` +
+  `email` on; `apple` and `anonymous_users` off — set directly in the dashboard, `docs/status.md`
+  Known Issue #3), the Google OAuth client ID/secret, and any future Apple Services ID/key.
+- **Documented in `config.toml` but NOT applied, on purpose**: HaveIBeenPwned leaked-password
+  rejection — attempted live via the same PATCH mechanism and rejected with HTTP 402 ("available
+  on Pro Plans and up"); this project is below that tier, so it's recorded as deferred rather
+  than silently dropped.
+- **A discovery, not a config change**: the hosted Management API has **no field for a
+  sign-in/sign-up rate limit** — `[auth.rate_limit].sign_in_sign_ups` in `config.toml` is a
+  CLI/self-hosted-`supabase start`-only setting with no hosted equivalent; a PATCH attempt was
+  silently accepted (HTTP 200) but never took effect, confirmed by a re-GET. CAPTCHA
+  (`auth.captcha`, still disabled) is therefore the only real anti-farming lever available on
+  this plan — tracked as blocking M4 going live in `docs/status.md` Known Issue #12, not
+  something more config-file tuning can fix.
+- **Local-stack-only settings that mean nothing for this hosted project**: everything else in
+  `config.toml` outside the `[auth]` block (`[db]`, `[storage]`, `[api]`, etc.) governs a local
+  `supabase start` stack only, present because `supabase init` generates the full default file —
+  not evidence of any corresponding hosted configuration.

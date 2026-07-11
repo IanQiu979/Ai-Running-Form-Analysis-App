@@ -233,6 +233,35 @@ export const Radius = {
 } as const;
 
 // -------------------------------------------------------------------------------------------
+// Control sizing / opacity — not part of the brief's explicit spacing/radius ramp, but these
+// exact dimensions repeat verbatim across screens (sign-in's buttons/inputs, Home's CTA and
+// sign-out link), so CLAUDE.md's "theme tokens only" rule applies just the same: name them
+// once here instead of hardcoding the literal at each call site.
+// -------------------------------------------------------------------------------------------
+
+export const ControlHeight = {
+  /** Buttons and text inputs — sign-in screen's fields/CTAs, Home's primary CTA. */
+  standard: 52,
+} as const;
+
+export const ControlWidth = {
+  /** Home's primary CTA minimum width. */
+  primaryButton: 220,
+} as const;
+
+export const HitTarget = {
+  /** Minimum tappable square for a text-only/icon-only control (e.g. Home's Sign out link). */
+  min: 44,
+} as const;
+
+export const Opacity = {
+  /** A disabled control (e.g. Home's primary CTA before capture is wired up). */
+  disabled: 0.4,
+  /** A pressed/busy control's dimmed state. */
+  pressed: 0.6,
+} as const;
+
+// -------------------------------------------------------------------------------------------
 // Motion — brief §2 + §6 "Motion (light, honest)". Durations distinct from V2.2's
 // (160/240/320 vs V2.2's 180/250/350). Curves: ease-out for anything arriving, ease-in for
 // anything leaving. One spring, reserved for the score-reveal settle (§6: "one spring settle").

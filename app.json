@@ -42,7 +42,23 @@
         }
       ],
       "expo-web-browser",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Used to record a video or photo of your running form for analysis. Recording is muted — Pace AnalysisAI never accesses your microphone.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Used to choose an existing photo or video of your running form to analyze.",
+          "cameraPermission": "Used to record a video or photo of your running form for analysis. Recording is muted — Pace AnalysisAI never accesses your microphone.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

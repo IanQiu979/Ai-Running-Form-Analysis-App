@@ -9,7 +9,7 @@ milestone "done" criteria.
 
 | Milestone | Status |
 |---|---|
-| M1 — Foundation (sign-up creates an account → empty Home) | Not started — scaffold + Supabase project/auth partially provisioned |
+| M1 — Foundation (sign-up creates an account → empty Home) | **Done 2026-07-11** — security audit (no Critical/High) + code review (5 findings fixed), gate passed with Ian's on-phone sign-up test; merged via PR from `feat/m1-spine` |
 | M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Not started |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files exist; Elasticity pending Ian's certification |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started |
@@ -60,15 +60,18 @@ milestone "done" criteria.
    Developer account exists, before TestFlight review — the App Store gate is never actually
    hit because Apple is added ahead of submission. Owner: user (needs an Apple Developer
    account).
-4. **`ANTHROPIC_API_KEY` is not set anywhere yet** — not in `supabase/functions/.env`, not
-   pushed via `supabase secrets set`. Blocks M4. Owner: user/Claude.
+4. ~~**`ANTHROPIC_API_KEY` is not set anywhere yet**~~ **RESOLVED 2026-07-11.** Ian rotated the
+   key; it's in the gitignored `supabase/functions/.env` for local dev and pushed to production
+   via `supabase secrets set` (verified present in the secrets list). The M4 blocker is gone.
 5. ~~**Knowledge files not yet copied in.**~~ **DONE 2026-07-10.** `knowledge/pace_framework.md`,
    `injury_flags.md`, and `drills.md` now exist — Posture/Arm-swing/Cadence adapted from the ECHO
    library and refined against cited literature; **Elasticity authored from peer-reviewed sources**
    (citations in `pace_framework.md`). **Pending: Ian's certification review** of the Elasticity
    content + refinements before M3 ships (it carries his name).
-6. **Private Storage bucket for media not yet created** on the `v2.3Analysis` Supabase
-   project. Blocks M2/M6. Owner: Claude.
+6. ~~**Private Storage bucket for media not yet created**~~ **RESOLVED 2026-07-11.** The private
+   `media` bucket (5MB/object cap, `image/jpeg` only) is live with owner-scoped `storage.objects`
+   RLS (first path segment = `auth.uid()`), applied via migration and confirmed by the security
+   advisors clean.
 7. **EAS project not initialized** (`eas init` not run). No TestFlight pipeline exists yet.
    Owner: user/Claude, at M7.
 8. **Echo V1's Supabase project** (`IanQiu979's Project`, ref `trgpnnyqonaxhnyhtmlz`) is
@@ -88,6 +91,35 @@ milestone "done" criteria.
 11. ~~**Paywall pricing**~~ **RESOLVED 2026-07-11: Pro $6.99 / Elite $14.99 per month** —
     display prices for the M5 dummy paywall (no real payment processes in v1; real IAP can
     re-decide). Recorded in `docs/design/copy-deck.md` §Paywall.
+12. **NEW — CAPTCHA required before `analyze-form` (M4) goes live.** The M1 security audit found
+    the hosted Supabase project has **no signup rate-limit field at all** (`sign_in_sign_ups` in
+    `config.toml` is CLI/self-hosted-only; the Management API silently drops it on a hosted
+    project) and `mailer_autoconfirm` is deliberately on for M1 (no transactional email provider
+    or confirmation-pending screen exists yet). Combined, each disposable signup is unthrottled
+    and worth ~4 potential Anthropic calls once M4 ships (Free tier's 1 lifetime analysis ×
+    farmable accounts). CAPTCHA (`auth.captcha`, hCaptcha or Turnstile) is the only real lever on
+    this plan — needs Ian to create provider keys; an account-creation step, not something
+    buildable from the repo. **Blocks M4 going live, not the M4 build itself.**
+13. **NEW — session storage is plaintext AsyncStorage today (MEDIUM, audit finding).**
+    `lib/supabase.ts` stores the session (including the refresh token) via AsyncStorage, which
+    is unencrypted on-device. Low urgency for M1 (no sensitive app data sits behind the session
+    yet), but M2 starts writing user media behind a signed-in session. **Move to a
+    SecureStore-backed adapter at M2** (the "LargeSecureStore" pattern: SecureStore holds the
+    encryption key, AsyncStorage holds the encrypted blob — SecureStore alone has no room for a
+    full session payload).
+14. **NEW — Phase 4 (`analyze-form`) contract notes, carried forward from the M1 review.** Not
+    code changes today; binding requirements for whoever builds M4:
+    - `analyze-form` MUST derive `p_user_id` for the reserve/settle/release RPCs from the
+      verified JWT, never from the request body — the RPCs themselves trust `p_user_id` as a
+      plain argument (by design, since they're `service_role`-only) and do no independent check.
+    - MUST branch on `reserve_analysis`'s returned `status`, not just `allowed` — a replayed
+      request against an idempotency key whose reservation already failed returns
+      `allowed: true, existing: true, status: "released"` (the row is real, but nothing should
+      be delivered against it as if it were a fresh reservation).
+    - MUST call `release_analysis` on every failure path (a `finally`/equivalent, not just the
+      happy-path retry-exhausted branch) — an unreleased `'reserved'` row silently eats one of
+      the user's quota slots forever. Also consider a periodic sweep for stale `'reserved'` rows
+      (e.g. the edge function crashed before either settling or releasing).
 
 ## Next action
 
@@ -103,9 +135,12 @@ into `planning/*` and `docs/architecture.md`. Immediate:
 2. ~~Decision gate~~ **done 2026-07-11** — every item answered; see `docs/change_log.md`.
 3. ~~Phase 0.5: design layer~~ **done 2026-07-11** — copy deck, tokens + AA proof, motion
    consult, privacy checklist all landed; pending Elasticity certification only (see #5 above).
-4. Push `ANTHROPIC_API_KEY` to the project's edge-function secrets once it exists.
-5. **Start Phase 1 — the spine (M1)**: `env-config-manager` (secrets, private media bucket,
-   deep-link allowlist, app.json permission plugins) → `database-engineer` (migrations,
-   reserve/settle RPC, storage RLS) → `supabase-auth` (Google + email sign-in/up) →
-   `security-auditor`, per `docs/mvp-build-prompt.md`'s Phase 1. Neither new Known Issue (#10
-   runner's note, #11 pricing) blocks M1 — resolve #10 before M3/M4 and #11 before M5.
+4. ~~Push `ANTHROPIC_API_KEY`~~ **done 2026-07-11** — rotated by Ian, in production secrets.
+5. ~~Phase 1 — the spine (M1)~~ **built & reviewed 2026-07-11 on `feat/m1-spine`** — DB spine (7
+   migrations live), auth spine (email + Google), empty Home, code-review fixes, security audit
+   (no Critical/High). Pending Ian's on-phone gate test and the PR merge.
+6. **Start Phase 2 — Capture (M2)** once the M1 PR merges: `lib/frames.ts` (extraction +
+   downscale + direct-to-bucket upload) and the capture/pick screens, per
+   `docs/mvp-build-prompt.md`'s Phase 2. Also due at/around M2: the SecureStore session-storage
+   move (#13). Neither #10 (runner's note, resolved) nor #12 (CAPTCHA) nor #14 (Phase 4 contract
+   notes) block M2 — #12 blocks M4 going live, #14 is scoped to the M4 build itself.
