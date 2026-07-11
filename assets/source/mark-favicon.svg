@@ -1,0 +1,61 @@
+<!--
+  Pace AnalysisAI — favicon source, rendered at 48x48 (web tab icon). REVISION 3 — Variant B
+  geometry (see mark-light.svg for the full rationale), redrawn at the boldest weight of the four
+  files AND with a deliberate simplification specific to this file, because 1024->48 (~21x) is the
+  harshest downscale any of these SVGs will undergo.
+
+  FIX 3 (favicon-specific): even in mark-light.svg, the angle-arc is already a short, detached 16°
+  sweep — deliberately small so it doesn't fuse with the rays. At a further ~21x downscale on top
+  of that, an already-short arc becomes a few stray pixels: more likely to read as rendering noise
+  or a stray anti-aliasing artifact near the corner than as a deliberate mark. Unlike mark-mono
+  (which keeps the arc because it's the only element left once color drops), mark-favicon keeps
+  full color, so the green landing-marker alone is enough to carry the "there's a marked point
+  here" idea without needing the arc to survive.
+
+  DECISION: dropped the angle-arc, kept the landing-marker (enlarged and in color). Reasoning:
+  matches this file's established pattern from the previous revision — the one thing worth keeping
+  at the harshest downscale is a bold solid-color blob, since that is the shape class most likely
+  to survive intact; a short curved stroke is not.
+
+  Reuses mark-mono.svg's shortened posture-line reach (same 280px length, same 28° angle) since it
+  was already tuned for a heavier stroke's safe-zone margin.
+
+  WEIGHTS: 76px strokes (-> ~3.0px at 48px, the boldest line weight of the set) and r=96 marker.
+
+  SAFE ZONE: not an Android adaptive-icon target, but kept inside the same centred r=330 safe
+  circle anyway for consistency of composition across every touchpoint. Verified margins:
+  ground-rule endpoints ~29.9px (butt cap, stroke-width-independent), posture-line top-point cap
+  bulge ~19.0px, landing-marker full circle ~226px.
+
+  TOKENS (constants/theme.ts, light — the web chrome this favicon sits in is effectively always a
+  light browser tab bar, so this uses the light mark's palette, not a light/dark pair):
+    field:   Colors.light.background  #F4F1EA
+    lines:   Colors.light.text.primary #1E1B15
+    landing: Score.strong.light.fill   #2E7D5B
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <rect id="field" x="0" y="0" width="1024" height="1024" fill="#F4F1EA" />
+  <g id="mark">
+    <line
+      id="ground-rule"
+      x1="212"
+      y1="520"
+      x2="812"
+      y2="520"
+      stroke="#1E1B15"
+      stroke-width="76"
+      stroke-linecap="butt"
+    />
+    <line
+      id="posture-line"
+      x1="512"
+      y1="520"
+      x2="644"
+      y2="273"
+      stroke="#1E1B15"
+      stroke-width="76"
+      stroke-linecap="round"
+    />
+    <circle id="landing-marker" cx="512" cy="520" r="96" fill="#2E7D5B" />
+  </g>
+</svg>

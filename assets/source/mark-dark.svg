@@ -1,0 +1,54 @@
+<!--
+  Pace AnalysisAI — dark-theme splash mark. REVISION 3 — VARIANT B ("The Angle"), propagated to
+  production. SAME geometry as mark-light.svg (see that file for the full rationale: the winning-
+  variant selection, the recentered/enlarged/mirrored composition, the arc-separation fix, and the
+  exact safe-zone/centroid math) — only the ink swaps for dark-theme contrast. Required, not
+  optional: app/_layout.tsx holds the splash screen until fonts + session resolve, so it is on
+  screen for a real duration, and mark-light's dark-on-bone ink would be near-invisible drawn on
+  the dark field (#1A1712).
+
+  FIELD VS MARK: as mark-light.svg — #field is opaque, bake it into any opaque output; render only
+  #mark (transparent surround) for the dark splash composite.
+
+  TOKENS (constants/theme.ts, dark) — `hairline` is unused here for the same reason it's unused in
+  mark-light.svg: it only ever colored measure-ticks, removed two revisions ago.
+    field:   #1A1712
+    lines:   Colors.dark.text.primary #F3EEE3
+    landing: Score.strong.dark.fill   #2E7D5B — unchanged from light; theme.ts keeps the "strong"
+             fill token identical across both themes, so the landing marker is the one element that
+             does NOT re-tint between mark-light and mark-dark.
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <rect id="field" x="0" y="0" width="1024" height="1024" fill="#1A1712" />
+  <g id="mark">
+    <line
+      id="ground-rule"
+      x1="212"
+      y1="520"
+      x2="812"
+      y2="520"
+      stroke="#F3EEE3"
+      stroke-width="64"
+      stroke-linecap="butt"
+    />
+    <line
+      id="posture-line"
+      x1="512"
+      y1="520"
+      x2="648"
+      y2="265"
+      stroke="#F3EEE3"
+      stroke-width="64"
+      stroke-linecap="round"
+    />
+    <path
+      id="angle-arc"
+      d="M 770,411 A 280,280 0 0 0 730,344"
+      fill="none"
+      stroke="#F3EEE3"
+      stroke-width="48"
+      stroke-linecap="round"
+    />
+    <circle id="landing-marker" cx="512" cy="520" r="84" fill="#2E7D5B" />
+  </g>
+</svg>

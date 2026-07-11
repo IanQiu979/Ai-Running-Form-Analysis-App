@@ -1,0 +1,117 @@
+<!--
+  Pace AnalysisAI — app icon / splash mark, "The Gait Plate" (docs/design/frontend-design-brief.md §1)
+  REVISION 3 — VARIANT B ("The Angle") propagated to production after a three-way comparison.
+  Ian picked it: the goniometer/protractor read is the one of the three that looks like a
+  measurement instrument rather than a generic stick-and-bar, and the one least likely to be
+  mistaken for another app's icon. This revision also fixes three real-size rendering failures the
+  coordinator measured on the winning variant at 220/120/80/60/40px (see below).
+  ================================================================================================
+  GEOMETRY (what it means)
+    1. ground-rule   — the horizontal reference line a biomechanics report draws under a capture.
+    2. posture-line   — one straight line at a runner's forward-lean angle (~28° off vertical) from
+                        the vertex up to where the runner's posture would be read from, the P in
+                        PACE.
+    3. angle-arc      — a short detached arc near the vertex, the way a goniometer marks the angle
+                        it's measuring. This is this variant's distinguishing idea: the LEAN ANGLE
+                        itself is the subject, not just a line meeting a line.
+    4. landing-marker — a filled circle at the vertex, where ground-rule and posture-line meet:
+                        the single point of color, because a landing/contact point is what PACE
+                        actually scores.
+
+  THREE FIXES APPLIED THIS REVISION (measured failures, not taste calls)
+  (1) UNDERSIZED AND OFF-CENTER, EVERY VARIANT. The vertex moves from deep in the lower area
+      (previously y=660) to near vertical canvas-center (y=520, only 8px below 512) and every
+      element is scaled up (rays 56px->64px, marker r=64->r=84, arc r=150->r=280). The composition
+      is also MIRRORED left-to-right from the exploration draft: the posture-line now leans UP-
+      RIGHT from the vertex instead of up-left, because the un-mirrored version left the entire
+      upper-right quadrant of the safe circle empty (verified analytically: every element's x
+      stayed <512 for y<512) — exactly the "dead pocket in the upper right" the coordinator
+      measured. Mirroring moves the filled quadrant to upper-right and the (unavoidable, for a
+      three-armed asymmetric mark) emptier quadrant to upper-left instead.
+      Per the "centroid should sit slightly ABOVE 512, because the heavy marker+rule read as
+      pulling weight down" instruction: computed area-weighted centroid of this composition is
+      approximately (539, 484) — i.e. ~28px above center vertically (satisfies "above 512") and
+      ~27px right of center horizontally (a residual asymmetry inherent to a three-armed mark with
+      only one diagonal arm; pushing it to exactly 512 would require shrinking the ground-rule's
+      left arm below a safe margin, so this was not forced further).
+  (2) THE ARC FUSED WITH THE RAYS AT SMALL SIZE. Fixed by SEPARATION, not thinning (thinning was
+      explicitly rejected — that is the dash mistake in a new costume). The arc's radius grew from
+      150 to 280 (real negative space between the arc and the vertex/marker: at r=84 the marker's
+      edge sits 280-24-84=172px clear of the arc's inner edge). The arc's angular sweep also
+      shrank from a full edge-to-edge span to a short, DETACHED 16° arc centered in the 62° angle
+      between the two rays, leaving a 23° gap of true air on each side. Verified: at r=280 that 23°
+      gap is a 53.4px clear gap between the arc's stroke edge and each ray's stroke edge —
+      wider than the arc's own 48px stroke weight, satisfying the "gap >= arc's own stroke weight"
+      rule with a small buffer. A short, clearly-detached arc was chosen over a longer one that
+      welds to the rays, per the coordinator's own explicit fallback guidance.
+  (3) (mark-mono.svg / mark-favicon.svg only — see those files' own headers.)
+
+  WEIGHTS
+    - ground-rule / posture-line: 64px stroke (was 56px)
+    - angle-arc: 48px stroke — one step lighter than the rays for hierarchy (primary structure vs.
+      secondary angle annotation), still well clear of the 40px weight already proven "spindly"
+    - landing-marker: r=84 (was r=64)
+  Ground-rule: BUTT caps (technical, and stroke-width-independent for safe-zone math). Posture-
+  line: ROUND cap. Angle-arc: ROUND cap (so its two free-floating ends read as deliberate stroke
+  ends, not sharp/accidental clips).
+
+  SAFE ZONE (Android adaptive-icon crop, ~660px-diameter circle, r=330 from center 512,512) —
+  every stroke's outer extent (round-cap bulge included) verified >=13px inside that circle:
+    ground-rule endpoints (butt cap, symmetric both ends): ~29.9px
+    posture-line top-point cap bulge:                       ~16.0px
+    angle-arc, both endpoints:                               ~28.9px / ~30.8px
+    landing-marker full circle:                              ~238px
+  Android 12+ also masks the splash icon toward a circle — this file is the splash source too.
+
+  DEVIATIONS FROM THE ORIGINAL BRIEF, NOTED EXPLICITLY (cumulative across all revisions): the
+  brief's build spec asked for a 6-8° lean (now ~28°, for legibility at icon size), named
+  measure-ticks as part of the motif (removed — they read as a rake), asked for the ground-rule
+  "across the lower third" (the vertex now sits near vertical center, y=520, for optical balance —
+  it is still visually the lower element of the composition, just not deep in the lower third).
+  Every deviation was driven by real-size rendering feedback, not taste; the three-element concept
+  (now four, with the arc as this variant's addition) and every token are unchanged.
+
+  FIELD VS MARK (for whoever wires this into the PNG pipeline — ids unchanged since v1)
+    - #field — an OPAQUE bone rect. Needed for icon.png. Skip this layer (render only #mark,
+      transparent) for splash-icon.png and android-icon-foreground.png.
+    - #mark — the ground-rule + posture-line + angle-arc + landing-marker group.
+
+  TOKENS (constants/theme.ts, light) — `hairline` is unused (it only ever colored measure-ticks).
+    field:   Colors.light.background   #F4F1EA (bone)
+    lines:   Colors.light.text.primary #1E1B15
+    landing: Score.strong.light.fill   #2E7D5B (NOT Accent #2F6BEB, reserved for the CTA only)
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <rect id="field" x="0" y="0" width="1024" height="1024" fill="#F4F1EA" />
+  <g id="mark">
+    <line
+      id="ground-rule"
+      x1="212"
+      y1="520"
+      x2="812"
+      y2="520"
+      stroke="#1E1B15"
+      stroke-width="64"
+      stroke-linecap="butt"
+    />
+    <line
+      id="posture-line"
+      x1="512"
+      y1="520"
+      x2="648"
+      y2="265"
+      stroke="#1E1B15"
+      stroke-width="64"
+      stroke-linecap="round"
+    />
+    <path
+      id="angle-arc"
+      d="M 770,411 A 280,280 0 0 0 730,344"
+      fill="none"
+      stroke="#1E1B15"
+      stroke-width="48"
+      stroke-linecap="round"
+    />
+    <circle id="landing-marker" cx="512" cy="520" r="84" fill="#2E7D5B" />
+  </g>
+</svg>

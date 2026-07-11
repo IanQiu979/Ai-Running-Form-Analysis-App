@@ -43,6 +43,15 @@ milestone "done" criteria.
   (`@expo-google-fonts/archivo`, `inter`, `ibm-plex-mono`); `expo-font` plugin auto-added to
   `app.json`. The only Phase 0.5 item still open is **Ian's certification review of the
   Elasticity content** (see Known Issue #5).
+- **Real app icon + splash art landed 2026-07-12**, replacing the Expo template defaults —
+  closes GitHub issue #26. The "Gait Plate" mark (design brief §1) is versioned SVG source in
+  `assets/source/`, rasterized to the PNGs `app.json` points at via `npm run assets`
+  (`scripts/generate-app-assets.js`, new `sharp` devDependency). See
+  `docs/architecture.md`'s "app icon & splash assets" section for the full pipeline, including
+  the no-alpha `icon.png` rule and why a dedicated dark-mode splash mark exists.
+- **EAS project initialized 2026-07-12** — config groundwork for GitHub issue #66, not a
+  working release pipeline; see Known Issue #7 below and `docs/architecture.md`'s "EAS build &
+  release config" section.
 - Full dated history: [`docs/change_log.md`](change_log.md).
 
 ## Known issues
@@ -72,13 +81,28 @@ milestone "done" criteria.
    `media` bucket (5MB/object cap, `image/jpeg` only) is live with owner-scoped `storage.objects`
    RLS (first path segment = `auth.uid()`), applied via migration and confirmed by the security
    advisors clean.
-7. **EAS project not initialized** (`eas init` not run). No TestFlight pipeline exists yet.
-   Owner: user/Claude, at M7. **Carries a required follow-on:** the first dev build is what
-   unblocks [issue #69](https://github.com/IanQiu979/v2.3_RunningFormAna/issues/69) —
-   remove `exp://**` from the Supabase redirect allowlist. It cannot be done before then:
-   under Expo Go, `lib/auth.ts`'s `makeRedirectUri` resolves to `exp://<LAN-IP>:8081/--/…`,
-   so dropping that entry breaks Google sign-in on-device. Do it in the same pass as the dev
-   build, while the custom `paceanalysisai://` scheme is confirmed working.
+7. ~~**EAS project not initialized** (`eas init` not run). No TestFlight pipeline exists yet.~~
+   **SPLIT 2026-07-12, half resolved.** The config half is done: `eas init` created the EAS project
+   (`@ianbeatingpros/pace-analysis-ai`, `extra.eas.projectId` in `app.json`), `eas.json` has four
+   build profiles (`development`, `development-device`, `preview`, `production` +
+   `submit.production`), and the Supabase env vars are pulled into all three EAS environments —
+   see `docs/change_log.md` 2026-07-12 and `docs/architecture.md`'s "EAS build & release config"
+   section. **The pipeline half is still blocked**: there is no Apple Developer account, so there
+   are no iOS credentials, no `eas build` for a device or the App Store, no `eas submit`, and no
+   TestFlight pipeline. `development`'s `ios.simulator: true` is what makes an iOS build possible
+   at all today; `development-device` (`ios.simulator: false`, needs an ad-hoc provisioning
+   profile) is written but unusable until the account exists — same dependency as Known Issue #3.
+   This is groundwork only: **M7 stays Not started**. The TestFlight/pipeline half is tracked in
+   `docs/blocked-on-apple.md`, not as a GitHub issue; only the icon/splash half (GitHub issue #26)
+   closes with this work. Owner: user (needs an Apple Developer account).
+
+   **Carries a required follow-on:** the first dev build is what unblocks
+   [issue #69](https://github.com/IanQiu979/v2.3_RunningFormAna/issues/69) — remove `exp://**`
+   from the Supabase redirect allowlist. It cannot be done before then: under Expo Go,
+   `lib/auth.ts`'s `makeRedirectUri` resolves to `exp://<LAN-IP>:8081/--/…`, so dropping that
+   entry breaks Google sign-in on-device. Do it in the same pass as the dev build, while the
+   custom `paceanalysisai://` scheme is confirmed working. This does **not** need an Apple
+   Developer account — `development`'s `ios.simulator: true` build is enough to retire Expo Go.
 8. **Echo V1's Supabase project** (`IanQiu979's Project`, ref `trgpnnyqonaxhnyhtmlz`) is
    **paused**, which is what freed the Free-plan slot for `v2.3Analysis`. 90-day restore
    window from 2026-07-10.
