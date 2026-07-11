@@ -241,6 +241,13 @@ password_requirements = ""
 # HaveIBeenPwned.org is available on Pro Plans and up." This project is below that tier. Revisit
 # once the project is on a Pro Plan or higher; there is no config.toml key for this to mirror
 # because the change was never applied (nothing to mirror yet).
+#
+# Mitigated client-side in the meantime (issue #70): `lib/hibp.ts` reimplements the same check
+# against HIBP's free, keyless Pwned Passwords range API and hard-blocks sign-up on a breached
+# password before `supabase.auth.signUp` is ever called. It is not equivalent to this
+# server-side setting — it's bypassable by anyone calling the Supabase Auth API directly — so
+# issue #70 stays open. If/when this project moves to Pro, turn this setting on for real
+# server-side enforcement and delete `lib/hibp.ts`.
 
 # Configure passkey sign-ins.
 # [auth.passkey]

@@ -37,6 +37,13 @@ export const Copy = {
       invalidCredentials: "Email or password doesn't match. Try again or reset your password.",
       emailInUse: 'An account already exists with this email. Sign in instead.',
       generic: "Sign-in didn't go through. Try again.",
+      passwordBreached:
+        'That password has shown up in a data breach before. Pick a different one to keep your account secure.',
+      // The literal "8" here must match `minimum_password_length` in supabase/config.toml —
+      // that value is the only authority on the actual rule (see app/(auth)/sign-in.tsx's
+      // client-side pre-check and `mapAuthError`, both of which mirror it). Raising the config
+      // value without updating this string would make the copy lie to users.
+      passwordTooShort: 'Password must be at least 8 characters.',
     },
   },
   home: {

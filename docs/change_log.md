@@ -5,6 +5,44 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-12
+
+- **Implemented the client-side HaveIBeenPwned leaked-password check (issue #70)** — the
+  follow-up to the 2026-07-11 M1 security audit's HTTP 402 finding below: Supabase's
+  server-side leaked-password protection is Pro-plan-gated and stays unenabled, so this adds an
+  equivalent check ourselves instead of waiting on a plan upgrade.
+  - New `lib/hibp.ts`: `checkPasswordBreached(password)` SHA-1s the password on-device
+    (`expo-crypto`), sends only the first 5 hex chars of the hash to HIBP's free, keyless Pwned
+    Passwords range API (`api.pwnedpasswords.com`, Cloudflare-fronted) with `Add-Padding: true`,
+    and matches the remaining 35 chars locally — k-anonymity means the plaintext password and
+    the full hash never leave the device.
+  - Wired into `app/(auth)/sign-in.tsx`'s sign-up branch only, called before
+    `supabase.auth.signUp`: a breached password hard-blocks account creation (no account is
+    ever created); an unreachable/timed-out HIBP fails open and lets the signup proceed —
+    deliberate, since a bypassable client-side check must not block a real signup on a
+    third-party outage.
+  - Adjacent fix: `mapAuthError` used to swallow Supabase's "password should be at least 8
+    characters" into the generic error, telling a user with a too-short password nothing
+    actionable. Added a specific `auth.error.passwordTooShort` mapping, plus a new
+    `auth.error.passwordBreached` copy key — both added to `docs/design/copy-deck.md` first,
+    then lifted into `constants/copy.ts`, per the deck's rule against hand-writing copy in JSX.
+  - `lib/__tests__/hibp.test.ts` — 15 tests, mutation-verified, covering the correctness traps
+    called out in `lib/hibp.ts`'s header comment (padding rows never count as a match,
+    case-insensitive suffix compare, uppercase-before-slice, non-2xx/timeout/network-throw all
+    fold to `unavailable`, and a privacy assertion that only the 5-char prefix ever appears in
+    the outbound request URL).
+  - **Known, deliberate limits — this does not close issue #70.** The check is client-side and
+    therefore bypassable: anyone can call the Supabase Auth API directly and set a breached
+    password, so it protects real users from reused breached passwords but is not server-side
+    enforcement — the Pro-plan upgrade is still the real fix. It runs on sign-up only; there is
+    no password-reset/change-password flow in the app yet, and one built later must call
+    `checkPasswordBreached` too. Not applicable to Google OAuth, which has no password.
+  - `docs/architecture.md`'s `lib/` layout and Supabase-config sections updated to distinguish
+    the still-unapplied server-side setting from the new client-side mitigation.
+    `docs/privacy-checklist-m7.md`'s data inventory gained a row for `api.pwnedpasswords.com`,
+    plus a standing requirement to deny/drop that URL if a crash or analytics SDK is ever added
+    (its request URL is a durable, identity-linked password-hash-prefix fingerprint otherwise).
+
 ## 2026-07-11
 
 - Executed Phase 0 of `docs/mvp-build-prompt.md` ("Reconcile before building anything"),

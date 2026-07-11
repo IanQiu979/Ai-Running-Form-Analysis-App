@@ -28,6 +28,7 @@ import {
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { signInWithGoogle } from '@/lib/auth';
+import { checkPasswordBreached } from '@/lib/hibp';
 import { supabase } from '@/lib/supabase';
 
 type Mode = 'signIn' | 'signUp';
@@ -47,6 +48,9 @@ function mapAuthError(message: string): string {
   }
   if (m.includes('already registered') || m.includes('already exists') || m.includes('user already')) {
     return Copy.auth.error.emailInUse;
+  }
+  if (m.includes('password should be at least')) {
+    return Copy.auth.error.passwordTooShort;
   }
   return Copy.auth.error.generic;
 }
@@ -93,6 +97,37 @@ export default function SignInScreen() {
     setPendingAction('email');
     try {
       if (mode === 'signUp') {
+        // UX pre-check only, run BEFORE the breach check below — not a business rule the
+        // client owns. `minimum_password_length = 8` in supabase/config.toml is the ONLY
+        // authority on this; if that value ever changes, this literal and
+        // Copy.auth.error.passwordTooShort must change with it or they'll silently drift.
+        // `mapAuthError`'s "password should be at least" branch stays as the server-side
+        // backstop regardless of what this pre-check does.
+        //
+        // Why it has to run first: a password like "1234" is both too short AND breached.
+        // Without this check, the breach check below would return first and the user would
+        // only ever be told "breached" — never the real, fixable problem — so they'd pick
+        // another short password and hit "breached" again, never learning the length rule.
+        // It also saves a pointless HIBP round-trip on a password that can never be accepted.
+        if (password.length < 8) {
+          setErrorMessage(Copy.auth.error.passwordTooShort);
+          return;
+        }
+
+        // Issue #70: Supabase's server-side leaked-password check (HaveIBeenPwned) is
+        // Pro-plan-gated (402 on this project's free plan), so it's reimplemented here
+        // client-side via HIBP's keyless range API — see lib/hibp.ts for the full mitigation
+        // list. Runs on submit only (never onChangeText, which would hammer HIBP into a
+        // rate-limit/challenge that degrades to always-`safe`) and strictly before
+        // supabase.auth.signUp, so no account is ever created with a breached password.
+        // `unavailable` (timeout, network error, third-party outage) fails open — a bypassable
+        // client-side check must never block signup on its own unavailability.
+        const breachCheck = await checkPasswordBreached(password);
+        if (breachCheck.status === 'breached') {
+          setErrorMessage(Copy.auth.error.passwordBreached);
+          return;
+        }
+
         const { data, error } = await supabase.auth.signUp({ email: trimmedEmail, password });
         if (error) throw error;
         // Supabase returns { error: null, session: null } for an email that's already

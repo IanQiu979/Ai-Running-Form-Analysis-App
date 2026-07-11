@@ -69,6 +69,8 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 | `auth.error.invalidCredentials` | "Email or password doesn't match. Try again or reset your password." | Sign-in fails on bad credentials. |
 | `auth.error.emailInUse` | "An account already exists with this email. Sign in instead." | Sign-up with a taken email. |
 | `auth.error.generic` | "Sign-in didn't go through. Try again." | Any other auth failure — provisional until Phase 1 wires real Supabase error codes; replace with a specific string per code where one exists rather than falling back to this by default. |
+| `auth.error.passwordBreached` | "That password has shown up in a data breach before. Pick a different one to keep your account secure." | Sign-up: the submitted password matches a known-breached password (client-side HaveIBeenPwned range-API check, issue #70 — Supabase's server-side version is Pro-plan-gated). Blocks account creation; no jargon ("pwned," "hash," "HaveIBeenPwned") and no blaming the user — reused passwords are common, the copy just asks for a different one. |
+| `auth.error.passwordTooShort` | "Password must be at least 8 characters." | Sign-up: Supabase rejects the password on length. Previously fell through to the generic error, telling the user nothing they could act on. |
 
 ---
 

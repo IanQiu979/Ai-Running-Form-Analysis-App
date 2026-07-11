@@ -16,6 +16,7 @@
 | `result` JSONB (scores, injury-risk flags, posture descriptions) | Supabase `analyses` | **Health data (GDPR Art. 9) at rest** — not just the images |
 | tier / frame_count / media_type / timestamps | Supabase | Usage/account |
 | Subscription tier (dummy, no real payments in v1) | Supabase | Financial-adjacent |
+| Caller **IP address + timestamp**, plus a 20-bit (5 hex char) prefix of the candidate password's SHA-1 | HIBP / `api.pwnedpasswords.com` (Cloudflare-fronted) | IP = identifier; the hash prefix is not meaningfully personal on its own |
 
 Running-form footage is **not** Art. 9 *biometric* data (no unique-identification processing) —
 don't over-claim — but the injury-risk inferences squarely are Art. 9 health data and need
@@ -23,6 +24,22 @@ don't over-claim — but the injury-risk inferences squarely are Art. 9 health d
 (not the label); default commercial-API terms are no-training + ~30-day trust-&-safety
 retention (verify current terms; Zero-Data-Retention available on request) — that 30-day window
 is an erasure gap that must be disclosed.
+
+**HIBP is a new third party as of 2026-07-12** (issue #70's client-side leaked-password check,
+`lib/hibp.ts`), added outside this audit's stated re-audit trigger above since it's not an
+analytics or crash SDK — recorded here so it isn't missed. It's called at **sign-up only**,
+never sign-in. What actually leaves the device: the caller's IP address and a request
+timestamp (the real personal data here) plus a 5-hex-character prefix of the candidate
+password's SHA-1 hash. The prefix is not meaningfully personal on its own — k-anonymity means
+roughly 2^140 candidate passwords share any given prefix and it cannot be reversed to the
+password — but the IP address is, so HIBP is a real sub-processor-adjacent disclosure, not a
+no-op. No email, no user id, no full hash, and no plaintext password are ever sent. Must be
+named alongside Anthropic and Supabase in the privacy policy before public launch (see the MUST
+list below). **Standing requirement, easy to forget because nothing enforces it today**: if a
+crash or analytics SDK (e.g. Sentry) is ever added to this app, it MUST be configured with
+`denyUrls`/`beforeBreadcrumb` to drop `api.pwnedpasswords.com` requests — otherwise every
+outbound request URL (which carries the 5-char prefix) becomes a durable, identity-linked
+fingerprint of the user's password sitting in crash-report breadcrumbs tied to their account.
 
 ## App Store privacy labels (collected, linked to identity, app functionality, no tracking)
 
@@ -41,8 +58,9 @@ request deletion."
 - [ ] `NSCameraUsageDescription` + `NSPhotoLibraryUsageDescription` strings and the
       expo-camera/expo-image-picker plugins in `app.json` (Ruling 10 — not yet applied; Beta App
       Review rejects without them). Muted recording correctly avoids the mic permission — keep it.
-- [ ] **Privacy policy at a public URL** (names Anthropic + Supabase, retention, rights,
-      contact) attached to the App Store Connect record — external TestFlight requires it.
+- [ ] **Privacy policy at a public URL** (names Anthropic + Supabase + HIBP/Cloudflare,
+      retention, rights, contact) attached to the App Store Connect record — external
+      TestFlight requires it.
 - [ ] **In-app account deletion reachable and actually purging** (Guideline 5.1.1(v)) — and it
       must handle the **nested storage layout**: V1's `delete-user` does a flat
       `storage.list(user_id)` which worked for `{user_id}/{file}` but V2.3 stores

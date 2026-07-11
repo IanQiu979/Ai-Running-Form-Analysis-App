@@ -63,10 +63,16 @@ works:
   is ever created with a breached password. This mirrors exactly what Supabase Pro's
   server-side feature does, so if the project later upgrades, behavior is identical and this
   code is simply deleted.
-- **`unavailable` → fail open.** A 5s `AbortController` timeout; any non-2xx, network error, or
-  parse error yields `unavailable` and the signup proceeds. A third-party outage must never
-  block account creation, and since the check is client-side and therefore bypassable anyway,
-  failing closed would buy almost nothing while costing real signups.
+- **`unavailable` → fail open.** Any non-2xx, network error, or parse error yields
+  `unavailable` and the signup proceeds. A third-party outage must never block account
+  creation, and since the check is client-side and therefore bypassable anyway, failing closed
+  would buy almost nothing while costing real signups.
+- **One shared 4s deadline.** A single `AbortController`, armed once, covers the initial
+  attempt, the one retry, *and* the body read. Per-attempt timeouts would let the worst case
+  reach 6s of blocking in front of the most conversion-critical action in the app; leaving the
+  body read unguarded once headers arrive would let a mid-body stall hang the sign-up form
+  forever. The retry fires **only** on a network failure/abort — never on a non-2xx or a wrong
+  content-type, which a retry would simply fetch again.
 
 ### `app/(auth)/sign-in.tsx`
 
@@ -89,6 +95,13 @@ least 8 characters" into the generic `"Sign-in didn't go through. Try again."`, 
 password is too short is told nothing useful. Since #70's entire premise is that password
 quality is the last remaining lever, and this is the same surface, it is fixed here: add a
 `passwordTooShort` mapping and copy key.
+
+A length pre-check must run **before** `checkPasswordBreached`, not only as an error mapping
+after `signUp`. A password like `1234` is *both* too short *and* in HIBP, so the breach check
+would return early and report only "breached" — the user would never learn the actual rule, and
+`passwordTooShort` would be near-dead code. The pre-check is UX only: `minimum_password_length`
+in `supabase/config.toml` remains the sole authority (CLAUDE.md: "No business rules in the
+client"), with the `mapAuthError` branch kept as the server-side backstop.
 
 ## Testing
 
