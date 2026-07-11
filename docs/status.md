@@ -15,7 +15,7 @@ milestone "done" criteria.
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
 | M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started |
-| M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started |
+| M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent line and result disclaimer remain blocked on M2/M4. |
 
 ## Done so far
 
@@ -120,6 +120,29 @@ milestone "done" criteria.
       happy-path retry-exhausted branch) — an unreleased `'reserved'` row silently eats one of
       the user's quota slots forever. Also consider a periodic sweep for stale `'reserved'` rows
       (e.g. the edge function crashed before either settling or releasing).
+15. **NEW — privacy policy is drafted but publication is ON HOLD (issue #68, 2026-07-12).**
+    `docs/privacy-policy.md` is written and reviewed, but it cannot go live until Ian resolves
+    two things, and the file carries a `DO NOT PUBLISH` guard until he does:
+    - **Data controller identity** — the policy needs a legal name, a country of establishment,
+      and a working contact email (a role address on a domain he controls, not a personal
+      Gmail). This is really a question about the **Apple Developer account type**, and it's
+      upstream, because Individual → Organization is a migration, not a toggle: an **Individual**
+      account publishes his legal name as the seller to testers and on the store anyway (so
+      withholding it from the policy buys nothing), whereas an **Organization** account (needs a
+      registered entity + D-U-N-S) puts the business name everywhere instead. He has a
+      running-coach business; if it's a registered entity that path may already be open.
+    - **In-app account deletion must actually ship** (App Store Guideline 5.1.1(v)) — the policy
+      promises it, and publication is gated on it being real. Until then the policy leans on an
+      email fallback for access/deletion requests.
+    Also decided 2026-07-12: the TestFlight beta **excludes EU/UK testers**, which keeps GDPR out
+    of scope for the beta and avoids appointing an Art. 27 representative — admitting a single
+    EU/UK tester reverses that. Hosting, when it happens: a **new public GitHub repo serving only
+    the policy via Pages** (this repo is private on GitHub Free, where Pages is unavailable, and
+    pointing Pages at `/docs` would leak internal planning docs). **For counsel:** the Australian
+    Privacy Act's small-business exemption does *not* apply to a business holding health
+    information (s6D(4)(b)) — an app producing injury-risk assessments plausibly qualifies, which
+    would make this a full APP entity regardless of size (APP 8 overseas disclosure + a
+    complaints process). See `docs/privacy-checklist-m7.md`.
 
 ## Next action
 

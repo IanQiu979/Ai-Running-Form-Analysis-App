@@ -5,6 +5,51 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-12
+
+- **Issue #68 (M7 privacy gate) — the unblocked slice.** The issue's two in-app items (consent
+  line, result disclaimer) are blocked on M2/M4, which don't exist yet; the rest was buildable
+  now and is done.
+  - `docs/privacy-policy.md` — new, the publishable policy text. **Publication is ON HOLD**:
+    the data controller's legal name/country and a contact email are unresolved, and
+    publication is additionally gated on in-app account deletion actually shipping (App Store
+    Guideline 5.1.1(v)). Guarded by a `DO NOT PUBLISH` HTML comment.
+  - `docs/app-store-privacy-labels.md` — new, the exact App Store Connect / Play Data Safety
+    answers so submission is a lookup rather than a re-derivation.
+  - **Corrected a material factual error before it could ship.** The draft policy (and
+    `docs/privacy-checklist-m7.md`, its source) claimed Anthropic retains data for a ~30-day
+    "trust-and-safety window." Verified against Anthropic's live retention docs: that is
+    backwards — 30 days is the *ordinary* window, and content flagged by Anthropic's automated
+    safety systems may be retained **up to two years**, a carve-out that survives even Zero
+    Data Retention. The draft also wrongly promised ZDR would "close this window entirely."
+    This matters here specifically: the payload is images of bodies in running kit, the class
+    of image most likely to be a safety-classifier false positive.
+  - **Consent upgraded to an Art. 9-grade design (Ian's call).** The drafted Continue/Cancel
+    modal is an affirmative act but not *explicit* consent, and it never named health data at
+    all — so it could not carry Art. 9. `consent.upload.*` in `docs/design/copy-deck.md` now
+    has a `consent.upload.checkbox` key naming the health processing and Anthropic by name,
+    with the primary CTA disabled until it's ticked. M2 must build this variant.
+  - **Fixed invalid-consent copy.** `consent.upload.body` said "Your photo or video is stored
+    privately" and `settings.privacy.body` contradicted itself in a single string — but the
+    original video never leaves the device (Ruling 1). Misinformed consent is invalid consent;
+    both are now frames-only.
+  - **Label answers: declare more, not less.** Added `Health & Fitness → Health` (the
+    injury-risk flags are health data regardless of whether the runner's note ever ships) and
+    `Usage Data → Product Interaction`, resolving two policy-vs-label contradictions that App
+    Review specifically checks for.
+  - **Decisions recorded:** TestFlight beta excludes EU/UK testers (keeps GDPR out of scope for
+    the beta, avoiding an Art. 27 representative); the policy will be hosted from a new public
+    repo via GitHub Pages (this repo is private on GitHub Free, where Pages is unavailable —
+    and pointing Pages at `/docs` would leak internal planning docs).
+  - **New for counsel:** the Australian Privacy Act's small-business exemption does **not**
+    apply to a business holding health information (s6D(4)(b)) — an app producing injury-risk
+    assessments plausibly qualifies, which would make this a full APP entity regardless of
+    size. Flagged in the checklist.
+  - Checklist stale items resolved: the camera/photo-library permission strings *are* present
+    in `app.json` (landed in `943d04b`), so that MUST box and conflict #3 are now ticked.
+  - Verified no analytics/crash SDK: `package.json` is clean (no Sentry/Segment/Firebase/
+    RevenueCat/Amplitude/Mixpanel/PostHog/Bugsnag/AppsFlyer/Facebook, and no `expo-updates`).
+
 ## 2026-07-11
 
 - Executed Phase 0 of `docs/mvp-build-prompt.md` ("Reconcile before building anything"),

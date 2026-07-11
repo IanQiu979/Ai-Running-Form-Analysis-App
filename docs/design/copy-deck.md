@@ -305,20 +305,26 @@ the opposite order; this deck follows the engineering ruling as the source of tr
 | `settings.deleteAccount.confirm.body` | "This permanently deletes your account, every analysis, and every stored frame. This can't be undone." | States the full scope of the purge (matches `delete-account`'s storage-objects → rows → auth-user order). |
 | `settings.deleteAccount.confirm.cta.primary` | "Delete account and data" | Names the destruction fully (rule 3) — not "Delete" alone. |
 | `settings.deleteAccount.confirm.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel`. |
-| `settings.privacy.body` | "Photos and videos you submit are stored in a private location only you can access, and stay there until you delete the analysis or your account. To generate your results, the frames we analyze are sent to our AI provider. We never store your original video — only the still frames used in the analysis are kept." | Fuller Settings disclosure, matching the first-upload consent line's two facts (storage + sent-for-analysis) plus the frames-only detail. |
+| `settings.privacy.body` | "Your original photo or video never leaves your device. We extract a small number of still frames from it on your phone, and only those frames are uploaded — stored in a private location only you can access, and kept there until you delete the analysis or your account. To generate your results, the stored frames are sent to Anthropic, our AI provider, to analyze your form." | Fuller Settings disclosure, matching the first-upload consent line's facts (frames-only, private + kept-until-deleted, sent to Anthropic for analysis). Corrected 2026-07-12: the previous string said frames were "stored" while also claiming videos were "stored in a private location" — self-contradictory, and factually wrong per Ruling 1 / `architecture.md` (the original video never leaves the device; only extracted frames are ever uploaded or stored). |
 | `settings.privacy.deleteNote` | "Deleting an analysis removes its stored frames immediately. Deleting your account removes everything." | |
 
 ---
 
 ## Cross-cutting — Consent (shown once, before the first-ever upload)
 
+**Art. 9-grade consent (Ian's decision, 2026-07-12):** this is a checkbox-gated modal, not a
+plain notice — the primary CTA stays disabled until the user actively ticks the checkbox,
+and the copy names both Anthropic and the health-data outcome explicitly. This replaces the
+earlier plain Continue/Cancel draft.
+
 | Key | String | Shows when |
 |---|---|---|
 | `consent.upload.title` | "Before you upload" | Shown exactly once, the first time any user (any tier) attempts to submit a photo or video — gates the Source Picker → Capture/Upload handoff. Never shown again after acknowledged. |
-| `consent.upload.body` | "Your photo or video is stored privately until you delete it. Frames from it are sent to our AI provider to analyze your form." | The two decided facts (gate #8), polished — private + kept-until-deleted, and frames sent for analysis. |
-| `consent.upload.link.privacy` | "Privacy details in Settings" | Points to `settings.privacy.body` for the fuller version. |
-| `consent.upload.cta.primary` | "Continue" | Proceeds into the upload/capture flow. |
-| `consent.upload.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel`; returns to the source picker without uploading anything. |
+| `consent.upload.body` | "Your frames are stored privately until you delete them. We send them to Anthropic, our AI provider, to analyse your form. The analysis produces health-related feedback about you, including injury-risk flags." | Corrected to the frames-only truth (the original video never leaves the device — see the Screen 11 fix note above) and names Anthropic and the health-data outcome explicitly, per the Art. 9-grade consent standard. |
+| `consent.upload.checkbox` | "I consent to my images being analysed to produce health-related feedback, and to Anthropic processing them to do so." | NEW key. The affirmative-action element itself — unticked by default, required before the primary CTA enables. This is what makes the consent explicit and unbundled rather than implied by tapping through. |
+| `consent.upload.link.privacy` | "Privacy details in Settings" | Points to `settings.privacy.body` for the fuller version. Unchanged. |
+| `consent.upload.cta.primary` | "I consent — continue" | Proceeds into the upload/capture flow. **Disabled until `consent.upload.checkbox` is ticked.** |
+| `consent.upload.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel`; returns to the source picker without uploading anything. Unchanged. |
 
 ## Cross-cutting — Offline
 
@@ -373,3 +379,15 @@ the opposite order; this deck follows the engineering ruling as the source of tr
    added a lightweight one (`settings.signOut.confirm.*`) since it's a common mobile pattern for an
    account-level action, but it's not load-bearing — `frontend-builder` can skip straight to
    `settings.signOut.cta` firing the sign-out directly if a confirm step is judged unnecessary.
+6. **Consent/privacy copy corrected + redesigned to Art. 9 standard (2026-07-12).** Two real
+   defects, found by a privacy-compliance review, are fixed in place: `consent.upload.body`
+   previously said "Your photo or video is stored privately until you delete it" — false, since
+   per Ruling 1 / `architecture.md` the original video never leaves the device, only extracted
+   frames are stored; and `settings.privacy.body` contradicted itself in a single string
+   (opened "Photos and videos you submit are stored in a private location," closed "We never
+   store your original video"). Both are now frames-only and internally consistent. Separately,
+   Ian decided the consent screen must meet a real GDPR Art. 9 standard: a checkbox the user
+   must actively tick (`consent.upload.checkbox`, new key) gates the primary CTA
+   (`consent.upload.cta.primary`, now "I consent — continue"), and the body names Anthropic and
+   the health-data outcome by name instead of "our AI provider." This also resolves the privacy
+   checklist's SHOULD item about naming Anthropic in the consent copy itself.
