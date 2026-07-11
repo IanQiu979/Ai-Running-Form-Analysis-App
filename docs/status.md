@@ -73,7 +73,12 @@ milestone "done" criteria.
    RLS (first path segment = `auth.uid()`), applied via migration and confirmed by the security
    advisors clean.
 7. **EAS project not initialized** (`eas init` not run). No TestFlight pipeline exists yet.
-   Owner: user/Claude, at M7.
+   Owner: user/Claude, at M7. **Carries a required follow-on:** the first dev build is what
+   unblocks [issue #69](https://github.com/IanQiu979/v2.3_RunningFormAna/issues/69) —
+   remove `exp://**` from the Supabase redirect allowlist. It cannot be done before then:
+   under Expo Go, `lib/auth.ts`'s `makeRedirectUri` resolves to `exp://<LAN-IP>:8081/--/…`,
+   so dropping that entry breaks Google sign-in on-device. Do it in the same pass as the dev
+   build, while the custom `paceanalysisai://` scheme is confirmed working.
 8. **Echo V1's Supabase project** (`IanQiu979's Project`, ref `trgpnnyqonaxhnyhtmlz`) is
    **paused**, which is what freed the Free-plan slot for `v2.3Analysis`. 90-day restore
    window from 2026-07-10.

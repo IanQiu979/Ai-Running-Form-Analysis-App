@@ -362,7 +362,10 @@ to own).
   `lib/auth.ts`'s `makeRedirectUri` produces), `paceanalysisai://**` (future deep links —
   password reset, magic links — under the same scheme), and `exp://**` (Expo Go dev testing via
   `npm run start:go`; scoped to a local-dev-only scheme, tracked as a pre-EAS-build cleanup item
-  in `config.toml`); `mailer_autoconfirm = true` (`enable_confirmations = false` in the file —
+  in `config.toml` and as [issue #69](https://github.com/IanQiu979/v2.3_RunningFormAna/issues/69)
+  — it is blocked until the first dev build exists, since Expo Go's `makeRedirectUri` produces
+  exactly the `exp://` URI that entry allowlists); `mailer_autoconfirm = true`
+  (`enable_confirmations = false` in the file —
   the two are inverses) since no transactional email provider or confirmation-pending screen
   exists yet; `minimum_password_length = 8` (raised from 6, a security-audit LOW finding).
 - **Dashboard-only, never pushed from this file**: which providers are enabled (`google` +
