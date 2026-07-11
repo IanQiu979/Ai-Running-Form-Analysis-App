@@ -44,6 +44,8 @@ lib/
   auth.ts
   session-provider.tsx
   crypto-polyfill.ts
+  hibp.ts                 # client-side leaked-password check (issue #70) — see "Current —
+                          # Supabase config" below
 supabase/
   config.toml              # local mirror of live auth config — see "Current — Supabase config"
   functions/.env.example   # committed placeholder; the real ANTHROPIC_API_KEY is in the
@@ -76,6 +78,11 @@ lib/
   auth.ts                 # current — browser OAuth (Google), PKCE code exchange
   session-provider.tsx    # current — session state + Stack.Protected guard source of truth
   crypto-polyfill.ts      # current — WebCrypto shim; see "Current — auth flow" below
+  hibp.ts                 # current (issue #70) — client-side HaveIBeenPwned leaked-password
+                          # check via HIBP's keyless range API (only a 5-char hash prefix ever
+                          # leaves the device); runs in sign-in.tsx's sign-up branch only, before
+                          # signUp. Mitigates, not a replacement for, the still-Pro-gated
+                          # server-side setting — see "Current — Supabase config" below.
   frames.ts               # planned (M2) — extract, downscale, and upload N frames from a video
                           # (client-side) direct-to-bucket, for motion analysis
   pace.ts                 # planned (M4) — PACE pillar types + result parser, imported by app +
@@ -371,10 +378,16 @@ to own).
 - **Dashboard-only, never pushed from this file**: which providers are enabled (`google` +
   `email` on; `apple` and `anonymous_users` off — set directly in the dashboard, `docs/status.md`
   Known Issue #3), the Google OAuth client ID/secret, and any future Apple Services ID/key.
-- **Documented in `config.toml` but NOT applied, on purpose**: HaveIBeenPwned leaked-password
-  rejection — attempted live via the same PATCH mechanism and rejected with HTTP 402 ("available
-  on Pro Plans and up"); this project is below that tier, so it's recorded as deferred rather
-  than silently dropped.
+- **Server-side HaveIBeenPwned leaked-password rejection: documented in `config.toml` but still
+  NOT applied** — attempted live via the same PATCH mechanism during the M1 security audit and
+  rejected with HTTP 402 ("available on Pro Plans and up"); this project is below that tier, so
+  it's recorded as deferred rather than silently dropped. **Mitigated, not replaced, by a
+  client-side check added for issue #70**: `lib/hibp.ts`'s `checkPasswordBreached` reimplements
+  the same HIBP data via the free, keyless Pwned Passwords range API, called from
+  `(auth)/sign-in.tsx`'s sign-up branch before `supabase.auth.signUp`. It is not equivalent — the
+  client-side check is bypassable (a caller can talk to the Supabase Auth API directly and skip
+  it), so it protects real users without closing the underlying gap and issue #70 stays open. If
+  this project ever moves to Pro, turn the server-side setting on and delete `lib/hibp.ts`.
 - **A discovery, not a config change**: the hosted Management API has **no field for a
   sign-in/sign-up rate limit** — `[auth.rate_limit].sign_in_sign_ups` in `config.toml` is a
   CLI/self-hosted-`supabase start`-only setting with no hosted equivalent; a PATCH attempt was
