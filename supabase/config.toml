@@ -167,10 +167,15 @@ max_indexes = 5
 #      AsyncStorage for the encrypted blob — SecureStore alone has no room for a full session
 #      payload). Low urgency pre-M2 since M1 has no sensitive app data behind the session yet,
 #      but M2 starts writing user media, and by then a signed-in session guards more.
-#   3. Redirect allowlist dev/prod split: the current additional_redirect_urls below includes
-#      exp://** for Expo Go testing (npm run start:go). Split dev-only entries out of the
-#      production allowlist at M7/EAS build time — a wildcard scoped to Expo Go's own scheme
-#      isn't a production risk today, but a shipped build has no reason to carry it.
+#   3. Redirect allowlist dev/prod split (GitHub issue #69): the current additional_redirect_urls
+#      below includes exp://** for Expo Go testing (npm run start:go). Split dev-only entries out
+#      of the production allowlist at M7/EAS build time — a wildcard scoped to Expo Go's own
+#      scheme isn't a production risk today, but a shipped build has no reason to carry it.
+#      BLOCKED UNTIL THE FIRST DEV BUILD EXISTS, and this is a hard ordering constraint, not a
+#      preference: under Expo Go, lib/auth.ts's makeRedirectUri resolves to
+#      exp://<LAN-IP>:8081/--/oauth-callback, so removing exp://** breaks Google sign-in on a
+#      physical device — today the only on-device auth path (see docs/status.md Known Issue #7).
+#      Remove it in the same pass as `eas init`, once paceanalysisai:// is confirmed working.
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
