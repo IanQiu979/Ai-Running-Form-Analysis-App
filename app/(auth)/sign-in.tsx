@@ -16,8 +16,10 @@ import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
+  ControlHeight,
   FontFamily,
   FontSize,
+  Opacity,
   Radius,
   Score,
   Spacing,
@@ -275,7 +277,7 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       gap: Spacing.md,
     },
     secondaryButton: {
-      minHeight: 52,
+      minHeight: ControlHeight.standard,
       borderRadius: Radius.card,
       borderWidth: 1,
       borderColor: colors.hairline,
@@ -290,7 +292,7 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       color: colors.text.primary,
     },
     primaryButton: {
-      minHeight: 52,
+      minHeight: ControlHeight.standard,
       borderRadius: Radius.card,
       backgroundColor: Accent.value,
       alignItems: 'center',
@@ -303,13 +305,13 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       color: Accent.onAccent,
     },
     buttonDimmed: {
-      opacity: 0.6,
+      opacity: Opacity.pressed,
     },
     emailForm: {
       gap: Spacing.md,
     },
     input: {
-      minHeight: 52,
+      minHeight: ControlHeight.standard,
       borderRadius: Radius.card,
       borderWidth: 1,
       borderColor: colors.hairline,

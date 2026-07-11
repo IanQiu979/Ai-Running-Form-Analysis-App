@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -6,8 +7,12 @@ import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
+  ControlHeight,
+  ControlWidth,
   FontFamily,
   FontSize,
+  HitTarget,
+  Opacity,
   Radius,
   Spacing,
   type ColorScheme,
@@ -19,26 +24,34 @@ import { supabase } from '@/lib/supabase';
 
 type SubscriptionTier = 'free' | 'pro' | 'elite';
 
+type ReadyQuota = { tier: SubscriptionTier; hasUsedFreeAnalysis: boolean };
+
 type QuotaState =
   | { status: 'loading' }
-  | { status: 'error' }
-  | { status: 'ready'; tier: SubscriptionTier; hasUsedFreeAnalysis: boolean };
+  | { status: 'error'; lastKnown: ReadyQuota | null }
+  | ({ status: 'ready' } & ReadyQuota);
+
+/** Pulls the last successful quota reading (if any) out of whatever state we're currently in,
+ * so a fetch failure can keep showing it alongside the stale caption instead of just replacing
+ * it — see the `error` branch's render below. */
+function lastKnownFrom(state: QuotaState): ReadyQuota | null {
+  if (state.status === 'ready') return { tier: state.tier, hasUsedFreeAnalysis: state.hasUsedFreeAnalysis };
+  if (state.status === 'error') return state.lastKnown;
+  return null;
+}
 
 export default function HomeScreen() {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useSession();
+  const userId = session?.user.id;
   const [quota, setQuota] = useState<QuotaState>({ status: 'loading' });
 
-  useEffect(() => {
-    const userId = session?.user.id;
+  const fetchQuota = useCallback(async () => {
     if (!userId) return;
 
-    let isMounted = true;
-    setQuota({ status: 'loading' });
-
-    async function loadQuota() {
+    try {
       // Mirrors reserve_analysis's own server-side counting rules (see
       // supabase/migrations/20260711150400_quota_reserve_settle_release.sql) so this
       // display can't disagree with what the RPC will actually enforce: a
@@ -62,10 +75,8 @@ export default function HomeScreen() {
             .in('status', ['reserved', 'delivered']),
         ]);
 
-      if (!isMounted) return;
-
       if (subscriptionError || countError) {
-        setQuota({ status: 'error' });
+        setQuota((current) => ({ status: 'error', lastKnown: lastKnownFrom(current) }));
         return;
       }
 
@@ -75,24 +86,26 @@ export default function HomeScreen() {
         tier,
         hasUsedFreeAnalysis: tier === 'free' && (count ?? 0) >= 1,
       });
+    } catch {
+      setQuota((current) => ({ status: 'error', lastKnown: lastKnownFrom(current) }));
     }
+  }, [userId]);
 
-    loadQuota().catch(() => {
-      if (isMounted) setQuota({ status: 'error' });
-    });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [session?.user.id]);
+  // Home is the screen that's focused the instant it exists (Stack.Protected only renders
+  // (tabs) once signed in), so this both loads the quota on first mount and refetches on every
+  // later focus — a transient fetch failure self-heals just by revisiting the tab instead of
+  // sticking until the app restarts. Also wired to the error state's Retry action below.
+  useFocusEffect(
+    useCallback(() => {
+      fetchQuota();
+    }, [fetchQuota])
+  );
 
   function handleSignOut() {
     // onAuthStateChange (lib/session-provider.tsx) flips `session` to null, and the
     // root layout's Stack.Protected guard routes back to (auth) automatically.
     supabase.auth.signOut();
   }
-
-  const quotaCaption = describeQuota(quota);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -109,12 +122,35 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.centerBlock}>
-          {quota.status === 'loading' ? (
-            <ActivityIndicator color={colors.text.secondary} />
-          ) : (
+          {quota.status === 'loading' && <ActivityIndicator color={colors.text.secondary} />}
+
+          {quota.status === 'ready' && (
             <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
-              {quotaCaption}
+              {describeReadyQuota(quota)}
             </Text>
+          )}
+
+          {quota.status === 'error' && (
+            <View style={styles.quotaErrorBlock}>
+              <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
+                {quota.lastKnown ? describeReadyQuota(quota.lastKnown) : Copy.home.quota.error.failed}
+              </Text>
+              {/* Only pair the "last known" caption with an actual last-known value — showing
+                  it next to the plain failure line above would imply a cached value exists
+                  when there isn't one. */}
+              {quota.lastKnown !== null && (
+                <Text style={styles.quotaStaleCaption}>{Copy.home.quota.error.stale}</Text>
+              )}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={Copy.home.quota.error.retry}
+                onPress={() => {
+                  fetchQuota();
+                }}
+                style={({ pressed }) => [styles.retryButton, pressed && styles.retryButtonPressed]}>
+                <Text style={styles.retryText}>{Copy.home.quota.error.retry}</Text>
+              </Pressable>
+            </View>
           )}
 
           {/* Disabled stub for M1 — M2 wires this into the capture flow (source picker ->
@@ -138,9 +174,7 @@ export default function HomeScreen() {
   );
 }
 
-function describeQuota(quota: QuotaState): string {
-  if (quota.status === 'loading') return Copy.home.quota.loading;
-  if (quota.status === 'error') return Copy.home.quota.error.stale;
+function describeReadyQuota(quota: ReadyQuota): string {
   if (quota.tier === 'free') {
     return quota.hasUsedFreeAnalysis
       ? Copy.home.quota.exhausted.free
@@ -177,8 +211,8 @@ function createStyles(colors: ThemeColors) {
       color: colors.text.primary,
     },
     signOutButton: {
-      minHeight: 44,
-      minWidth: 44,
+      minHeight: HitTarget.min,
+      minWidth: HitTarget.min,
       paddingHorizontal: Spacing.md,
       alignItems: 'center',
       justifyContent: 'center',
@@ -201,9 +235,32 @@ function createStyles(colors: ThemeColors) {
       color: colors.text.secondary,
       textAlign: 'center',
     },
+    quotaErrorBlock: {
+      alignItems: 'center',
+      gap: Spacing.xs,
+    },
+    quotaStaleCaption: {
+      fontFamily: FontFamily.body.regular,
+      fontSize: FontSize.xs,
+      color: colors.text.secondary,
+      textAlign: 'center',
+    },
+    retryButton: {
+      paddingVertical: Spacing.xs,
+      paddingHorizontal: Spacing.sm,
+    },
+    retryButtonPressed: {
+      opacity: Opacity.pressed,
+    },
+    retryText: {
+      fontFamily: FontFamily.body.medium,
+      fontSize: FontSize.sm,
+      color: Accent.value,
+      textDecorationLine: 'underline',
+    },
     primaryButton: {
-      minHeight: 52,
-      minWidth: 220,
+      minHeight: ControlHeight.standard,
+      minWidth: ControlWidth.primaryButton,
       borderRadius: Radius.card,
       backgroundColor: Accent.value,
       alignItems: 'center',
@@ -211,7 +268,7 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: Spacing.xl,
     },
     primaryButtonDisabled: {
-      opacity: 0.4,
+      opacity: Opacity.disabled,
     },
     primaryButtonText: {
       fontFamily: FontFamily.body.semiBold,

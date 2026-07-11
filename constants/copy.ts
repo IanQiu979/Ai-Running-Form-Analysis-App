@@ -53,6 +53,12 @@ export const Copy = {
       loading: 'Checking your plan…',
       error: {
         stale: 'Showing your last known plan status.',
+        // `home.quota.error.retry` is defined verbatim in the deck (§Screen 2), reusing
+        // `shared.cta.retry`'s "Retry" string. `failed` has no deck entry — the deck only
+        // covers the "stale" case (a prior successful fetch to fall back to); this is the
+        // narrower case where the very first fetch fails and there is nothing to show yet.
+        retry: 'Retry',
+        failed: "Couldn't load your plan status.",
       },
     },
     empty: {

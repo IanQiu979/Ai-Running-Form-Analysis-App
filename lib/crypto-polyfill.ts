@@ -57,10 +57,9 @@ if (typeof g.crypto.subtle.digest !== 'function') {
     const name = typeof algorithm === 'string' ? algorithm : algorithm.name;
     const expoAlgo = ALGO_MAP[name];
     if (!expoAlgo) throw new Error(`Unsupported digest algorithm: ${name}`);
-    const bytes =
-      data instanceof Uint8Array
-        ? data
-        : new Uint8Array('buffer' in data ? data.buffer : (data as ArrayBuffer));
+    const bytes = ArrayBuffer.isView(data)
+      ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+      : new Uint8Array(data);
     const digest = await ExpoCrypto.digest(expoAlgo, bytes);
     return digest as ArrayBuffer;
   }) as SubtleCrypto['digest'];

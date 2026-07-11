@@ -35,6 +35,13 @@ export const oauthRedirectTo = makeRedirectUri({
   path: 'oauth-callback',
 });
 
+// Android double-delivery: expo-web-browser's openAuthSessionAsync polyfill races its own
+// Linking listener against SessionProvider's listener, so the same OAuth redirect can reach
+// createSessionFromUrl twice concurrently. Track codes already handed to
+// exchangeCodeForSession so the loser of that race skips the exchange instead of throwing a
+// consumed-code error.
+const processedOAuthCodes = new Set<string>();
+
 /**
  * Completes a PKCE OAuth exchange from a redirect URL — either the URL
  * WebBrowser.openAuthSessionAsync resolved with, or one delivered via a Linking 'url' event.
@@ -51,6 +58,8 @@ export async function createSessionFromUrl(url: string) {
 
   const { code } = params;
   if (!code) return null;
+  if (processedOAuthCodes.has(code)) return null;
+  processedOAuthCodes.add(code);
 
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) throw error;

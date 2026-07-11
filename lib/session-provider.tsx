@@ -34,11 +34,23 @@ export function SessionProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     let isMounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!isMounted) return;
-      setSession(data.session);
-      setIsLoading(false);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!isMounted) return;
+        setSession(data.session);
+        setIsLoading(false);
+      })
+      .catch(() => {
+        // A rejected AsyncStorage read (real on Android) must not leave isLoading=true
+        // forever — that would hold the splash screen up indefinitely (app/_layout.tsx's
+        // isReady gate). Signed-out is the safe fallback; onAuthStateChange below still
+        // fires normally if a session shows up later.
+        if (isMounted) {
+          setSession(null);
+          setIsLoading(false);
+        }
+      });
 
     const {
       data: { subscription },

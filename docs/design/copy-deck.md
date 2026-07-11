@@ -89,7 +89,8 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 | `home.quota.exhausted.elite` | "You've used all {limit} analyses this period — renews {date}" | Elite, quota used up. |
 | `home.quota.loading` | "Checking your plan…" | Quota fetch in flight. |
 | `home.quota.error.stale` | "Showing your last known plan status." | Quota-status fetch failed — show the last cached value with this quiet caption, not a blocking error. |
-| `home.quota.error.retry` | "Retry" | Small text action next to the stale caption — reuse `shared.cta.retry`. |
+| `home.quota.error.failed` | "Couldn't load your plan status." | Quota fetch failed and there is no cached value to show (first load). Paired with the retry action. Backfilled 2026-07-11 from the M1 build — the deck originally only covered the has-cache case. |
+| `home.quota.error.retry` | "Retry" | Small text action next to the stale/failed caption — reuse `shared.cta.retry`. |
 | `home.recent.label` | "Your last analysis" | Heading above the most-recent gait-plate thumbnail, once history exists. |
 | `home.empty.caption` | "Nothing analyzed yet." | Optional small line under the faint annotated-figure motif, before any history exists. The motif + CTA already carry the empty state per brief §4.2 — this is a one-line reinforcement, not required. |
 

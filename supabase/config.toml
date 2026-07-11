@@ -153,6 +153,24 @@ max_indexes = 5
 # [storage.vector.buckets.documents-openai]
 
 [auth]
+# OPEN AUTH-HARDENING ITEMS (tracked here 2026-07-11, from the M1 security audit — not blockers
+# for M1, but do not lose track of them):
+#
+#   1. CAPTCHA (auth.captcha, currently absent/disabled below): must be enabled before
+#      analyze-form (M4) goes live. Without it, signup/sign-in is farmable, and every farmed
+#      account is a route to real Anthropic API spend once the analysis endpoint exists. Needs
+#      Ian to create provider keys (hcaptcha or turnstile) before this can be turned on — an
+#      account-creation step, not something this agent can do from the repo.
+#   2. Session storage (lib/supabase.ts, today): AsyncStorage, which stores the session
+#      (including the refresh token) in plaintext on-device. Move to a SecureStore-backed
+#      adapter at M2 (the "LargeSecureStore" pattern: SecureStore for the encryption key,
+#      AsyncStorage for the encrypted blob — SecureStore alone has no room for a full session
+#      payload). Low urgency pre-M2 since M1 has no sensitive app data behind the session yet,
+#      but M2 starts writing user media, and by then a signed-in session guards more.
+#   3. Redirect allowlist dev/prod split: the current additional_redirect_urls below includes
+#      exp://** for Expo Go testing (npm run start:go). Split dev-only entries out of the
+#      production allowlist at M7/EAS build time — a wildcard scoped to Expo Go's own scheme
+#      isn't a production risk today, but a shipped build has no reason to carry it.
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
@@ -206,10 +224,23 @@ enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
-minimum_password_length = 6
+#
+# Raised 6 -> 8 live on 2026-07-11 (security-audit LOW finding) via the same scoped Management
+# API PATCH mechanism as the rest of this [auth] block — confirmed applied by a follow-up GET
+# (password_min_length: 8). Not pushed via `supabase config push` — see the warning further
+# down this file about why that command is not used against this project.
+minimum_password_length = 8
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
 # are: `letters_digits`, `lower_upper_letters_digits`, `lower_upper_letters_digits_symbols`
+#
+# Left as-is (2026-07-11 audit follow-up explicitly scoped this out) — unchanged.
 password_requirements = ""
+# HaveIBeenPwned.org leaked-password rejection. NOT enabled, and NOT settable on this project's
+# current plan: attempted live via the same PATCH mechanism on 2026-07-11 and the Management API
+# rejected the whole request with HTTP 402 — "Configuring leaked password protection via
+# HaveIBeenPwned.org is available on Pro Plans and up." This project is below that tier. Revisit
+# once the project is on a Pro Plan or higher; there is no config.toml key for this to mirror
+# because the change was never applied (nothing to mirror yet).
 
 # Configure passkey sign-ins.
 # [auth.passkey]
@@ -231,6 +262,22 @@ anonymous_users = 30
 # Number of sessions that can be refreshed in a 5 minute interval per IP address.
 token_refresh = 150
 # Number of sign up and sign-in requests that can be made in a 5 minute interval per IP address (excludes anonymous users).
+#
+# CAUTION (2026-07-11 audit follow-up): this key is a CLI/self-hosted-only setting. It has no
+# equivalent field in the hosted Management API's PATCH /v1/projects/{ref}/config/auth — verified
+# against Supabase's own "Rate limits" guide (supabase.com/docs/guides/auth/rate-limits), which
+# enumerates the complete PATCHable set for a hosted project as exactly: rate_limit_anonymous_users,
+# rate_limit_email_sent, rate_limit_sms_sent, rate_limit_verify, rate_limit_token_refresh,
+# rate_limit_otp, rate_limit_web3 — no sign_in_sign_ups variant exists there. A live GET of this
+# project's auth config has never returned this field at all (present-with-null and absent are
+# indistinguishable through a plain dict .get(), which is almost certainly why an earlier read was
+# reported as "null" instead of "not a field here"). A PATCH attempt with this key was silently
+# dropped (HTTP 200, value never appears in the response) rather than rejected — confirmed by
+# re-GET immediately after. This value only takes effect for a local `supabase start` stack, not
+# for this hosted project; there is currently no way to rate-limit sign-in/sign-up attempts
+# specifically on the hosted side through this file or this API. CAPTCHA (auth.captcha, still
+# disabled — see the open-items note above [auth]) is the real, available lever against
+# signup/sign-in abuse on this plan; treat that as the actual mitigation, not this key.
 sign_in_sign_ups = 30
 # Number of OTP / Magic link verifications that can be made in a 5 minute interval per IP address.
 token_verifications = 30
