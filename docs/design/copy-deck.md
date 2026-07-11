@@ -271,10 +271,10 @@ the opposite order; this deck follows the engineering ruling as the source of tr
 | `paywall.tier.free.price` | "$0" | |
 | `paywall.tier.free.detail` | "1 analysis, once — try it before you commit. Certified PACE scores and one line of feedback per pillar. No drills." | |
 | `paywall.tier.pro.name` | "Pro" | Reuse `tier.pro.name`. |
-| `paywall.tier.pro.price` | "{{price}}/period" | Placeholder — no price is specified anywhere in the docs; see "Ambiguities." |
+| `paywall.tier.pro.price` | "$6.99 / month" | Decided by Ian 2026-07-11 (dummy paywall display price; real IAP is post-MVP). |
 | `paywall.tier.pro.detail` | "10 analyses per period. Full PACE analysis, injury-risk flags, and 1–2 corrective drills per issue." | |
 | `paywall.tier.elite.name` | "Elite" | Reuse `tier.elite.name`. |
-| `paywall.tier.elite.price` | "{{price}}/period" | Placeholder, same caveat. |
+| `paywall.tier.elite.price` | "$14.99 / month" | Decided by Ian 2026-07-11, same caveat as Pro. |
 | `paywall.tier.elite.detail` | "30 analyses per period. Everything in Pro, plus a bit more depth per pillar and side-by-side comparison between two past analyses." | |
 | `paywall.footnote` | "Elite adds a little more detail and comparison — not a different analysis." | The honest detail-gradient line the brief calls for (§4.10): Pro→Elite is "more of it," never sold as a better analysis. |
 | `paywall.cta.upgrade.pro` | "Upgrade to Pro" | Names the destination tier, not "Subscribe" or "Submit." |
@@ -363,11 +363,11 @@ the opposite order; this deck follows the engineering ruling as the source of tr
    referring to the Consent bullet and did not invent a fourth string. If a distinct first-analysis
    disclaimer variant was intended, it isn't specified anywhere I could find — flagging rather than
    guessing.
-4. **Paywall pricing.** No dollar amount for Pro/Elite exists in any doc I read (PRD, engineering
-   requirements, design brief, build prompt) — it's a dummy paywall and pricing was never decided.
-   I used a `{{price}}/period` placeholder in `paywall.tier.pro.price` / `paywall.tier.elite.price`
-   rather than inventing a number; Ian or `product-strategist` should supply the actual figure (or
-   confirm the placeholder ships as literal "$—" copy for the dummy TestFlight paywall).
+4. **Paywall pricing.** ~~No dollar amount for Pro/Elite exists in any doc~~ **RESOLVED
+   2026-07-11: Ian set Pro $6.99 / Elite $14.99 per month** (display prices for the dummy
+   paywall; real IAP is post-MVP and can re-decide). The strings above carry the figures.
+   Note the "/ month" here is the *price cadence*, which is fine — quota copy still never says
+   "this month" because quota periods are purchase-day-anchored.
 5. **Sign-out confirmation.** The brief doesn't specify whether Sign out needs a confirm step. I
    added a lightweight one (`settings.signOut.confirm.*`) since it's a common mobile pattern for an
    account-level action, but it's not load-bearing — `frontend-builder` can skip straight to

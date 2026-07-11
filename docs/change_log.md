@@ -74,6 +74,16 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 - `CLAUDE.md`'s Secrets & env section's media bullet was corrected to frames-only wording
   (extracted frames are what's stored; the full-resolution video never leaves the device).
 
+- **Ian closed the two decisions Phase 0.5 surfaced** (asked and answered same day):
+  - **Runner's note: dropped for MVP.** The analysis runs on frames alone; no free-text
+    injury/pain note field ships. `knowledge/injury_flags.md`'s note-handling guidance is
+    dormant — M3's prompt adaptation excludes it (under Ian's certification review), and the
+    `analyze-form` contract stays note-free. Revisit post-TestFlight (if shipped later it's a
+    health-data channel with its own consent + privacy-label cost).
+  - **Paywall pricing: Pro $6.99 / Elite $14.99 per month** — display prices for the M5 dummy
+    paywall, chosen over Echo V1's $4.99/$9.99 as a higher anchor; real IAP (post-MVP) can
+    re-decide. `docs/design/copy-deck.md`'s `{{price}}` placeholders resolved.
+
 ## 2026-07-10
 
 - Added `typecheck` (`tsc --noEmit`) and `test` (`jest`) npm scripts alongside the existing

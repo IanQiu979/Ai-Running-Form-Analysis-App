@@ -78,17 +78,16 @@ milestone "done" criteria.
    (a few hundred KB per analysis, not the 60–130MB a full video would cost — see Ruling 1 in
    `docs/mvp-build-prompt.md`), which keeps this viable through the MVP; still worth watching
    before real-user scale.
-10. **NEW — the "runner's note" conflict (needs Ian, blocks M3/M4).** Surfaced by Phase 0.5's
-    `privacy-compliance` read: `knowledge/injury_flags.md` is written around a user-supplied
-    free-text injury/pain note, but the `analyze-form` contract, `planning/02`, and the design
-    brief have no note field or screen for it anywhere. Decide: drop it for MVP (the knowledge
-    file's note-handling guidance goes unused for now), or ship it — which makes it a new
-    health-data input channel needing its own consent line and App Store privacy-label entry
-    (see `docs/privacy-checklist-m7.md`). Don't start the M3 prompt-grounding or M4 request-body
-    work until this is decided — it changes both.
-11. **NEW — paywall pricing (needs Ian, blocks M5).** No dollar figure for Pro or Elite exists
-    anywhere in the docs. The dummy paywall (M5) still needs a display price per tier even
-    though no real payment processes in v1. Owner: user.
+10. ~~**The "runner's note" conflict**~~ **RESOLVED 2026-07-11: dropped for MVP.** Ian decided
+    the analysis runs on frames alone — no free-text note field ships. The note-handling
+    guidance in `knowledge/injury_flags.md` is **dormant** for MVP: M3's prompt adaptation must
+    exclude/neutralize the note-dependent instructions (with Ian's certification review, since
+    it's certified content), and no note field enters the `analyze-form` contract. Revisit
+    post-TestFlight; if it ships later it's a health-data channel needing its own consent line
+    and privacy-label entry (see `docs/privacy-checklist-m7.md`).
+11. ~~**Paywall pricing**~~ **RESOLVED 2026-07-11: Pro $6.99 / Elite $14.99 per month** —
+    display prices for the M5 dummy paywall (no real payment processes in v1; real IAP can
+    re-decide). Recorded in `docs/design/copy-deck.md` §Paywall.
 
 ## Next action
 
