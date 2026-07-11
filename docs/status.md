@@ -124,13 +124,25 @@ milestone "done" criteria.
     `docs/privacy-policy.md` is written and reviewed, but it cannot go live until Ian resolves
     two things, and the file carries a `DO NOT PUBLISH` guard until he does:
     - **Data controller identity** — the policy needs a legal name, a country of establishment,
-      and a working contact email (a role address on a domain he controls, not a personal
-      Gmail). This is really a question about the **Apple Developer account type**, and it's
-      upstream, because Individual → Organization is a migration, not a toggle: an **Individual**
-      account publishes his legal name as the seller to testers and on the store anyway (so
-      withholding it from the policy buys nothing), whereas an **Organization** account (needs a
-      registered entity + D-U-N-S) puts the business name everywhere instead. He has a
-      running-coach business; if it's a registered entity that path may already be open.
+      and a working contact email. This is really a question about the **Apple Developer account
+      type**. **No Apple Developer account exists yet (confirmed 2026-07-12)**, so this is not
+      blocking anything today — but the choice should be made *before* enrolling, since
+      Individual → Organization is a support-driven migration, not a toggle.
+      **Verified against developer.apple.com/programs/enroll (2026-07-12) — the choice is
+      narrower than it looks:** *"Sole proprietors and single-person businesses must enroll as
+      individuals."* **Organization** enrollment requires an actual **legal entity** (explicitly
+      no DBAs, trade names, or business names), a **D-U-N-S number**, a work email on the
+      organization's **domain**, and a public, functional **website**. **Individual** enrollment
+      publishes Ian's **legal name** as the seller name on the App Store. $99/yr either way.
+      ⇒ **Unless the running-coach business is a registered company (AU: a Pty Ltd — an ABN as a
+      sole trader is not enough), the Organization path is closed and his legal name will be
+      published regardless.** In that case, naming himself as controller in the privacy policy
+      costs no incremental exposure, and he should just do it. Taking the Organization path
+      instead means incorporating first — a real cost, with D-U-N-S lead time on top.
+      **OPEN QUESTION FOR IAN: is the running-coach business a registered company, or sole
+      trader/ABN only?** Also still needed: a contact email for the policy — ideally a role
+      address (`privacy@…`) on a domain he controls, or failing that a purpose-made address, not
+      his personal Gmail.
     - **In-app account deletion must actually ship** (App Store Guideline 5.1.1(v)) — the policy
       promises it, and publication is gated on it being real. Until then the policy leans on an
       email fallback for access/deletion requests.
