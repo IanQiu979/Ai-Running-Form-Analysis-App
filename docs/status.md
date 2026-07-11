@@ -49,9 +49,13 @@ milestone "done" criteria.
   (`scripts/generate-app-assets.js`, new `sharp` devDependency). See
   `docs/architecture.md`'s "app icon & splash assets" section for the full pipeline, including
   the no-alpha `icon.png` rule and why a dedicated dark-mode splash mark exists.
-- **EAS project initialized 2026-07-12** — config groundwork for GitHub issue #66, not a
-  working release pipeline; see Known Issue #7 below and `docs/architecture.md`'s "EAS build &
-  release config" section.
+- **EAS project initialized 2026-07-12** — config groundwork only, not a working release
+  pipeline; see Known Issue #7 below and `docs/architecture.md`'s "EAS build & release config"
+  section. The TestFlight half is tracked in
+  [`docs/blocked-on-apple.md`](blocked-on-apple.md).
+- **Everything gated on the Apple Developer Program lives in
+  [`docs/blocked-on-apple.md`](blocked-on-apple.md)**, not in the GitHub tracker (as of
+  2026-07-12). The open-issue list is deliberately kept to work that is actionable today.
 - Full dated history: [`docs/change_log.md`](change_log.md).
 
 ## Known issues
@@ -68,7 +72,8 @@ milestone "done" criteria.
    2026-07-11**: build email + Google sign-in in M1 now; add Apple Sign-In the moment an Apple
    Developer account exists, before TestFlight review — the App Store gate is never actually
    hit because Apple is added ahead of submission. Owner: user (needs an Apple Developer
-   account).
+   account). Tracked in [`docs/blocked-on-apple.md`](blocked-on-apple.md), not as a GitHub
+   issue.
 4. ~~**`ANTHROPIC_API_KEY` is not set anywhere yet**~~ **RESOLVED 2026-07-11.** Ian rotated the
    key; it's in the gitignored `supabase/functions/.env` for local dev and pushed to production
    via `supabase secrets set` (verified present in the secrets list). The M4 blocker is gone.

@@ -209,7 +209,7 @@ scripts/
   `#1A1712`; Android `adaptiveIcon.backgroundColor` `#E6F4FE` (Expo template pale blue) →
   `#F4F1EA`. All three are `constants/theme.ts` tokens now, not template defaults.
 
-## Current — EAS build & release config (groundwork only, GitHub issue #66 stays open)
+## Current — EAS build & release config (groundwork only; the pipeline half is Apple-blocked)
 
 `eas init` created the EAS project `@ianbeatingpros/pace-analysis-ai`
 (`d19968ff-22b8-4851-8e74-087aeb9846b0`, in `app.json`'s `extra.eas.projectId`). `app.json` also
@@ -241,11 +241,15 @@ Secrets & env). A build missing these vars does not degrade — `lib/supabase.ts
 import, so the app hard-crashes on the splash screen.
 
 **Still blocked**: there is no Apple Developer account, so there are no iOS credentials, no
-`eas build` for a device or the store, no `eas submit`, and no TestFlight pipeline — the second
-half of issue #66's scope. Sign in with Apple (issue #67, `docs/status.md` Known Issue #3) is the
-same dependency. Removing `exp://**` from the Supabase redirect allowlist (issue #69, see
-"Current — Supabase config" below) is a required pre-first-EAS-build cleanup, not yet done. See
-`docs/status.md` Known Issue #7.
+`eas build` for a device or the store, no `eas submit`, and no TestFlight pipeline. Sign in with
+Apple (`docs/status.md` Known Issue #3) is the same dependency. Both are tracked in
+[`docs/blocked-on-apple.md`](blocked-on-apple.md), not as GitHub issues — the tracker deliberately
+holds only work that is actionable without the Apple account.
+
+Removing `exp://**` from the Supabase redirect allowlist (issue #69, see "Current — Supabase
+config" below) is a required pre-first-dev-build cleanup, not yet done. It is **not** Apple-blocked:
+the `development` profile's `ios.simulator: true` build needs no Apple account and is enough to
+retire Expo Go. See `docs/status.md` Known Issue #7.
 
 ## Planned — `analyze-form` edge function flow
 

@@ -47,3 +47,4 @@ app-example
 
 # session handoff note (local state, never committed)
 .claude/HANDOFF.md
+.claude/worktrees/

@@ -7,6 +7,26 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Merged the three open PRs to `main` and cleared the Apple-blocked work out of the tracker.**
+  - Merged PR #73 (client-side HIBP check), PR #72 (privacy policy + labels + consent design),
+    and PR #75 (EAS init + icon/splash) into `main`, resolving the conflicts between them. All
+    three had added an entry under this date, and all three had edited `docs/status.md`.
+  - **One real integration bug surfaced only in the merge:** #73 added HIBP as a new third party
+    and made `docs/privacy-checklist-m7.md` require the policy to name it — while #72, written in
+    parallel, drafted a policy that never mentioned HIBP at all. Each PR was self-consistent; the
+    two merged together were not. `docs/privacy-policy.md` now discloses HIBP/Cloudflare
+    (k-anonymity: the password never leaves the device; HIBP sees an IP + timestamp).
+  - **New [`docs/blocked-on-apple.md`](blocked-on-apple.md).** Everything needing the Apple
+    Developer Program is tracked in that file instead of in GitHub issues, so the open-issue list
+    holds only work that is actionable today. Issues #66 (EAS/TestFlight pipeline) and #67 (Sign
+    in with Apple) were **deleted** and reproduced verbatim there; #68 and #69 were **rewritten**
+    to keep only their non-Apple halves.
+  - #69 was retitled — it is **not** Apple-blocked. Its trigger is the first dev build, and
+    `eas.json`'s `development` profile builds for the iOS simulator with no Apple account.
+  - **Closed #26** (splash / Android adaptive-icon colors) — fully fixed by PR #75.
+  - `jest.config.js` now ignores `.claude/worktrees/`. Those worktrees carry their own
+    `node_modules` and a duplicate copy of the test suite, so `npm test` was discovering the
+    copies and failing two suites that pass in the real tree. Added to `.gitignore` as well.
 - **Implemented the client-side HaveIBeenPwned leaked-password check (issue #70)** — the
   follow-up to the 2026-07-11 M1 security audit's HTTP 402 finding below: Supabase's
   server-side leaked-password protection is Pro-plan-gated and stays unenabled, so this adds an

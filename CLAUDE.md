@@ -96,3 +96,6 @@ Screens are not unit-tested for now.
 - [`docs/status.md`](docs/status.md) — update when a milestone's status moves.
 - [`docs/architecture.md`](docs/architecture.md) — update after a feature lands (move it from
   "planned" to "current").
+- [`docs/blocked-on-apple.md`](docs/blocked-on-apple.md) — everything gated on the Apple Developer
+  Program. **No open GitHub issue may depend on that account**; if a task turns out to need it,
+  move it here instead of filing it. Re-file from this file once the account exists.
