@@ -10,7 +10,21 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+2. Pull environment variables
+
+   ```bash
+   npx eas-cli@latest env:pull --environment development --path .env
+   ```
+
+   Populates `.env` (`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) from the
+   EAS project's `development` environment — see `CLAUDE.md` § Secrets & env for what belongs in
+   `.env` and what never does.
+
+   `--path .env` is not optional: `env:pull` defaults to writing `.env.local`, and Expo's loader
+   gives `.env.local` precedence over `.env`. Leaving the default would silently shadow the `.env`
+   this project documents, so a later edit to `.env` would appear to have no effect.
+
+3. Start the app
 
    ```bash
    npx expo start
@@ -24,6 +38,18 @@ In the output, you'll find options to open the app in a
 - [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+
+## App assets
+
+The app icon, splash art, and favicon are generated from versioned SVG sources in
+`assets/source/`, not hand-edited as PNGs. After changing a source SVG, regenerate the PNGs
+`app.json` points at:
+
+```bash
+npm run assets
+```
+
+Edit the SVGs, never the PNGs in `assets/images/` — they're build output.
 
 ## Get a fresh project
 

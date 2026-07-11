@@ -5,6 +5,77 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-12
+
+- **EAS project initialized** (GitHub issue #66, groundwork only — the pipeline is still
+  blocked, see below). `eas init` created `@ianbeatingpros/pace-analysis-ai`
+  (`d19968ff-22b8-4851-8e74-087aeb9846b0`); `app.json` gained `extra.eas.projectId` and a
+  top-level `owner: "ianbeatingpros"`. `owner` was added deliberately, not left to the default:
+  without it, EAS resolves a project by slug against whoever is currently logged in, which
+  silently breaks the same `eas build` command on another machine or in CI.
+- **New `eas.json`**, four build profiles. `eas.json` is parsed with a strict Joi schema (plain
+  `JSON.parse`) and cannot contain comments, so the reasoning below lives here, not in the file:
+  - `development` — dev client, internal distribution, `ios.simulator: true`, Android APK.
+    `ios.simulator: true` is what makes an iOS build possible **at all** today — there is no
+    Apple Developer account, so a real-device iOS build has nowhere to get a provisioning
+    profile from.
+  - `development-device` — extends `development`, `ios.simulator: false`. Written but unusable:
+    blocked on the Apple Developer account (an on-device build needs an ad-hoc provisioning
+    profile).
+  - `preview` — internal distribution, Android APK.
+  - `production` — `autoIncrement`, Android app-bundle.
+  - `submit.production` — an empty placeholder; the App Store Connect app ID and Apple team ID
+    land once Apple exists.
+- **EAS server-side env vars created** (project scope) for `EXPO_PUBLIC_SUPABASE_URL` and
+  `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, in all three environments (development/preview/
+  production), at visibility **`sensitive`, deliberately not `secret`** — recording the
+  reasoning so a future session doesn't "harden" it and break things. `EXPO_PUBLIC_*` is
+  inlined in plain text into the compiled bundle regardless of how EAS stores it, so anyone who
+  installs the app can extract it — the key's real protection is Supabase RLS, not secrecy.
+  `secret` visibility is **write-only** (unreadable via the dashboard, `env:list`, *and*
+  `env:pull`), so it would buy zero security while destroying recoverability: no `eas env:pull`
+  onto a new machine, and no diffing the EAS value against the live Supabase ref when a build
+  points at the wrong backend. `ANTHROPIC_API_KEY` was verified **absent** from all three EAS
+  environments and must stay that way — it belongs only in `supabase secrets`, per `CLAUDE.md`
+  § Secrets & env. Worth stating plainly: a build missing these vars does not degrade —
+  `lib/supabase.ts` throws at module import, so the app hard-crashes on the splash screen.
+- **Real app icon + splash art landed, replacing the Expo template defaults — closes GitHub
+  issue #26.** Design is "The Gait Plate" (`docs/design/frontend-design-brief.md` §1): a ground
+  rule, a posture line leaning off it, a short detached arc marking the lean angle (drawn like a
+  goniometer/biomechanics annotation), and a filled landing marker at the vertex — the one point
+  of color, `score.strong` (`#2E7D5B`), deliberately **not** `accent` (`#2F6BEB`), which the
+  brief reserves for the primary CTA alone.
+  - New `assets/source/*.svg` (`mark-light`, `mark-dark`, `mark-mono`, `mark-favicon`) is now
+    the versioned source of the art, not hand-edited PNGs.
+  - New `scripts/generate-app-assets.js` + `npm run assets` rasterizes the SVGs into the six
+    PNGs in `assets/images/` that `app.json` points at. `sharp` added as a devDependency — the
+    machine had no rasterizer at all before this. The PNGs are build outputs: edit the SVGs, run
+    `npm run assets`, never hand-edit the PNGs.
+  - `icon.png` is deliberately flattened onto the bone field with **no alpha channel**: iOS
+    applies its own corner mask, and App Store Connect rejects an icon that carries
+    transparency. The generator script hard-fails if alpha ever reappears on that file — this
+    rule is enforced in code, not just documented, so it can't silently regress.
+  - New `assets/images/splash-icon-dark.png` and a new `dark.image` key in `app.json`'s
+    `expo-splash-screen` plugin config. This goes beyond what issue #26 asked for (a dark splash
+    **background color** swap only), and the reason matters: the splash mark is dark ink drawn
+    for the light (bone) field, so on the warm-graphite dark background it would have been
+    near-invisible — and `app/_layout.tsx` deliberately holds the splash (
+    `SplashScreen.preventAutoHideAsync()`, hidden only once fonts and the session check both
+    resolve) for a real, visible duration, so an invisible mark would actually be seen.
+  - Deleted `assets/images/android-icon-background.png`: issue #26 wanted a flat background
+    **color** for the Android adaptive icon, so the PNG that used to hold a solid field was dead
+    weight.
+- **Issue #26 is closed by this work**: splash `backgroundColor` `#ffffff` → `#F4F1EA`, dark
+  `#000000` → `#1A1712`; Android `adaptiveIcon.backgroundColor` `#E6F4FE` (Expo template pale
+  blue) → `#F4F1EA`. All three are now `constants/theme.ts` tokens instead of template defaults.
+- **Issue #66 stays open.** There is still no Apple Developer account, so there are no iOS
+  credentials, no `eas build` for a device or the store, no `eas submit`, and no TestFlight
+  pipeline — the second half of #66's title ("...and TestFlight pipeline") is not done. Sign in
+  with Apple (#67, already `docs/status.md` Known Issue #3) is the same dependency. Removing
+  `exp://**` from the Supabase redirect allowlist (#69) is still a required pre-first-EAS-build
+  cleanup and has not been done. `docs/status.md` Known Issue #7 is split rather than closed to
+  reflect this.
+
 ## 2026-07-11
 
 - Executed Phase 0 of `docs/mvp-build-prompt.md` ("Reconcile before building anything"),

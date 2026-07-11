@@ -1,0 +1,66 @@
+<!--
+  Pace AnalysisAI — Android monochrome adaptive-icon layer (themed icons, Android 13+). REVISION 3
+  — Variant B geometry (see mark-light.svg for the full rationale), redrawn at monochrome weight
+  AND with a deliberate simplification specific to this file.
+
+  FIX 3 (mono-specific): the OS discards color and tints alpha only, so the green landing-marker
+  becomes just another silhouette shape. With color gone, "two thick rays + a detached arc + a
+  solid dot at the corner" risks reading as an illegible clot, because the dot sits exactly where
+  the two rays already meet — it would mostly just thicken that corner into a rounded blob without
+  adding new information a viewer can parse from alpha alone.
+
+  DECISION: dropped the landing-marker, kept the angle-arc. Reasoning: the arc sits 280px out from
+  the vertex, genuinely separated from where the rays meet — it is the one element that still reads
+  as a DISTINCT third shape once color is gone, giving this file's silhouette an "angle + a small
+  detached tick" identity instead of "two lines and a blob at a corner." A bold rounded corner
+  (from the two rays' meeting point) already reads as "a mark," so the marker was redundant here in
+  a way it is not in the color variants, where the green fill is the whole point of it.
+
+  Reuses mark-light.svg's ray directions/angles exactly (same skeleton, same 28° lean, same 62°
+  angle between rays) — only stroke weight, a shortened posture-line reach (to keep the heavier
+  cap bulge inside the safe zone), and the arc's gap angle differ.
+
+  WEIGHTS: >=48px per the build constraint; used 72px rays (up from mark-light's 64px, the usual
+  "mono goes heavier" step) and a 56px arc (up from 48px), both bumped so the alpha silhouette
+  reads as bold, not spindly, once the OS re-scales/tints it.
+
+  SAFE ZONE: same centred r=330 circle as mark-light.svg. The heavier 72px ray stroke needed the
+  posture-line's reach pulled in slightly (length 289 -> 280, same 28° angle, same direction) to
+  keep its cap-bulge margin >=13px. Verified margins: ground-rule endpoints ~29.9px (butt cap,
+  stroke-width-independent, unchanged from mark-light), posture-line top-point cap bulge ~21.0px,
+  angle-arc endpoints ~25.0px / ~26.6px. The arc's gap angle widened from mark-light's 23° to 26°
+  per side (sweep now 10°, down from 16°) to keep the required air gap (>= the arc's own 56px
+  stroke weight) at this heavier weight — achieved gap is ~58.8px, verified.
+
+  Fill color is functionally arbitrary (only alpha is read); used Colors.light.text.primary
+  (#1E1B15) as a token-consistent placeholder rather than an unrelated literal like #000000.
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <g id="mark" fill="#1E1B15" stroke="#1E1B15">
+    <line
+      id="ground-rule"
+      x1="212"
+      y1="520"
+      x2="812"
+      y2="520"
+      stroke-width="72"
+      stroke-linecap="butt"
+    />
+    <line
+      id="posture-line"
+      x1="512"
+      y1="520"
+      x2="644"
+      y2="273"
+      stroke-width="72"
+      stroke-linecap="round"
+    />
+    <path
+      id="angle-arc"
+      d="M 764,397 A 280,280 0 0 0 739,356"
+      fill="none"
+      stroke-width="56"
+      stroke-linecap="round"
+    />
+  </g>
+</svg>
