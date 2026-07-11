@@ -44,3 +44,6 @@ app-example
 /android
 
 .superpowers/
+
+# session handoff note (local state, never committed)
+.claude/HANDOFF.md
