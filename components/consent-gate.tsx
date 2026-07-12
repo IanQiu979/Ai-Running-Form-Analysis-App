@@ -9,7 +9,7 @@
  * This is a component, not a route. M2 owns whether it presents as a modal or a screen, and where
  * it intercepts the source-picker → capture handoff.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Copy } from '@/constants/copy';
@@ -54,11 +54,19 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
   const [checked, setChecked] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Flipped the instant Cancel is pressed, including mid-write. Unmounting (what the host does
-  // on cancel, per this component's contract) does not cancel the in-flight grantConsent()
-  // promise below — without this, a late resolve/reject would still call onConsented() (or touch
-  // state) from this stale closure after the user already backed out.
+  // Flipped the instant Cancel is pressed, including mid-write, AND on unmount (see the effect
+  // below). Unmounting (what the host does on cancel, per this component's contract) does not
+  // cancel the in-flight grantConsent() promise below — without this, a late resolve/reject would
+  // still call onConsented() (or touch state) from this stale closure after the user already
+  // backed out.
   const cancelledRef = useRef(false);
+
+  // The button press in handleCancel is NOT the only way this gate goes away mid-write: a
+  // modal-host backdrop tap, Android hardware back, swipe-to-dismiss, or navigating away all
+  // unmount this component without ever calling handleCancel. Any of those must block a late
+  // grantConsent() resolution from firing onConsented() just as surely as the Cancel button does
+  // — so the guard is keyed to the component's lifecycle, not to one specific dismissal path.
+  useEffect(() => () => { cancelledRef.current = true; }, []);
 
   const canProceed = checked && !pending;
 

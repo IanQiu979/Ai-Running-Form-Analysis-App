@@ -150,6 +150,68 @@ it('never calls onConsented if Cancel is pressed while the grant write is still 
   expect(onConsented).not.toHaveBeenCalled();
 });
 
+// Same trigger as the race test above, but pins a different property: the Cancel button must
+// actually be disabled while the write is in flight, not merely inert-by-luck because the race
+// test never presses it through fireEvent. `getOnPress` (used above) reads the raw handler off
+// the fiber and bypasses Pressable's own `disabled` gate entirely, so that test cannot catch a
+// regression here — this one presses nothing, it only asserts the prop, so there is no second
+// fireEvent.press and no act()-overlap to work around.
+it('disables the Cancel button while the grant write is still pending', async () => {
+  let resolveGrant: () => void = () => {};
+  mockGrantConsent.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveGrant = resolve;
+      })
+  );
+  await renderGate();
+
+  await fireEvent.press(screen.getByTestId('consent-checkbox'));
+
+  const p = fireEvent.press(screen.getByTestId('consent-cta-primary'));
+  await waitFor(() =>
+    expect(screen.getByTestId('consent-cta-secondary').props.accessibilityState.disabled).toBe(
+      true
+    )
+  );
+
+  resolveGrant();
+  await p;
+});
+
+// Finding 1 (re-review): the button isn't the only way this gate goes away mid-write. A
+// modal-host backdrop tap, hardware back, swipe-to-dismiss, or navigating away all unmount this
+// component without ever running handleCancel — so the guard has to be keyed to the component's
+// lifecycle, not to that one button.
+it('never calls onConsented if the gate is unmounted while the grant write is still pending', async () => {
+  let resolveGrant: () => void = () => {};
+  mockGrantConsent.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveGrant = resolve;
+      })
+  );
+  const onConsented = jest.fn();
+  const onCancel = jest.fn();
+  const view = await render(<ConsentGate onConsented={onConsented} onCancel={onCancel} />);
+
+  await fireEvent.press(view.getByTestId('consent-checkbox'));
+
+  const primaryPress = fireEvent.press(view.getByTestId('consent-cta-primary'));
+  await waitFor(() =>
+    expect(view.getByTestId('consent-cta-secondary').props.accessibilityState.disabled).toBe(true)
+  );
+
+  await view.unmount();
+
+  // The write resolves only now — after the host already tore the gate down.
+  resolveGrant();
+  await primaryPress;
+
+  expect(onConsented).not.toHaveBeenCalled();
+  expect(onCancel).not.toHaveBeenCalled();
+});
+
 // The checkbox label names the health processing and Anthropic by name. That naming is what
 // carries Art. 9 — a generic "I agree to the terms" would not.
 it('renders the deck consent copy verbatim', async () => {
