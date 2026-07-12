@@ -12,10 +12,10 @@
  * their password was "found in a data breach" — confusing and simply false. Case 1 vs case 2
  * below is what catches that regression.
  */
-import { AuthApiError, AuthWeakPasswordError } from '@supabase/supabase-js';
+import { AuthApiError, AuthPKCECodeVerifierMissingError, AuthWeakPasswordError } from '@supabase/supabase-js';
 
 import { Copy } from '../../constants/copy';
-import { mapAuthError } from '../auth-errors';
+import { mapAuthError, OAuthRedirectError } from '../auth-errors';
 
 describe('mapAuthError', () => {
   // Case 1: the server rejected a breached password (issue #70). This is the new branch.
@@ -90,5 +90,57 @@ describe('mapAuthError', () => {
   // types as `unknown` and is not guaranteed to be an Error at all (e.g. `throw 'oops'`).
   it('falls back to generic for a non-Error thrown value', () => {
     expect(mapAuthError('a string, not an Error')).toBe(Copy.auth.error.generic);
+  });
+
+  // Issue #5: a failed OAuth code exchange used to be swallowed with no error shown at all
+  // (see lib/auth.ts and lib/session-provider.tsx). These lock the three cases the fix has to
+  // tell apart: the provider says the user declined, the provider reports some other failure,
+  // and a lost/mismatched PKCE verifier — plus the "no branch = generic fallback" guarantee for
+  // OAuthRedirectError specifically, since that class didn't exist before this issue.
+  describe('OAuth redirect / PKCE cases (issue #5)', () => {
+    it('maps a provider access_denied redirect to signInCancelled', () => {
+      const error = new OAuthRedirectError('access_denied', 'The user denied the request.');
+
+      expect(mapAuthError(error)).toBe(Copy.auth.error.signInCancelled);
+    });
+
+    // Any OTHER provider-reported code (server_error, temporarily_unavailable, ...) is a real
+    // break, not a user decision — must NOT collapse into the same "cancelled" message as
+    // access_denied, which would hide an actual outage from the user.
+    it('maps a non-access_denied provider redirect error to the generic fallback, not signInCancelled', () => {
+      const error = new OAuthRedirectError('server_error', 'The provider had an internal error.');
+
+      const mapped = mapAuthError(error);
+      expect(mapped).toBe(Copy.auth.error.generic);
+      expect(mapped).not.toBe(Copy.auth.error.signInCancelled);
+    });
+
+    // The client-side half of a lost PKCE verifier: nothing was in storage to send at all.
+    it('maps AuthPKCECodeVerifierMissingError to signInExpired', () => {
+      const error = new AuthPKCECodeVerifierMissingError();
+
+      expect(mapAuthError(error)).toBe(Copy.auth.error.signInExpired);
+    });
+
+    // The server-side half of the same situation: GoTrue no longer recognizes the flow state
+    // the code/verifier pair claims to belong to. Every code in FLOW_STATE_ERROR_CODES must
+    // resolve the same way, not just one representative code — a partial match here would
+    // silently regress to the generic message for whichever code was left out.
+    it.each(['flow_state_not_found', 'flow_state_expired', 'bad_code_verifier', 'bad_oauth_state', 'bad_oauth_callback'])(
+      'maps AuthApiError with code %s to signInExpired',
+      (code) => {
+        const error = new AuthApiError('Invalid flow state, no valid flow state found.', 401, code);
+
+        expect(mapAuthError(error)).toBe(Copy.auth.error.signInExpired);
+      }
+    );
+
+    // An AuthApiError with an unrelated code must not fall into the PKCE branch just because
+    // it's the same class — only a recognized flow-state code should trigger signInExpired.
+    it('does not map an unrelated AuthApiError code to signInExpired', () => {
+      const error = new AuthApiError('Invalid login credentials', 400, 'invalid_credentials');
+
+      expect(mapAuthError(error)).not.toBe(Copy.auth.error.signInExpired);
+    });
   });
 });

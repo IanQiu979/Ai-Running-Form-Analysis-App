@@ -561,6 +561,55 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     and `docs/architecture.md` (DB schema, RLS, and AI-guardrail sections) updated to describe
     this as live rather than pending.
 
+- **A failed Google OAuth exchange is no longer a silent no-op (closes #5).** Root cause was
+  two-fold. First, `lib/session-provider.tsx`'s Linking listener — the deep-link fallback path
+  for a redirect that arrives outside `signInWithGoogle`'s own awaited call — discarded every
+  exchange failure with a bare `.catch(() => {})`; nothing else was watching that path, so the
+  failure had nowhere to go. Second, `lib/auth.ts`'s dedupe guard against the Android
+  double-delivery race (the same redirect reaching `createSessionFromUrl` more than once
+  concurrently) marked a code "processed" in a `Set` *before* the exchange resolved and never
+  unmarked it on failure — so the race's loser silently got `null` back (read by
+  `app/(auth)/sign-in.tsx` as "user cancelled") even when the winner's exchange had actually
+  thrown.
+  - `lib/auth.ts`: the `Set` is replaced with a `Map<code, Promise<Session | null>>` of in-flight
+    exchanges. Every concurrent caller racing the same code now awaits the identical promise and
+    gets the identical outcome — success or the real rejection, never a silent `null` — and the
+    entry is evicted once the exchange settles, so it can't grow unbounded either. Provider-
+    reported redirect errors (`?error=access_denied` etc.) now throw a typed `OAuthRedirectError`
+    (`lib/auth-errors.ts`) instead of a plain `Error`, so the message doesn't have to be
+    pattern-matched later.
+  - `lib/session-provider.tsx`: the Linking listener's catch now maps the error (`mapAuthError`)
+    into a new `deepLinkAuthError` on `SessionContextValue`, plus a `clearDeepLinkAuthError()`.
+    Safe to always surface — `createSessionFromUrl` only ever throws for a URL that really was
+    part of an auth redirect; it returns `null`, not a rejection, for any unrelated deep link.
+  - `lib/auth-errors.ts` (`mapAuthError`): two new typed branches. `OAuthRedirectError` with
+    `code === 'access_denied'` → `Copy.auth.error.signInCancelled` (the user declined on the
+    provider's own consent screen — a decision, not a break, but delivered through a different
+    channel than `WebBrowser`'s cancel/dismiss result, so it can't stay silent the way a plain
+    browser-cancel does). Any other provider code, plus `AuthPKCECodeVerifierMissingError` /
+    GoTrue's `flow_state_not_found` / `flow_state_expired` / `bad_code_verifier` /
+    `bad_oauth_state` / `bad_oauth_callback` (a lost or no-longer-matching PKCE verifier — the
+    verifier lives in client storage, so this is a real failure mode, not a hypothetical one) →
+    `Copy.auth.error.signInExpired`. Everything else (bad/expired code, network) still falls
+    through to the existing `Copy.auth.error.generic`, unchanged.
+  - `app/(auth)/sign-in.tsx` reads `deepLinkAuthError` from `useSession()` alongside its own local
+    `errorMessage` (`errorMessage ?? deepLinkAuthError`) and clears both together on every new
+    attempt, so a stale message from a previous failure can't linger into the next one.
+  - New copy: `Copy.auth.error.signInCancelled` ("Sign-in was cancelled.") and
+    `Copy.auth.error.signInExpired` ("Sign-in expired before it could finish. Try again.") —
+    both provider-neutral, since Apple sign-in (`auth.cta.apple`) will reuse the same
+    `createSessionFromUrl` path once it ships. Added to `constants/copy.ts` and
+    `docs/design/copy-deck.md` (Screen 1).
+  - Tests: `lib/__tests__/auth.test.ts` (new) locks `createSessionFromUrl`'s contract directly —
+    a URL with no `code`/`error` still resolves `null`, a provider error throws
+    `OAuthRedirectError`, and the race-condition fix specifically: concurrent callers on the same
+    code share one exchange call and get the identical resolution *or* the identical rejection.
+    Verified this last case is load-bearing by reimplementing the old `Set`-based dedupe
+    standalone and confirming it fails that exact assertion (the race's loser resolves `null`
+    instead of rejecting). `lib/__tests__/auth-errors.test.ts` extended with the two new
+    `mapAuthError` branches, including every `FLOW_STATE_ERROR_CODES` entry individually and a
+    negative case for an unrelated `AuthApiError` code.
+
 ## 2026-07-11
 
 - Executed Phase 0 of `docs/mvp-build-prompt.md` ("Reconcile before building anything"),

@@ -31,6 +31,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { signInWithGoogle } from '@/lib/auth';
 import { mapAuthError } from '@/lib/auth-errors';
 import { checkPasswordBreached } from '@/lib/hibp';
+import { useSession } from '@/lib/session-provider';
 import { supabase } from '@/lib/supabase';
 
 type Mode = 'signIn' | 'signUp';
@@ -53,13 +54,29 @@ export default function SignInScreen() {
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const isBusy = pendingAction !== null;
 
+  // Issue #5: `deepLinkAuthError` (lib/session-provider.tsx) carries a failure from the
+  // Linking-listener fallback path — an OAuth redirect that arrived as a deep link instead of
+  // resolving inside signInWithGoogle's own awaited call below, e.g. the browser sheet was
+  // dismissed early because the app got backgrounded mid-flow. That path runs outside this
+  // screen's own try/catch entirely, so without this it would have nowhere to surface. Local
+  // `errorMessage` wins if both happen to be set (the two CAN race on the very same failure —
+  // see lib/auth.ts's in-flight-promise dedupe comment — in which case they carry the same
+  // mapped string anyway) so the banner never flickers between two different messages.
+  const { deepLinkAuthError, clearDeepLinkAuthError } = useSession();
+  const displayedError = errorMessage ?? deepLinkAuthError;
+
+  function clearErrors() {
+    setErrorMessage(null);
+    clearDeepLinkAuthError();
+  }
+
   function toggleMode() {
     setMode((current) => (current === 'signIn' ? 'signUp' : 'signIn'));
-    setErrorMessage(null);
+    clearErrors();
   }
 
   async function handleGoogleSignIn() {
-    setErrorMessage(null);
+    clearErrors();
     setPendingAction('google');
     try {
       // null = the user cancelled/dismissed the browser sheet — not an error, so no message.
@@ -78,7 +95,7 @@ export default function SignInScreen() {
       return;
     }
 
-    setErrorMessage(null);
+    clearErrors();
     setPendingAction('email');
     try {
       if (mode === 'signUp') {
@@ -260,9 +277,9 @@ export default function SignInScreen() {
               </View>
             )}
 
-            {errorMessage !== null && (
+            {displayedError !== null && (
               <Text style={styles.errorText} accessibilityLiveRegion="polite">
-                {errorMessage}
+                {displayedError}
               </Text>
             )}
           </View>
