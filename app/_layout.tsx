@@ -84,6 +84,13 @@ function RootLayoutNav() {
             router.replace() call anywhere in sign-in.tsx or the sign-out handler. */}
         <Stack.Protected guard={!!session}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          {/* result/[id] — the PACE readout (issue #56). Explicitly declared inside this
+              session-guarded group (not left to auto-discovery) so it's unreachable while
+              signed out, same as (tabs) — expo-router only excludes a route from the Stack when
+              it's named inside a Protected block whose guard is false; an undeclared file would
+              otherwise render as an always-available, unguarded top-level screen regardless of
+              session. */}
+          <Stack.Screen name="result/[id]" options={{ headerShown: false }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
