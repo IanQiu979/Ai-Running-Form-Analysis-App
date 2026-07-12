@@ -19,11 +19,16 @@
  *      live Postgres to test against and this is the honest ceiling.
  *
  *   3. MIGRATION-TEXT INVARIANTS — the bridge. These read
- *      `supabase/migrations/20260713120000_purchase_tier_function.sql` and assert the two
- *      properties the whole issue turns on, directly against the SQL that will actually run:
- *        (a) it never adds a client-writable policy or grant on `subscriptions`, and
+ *      `supabase/migrations/20260713120000_purchase_tier_function.sql` and assert the properties
+ *      the whole issue turns on, directly against the SQL that will actually run:
+ *        (a) it never adds a client-writable policy or grant on `subscriptions`, and it revokes
+ *            the default INSERT/UPDATE/DELETE/TRUNCATE grant on both `subscriptions` and
+ *            `profiles` from `authenticated`/`anon` (2026-07-13 security audit, PR #123);
  *        (b) `purchased_at` is written ONLY by the INSERT and never appears in the UPDATE's SET
- *            list — the property that makes a repurchase unable to reset a user's quota period.
+ *            list — the property that makes a repurchase unable to reset a user's quota period;
+ *        (c) `p_as_of` does not exist anywhere in the function (removed in the same audit — a
+ *            caller-suppliable period anchor is exactly the re-anchoring exploit (b) forbids);
+ *        (d) the per-user rate limit is a genuine early return — no mutation happens on that path.
  *      A model test can be fooled by a wrong model. These cannot: they read the shipping SQL.
  *
  * DENO-ONLY, DELIBERATELY (issue #90 convention, same as `quota-status.deno.test.ts`'s header):
@@ -31,11 +36,13 @@
  * `deno test` (`npm run test:edge`) runs it.
  */
 import {
+  checkDeploymentGate,
   httpStatusForPurchase,
   parsePurchaseRequest,
   parsePurchaseTierRow,
   purchaseTier,
   responseBodyForPurchase,
+  type DeploymentGateConfig,
   type PurchasableTier,
   type RpcClient,
 } from '../purchase-tier.ts';
@@ -216,8 +223,46 @@ Deno.test('responseBodyForPurchase: returns EXACTLY { tier, periodStart, periodE
   assertTrue(!('outcome' in body), 'outcome must not leak into the response body');
 });
 
-Deno.test('httpStatusForPurchase: always 200 — a repurchase is a successful no-op, not a 409', () => {
-  assertEquals(httpStatusForPurchase(), 200);
+Deno.test('httpStatusForPurchase: 200 for every non-rate-limited outcome — a repurchase is a successful no-op, not a 409', () => {
+  for (const outcome of ['created', 'unchanged', 'tier_changed', 'reactivated'] as const) {
+    const result = parsePurchaseTierRow({
+      tier: 'pro',
+      purchased_at: '2026-07-13T10:00:00+00:00',
+      period_start: '2026-07-13T10:00:00+00:00',
+      period_end: '2026-08-13T10:00:00+00:00',
+      outcome,
+    });
+    assertEquals(httpStatusForPurchase(result), 200, `outcome ${outcome} must map to 200`);
+  }
+});
+
+Deno.test('httpStatusForPurchase: 429 for rate_limited — a refusal, not a state assertion that held', () => {
+  const result = parsePurchaseTierRow({
+    tier: 'pro',
+    purchased_at: '2026-07-13T10:00:00+00:00',
+    period_start: '2026-07-13T10:00:00+00:00',
+    period_end: '2026-08-13T10:00:00+00:00',
+    outcome: 'rate_limited',
+  });
+  assertEquals(httpStatusForPurchase(result), 429);
+});
+
+Deno.test('responseBodyForPurchase: rate_limited returns an error-shaped body, never the success shape — a caller checking only the body must not mistake a refusal for a granted tier', () => {
+  const result = parsePurchaseTierRow({
+    tier: 'elite',
+    purchased_at: '2026-07-13T10:00:00+00:00',
+    period_start: '2026-07-13T10:00:00+00:00',
+    period_end: '2026-08-13T10:00:00+00:00',
+    outcome: 'rate_limited',
+  });
+
+  const body = responseBodyForPurchase(result);
+
+  assertEquals(body.code, 'rate_limited');
+  assertTrue(typeof body.error === 'string' && body.error.length > 0, 'must carry a human-readable error message');
+  assertTrue(!('tier' in body), 'tier must not leak into a rate-limited response body');
+  assertTrue(!('periodStart' in body), 'periodStart must not leak into a rate-limited response body');
+  assertTrue(!('periodEnd' in body), 'periodEnd must not leak into a rate-limited response body');
 });
 
 Deno.test('purchaseTier: propagates an RPC error rather than returning a fabricated period', async () => {
@@ -291,6 +336,53 @@ Deno.test('parsePurchaseTierRow: rejects an unrecognized outcome rather than gue
     threw = true;
   }
   assertTrue(threw, 'an unknown outcome means the SQL and this module have drifted — fail, do not guess');
+});
+
+// ---------------------------------------------------------------------------
+// 3b. DEPLOYMENT GATE — checkDeploymentGate's decision logic (2026-07-13 security audit, PR #123).
+//     Deno-env reading itself lives in index.ts and is untested here by design (Deno.env is not
+//     portable) — this is the pure decision function index.ts calls after reading it.
+// ---------------------------------------------------------------------------
+
+Deno.test('checkDeploymentGate: refuses with not_found when the master flag is disabled, regardless of allowlist', () => {
+  const configs: DeploymentGateConfig[] = [
+    { enabled: false, allowedUserIds: null },
+    { enabled: false, allowedUserIds: [USER_ID] },
+  ];
+  for (const config of configs) {
+    const decision = checkDeploymentGate(config, USER_ID);
+    assertEquals(decision, { allowed: false, code: 'not_found' });
+  }
+});
+
+Deno.test('checkDeploymentGate: allows any caller when enabled with no allowlist configured', () => {
+  const config: DeploymentGateConfig = { enabled: true, allowedUserIds: null };
+  assertEquals(checkDeploymentGate(config, USER_ID), { allowed: true });
+  assertEquals(checkDeploymentGate(config, OTHER_USER_ID), { allowed: true });
+});
+
+Deno.test('checkDeploymentGate: enabled + allowlist — only listed ids pass, everyone else gets the SAME not_found as a disabled flag', () => {
+  const config: DeploymentGateConfig = { enabled: true, allowedUserIds: [USER_ID] };
+
+  assertEquals(checkDeploymentGate(config, USER_ID), { allowed: true });
+
+  const denied = checkDeploymentGate(config, OTHER_USER_ID);
+  assertEquals(
+    denied,
+    { allowed: false, code: 'not_found' },
+    'a non-allowlisted caller must get the identical refusal shape a disabled flag would — ' +
+      'distinguishable responses would leak that an allowlist exists and let someone probe it'
+  );
+});
+
+Deno.test('checkDeploymentGate: the allowlist is checked against the id the caller supplies to this function, never anything else — index.ts is responsible for that id being JWT-verified', () => {
+  // This function only proves the comparison itself is correct; it has no way to know where
+  // callerUserId came from. The "never from the request body" guarantee is index.ts's job (it
+  // only ever calls this with the id resolveCallerUserId() returned) and purchaseTier's own test
+  // above already locks that no body-derived id reaches the RPC either.
+  const config: DeploymentGateConfig = { enabled: true, allowedUserIds: [USER_ID] };
+  assertEquals(checkDeploymentGate(config, USER_ID).allowed, true);
+  assertEquals(checkDeploymentGate(config, `${USER_ID}x`).allowed, false, 'must be an exact match, not a prefix');
 });
 
 // ---------------------------------------------------------------------------
@@ -569,6 +661,45 @@ Deno.test('MIGRATION: adds NO client-writable policy or grant on subscriptions �
   );
 });
 
+Deno.test('MIGRATION: revokes the default INSERT/UPDATE/DELETE/TRUNCATE grant on subscriptions AND profiles from authenticated/anon (2026-07-13 audit) — the grant-layer defense-in-depth beneath the RLS/policy checks above', () => {
+  const code = stripSqlComments(readMigration());
+
+  const revokeSubscriptions =
+    /revoke\s+insert\s*,\s*update\s*,\s*delete\s*,\s*truncate\s+on\s+public\.subscriptions\s+from\s+authenticated\s*,\s*anon\s*;/i;
+  const revokeProfiles =
+    /revoke\s+insert\s*,\s*update\s*,\s*delete\s*,\s*truncate\s+on\s+public\.profiles\s+from\s+authenticated\s*,\s*anon\s*;/i;
+
+  assertTrue(
+    revokeSubscriptions.test(code),
+    'must revoke insert/update/delete/truncate on public.subscriptions from authenticated and anon — ' +
+      'mirrors the consents/storage.objects hardening pattern (issue #100); TRUNCATE in particular is ' +
+      'not subject to RLS at all, so a policy-only defense leaves it open on the grant alone'
+  );
+  assertTrue(
+    revokeProfiles.test(code),
+    'must revoke insert/update/delete/truncate on public.profiles from authenticated and anon — the ' +
+      'FK target of subscriptions.user_id, same exposure, same fix'
+  );
+});
+
+Deno.test('MIGRATION: p_as_of does not exist anywhere in the executable SQL — removed in the 2026-07-13 audit as a caller-suppliable period-anchor footgun', () => {
+  const code = stripSqlComments(readMigration());
+
+  assertTrue(
+    !/p_as_of/i.test(code),
+    'p_as_of must not appear anywhere in the function signature or body. It used to default to ' +
+      'now() and was never passed by purchaseTier() (so unreachable), but a future edge-function ' +
+      'change threading a client timestamp through to it would hand an attacker exactly the ' +
+      're-anchoring exploit this file\'s header spends forty lines forbidding. Removed rather than ' +
+      'merely guarded, so it cannot be reintroduced by accident the way a guard could be loosened ' +
+      'by accident.'
+  );
+  assertTrue(
+    /public\.pace_current_period\(v_(purchased_at|prev_purchased_at),\s*now\(\)\)/i.test(code),
+    'the period must be derived against the real wall-clock now(), not a parameter'
+  );
+});
+
 Deno.test('MIGRATION: purchased_at is written ONLY by the INSERT — it never appears in the UPDATE SET list, which is what makes a repurchase unable to reset the quota period', () => {
   const code = stripSqlComments(readMigration());
 
@@ -645,14 +776,15 @@ Deno.test('MIGRATION: privilege shape matches the rest of the quota RPC family �
 
   assertTrue(
     sql.includes(
-      'revoke execute on function public.pace_purchase_tier(uuid, public.subscription_tier, timestamptz) from public, anon, authenticated;'
+      'revoke execute on function public.pace_purchase_tier(uuid, public.subscription_tier) from public, anon, authenticated;'
     ),
     'EXECUTE must be revoked from public/anon/authenticated — otherwise the client could call the ' +
-      'tier-granting RPC directly and the missing INSERT policy would be moot'
+      'tier-granting RPC directly and the missing INSERT policy would be moot. Two-arg signature ' +
+      '(uuid, subscription_tier) — p_as_of was removed in the 2026-07-13 audit.'
   );
   assertTrue(
     sql.includes(
-      'grant execute on function public.pace_purchase_tier(uuid, public.subscription_tier, timestamptz) to service_role;'
+      'grant execute on function public.pace_purchase_tier(uuid, public.subscription_tier) to service_role;'
     ),
     'EXECUTE must be granted to service_role only'
   );
@@ -663,6 +795,45 @@ Deno.test('MIGRATION: privilege shape matches the rest of the quota RPC family �
     'must take a per-user advisory lock, so two racing first-time purchases serialize instead of ' +
       'one taking a PK unique violation — same idiom as reserve_analysis'
   );
+});
+
+Deno.test('MIGRATION: the rate-limit branch is a genuine early return — no INSERT or UPDATE happens on the rate_limited path', () => {
+  const code = stripSqlComments(readMigration());
+
+  // Extract the rate-limit `if ... then ... end if;` block specifically (the one guarded by the
+  // 3-second interval check), so this test can prove it neither inserts nor updates before
+  // returning — the property that makes 'rate_limited' a true no-op rather than a mutation with a
+  // misleading name.
+  const rateLimitMatch = code.match(
+    /if\s+found\s+and\s+\(now\(\)\s*-\s*v_prev_updated_at\)\s*<\s*interval\s+'3 seconds'\s+then([\s\S]*?)\bend if;/i
+  );
+  assertTrue(rateLimitMatch !== null, 'expected a rate-limit `if found and (now() - v_prev_updated_at) < interval ... then ... end if;` block');
+  const rateLimitBlock = rateLimitMatch![1];
+
+  assertTrue(
+    /'rate_limited'/i.test(rateLimitBlock),
+    'the rate-limit block must return outcome \'rate_limited\''
+  );
+  assertTrue(
+    /return\s+jsonb_build_object/i.test(rateLimitBlock),
+    'the rate-limit block must return directly (a normal typed return, never an exception — same ' +
+      'house style gate_ai_call uses for its own denies)'
+  );
+  assertTrue(
+    !/insert\s+into/i.test(rateLimitBlock),
+    'the rate-limit block must never INSERT — a denied request must not create a row'
+  );
+  assertTrue(
+    !/update\s+public\.subscriptions/i.test(rateLimitBlock),
+    'the rate-limit block must never UPDATE subscriptions — a denied request must leave the ' +
+      'existing tier/anchor/status completely untouched'
+  );
+
+  // And the inverse: the rate-limit check must run BEFORE the insert/update branch, not after —
+  // otherwise it would be throttling nothing (the mutation would already have happened).
+  const ifNotFoundIdx = code.search(/if\s+not\s+found\s+then/i);
+  const rateLimitIdx = code.search(/if\s+found\s+and\s+\(now\(\)\s*-\s*v_prev_updated_at\)/i);
+  assertTrue(rateLimitIdx >= 0 && ifNotFoundIdx >= 0 && rateLimitIdx < ifNotFoundIdx, 'the rate-limit check must precede the insert/update branch');
 });
 
 Deno.test('MIGRATION: does not redefine the quota RPC family it shares functions with', () => {

@@ -961,7 +961,7 @@ RLS.
 | Method / Route | Auth | Body | Returns | Notes |
 |---|---|---|---|---|
 | `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | `{ result, analysisId, isFallback }` or `402` over-quota / `403` anon | Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. |
-| `POST /functions/v1/purchase-tier` | JWT | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` or `400 invalid_tier` / `invalid_source` | **Built, Deno-tested, not deployed (issue #51, 2026-07-13)** — see "Current" below. Same contract as V2.2; v2 swaps `source` to receipt verification (a non-`dummy` source is refused today, so that swap must be a conscious code change). The only legitimate writer to `subscriptions`, via the service-role-only `pace_purchase_tier` RPC — no client-writable INSERT/UPDATE policy exists or was added. Idempotent: `purchased_at` (the period anchor) is written once on first purchase and never moved, so a repurchase cannot reset the quota period. |
+| `POST /functions/v1/purchase-tier` | JWT + gate | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` or `404 not_found` (gate off) / `429 rate_limited` / `400 invalid_tier` / `invalid_source` | **Built, Deno-tested, not deployed (issue #51, 2026-07-13; hardened same day, PR #123)** — see "Current" below. **Gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF, must never be set in production secrets) — deploying without understanding the gate is a release blocker, `docs/status.md` Known Issue #23.** Same contract as V2.2; v2 swaps `source` to receipt verification (a non-`dummy` source is refused today). The only legitimate writer to `subscriptions`, via the service-role-only `pace_purchase_tier` RPC — no client-writable INSERT/UPDATE policy exists, and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`. Idempotent: `purchased_at` (the period anchor) is written once on first purchase and never moved (no caller-suppliable `p_as_of` either), so a repurchase cannot reset the quota period. |
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, not deployed (issue #50, 2026-07-12)** — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, not deployed (issue #57, 2026-07-12)** — see "Current" below. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. |
 | `POST /functions/v1/delete-account` | JWT | — | `{ deleted: true }` | Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. |
@@ -1594,20 +1594,63 @@ to own).
   `supabase start` stack only, present because `supabase init` generates the full default file —
   not evidence of any corresponding hosted configuration.
 
-## Current — `POST /functions/v1/purchase-tier` (issue #51, 2026-07-13)
+## Current — `POST /functions/v1/purchase-tier` (issue #51, 2026-07-13; hardened same day after a security audit on PR #123)
 
 The M5 gate, and the **only legitimate writer to `public.subscriptions`**. Built and Deno-tested
 on `feat/51-purchase-tier`; **not deployed**, and its migration is **written but not applied** —
-same footing `quota-status` (#50) and `analysis` (#57) ship on.
+same footing `quota-status` (#50) and `analysis` (#57) ship on. **Deploying this function is a
+release blocker until the deployment gate below is understood — see `docs/status.md` Known Issue
+#23.**
 
 ```
 POST /functions/v1/purchase-tier   { tier, source: "dummy" }
   -> 200 { tier, periodStart, periodEnd }
+  -> 404 not_found            (PURCHASE_TIER_DUMMY_ENABLED is not "true", or caller not on the
+                                optional allowlist — the SAME body either way, see below)
   -> 400 invalid_tier | invalid_source | invalid_body
-  -> 401 unauthorized        (missing/expired/invalid JWT)
-  -> 405 method_not_allowed  (anything but POST)
+  -> 401 unauthorized         (missing/expired/invalid JWT)
+  -> 405 method_not_allowed   (anything but POST)
+  -> 429 rate_limited         (same user called again within 3s of their own last write)
   -> 500 purchase_unavailable (DB-side failure; never leaks the Postgres error)
 ```
+
+### Deployment gate — the endpoint is a self-service $0 elite grant unless this is on
+
+A 2026-07-13 security audit found this endpoint is a $0 self-grant of the highest paid tier,
+reachable by anyone on the internet, the moment it is deployed to a project with open signup —
+which is this project's current state (`enable_signup = true`, `enable_confirmations = false` in
+`supabase/config.toml`). Full chain: pull the publishable key out of any build (inlined in
+plaintext by design) → sign up with a throwaway address (no human needed, no email round trip) →
+`POST` this endpoint with `tier=elite` → live `reserve_analysis` now grants 30 analyses / 8-frame
+cap instead of free's 1/1 → burn them to trip the shared `ai_ops_config` daily spend cap ($10) →
+every real user's `analyze-form` denied for the rest of the day → repeat with a fresh signup. Cost
+to attacker: $0 — a 30× amplification of the existing daily-cap DoS. The header comment's original
+"TestFlight-only, MUST NOT ship to a public App Store release" warning was a comment, not a
+control, and did nothing to stop any of this the moment the function was deployed at all.
+
+**The fix: `PURCHASE_TIER_DUMMY_ENABLED` must be the exact string `"true"` in the function's
+environment, or every request gets an identical `404` — checked before the HTTP method, before the
+Authorization header, before anything about the request is inspected, so the route is
+indistinguishable from one that doesn't exist.** SQL cannot host this gate (a database serves both
+a TestFlight build and a production build identically; there is no "which build is this" concept
+at that layer), so it lives in `purchase-tier/index.ts`, the only file that reads it. **This
+variable must never be set in production secrets** — `supabase secrets set` should scope it no
+wider than a closed TestFlight tester group. An optional `PURCHASE_TIER_ALLOWED_USER_IDS`
+(comma-separated user ids) narrows eligibility further once the flag is on; a miss gets the exact
+same `404` a disabled flag would, so a prober cannot distinguish "off" from "on but you're not
+listed." Decision logic (`checkDeploymentGate`) lives in `_shared/purchase-tier.ts`, portable and
+unit-tested; only the two `Deno.env.get()` calls live in `index.ts`.
+
+### Basic per-user rate limiting — honestly scoped
+
+A repeat call from the *same* user within 3 seconds of their own last write returns their existing
+state unchanged (`outcome: 'rate_limited'`, mapped to `429`) rather than doing any work — read from
+the existing `updated_at` column, no new state. Said plainly: **this does not mitigate the audit's
+actual amplification vector.** That attack uses one throwaway account per call; a per-user cooldown
+cannot throttle a campaign that never calls this endpoint twice with the same user. The two real
+levers are the deployment gate above (closes the whole vector when off) and CAPTCHA/signup
+throttling (`docs/status.md` Known Issue #12, blocked on Ian). This control's actual job is
+narrower: stopping one compromised or scripted account from hammering the endpoint in a tight loop.
 
 The contract is **deliberately identical to V2.2's** so v2 can swap `source` to real receipt
 verification without changing its shape. No real money moves in v1 — no IAP, no Stripe (real IAP
@@ -1617,7 +1660,7 @@ to be a conscious code change rather than something a client can opt into.
 **Files.** `supabase/functions/purchase-tier/index.ts` (HTTP/auth glue only) ·
 `_shared/purchase-tier.ts` (portable validation + shaping, unit-tested) ·
 `_shared/purchase-tier-client.ts` (Deno/`npm:` service-role client factory) ·
-`_shared/__tests__/purchase-tier.deno.test.ts` (28 tests) ·
+`_shared/__tests__/purchase-tier.deno.test.ts` (37 tests) ·
 `supabase/migrations/20260713120000_purchase_tier_function.sql` (`pace_purchase_tier`). Same
 thin-glue/portable-core split as `quota-status` and `analysis`.
 
@@ -1631,6 +1674,21 @@ pinned `search_path`, EXECUTE revoked from `public`/`anon`/`authenticated` and g
 `service_role`, reachable only by an edge function holding the service-role key. This migration
 adds **no policy and no grant to `authenticated`/`anon`**, and a test asserts on the migration's
 own text that it never grows one.
+
+**Grant-layer hardening (2026-07-13 audit).** `subscriptions` and `profiles` still carried
+Supabase's default `grant all` to `anon`/`authenticated` underneath their RLS policies — no live
+exploit (RLS with no INSERT/UPDATE/DELETE policy already denied those verbs), but TRUNCATE is a
+table-level privilege RLS cannot restrict at all, and the whole point of "no INSERT policy" as a
+control is that it is one accidental `create policy` away from Echo V1's mistake with nothing
+underneath to catch it. This migration revokes INSERT/UPDATE/DELETE/TRUNCATE on both tables from
+`authenticated`/`anon`, mirroring the fix already applied to `consents`
+(`20260712030617_consents_grant_hardening.sql`) and still open for `storage.objects` (issue #100,
+Known Issue #18). Verified safe first, not assumed: the only two writers of either table
+(`pace_purchase_tier`, `handle_new_user()`) are both `security definer` and run as the function
+owner regardless of the invoking role's own grants; `profiles`' `on delete cascade` FK is enforced
+by Postgres's internal referential-integrity trigger (system-level privilege, not the deleting
+session's); and neither table has any client write path in `app/`/`lib/` (`subscriptions`' one
+client reference is a SELECT).
 
 The caller's id comes from the **verified JWT** (`auth.getUser()`, a real round trip), never the
 request body — `parsePurchaseRequest` reads exactly `tier` and `source`, so there is no channel
@@ -1653,6 +1711,14 @@ would open via `pro → elite → pro` tier flapping if a tier change re-anchore
 absent from the UPDATE's SET list. A test parses the migration's UPDATE statement and fails if
 `purchased_at` ever appears in it.
 
+**The anchor is always the real wall-clock `now()` — there is no `p_as_of` parameter (removed
+2026-07-13 audit).** The function originally took an optional `p_as_of timestamptz default now()`,
+mirroring `pace_quota_status`'s own harmless read-only version of the same parameter. Here it was a
+live footgun even though unreachable today (EXECUTE is service-role-only and `purchaseTier()` never
+passed it): a future edge-function edit threading a client-supplied timestamp through to it would
+hand an attacker exactly the re-anchoring exploit described above. Removed entirely rather than
+guarded, so it cannot be reintroduced by accident the way a guard could be loosened by accident.
+
 ### Repurchase / idempotency semantics
 
 Idempotent by construction — no idempotency key, and none is needed: the natural key is the user's
@@ -1667,6 +1733,7 @@ structurally, never returned — the response contract is exactly three fields):
 | `unchanged` | Same tier, already active | Preserved — a true no-op. The repurchase case. |
 | `tier_changed` | Different tier (up or down) | Preserved — an upgrade raises the limit *within the same window*; a downgrade lowers it (`remaining` floors at 0). Neither resets `used`, which is what makes tier flapping worthless as an exploit. |
 | `reactivated` | Same tier, status was `canceled` | Preserved — harmless, because `pace_current_period` derives the window *containing now()* from any anchor however old, so a long-lapsed user lands in a current period with a correctly-zero usage count without the anchor moving. |
+| `rate_limited` | Same user called again within 3s of their own last write | Preserved — no INSERT, no UPDATE at all. Visible to the caller as `429`, unlike the four outcomes above which are all `200`. |
 
 Nothing in v1 writes `canceled` (there is no cancel endpoint yet), but the path is pinned down
 rather than left for whoever adds one to discover. **When real receipt verification replaces

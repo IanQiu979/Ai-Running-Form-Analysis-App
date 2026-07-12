@@ -16,7 +16,7 @@ milestone "done" criteria.
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | **In progress** — the grounded prompt, tier verbosity dial, and structured-output contract landed 2026-07-12 (issue #41, `supabase/functions/_shared/analyze-form-prompt.ts`, 28 Deno tests, **no live model call made**), unblocking M4's #44/#45. The milestone's own gate — "prompt *provably* includes the framework text" — is proven statically today (the three certified files are asserted present **byte-for-byte** in the assembled prompt); proving the *output* references the PACE pillars still needs #42's live-call eval harness. Still open: **#39** (Ian certifies Elasticity + the pillar refinements — the prompt ships his name) and **#40** (the runner's-note guidance in `injury_flags.md`; #41 neutralises it at the prompt layer, but the certified file itself still says "if the note reports…", so #40 stays open for Ian's review). |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. |
-| M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. Every M5 screen (paywall, tier-aware CTAs) remains unbuilt. |
+| M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed — and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. **Hardened 2026-07-13 after a security audit (PR #123): the function is gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — see Known Issue #23, a release blocker.** See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. Every M5 screen (paywall, tier-aware CTAs) remains unbuilt. |
 | M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
 
@@ -399,6 +399,32 @@ milestone "done" criteria.
     that worktree — nothing enforces that whoever builds #56 picks the same name. Whoever builds
     #56 must pick one and, if it's not `result/[id]`, update `app/analyzing.tsx`'s navigation call
     in the same change.
+23. **NEW — RELEASE BLOCKER: `purchase-tier` (issue #51) must never be deployed without its
+    deployment gate switched on deliberately (security audit on PR #123, 2026-07-13).** Built and
+    Deno-tested, **not deployed** (see the M5 row above) — but the audit found that once deployed
+    to this project (open signup: `enable_signup = true`, `enable_confirmations = false`), it is a
+    **$0 self-grant of the highest paid tier, reachable by anyone on the internet**: throwaway
+    signup → `POST /functions/v1/purchase-tier {"tier":"elite","source":"dummy"}` → 30
+    analyses/8-frame cap instead of free's 1/1 → burn them to trip the shared `ai_ops_config` daily
+    spend cap ($10) → every real user's `analyze-form` denied for the rest of the day → repeat with
+    a fresh signup. A 30× amplification of the existing daily-cap DoS, at $0 cost to the attacker.
+    **Fixed in the same PR, not filed separately**: the function now refuses every request with an
+    indistinguishable `404` unless `PURCHASE_TIER_DUMMY_ENABLED` is the exact string `"true"` in
+    its environment — checked before the HTTP method, before auth, before anything about the
+    request. **`PURCHASE_TIER_DUMMY_ENABLED` must NEVER be set in production secrets** — it exists
+    only for a closed TestFlight tester group, narrowed further (optional) by
+    `PURCHASE_TIER_ALLOWED_USER_IDS`, an allowlist of user ids. Whoever runs
+    `supabase functions deploy purchase-tier` / `supabase secrets set` must confirm this flag is
+    absent (or explicitly, deliberately `false`) before any production deploy — **this is a release
+    gate, not a suggestion**. See `docs/architecture.md`'s "Current —
+    `POST /functions/v1/purchase-tier`" section, "Deployment gate" subsection, for the full design.
+    Two smaller companion fixes landed in the same migration: the default Supabase `grant all` to
+    `authenticated`/`anon` on `subscriptions` and `profiles` was revoked (MEDIUM finding — no live
+    exploit since RLS already denied those verbs, but TRUNCATE isn't subject to RLS at all, and
+    this closes the same class of gap `consents` and, still open, `storage.objects`/issue #100 /
+    Known Issue #18 have); and the `pace_purchase_tier` SQL function's optional `p_as_of` parameter
+    (a caller-suppliable period anchor, unreachable today but one careless edit away from being
+    threaded through) was removed entirely rather than merely guarded (LOW finding).
 
 ## Next action
 

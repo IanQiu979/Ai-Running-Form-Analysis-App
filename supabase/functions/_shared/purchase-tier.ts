@@ -7,6 +7,7 @@
  *
  *     POST /functions/v1/purchase-tier   { tier, source: "dummy" }
  *     -> 200 { tier, periodStart, periodEnd }
+ *     -> 429 { error, code: "rate_limited" }   (same user, called again within 3s — see below)
  *
  * Deliberately free of any `npm:`/Deno-only import — same portability discipline as
  * `quota-status.ts`/`ai-guard.ts`/`delete-analysis.ts` — so this orchestration is unit-testable
@@ -37,6 +38,19 @@
  *      rejected, it is simply never consulted; `index.ts` resolves the caller via
  *      `auth.getUser()` (a real round trip to Supabase Auth) and passes that id in. Same rule the
  *      reserve/settle/release RPCs live under.
+ *
+ * DEPLOYMENT GATE (2026-07-13 security audit, issue #51 / PR #123): being built and Deno-tested
+ * does not mean safe to deploy on its own. A security audit found that once this function is
+ * live against a project with open signup (this project's current state), it is a $0 self-grant
+ * of the highest paid tier reachable by anyone on the internet: throwaway signup -> this endpoint
+ * with tier=elite -> live `reserve_analysis` now grants 30 analyses / 8-frame cap instead of
+ * free's 1/1 -> burn them to trip the shared `ai_ops_config` daily spend cap -> every real user's
+ * `analyze-form` denied for the rest of the day -> repeat with a fresh signup. `checkDeploymentGate`
+ * below is the decision logic for refusing that; the actual env var it reads
+ * (`PURCHASE_TIER_DUMMY_ENABLED`) is Deno-only and lives in `index.ts`, which is the only file
+ * that may ever read `Deno.env` for it — see that file's header for the full design (fail-closed
+ * 404 before auth, optional tester allowlist) and for why `PURCHASE_TIER_DUMMY_ENABLED` must
+ * never be set in production secrets.
  */
 
 export type PurchasableTier = 'pro' | 'elite';
@@ -51,11 +65,19 @@ export type PurchasableTier = 'pro' | 'elite';
 export type PurchaseSource = 'dummy';
 
 /**
- * What `pace_purchase_tier` did. Diagnostic only — deliberately NOT part of the response body
- * (see `responseBodyForPurchase`), since the V2.2 contract has three fields and adding a fourth
- * is how a contract stops being identical. Logged structurally by `index.ts` instead.
+ * What `pace_purchase_tier` did. `created`/`unchanged`/`tier_changed`/`reactivated` are
+ * diagnostic only — deliberately NOT part of the success response body (see
+ * `responseBodyForPurchase`), since the V2.2 contract has three fields and adding a fourth is how
+ * a contract stops being identical. Logged structurally by `index.ts` instead.
+ *
+ * `rate_limited` is different: it is NOT a success, and IS visible to the caller — see
+ * `httpStatusForPurchase`/`responseBodyForPurchase` below, which branch on it into a 429 with an
+ * error-shaped body rather than a fabricated 200. It means the same user called this RPC again
+ * within 3 seconds of its own last write; the existing state was returned unchanged. See
+ * `pace_purchase_tier`'s migration header ("SECURITY HARDENING" #4) for the honest scope of what
+ * this control does and does not defend against.
  */
-export type PurchaseOutcome = 'created' | 'unchanged' | 'tier_changed' | 'reactivated';
+export type PurchaseOutcome = 'created' | 'unchanged' | 'tier_changed' | 'reactivated' | 'rate_limited';
 
 export interface PurchaseRequest {
   tier: PurchasableTier;
@@ -199,7 +221,8 @@ export function parsePurchaseTierRow(raw: unknown): PurchaseResult {
     outcome !== 'created' &&
     outcome !== 'unchanged' &&
     outcome !== 'tier_changed' &&
-    outcome !== 'reactivated'
+    outcome !== 'reactivated' &&
+    outcome !== 'rate_limited'
   ) {
     throw new Error(`pace_purchase_tier returned an unrecognized outcome: ${JSON.stringify(row.outcome)}`);
   }
@@ -207,22 +230,76 @@ export function parsePurchaseTierRow(raw: unknown): PurchaseResult {
   return { tier, purchasedAt, periodStart, periodEnd, outcome };
 }
 
-/** This endpoint has exactly one success shape — always 200. A repurchase is a successful no-op,
- * not a 409: the caller asked for a state ("my tier is pro") and that state holds. Kept as a named
- * export for symmetry with `quota-status.ts`'s `httpStatusForQuotaStatus`. */
-export function httpStatusForPurchase(): number {
-  return 200;
+/**
+ * A repurchase is a successful no-op, not a 409: the caller asked for a state ("my tier is pro")
+ * and that state holds — `created`/`unchanged`/`tier_changed`/`reactivated` are all 200. The one
+ * exception is `rate_limited`: that is a refusal, not a state assertion that held, so it maps to
+ * 429 rather than a 200 that would falsely imply the (possibly first, possibly different-tier)
+ * request was honored.
+ */
+export function httpStatusForPurchase(result: PurchaseResult): number {
+  return result.outcome === 'rate_limited' ? 429 : 200;
 }
 
 /**
- * The JSON body for a successful purchase — EXACTLY the three fields V2.2 returns, and no more.
- * `purchasedAt` and `outcome` are deliberately withheld: the contract is meant to stay
- * byte-compatible so v2 can swap `source` to receipt verification without touching any caller.
+ * The JSON body for a purchase response. On any non-rate-limited outcome, EXACTLY the three
+ * fields V2.2 returns, and no more — `purchasedAt` and `outcome` are deliberately withheld: the
+ * contract is meant to stay byte-compatible so v2 can swap `source` to receipt verification
+ * without touching any caller. On `rate_limited`, an error-shaped body matching every other
+ * refusal this endpoint can return (`{ error, code }` — see `index.ts`'s 400/401/500 bodies) —
+ * deliberately NOT the success shape, so a caller cannot mistake a refusal for a granted tier by
+ * only checking the body and not the status code.
  */
 export function responseBodyForPurchase(result: PurchaseResult): Record<string, unknown> {
+  if (result.outcome === 'rate_limited') {
+    return {
+      error: 'Too many purchase requests for this account. Please wait a moment and try again.',
+      code: 'rate_limited',
+    };
+  }
   return {
     tier: result.tier,
     periodStart: result.periodStart,
     periodEnd: result.periodEnd,
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Deployment gate — decision logic only. Reading the actual env vars is Deno-only and lives in
+// `index.ts`; kept here (not there) so the decision itself is unit-testable under Deno/Jest with
+// no `Deno.env` involved, same portability discipline as the rest of this module.
+// ---------------------------------------------------------------------------------------------
+
+export interface DeploymentGateConfig {
+  /** `PURCHASE_TIER_DUMMY_ENABLED === 'true'` — anything else (unset, empty, any other string)
+   * is treated as disabled. Default-off is the point: absent from production secrets means this
+   * whole endpoint refuses every request, indistinguishably from not existing. */
+  enabled: boolean;
+  /** `PURCHASE_TIER_ALLOWED_USER_IDS`, parsed. `null` means unset/empty — no allowlist
+   * restriction, every caller is eligible once `enabled` is true. A non-null array restricts
+   * eligibility to exactly those user ids, checked against the JWT-verified caller id (never
+   * anything from the request body). */
+  allowedUserIds: string[] | null;
+}
+
+export type DeploymentGateDecision = { allowed: true } | { allowed: false; code: 'not_found' };
+
+/**
+ * Decides whether this request may proceed at all, independent of tier/source validation.
+ * `enabled: false` and "not on the allowlist" both map to the SAME `not_found` code — a caller
+ * must not be able to distinguish "the feature is off" from "you specifically aren't allowed" by
+ * comparing responses, which would leak the allowlist's existence and let someone probe for who's
+ * on it. `index.ts` turns `not_found` into a plain 404, indistinguishable from the route simply
+ * not existing — the design goal (security audit, issue #51): deploying this function to a
+ * project with open signup must be a deliberate act, not an accident that's live the moment the
+ * function is pushed.
+ */
+export function checkDeploymentGate(config: DeploymentGateConfig, callerUserId: string): DeploymentGateDecision {
+  if (!config.enabled) {
+    return { allowed: false, code: 'not_found' };
+  }
+  if (config.allowedUserIds !== null && !config.allowedUserIds.includes(callerUserId)) {
+    return { allowed: false, code: 'not_found' };
+  }
+  return { allowed: true };
 }

@@ -29,6 +29,28 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     limits, frame caps, or prices live in this function — `reserve_analysis` remains the sole
     enforcement point, and prices stay display-only in `docs/design/copy-deck.md`.
 
+- **`purchase-tier` hardened same day after a security audit on PR #123** — a HIGH finding: once
+  deployed to this project's open-signup state, the endpoint was a $0 self-grant of the highest
+  paid tier reachable by anyone on the internet (throwaway signup → `tier=elite` → 30 analyses
+  instead of free's 1 → burn quota to trip the shared `ai_ops_config` daily spend cap → every real
+  user's `analyze-form` denied for the rest of the day → repeat). Fixed with a server-side
+  deployment gate, not a comment: the function now returns an indistinguishable `404` for every
+  request unless `PURCHASE_TIER_DUMMY_ENABLED` is exactly `"true"` in its environment — checked
+  before the HTTP method, before auth, before anything about the request is read. **This variable
+  must never be set in production secrets** (`docs/status.md` Known Issue #23, a release blocker),
+  with an optional `PURCHASE_TIER_ALLOWED_USER_IDS` tester allowlist as further defense-in-depth
+  once the gate is on. Also added: basic per-user rate limiting (`rate_limited` outcome, 429 — a
+  repeat call from the same user within 3s of their own last write is a no-op; honestly scoped in
+  the code comments as *not* mitigating the actual amplification vector, which uses one account per
+  call — CAPTCHA/signup throttling, Known Issue #12, is the real lever there). Two MEDIUM/LOW
+  findings closed in the same migration: revoked the default Supabase `grant all` to
+  `authenticated`/`anon` on `subscriptions` and `profiles` (no live exploit — RLS already denied
+  those verbs — but TRUNCATE isn't subject to RLS at all, mirroring the fix already applied to
+  `consents`); and removed `pace_purchase_tier`'s optional `p_as_of` parameter entirely (a
+  caller-suppliable period anchor, unreachable today but one careless edit from reopening the exact
+  re-anchoring exploit the function exists to prevent). 9 new tests (37 total), including
+  mutation-verified migration-text invariants for all three fixes.
+
 ## 2026-07-12
 
 - **M2 capture screens built (issue #36)** — design-brief screens 3-5: source picker, in-app
