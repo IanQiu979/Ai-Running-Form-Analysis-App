@@ -54,16 +54,29 @@ export default function SignInScreen() {
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const isBusy = pendingAction !== null;
 
-  // `corruptedSessionError` (lib/session-provider.tsx) carries a failure from OUTSIDE this
-  // screen's own try/catch entirely: `getSession()`'s initial storage read, which can run
-  // before this screen even mounts (app/_layout.tsx's Stack.Protected only routes here once
-  // `isLoading` flips false). Local `errorMessage` wins if both happen to be set, matching the
-  // same precedence issue #5 established for `deepLinkAuthError` on this same screen.
-  const { corruptedSessionError, clearCorruptedSessionError } = useSession();
-  const displayedError = errorMessage ?? corruptedSessionError;
+  // Two failure channels reach this screen from OUTSIDE its own try/catch, and both have
+  // nowhere else to surface — hence both are carried on the session context:
+  //
+  // - Issue #5: `deepLinkAuthError` — the Linking-listener fallback path, an OAuth redirect that
+  //   arrived as a deep link instead of resolving inside signInWithGoogle's own awaited call
+  //   below (e.g. the browser sheet was dismissed early because the app got backgrounded
+  //   mid-flow).
+  // - Issue #38: `corruptedSessionError` — `getSession()`'s initial storage read discarded a
+  //   stored session it could not decrypt, which can happen before this screen even mounts
+  //   (app/_layout.tsx's Stack.Protected only routes here once `isLoading` flips false).
+  //
+  // Precedence: local `errorMessage` (this attempt, happening now) → `deepLinkAuthError` (this
+  // attempt, arriving by another route) → `corruptedSessionError` (a prior session, already
+  // gone). Newest-and-most-actionable first, so the banner never flickers between two different
+  // messages. Note #5's two channels CAN race on the very same failure — see lib/auth.ts's
+  // in-flight-promise dedupe comment — in which case they carry the same mapped string anyway.
+  const { deepLinkAuthError, clearDeepLinkAuthError, corruptedSessionError, clearCorruptedSessionError } =
+    useSession();
+  const displayedError = errorMessage ?? deepLinkAuthError ?? corruptedSessionError;
 
   function clearErrors() {
     setErrorMessage(null);
+    clearDeepLinkAuthError();
     clearCorruptedSessionError();
   }
 

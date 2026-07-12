@@ -62,6 +62,16 @@ export const Copy = {
       // sign-up pre-check + `password.hint` above, both of which import the same constant)
       // will silently drift from what the server actually enforces.
       passwordTooShort: `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`,
+      // Issue #5. Google sign-in: the provider's redirect itself carried `error=access_denied`
+      // (the user declined on Google's consent screen). Provider-neutral wording — Apple
+      // sign-in (`auth.cta.apple`) reuses the same createSessionFromUrl path once it ships.
+      signInCancelled: 'Sign-in was cancelled.',
+      // Issue #5. Google sign-in: the client-stored PKCE verifier was missing or no longer
+      // matched what the server had on file — see lib/auth-errors.ts's mapAuthError for the
+      // exact error classes/codes this covers. Previously this failure was silently swallowed
+      // (lib/session-provider.tsx's `.catch(() => {})`); the user landed back on sign-in with
+      // no session and no explanation.
+      signInExpired: 'Sign-in expired before it could finish. Try again.',
     },
   },
   home: {
