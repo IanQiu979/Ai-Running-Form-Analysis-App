@@ -10,6 +10,41 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-12-frame-upload-ordering-design.md`
 
+## Execution note (2026-07-12, implemented in worktree `88` / branch `worktree-88`)
+
+This plan was written assuming the implementer could apply the migration to the live project.
+That assumption changed: the implementing agent was explicitly barred from calling
+`apply_migration`/`execute_sql`-writes against `v2.3Analysis` (there is no non-prod environment,
+#92 — any apply hits prod directly), and from doing the GitHub issue reconciliation in Task 4.
+What actually happened, task by task:
+
+- **Task 1**: done, with the timestamp `20260712123606` (not a placeholder — captured via
+  `date -u +%Y%m%d%H%M%S` at authoring time). Steps 1–3 and 5 (write, self-check, commit)
+  completed as written. **Step 4 (apply to the live project) was deliberately skipped** — the
+  file exists at `supabase/migrations/20260712123606_frame_upload_ordering.sql` but has not been
+  applied. The migration's own header comment gained one addition beyond this plan's draft: an
+  explicit note on the overlap with issue #2 (worked concurrently in a sibling worktree), since
+  both migrations touch `reserve_analysis`'s body and the `analyses` DELETE policy.
+- **Task 2 (live verification)**: **not run** — it requires the migration to already be applied,
+  which didn't happen. In its place, read-only pre-checks confirmed the live project
+  (`vputdomdlknvthnzritt`) had exactly the 9 pre-#88 migrations with no drift from this repo
+  before the new migration was authored, and captured the pre-existing grant layer (see the
+  implementer's final report for the TRUNCATE/UPDATE/INSERT/DELETE grant-to-`anon`/`authenticated`
+  finding on `analyses` and `storage.objects` — same class of gap as issue #68, out of scope
+  here, flagged for a follow-up). Task 2's queries are still the right ones to run once someone
+  with authority over the live project applies the migration.
+- **Task 3 (docs)**: done, but adapted from "describe what shipped" to "describe the settled
+  contract, clearly marked as not yet live" — since nothing was actually applied, docs that flatly
+  asserted the new contract was deployed would be false. `docs/architecture.md` gained a new
+  "Pending" section plus inline pending-annotations on the RPC/RLS/media-privacy paragraphs
+  instead of a straight rewrite; `docs/status.md` also gained a new Known Issue (#16) and updates
+  to #14 and the M2 next-action item, beyond what this plan's Task 3 scoped (that scope only
+  listed `docs/architecture.md`, `CLAUDE.md`, `docs/change_log.md`).
+- **Task 4 (GitHub issue reconciliation — closing #7/#8/#35, commenting on #3/#47/#57/#58/#44/#34,
+  closing #88)**: **not done.** Out of the implementing agent's scope; left for Ian or a
+  `github-ops` pass to run once the migration is actually applied and verified (closing issues
+  against an unapplied migration would be premature).
+
 ## Global Constraints
 
 - **The invariant, both directions:** no object exists in the bucket unless an `analyses` row already points at it; no row can be destroyed while its objects survive.
