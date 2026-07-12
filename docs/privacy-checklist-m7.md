@@ -45,6 +45,13 @@ crash or analytics SDK (e.g. Sentry) is ever added to this app, it MUST be confi
 outbound request URL (which carries the 5-char prefix) becomes a durable, identity-linked
 fingerprint of the user's password sitting in crash-report breadcrumbs tied to their account.
 
+**The HIBP canary collects no user data.** `.github/workflows/hibp-canary.yml` runs
+`lib/__tests__/hibp.canary.test.ts` daily against the live Pwned Passwords range API. The only
+two strings it ever hashes are the public test vector `password` and a fresh random UUID. It
+runs on a GitHub runner, not on a user's device; it transmits nothing about any user; and it
+adds no SDK to the app bundle. It therefore does **not** change any App Store privacy-label
+answer, and "No, we do not track users" remains correct.
+
 ## App Store privacy labels (collected, linked to identity, app functionality, no tracking)
 
 - Contact Info → Email address
