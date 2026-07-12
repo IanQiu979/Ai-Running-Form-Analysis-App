@@ -12,7 +12,7 @@ milestone "done" criteria.
 | M1 — Foundation (sign-up creates an account → empty Home) | **Done 2026-07-11** — security audit (no Critical/High) + code review (5 findings fixed), gate passed with Ian's on-phone sign-up test; merged via PR from `feat/m1-spine` |
 | M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Not started |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files exist; Elasticity pending Ian's certification |
-| M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12, written but not yet applied to the live project (blocked on issue #92). See Known Issue #16. |
+| M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
 | M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
@@ -86,11 +86,15 @@ milestone "done" criteria.
   (`ai_ops_config` / `ai_model_pricing` / `ai_call_log` tables + `gate_ai_call` /
   `record_ai_call` / `ai_breaker_state` / `ai_spend_today` RPCs, all `service_role`-only) and a
   Jest-tested TypeScript interface (`supabase/functions/_shared/ai-pricing.ts`, `ai-guard.ts`,
-  `ai-guard-client.ts`). **Written, not yet applied to the live project** — this repo has no
-  non-production Supabase environment (issue #92), so the migrations wait for either that or
-  Ian applying them directly. Full detail: `docs/architecture.md`'s "Current — AI spend
-  guardrails substrate" section. **Still open, and not something this work could do from the
-  repo: the hard spend ceiling in the Anthropic Console** — see Known Issue #17.
+  `ai-guard-client.ts`). **Applied to the live project 2026-07-12** (`supabase db push`,
+  alongside #88's and #2's migrations) and verified: all three `ai_*` tables exist,
+  `authenticated` can SELECT none of them and cannot EXECUTE `gate_ai_call` (service-role only,
+  as designed), and the security advisors show only three INFO-level `rls_enabled_no_policy`
+  notices, one per `ai_*` table — intentional (RLS on, zero policies, `revoke all` = deny-by-
+  default for operator-only tables), not a gap to fix. Full detail: `docs/architecture.md`'s
+  "Current — AI spend guardrails substrate" section. **Still open, and not something this work
+  could do from the repo: the hard spend ceiling in the Anthropic Console** — see Known Issue
+  #17.
 - Full dated history: [`docs/change_log.md`](change_log.md).
 
 ## Known issues
@@ -200,7 +204,7 @@ milestone "done" criteria.
       idempotent request after a withdrawal could either be refused or return the existing
       settled row as-is — see `docs/architecture.md`'s consent step for both readings; the
       answer likely tracks whatever the delete/purge path (#57, #58) already does to that row.
-    - **Settled by #88, 2026-07-12 (migration written, not yet applied — see Known Issue #16):**
+    - **Settled by #88, applied and verified live 2026-07-12 (see Known Issue #16):**
       the request body carries **no `mediaPaths`**. `reserve_analysis` is 4 args (no
       `p_media_paths`); `settle_analysis` is 5 (it takes them, guarded to `{p_user_id}/
       {p_analysis_id}/`). Order is reserve → model call → **on success/honest-partial only**,
@@ -242,43 +246,49 @@ milestone "done" criteria.
     information (s6D(4)(b)) — an app producing injury-risk assessments plausibly qualifies, which
     would make this a full APP entity regardless of size (APP 8 overseas disclosure + a
     complaints process). See `docs/privacy-checklist-m7.md`.
-16. **NEW — frame-upload ordering fixed at the contract level; migration written but NOT applied
-    to the live project (issue #88, 2026-07-12).** The old contract was unbuildable
-    (`{user_id}/{analysis_id}/` needed an id that didn't exist yet when the client had to name
-    it) and leaking (every rejected `reserve_analysis` call — over-quota, frame-cap, anti-farming
-    — left already-uploaded body-image frames in the private bucket with no row ever created to
-    point at them, undeletable forever). Fixed at the contract level: the upload moves
-    server-side, into `analyze-form`, after `reserve_analysis` has already minted the row, so no
-    object can exist before the row that owns it — see `docs/superpowers/specs/
+16. ~~**Frame-upload ordering fixed at the contract level; migration written but NOT applied to
+    the live project (issue #88).**~~ **APPLIED and verified live 2026-07-12.** The old contract
+    was unbuildable (`{user_id}/{analysis_id}/` needed an id that didn't exist yet when the
+    client had to name it) and leaking (every rejected `reserve_analysis` call — over-quota,
+    frame-cap, anti-farming — left already-uploaded body-image frames in the private bucket with
+    no row ever created to point at them, undeletable forever). Fixed at the contract level: the
+    upload moves server-side, into `analyze-form`, after `reserve_analysis` has already minted
+    the row, so no object can exist before the row that owns it — see `docs/superpowers/specs/
     2026-07-12-frame-upload-ordering-design.md` for the full design and
     `supabase/migrations/20260712123606_frame_upload_ordering.sql` for the migration.
-    - **NOT applied to `v2.3Analysis` (live).** There is no non-production Supabase environment
-      (issue #92), so applying a migration hits prod directly, and the worktree this was built in
-      was explicitly barred from doing that. The file is a real, reviewed migration — it just
-      needs someone with authority over the live project to apply it (`supabase db push` or the
-      `apply_migration` MCP tool) and then run the live-verification queries in
-      `docs/superpowers/plans/2026-07-12-frame-upload-ordering.md`'s Task 2.
-    - **Overlapped issue #2 — RESOLVED, no manual merge needed.** #2 shipped as
-      `20260712040000_analyses_quota_soft_delete.sql` (soft-delete + redact), which deliberately
-      does **not** touch `reserve_analysis` — quota still counts live rows by `status`, and a
-      soft-deleted row keeps counting. So there is no competing `create or replace` of that
-      function and no risk of one migration silently overwriting the other's body. (An
-      append-only-ledger alternative for #2 *would* have rewritten `reserve_analysis` and
-      collided head-on here; it was rejected for exactly that reason.) Both fixes independently
-      drop the client `DELETE` policy on `public.analyses`, and both use `drop policy if exists`,
-      so whichever applies second is a safe no-op. Apply in timestamp order and nothing special
-      is required.
-    - Closes #8 (namespace guard in `settle_analysis`) and #7 (client loses storage `INSERT`
-      entirely) once applied. Re-scopes #35 (no direct-to-bucket upload left to build). Adds a
-      requirement to #47 (the stale-`reserved` sweep must also purge the storage prefix, not just
-      flip the row's status) and to #57 (now a hard prerequisite for any user-facing delete, since
-      the client's row `DELETE` is also gone).
-17. **NEW — AI spend guardrail contract for #44, and one manual step still open (issue #91,
-    2026-07-12).** The substrate ("Done so far" above) is written; two things are not:
-    - **The migrations are not applied to the live project.** `supabase db push` (or Ian applying
-      them directly) is a prerequisite for #44, since `analyze-form` cannot call
-      `gate_ai_call`/`record_ai_call` if they don't exist yet. Blocked on issue #92 (no
-      non-production Supabase environment) for who gets to run that command safely.
+    - **Applied to `v2.3Analysis` (live) via `supabase db push` on 2026-07-12**, alongside #2's
+      and #91's migrations, and verified: `reserve_analysis` is now 4 args (`p_media_paths`
+      dropped), `settle_analysis` is now 5 (gained it, namespace-guarded); `storage.objects` has
+      zero INSERT and zero DELETE policies, only the owner-scoped SELECT; `public.analyses`'s
+      client-facing DELETE policy is gone. Security advisors: zero warnings, zero errors.
+    - **Overlapped issue #2 — RESOLVED, composed cleanly, no manual merge needed.** #2 shipped as
+      `20260712040000_analyses_quota_soft_delete.sql` (soft-delete + redact, plus `revoke all` +
+      a narrow `grant select`/`grant update (deleted_at)` on `public.analyses`), which
+      deliberately does **not** touch `reserve_analysis` — quota still counts live rows by
+      `status`, and a soft-deleted row keeps counting. So there was no competing
+      `create or replace` of that function and no risk of one migration silently overwriting the
+      other's body. (An append-only-ledger alternative for #2 *would* have rewritten
+      `reserve_analysis` and collided head-on here; it was rejected for exactly that reason.)
+      Both fixes independently dropped the client `DELETE` policy on `public.analyses`, both
+      using `drop policy if exists` — confirmed live: the push log shows #88's statement emitting
+      `NOTICE: policy "Users can delete their own analyses" ... does not exist, skipping`,
+      exactly the predicted safe no-op, since #2 (earlier timestamp) had already dropped it. The
+      two migrations composed cleanly, exactly as designed.
+    - **Closes #8** (namespace guard in `settle_analysis` — live) **and #7** (client loses
+      storage `INSERT` at the RLS-policy level — live, though see the grant-level caveat in
+      Known Issue #18 below). **Re-scopes #35** (no direct-to-bucket upload left to build). This
+      issue's remaining scope is now just its two follow-ups, neither built yet: **#47** (the
+      stale-`reserved` sweep must also purge the storage prefix, not just flip the row's status)
+      and **#57** (`DELETE /functions/v1/analysis/:id` is now a hard prerequisite for any
+      user-facing delete, since the client's row `DELETE` is also gone).
+17. **AI spend guardrail contract for #44 — migrations applied and verified; one manual step
+    still open (issue #91, 2026-07-12).** The substrate ("Done so far" above) is live:
+    - **Applied to the live project 2026-07-12** (`supabase db push`, alongside #2's and #88's
+      migrations). `ai_ops_config`, `ai_model_pricing`, and `ai_call_log` all exist;
+      `authenticated` can SELECT none of them and cannot EXECUTE `gate_ai_call` — service-role
+      only, exactly as designed. `analyze-form` (#44, still Not Started) can call
+      `gate_ai_call`/`record_ai_call` the moment it's built — nothing further is needed at the
+      DB layer first.
     - **`analyze-form` (#44) MUST call `gateAiCall()` before every Anthropic request and
       `recordAiCall()` on every exit path after**, per the call-ordering contract in
       `docs/architecture.md`'s "Current — AI spend guardrails substrate" section (gate runs
@@ -297,6 +307,19 @@ milestone "done" criteria.
     - Out of scope for #91, unaffected by it: a monthly cap (the Anthropic Console limit above
       already is one — a second one here would be duplicated state that can drift) and CAPTCHA/
       signup rate limiting (Known Issue #12, still blocked on Ian).
+18. **NEW — `storage.objects` table-level `GRANT INSERT`/`GRANT DELETE` to `authenticated` were
+    never revoked (issue #100, found during 2026-07-12 verification of #88's push).** Narrower
+    than the issue as originally filed: it's `storage.objects` specifically — a table shared
+    across every bucket this project might ever add, not just `media` — not a general grants
+    sweep. #88 dropped the client's INSERT and DELETE **policies** on `storage.objects`, which is
+    what actually blocks the client today (RLS default-denies with no policy permitting either
+    statement) — but unlike `public.analyses` (which #2's migration hardened with `revoke all` +
+    a narrow re-grant), #88 never touched `storage.objects`'s table-level grants, because
+    dropping the policies was its whole fix and it never claimed to touch privileges. So the
+    client is blocked by the *absence of a policy*, not by *lacking the privilege* — no defense
+    in depth if a future migration ever adds a policy back carelessly, or if RLS is ever disabled
+    on this table by mistake. Fix (not yet done): `revoke insert, delete on storage.objects from
+    authenticated;`, mirroring #2's pattern.
 
 ## Next action
 
@@ -321,5 +344,6 @@ into `planning/*` and `docs/architecture.md`. Immediate:
    the capture/pick screens, per `docs/mvp-build-prompt.md`'s Phase 2. Also due at/around M2: the
    SecureStore session-storage move (#13). Neither #10 (runner's note, resolved) nor #12
    (CAPTCHA) nor #14 (Phase 4 contract notes) block M2 — #12 blocks M4 going live, #14 is scoped
-   to the M4 build itself. **#16's migration must be applied to the live project before M2/M4
-   code is written against the old contract.**
+   to the M4 build itself. **#16's migration is applied and verified live as of 2026-07-12** —
+   M2/M4 code should be written straight against the new (`no mediaPaths`, server-side upload)
+   contract; there is no old contract left to accidentally target.

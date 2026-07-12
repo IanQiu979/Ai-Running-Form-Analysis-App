@@ -66,11 +66,14 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
   service-role key, only after the model call succeeds, so a rejected or failed analysis leaves
   nothing behind (#88). Client RLS on the bucket is **select-only** (for signed URLs); purge is
   server-side and deletes by the `{user_id}/{analysis_id}/` prefix, never by the row's
-  `media_paths` list. This is the settled contract to build `lib/frames.ts` (#34) and
-  `analyze-form` (#44) against — as of 2026-07-12 the migration that makes it true
-  (`supabase/migrations/20260712123606_frame_upload_ordering.sql`) is written but **not yet
-  applied to the live project** (no non-prod environment exists, #92); see `docs/status.md`
-  Known Issue #16 before assuming it's live.
+  `media_paths` list. This is the settled contract `lib/frames.ts` (#34) and `analyze-form`
+  (#44) are built against, and as of 2026-07-12 it is **live**: the migration
+  (`supabase/migrations/20260712123606_frame_upload_ordering.sql`) was applied to the production
+  project via `supabase db push` and verified — `storage.objects` carries zero INSERT and zero
+  DELETE policies, only the owner-scoped SELECT. One gap remains: the bucket's table-level
+  `GRANT INSERT`/`GRANT DELETE` to `authenticated` were never revoked, so the client is blocked
+  only by the missing RLS policy, not by privilege — no defense in depth. See `docs/status.md`
+  Known Issue #18 (issue #100).
 
 ## Git etiquette
 

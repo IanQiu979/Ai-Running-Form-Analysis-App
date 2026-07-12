@@ -64,10 +64,9 @@ supabase/
                           # #91) — the AI spend gate `analyze-form` (#44) will be forced through;
                           # see "Current — AI spend guardrails substrate" below. Still no
                           # edge function itself (no Deno.serve entrypoint anywhere yet).
-  migrations/               # applied-live migrations (see "Current — DB schema" below) plus 2
-                          # WRITTEN-NOT-APPLIED migrations for issue #91's guardrails, blocked
-                          # on issue #92 (no non-prod environment) — see "Current — AI spend
-                          # guardrails substrate" below
+  migrations/               # 13 migrations, all applied live as of 2026-07-12 (see "Current —
+                          # DB schema" below) — including #2 (quota soft-delete), #88
+                          # (frame-upload ordering), and #91's guardrails
 ```
 
 The template's `(tabs)/explore.tsx` and `modal.tsx` are deleted, not left as dead scaffolding.
@@ -480,10 +479,10 @@ function was told to upload media it never receives).
   client is suspended before it receives the response — the next launch surfaces "Your analysis
   finished — see Past Analyses," so no one reports a stolen credit.
 
-**As of 2026-07-12, this section describes the target contract, not yet the live one** — the
-migration that makes it true (`20260712123606_frame_upload_ordering.sql`) is written but not yet
-applied to the live project; see "Current — DB schema" below and `docs/status.md` Known Issue
-#16.
+**As of 2026-07-12, this section describes the live contract, not just the target one** — the
+migration that makes it true (`20260712123606_frame_upload_ordering.sql`) was applied to the
+live project the same day and verified; see "Current — frame-upload ordering fix (#88)" and
+"Current — DB schema" below, and `docs/status.md` Known Issue #16.
 
 **Elite comparison** (decided, kept minimal): a client-side view of two already-stored
 `analyses` rows side by side with per-pillar score deltas. It reads two rows the user already
@@ -495,10 +494,11 @@ burn, no extra storage, no new edge function or API route.
 None of these edge functions exist yet — `supabase/functions/` has the `.env.example`
 placeholder and, as of 2026-07-12 (issue #91), the `_shared/ai-guard*.ts` spend-gate substrate,
 but no `analyze-form/index.ts` and no `Deno.serve` entrypoint of any kind. `analyze-form`'s core
-dependencies are already live/written, though: the reserve/settle/release quota RPC family (live
-— see "Current — DB schema" below), the AI spend gate (written, not yet applied — see "Current —
-AI spend guardrails substrate" above), and the M1-review contract notes in `docs/status.md`
-Known Issue #14. Read all three before building it.
+dependencies are already live, though: the reserve/settle/release quota RPC family (live — see
+"Current — DB schema" below) and the AI spend gate (live — see "Current — AI spend guardrails
+substrate" above) are both applied and verified against the live database; only the edge
+function code that calls them remains unbuilt. Also read the M1-review contract notes in
+`docs/status.md` Known Issue #14 before building it.
 
 The client never talks to Postgres for privileged operations — those go through edge
 functions. Plain reads of the caller's own rows go through the Supabase client, protected by
@@ -521,34 +521,52 @@ Direct Supabase-client reads (RLS-guarded, `user_id = auth.uid()`): list own `an
 own `subscriptions`; read own frames from the private bucket via short-TTL signed URLs. Inserts
 into `analyses` happen only inside `analyze-form`.
 
-## Pending — frame-upload ordering fix (#88), migration written but NOT applied
+## Current — frame-upload ordering fix (#88), applied and verified 2026-07-12
 
-`supabase/migrations/20260712123606_frame_upload_ordering.sql` exists in the repo and changes
-`reserve_analysis`/`settle_analysis`'s signatures and three RLS policies (see below), but **it
-has not been applied to the live project**. There is no non-production Supabase environment
-(#92), so applying it goes straight to prod; the worktree this was authored in was explicitly
-scoped to write the migration file only. The "Current — DB schema" section below still describes
-what is actually live today (the pre-#88 contract) — do not treat the "Planned" sections above,
-which already describe the post-#88 contract, as deployed until this migration is applied and
-verified (`docs/superpowers/plans/2026-07-12-frame-upload-ordering.md` Task 2 has the exact
-queries).
+`supabase/migrations/20260712123606_frame_upload_ordering.sql` changes `reserve_analysis`/
+`settle_analysis`'s signatures and three RLS policies (see below), and **it is now live** —
+applied to `v2.3Analysis` via `supabase db push` on 2026-07-12, alongside #2's and #91's
+migrations, and verified against the live database. The "Planned" sections above (media
+pipeline, the `analyze-form` API contract) describe this post-#88 contract, and it is now what's
+actually deployed, not just designed.
 
-**Also overlaps issue #2** (free quota resettable via client `DELETE` on `analyses`), being
-worked concurrently in a sibling worktree. Both want the `analyses` DELETE policy gone; #2 may
-additionally rewrite `reserve_analysis`'s quota-counting query, which this migration's
-`create or replace function public.reserve_analysis(...)` would silently overwrite if applied
-after #2's without merging the two function bodies by hand first. See the migration file's own
-header comment and `docs/status.md` Known Issue #16 for the full note.
+**Verified live**: `reserve_analysis` is the new 4-arg signature (`p_media_paths` dropped);
+`settle_analysis` is the new 5-arg signature (namespace-guarded `p_media_paths`). `storage.
+objects` has zero INSERT policies and zero DELETE policies — only the owner-scoped SELECT
+remains. `public.analyses`'s client-facing DELETE policy is gone. Security advisors: zero
+warnings, zero errors.
+
+**Overlapped issue #2** (free quota resettable via client `DELETE` on `analyses`), applied in
+the same push. Both migrations wanted the `analyses` DELETE policy gone; #2 (earlier timestamp)
+dropped it first, so #88's `drop policy if exists` on the same policy was a safe no-op — the
+push log shows exactly that: `NOTICE: policy "Users can delete their own analyses" ... does not
+exist, skipping`. #2 never touches `reserve_analysis`'s body, so there was no risk of one
+migration's `create or replace function` silently overwriting the other's — the two composed
+cleanly, exactly as designed. See the migration file's own header comment and `docs/status.md`
+Known Issue #16 for the full note.
+
+**One gap this migration did not close**: it drops `storage.objects`'s client-facing INSERT/
+DELETE *policies*, but never revokes the table-level `GRANT INSERT`/`GRANT DELETE` to
+`authenticated` that the bucket-creation migration left in place — unlike `public.analyses`,
+which #2's migration hardened with an explicit `revoke all` + narrow re-grant. The client is
+blocked today only because RLS has no policy permitting either statement, not because the
+privilege itself is gone — no defense in depth. Tracked as issue #100 (narrower than originally
+filed: `storage.objects` specifically, shared across every bucket). See `docs/status.md` Known
+Issue #18.
 
 ## Current — DB schema (LIVE, applied 2026-07-11 – 2026-07-12)
 
-The live Supabase project (`v2.3Analysis`) has **9 migrations applied** (`supabase db push`,
+The live Supabase project (`v2.3Analysis`) has **13 migrations applied** (`supabase db push`,
 security advisors clean) — this is the as-built schema, not the draft in `planning/03` (which
 drifted on a few points, noted inline below; `planning/03` and `planning/02` should be treated
 as the design intent, this section as ground truth for what's actually deployed). The first 7
 landed with M1 on 2026-07-11; the 8th and 9th, `consents` and `consents_grant_hardening` (issue
-#68), landed 2026-07-12 — see "Current — consent record & disclaimer" above. **A 10th migration
-(#88) is written but not yet applied — see "Pending" just above.**
+#68), landed 2026-07-12 — see "Current — consent record & disclaimer" above. **The 10th–13th —
+`analyses_quota_soft_delete` (#2), `frame_upload_ordering` (#88), and `ai_spend_guardrails` +
+`ai_spend_guardrail_functions` (#91) — were all applied together via `supabase db push` on
+2026-07-12** and verified against the live database; see "Current — frame-upload ordering fix
+(#88)" above and "Current — AI spend guardrails substrate" below (both formerly
+"Pending"/written-not-applied, now genuinely live).
 
 ```sql
 -- public.profiles: one row per auth.users row, auto-created by an AFTER INSERT trigger
@@ -581,6 +599,10 @@ analyses       (id uuid pk default gen_random_uuid(),
                 is_fallback boolean not null default false,
                 idempotency_key text not null,             -- UNIQUE (user_id, idempotency_key)
                 release_reason text,                        -- e.g. 'validation_failed' — observability only
+                deleted_at timestamptz,                    -- null = not deleted (issue #2); a
+                                                            -- client soft-delete sets this AND
+                                                            -- redacts result/media_paths, see
+                                                            -- the RLS note below
                 created_at, delivered_at, released_at, updated_at)
 -- indexes: (user_id, created_at desc) for "list my analyses"; (user_id, status, created_at)
 -- for the quota-window counts the RPCs below run.
@@ -602,15 +624,15 @@ consents       (id uuid pk default gen_random_uuid(),
 sole enforcement point.** All three are `SECURITY DEFINER`, `EXECUTE` revoked from
 `public`/`anon`/`authenticated` and granted only to `service_role` — so only a future edge
 function calling with the service-role key can invoke them, never the client directly.
-**Signatures below are what's live today; #88's migration (written, not yet applied — see
-"Pending" above) changes `reserve_analysis` to 4 args (drops `p_media_paths`) and
-`settle_analysis` to 5 (gains it, with a `{p_user_id}/{p_analysis_id}/` namespace guard) once
-applied.**
+**Signatures below reflect #88's migration, applied and verified live 2026-07-12**:
+`reserve_analysis` is 4 args (`p_media_paths` dropped), `settle_analysis` is 5 (gained it, with
+a `{p_user_id}/{p_analysis_id}/` namespace guard).
 
-- **`reserve_analysis(p_user_id, p_idempotency_key, p_media_type, p_frame_count, p_media_paths)`**
-  — the sole write path for new `analyses` rows. Serializes concurrent calls for one user via
-  `pg_advisory_xact_lock(hashtext(p_user_id || ':analysis_reserve'))` (a bare
-  count-then-insert does not close the race on its own — see the migration's own comment for
+- **`reserve_analysis(p_user_id, p_idempotency_key, p_media_type, p_frame_count)`**
+  — the sole write path for new `analyses` rows (4 args as of #88 — the row is minted with an
+  empty `media_paths`, which `settle_analysis` fills in after the upload). Serializes concurrent
+  calls for one user via `pg_advisory_xact_lock(hashtext(p_user_id || ':analysis_reserve'))` (a
+  bare count-then-insert does not close the race on its own — see the migration's own comment for
   why); `UNIQUE (user_id, idempotency_key)` is a second, unconditional backstop against a lock-
   hash collision. An existing row for `(user_id, idempotency_key)` is returned as-is, **whatever
   its status** — a caller MUST branch on the returned `status`, not just `allowed` (a replayed
@@ -622,10 +644,15 @@ applied.**
   but does count here, since failures/fallbacks don't cost quota and would otherwise be a free
   retry farm), then the quota limit itself (Free 1 **lifetime**, count of all
   `'reserved'`/`'delivered'` rows ever; Pro 10 / Elite 30 **per current period**, via
-  `pace_current_period` below — Free does not reuse the period logic, a separate branch).
-- **`settle_analysis(p_user_id, p_analysis_id, p_result, p_is_fallback)`** — marks a `'reserved'`
-  row `'delivered'` with its result; guarded to only affect a still-`'reserved'` row, so a
-  duplicate/late call is a safe no-op rather than overwriting an already-delivered result.
+  `pace_current_period` below — Free does not reuse the period logic, a separate branch). This
+  counting query is **unaffected by #2's soft-delete** (below) — it never filters on
+  `deleted_at`, so a soft-deleted row keeps counting exactly as before.
+- **`settle_analysis(p_user_id, p_analysis_id, p_result, p_is_fallback, p_media_paths)`** — marks
+  a `'reserved'` row `'delivered'` with its result and the frame paths that actually landed (5
+  args as of #88 — every path must sit under the row's own `{p_user_id}/{p_analysis_id}/`
+  namespace, or the whole call is rejected with `invalid_media_path`); guarded to only affect a
+  still-`'reserved'` row, so a duplicate/late call is a safe no-op rather than overwriting an
+  already-delivered result.
 - **`release_analysis(p_user_id, p_analysis_id, p_reason)`** — the compensating release: a
   `'reserved'` row that never gets settled (the vision call errored after its one retry, or the
   response was a clean failure) moves to `'released'` so it stops counting toward quota, while
@@ -643,36 +670,54 @@ applied.**
 fix, InitPlan-evaluated once per statement instead of once per row, applied in the 7th
 migration; behavior is identical to bare `auth.uid()`): `profiles` and `subscriptions` are
 select-own only (no client insert/update/delete — writes are trigger- or future-service-role-
-only). `analyses` is select-own **and delete-own** (direct client `DELETE` is allowed by RLS as
-a fallback path; the planned `DELETE /functions/v1/analysis/:id` edge function is still
-preferred so the row and its Storage objects can't get out of sync) — no client insert/update,
-since rows are written only by the RPCs above. `consents` is select-own and **insert-own only** —
-deliberately **no UPDATE and no DELETE policy for anyone**, which is what makes the log
-append-only (RLS default-denies whatever it has no policy for).
-**The `analyses` delete-own policy above is what #88's migration drops** (a client-side row
-delete would strand that row's frames now that the client's storage `DELETE` is also going away
-— see "Pending" above); it also happens to be the exact policy issue #2 needs gone, for a
-different reason (deleting a row currently resets the free-tier lifetime quota count).
+only). `consents` is select-own and **insert-own only** — deliberately **no UPDATE and no DELETE
+policy for anyone**, which is what makes the log append-only (RLS default-denies whatever it has
+no policy for).
+
+`analyses`'s RLS **changed live on 2026-07-12** (issues #2 and #88, applied together): the
+client-facing DELETE policy is gone. The two policies that remain are select-own ("Users can
+view their own analyses") and a column-and-transition-restricted soft-delete UPDATE policy
+("Users can soft-delete their own analyses", #2) — its `USING` clause matches only the caller's
+own, not-yet-deleted rows, and its `WITH CHECK` allows only the `deleted_at: null → now()`
+transition, so a soft-deleted row becomes permanently immutable to the client from that point
+on; a trigger also redacts `result` and `media_paths` to null/empty on that same transition,
+keeping only what `reserve_analysis`'s counting depends on. Underneath the policies, #2's
+migration also closed the privilege layer: `revoke all on public.analyses from authenticated,
+anon`, then `grant select on public.analyses to authenticated` and `grant update (deleted_at) on
+public.analyses to authenticated` — verified live via `has_table_privilege`: `authenticated` can
+no longer INSERT, DELETE, or TRUNCATE this table at all, and the one column it can UPDATE is
+`deleted_at`. `anon` gets nothing on this table, as before.
 
 **Media privacy, as deployed**: the private `media` bucket (5MB/object cap, `image/jpeg` only)
-has owner-scoped `storage.objects` RLS for insert/select/delete — first path segment must equal
-`(select auth.uid())::text` — and deliberately **no UPDATE policy** (frames are write-once or
-deleted, never edited in place). Photos/videos of people are sensitive; only the analyzed
-frames (never the original video) are ever uploaded. No public URLs — access is via signed URLs
-or authenticated reads only.
-**#88's migration drops the insert and delete policies here too** (server uploads with
-service-role, which bypasses RLS; purge belongs to #57/#58) — once applied, this bucket is
-select-own only from the client's side.
+originally had owner-scoped `storage.objects` RLS for insert/select/delete — first path segment
+must equal `(select auth.uid())::text` — and deliberately **no UPDATE policy** (frames are
+write-once or deleted, never edited in place). Photos/videos of people are sensitive; only the
+analyzed frames (never the original video) are ever uploaded. No public URLs — access is via
+signed URLs or authenticated reads only.
+**#88's migration dropped the insert and delete policies here, applied and verified live
+2026-07-12**: RLS is enabled with zero INSERT policies and zero DELETE policies — only the
+owner-scoped SELECT remains, so the bucket is select-only from the client's side (server uploads
+with service-role, which bypasses RLS; purge belongs to #57/#58). **One gap this did not
+close**: `storage.objects`'s table-level `GRANT INSERT`/`GRANT DELETE` to `authenticated` were
+never revoked (unlike `public.analyses` above) — the client is blocked only because RLS has no
+policy permitting either statement, not because the privilege is gone. No defense in depth if a
+policy is ever carelessly re-added, or RLS disabled on this table. Tracked as issue #100 — see
+`docs/status.md` Known Issue #18.
 
 ## Current — AI spend guardrails substrate (issue #91, 2026-07-12)
 
-**Migration files WRITTEN, deliberately NOT applied to the live project** — this repo has no
-non-production Supabase environment (issue #92), and applying schema/writing data to the hosted
-project from an agent worktree is out of scope for this change. The two migrations below
-(`20260712210000_ai_spend_guardrails.sql`, `20260712210100_ai_spend_guardrail_functions.sql`)
-are ready for `supabase db push` whenever that constraint is resolved or Ian applies them
-directly; until then this section describes designed-and-written behavior, not deployed
-behavior — contrast with "Current — DB schema" above, which is genuinely live.
+**Migrations applied to the live project 2026-07-12** (`supabase db push`, alongside #2's and
+#88's migrations) and verified: `ai_ops_config`, `ai_model_pricing`, and `ai_call_log` all
+exist; `authenticated` can SELECT none of them and cannot EXECUTE `gate_ai_call`,
+`record_ai_call`, `ai_breaker_state`, or `ai_spend_today` — service-role only, exactly as
+designed. The two migrations below (`20260712210000_ai_spend_guardrails.sql`,
+`20260712210100_ai_spend_guardrail_functions.sql`) are genuinely deployed, not just written —
+this section describes live behavior, the same footing as "Current — DB schema" above.
+
+The security advisors show three INFO-level `rls_enabled_no_policy` notices, one per `ai_*`
+table — this is **intentional**, not a gap: RLS enabled + zero policies + `revoke all` from
+`anon`/`authenticated` is deny-by-default for tables only `service_role` should ever touch. Do
+not "fix" this by adding a policy.
 
 Design spec: `docs/superpowers/specs/2026-07-12-ai-spend-guardrails-design.md`. Built because
 issue #48 established account creation on this project is currently unbounded (no signup rate

@@ -460,6 +460,54 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     "never run through sharp or worsening pain" sentence, among other changes). The shipped
     string, `result.disclaimer.footer`, is sourced verbatim from `knowledge/pace_framework.md`
     instead.
+- **The four pending migrations above were applied to the live project and verified — the
+  "written but not yet applied" state recorded earlier in today's entries is over.** Ian ran
+  `supabase db push` against `v2.3Analysis` (ref `vputdomdlknvthnzritt`), landing
+  `20260712040000_analyses_quota_soft_delete.sql` (#2), `20260712123606_frame_upload_ordering.sql`
+  (#88), `20260712210000_ai_spend_guardrails.sql` and `20260712210100_ai_spend_guardrail_
+  functions.sql` (#91) in one push — 13 migrations total now live, up from 9. Low-risk timing:
+  the database is essentially empty (2 auth users, 2 profiles, 0 analyses, 0 consents, 0
+  subscriptions, 0 storage objects), which is exactly the situation issue #92 (no non-production
+  Supabase environment) predicted this project would stay in until a real feature starts writing
+  rows.
+  - **`analyses`, verified**: the client-facing DELETE policy is gone; the two remaining
+    policies are "Users can view their own analyses" (SELECT) and "Users can soft-delete their
+    own analyses" (UPDATE, #2). `has_table_privilege` confirms DELETE, INSERT, and TRUNCATE are
+    all revoked for `anon` and `authenticated`; SELECT is retained; UPDATE is column-scoped to
+    `deleted_at` only. The `deleted_at` column exists.
+  - **RPC signatures, verified**: `reserve_analysis` is the new 4-arg form (`p_media_paths`
+    dropped); `settle_analysis` is the new 5-arg form (namespace-guarded `p_media_paths`) — #88's
+    signature change landed, and #2 did not overwrite it (#2 never touches either function body).
+  - **The predicted overlap between #2 and #88 resolved exactly as designed, confirmed by the
+    push log itself**: applying `20260712123606` emitted `NOTICE: policy "Users can delete their
+    own analyses" ... does not exist, skipping` — the safe no-op the migration's own header
+    comment predicted, because #2 (earlier timestamp) had already dropped that policy. No manual
+    reconciliation was needed.
+  - **`storage.objects`, verified**: RLS enabled, zero INSERT policies, zero DELETE policies;
+    only "Users can view their own media objects" (SELECT) remains — the client cannot write to
+    the bucket. **Not closed by this push**: the bucket's table-level `GRANT INSERT`/`GRANT
+    DELETE` to `authenticated`, left over from the bucket-creation migration, were never revoked
+    — the client is blocked only by the missing RLS policy, not by privilege, so there's no
+    defense in depth here the way `analyses` now has. Filed as issue #100 (narrower than
+    originally suggested: `storage.objects` specifically, shared across every bucket) — see
+    `docs/status.md` Known Issue #18.
+  - **Guardrail tables, verified**: `ai_ops_config`, `ai_model_pricing`, and `ai_call_log` all
+    exist; `authenticated` can SELECT none of them and cannot EXECUTE `gate_ai_call` —
+    service-role only, as designed.
+  - **Security advisors: zero warnings, zero errors.** Three INFO-level `rls_enabled_no_policy`
+    notices remain, one per `ai_*` table — this is **intentional** (RLS on + zero policies +
+    `revoke all` = deny-by-default for operator-only tables) and should not be "fixed" by adding
+    a policy later.
+  - **Still open, unaffected by this push**: the hard spend ceiling in the Anthropic Console
+    (issue #91's one remaining manual step, needs Ian's Console access) and issue #92 itself
+    (no non-production environment) — this push went straight to prod precisely because #92
+    hasn't been resolved.
+  - **Not changed by this push**: the app's upload/analysis flow does not exist yet (#34, #44).
+    The schema these four migrations harden is now ready for that flow to be built against; the
+    flow itself is still Not Started.
+  - `CLAUDE.md`, `docs/status.md` (M4 milestone row, Known Issues #16/#17, new Known Issue #18),
+    and `docs/architecture.md` (DB schema, RLS, and AI-guardrail sections) updated to describe
+    this as live rather than pending.
 
 ## 2026-07-11
 
