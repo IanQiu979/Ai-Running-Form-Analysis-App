@@ -48,7 +48,7 @@ and routing to the milestones that own them.
 ```sql
 create table public.consents (
   id          uuid primary key default gen_random_uuid(),
-  user_id     uuid not null references auth.users(id) on delete cascade,
+  user_id     uuid not null references public.profiles(id) on delete cascade,
   consent_key text not null,      -- e.g. 'upload.health.v1'
   granted     boolean not null,   -- false = withdrawal
   created_at  timestamptz not null default now()

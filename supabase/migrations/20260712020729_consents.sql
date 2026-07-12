@@ -21,8 +21,16 @@ create table public.consents (
   -- Defaulted from the JWT so the client never names a user at all; the INSERT
   -- policy's with-check re-verifies it regardless. References profiles(id) to
   -- match the house pattern (subscriptions, analyses), which cascades from
-  -- auth.users — so delete-account (#58) purges consent rows without needing to
-  -- know this table exists.
+  -- auth.users. Do NOT read that cascade as a settled answer for delete-account
+  -- (#57/#58): as written, deleting an account would purge consent rows as a
+  -- side effect, with no code anywhere needing to know this table exists — but
+  -- Art. 17(3)(e) expressly permits retaining consent proof for the defence of
+  -- legal claims, and an account-deletion request is often the opening move of
+  -- exactly such a claim. Whoever builds #57/#58 must make a conscious
+  -- purge-vs-retain-for-defence choice for this table specifically, not
+  -- inherit this FK's cascade by default. Left as `on delete cascade` here only
+  -- because nothing can delete an account yet, so today the question does not
+  -- arise.
   user_id     uuid not null default auth.uid()
               references public.profiles(id) on delete cascade,
 
