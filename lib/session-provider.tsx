@@ -10,8 +10,11 @@ import {
   type PropsWithChildren,
 } from 'react';
 
+import { Copy } from '@/constants/copy';
+
 import { createSessionFromUrl } from './auth';
 import { mapAuthError } from './auth-errors';
+import { onSessionRestoreFailure } from './secure-storage';
 import { supabase } from './supabase';
 
 type SessionContextValue = {
@@ -34,6 +37,24 @@ type SessionContextValue = {
   deepLinkAuthError: string | null;
   /** Consumed by app/(auth)/sign-in.tsx so a stale message doesn't linger into the next attempt. */
   clearDeepLinkAuthError: () => void;
+  /**
+   * Issue #38: a user-readable message when `lib/secure-storage.ts` had to discard a stored
+   * session instead of restoring it (torn write, corrupted/rotated key, tampered data) — see
+   * that module's `onSessionRestoreFailure`. `getSession()`'s storage read can only come back as
+   * "there is a session" or "there is none" (that's `SupportedStorage`'s whole contract), so
+   * without this a real, previously-good session that failed to restore is indistinguishable
+   * from a user who was simply never signed in — the exact bug class issue #5 fixed for the
+   * OAuth redirect path, which is why both live side by side here. `Copy.auth.error.generic`
+   * ("Sign-in didn't go through. Try again.") is reused rather than a purpose-written string:
+   * the copy deck's own guidance for that key is to fall back to it for "any other auth failure"
+   * that doesn't have a specific string yet, and this genuinely doesn't have one — see
+   * `lib/secure-storage.ts`'s module doc for why a more precise string ("we couldn't restore
+   * your saved sign-in") is future `ux-copywriter` work, not invented here. Null when there's
+   * nothing to report.
+   */
+  corruptedSessionError: string | null;
+  /** Consumed by app/(auth)/sign-in.tsx so a stale message doesn't linger into the next attempt. */
+  clearCorruptedSessionError: () => void;
 };
 
 const SessionContext = createContext<SessionContextValue | undefined>(undefined);
@@ -57,9 +78,18 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [deepLinkAuthError, setDeepLinkAuthError] = useState<string | null>(null);
+  const [corruptedSessionError, setCorruptedSessionError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
+
+    // Registered BEFORE getSession() below runs, not after: getSession()'s own storage read is
+    // what can trigger `onSessionRestoreFailure` (lib/secure-storage.ts), and this has to be
+    // subscribed in time to catch that specific call, not just later ones (a token refresh,
+    // say). Both live in the same effect for exactly that ordering guarantee.
+    const unsubscribeRestoreFailure = onSessionRestoreFailure(() => {
+      if (isMounted) setCorruptedSessionError(Copy.auth.error.generic);
+    });
 
     supabase.auth
       .getSession()
@@ -90,6 +120,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+      unsubscribeRestoreFailure();
     };
   }, []);
 
@@ -126,10 +157,25 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, []);
 
   const clearDeepLinkAuthError = useCallback(() => setDeepLinkAuthError(null), []);
+  const clearCorruptedSessionError = useCallback(() => setCorruptedSessionError(null), []);
 
   const value = useMemo(
-    () => ({ session, isLoading, deepLinkAuthError, clearDeepLinkAuthError }),
-    [session, isLoading, deepLinkAuthError, clearDeepLinkAuthError]
+    () => ({
+      session,
+      isLoading,
+      deepLinkAuthError,
+      clearDeepLinkAuthError,
+      corruptedSessionError,
+      clearCorruptedSessionError,
+    }),
+    [
+      session,
+      isLoading,
+      deepLinkAuthError,
+      clearDeepLinkAuthError,
+      corruptedSessionError,
+      clearCorruptedSessionError,
+    ]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

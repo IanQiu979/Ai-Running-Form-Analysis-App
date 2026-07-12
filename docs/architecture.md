@@ -167,8 +167,32 @@ lib/
   so a signed-out user's navigator has no `(tabs)` route to go to at all (and vice versa).
   `onAuthStateChange` flipping `session` in `SessionProvider` is what moves the user between
   them; no screen calls `router.replace()` after sign-in or sign-out.
-- Session storage is **AsyncStorage today, plaintext** — tracked as a known issue to move to a
-  SecureStore-backed adapter at M2 (`docs/status.md` Known Issue #13).
+- **Session storage is SecureStore-backed (issue #38, closes `docs/status.md` Known Issue #13).**
+  `lib/secure-storage.ts`'s `LargeSecureStore` implements the "LargeSecureStore" pattern:
+  SecureStore holds a random AES-256 key (64 hex chars, constant size — proven under the
+  2048-byte SecureStore value limit regardless of session size), AsyncStorage holds the
+  AES-CTR-encrypted session blob. **The key is created once per storage key and reused, not
+  regenerated on every write** (hardened after review, same branch) — SecureStore and
+  AsyncStorage are two stores that cannot be written atomically as a pair, and a fresh-key-per-
+  write design turns every `setItem` into a two-store transaction a torn write (app killed,
+  device out of storage) can interrupt, pairing a new key with an old blob or vice versa. With a
+  stable key, only the very first write for a storage key still touches two stores; every write
+  after that touches only AsyncStorage. CTR-mode safety instead comes from a fresh random 16-byte
+  IV generated per write and prepended to its ciphertext, and a per-storage-key async lock
+  (`_getOrCreateKey`) closes the remaining race where two concurrent first-writes could each
+  mint a different key. `getItem` also no longer trusts a decrypt just because it didn't throw —
+  AES-CTR produces well-formed-looking garbage under a mismatched key/IV instead of erroring, so
+  a `JSON.parse` validity check catches that case too; either way `getItem` clears the broken
+  key+blob pair and calls `onSessionRestoreFailure` so `lib/session-provider.tsx` can surface
+  `corruptedSessionError` (shown on the sign-in screen, `Copy.auth.error.generic` reused rather
+  than inventing new copy) instead of the failure presenting as an unexplained, silent sign-out —
+  the same bug class issue #5 fixed for the OAuth redirect path. `getItem` also transparently
+  migrates any legacy plaintext session still sitting in AsyncStorage from before this change
+  (detected by its leading `{`, since every ciphertext this class writes is pure hex) instead of
+  returning null and forcing a silent sign-out. On web (`Platform.OS === 'web'`),
+  `createSecureSessionStorage` falls back to plain AsyncStorage — `expo-secure-store` has no web
+  implementation and `npm run web` must not crash;
+  browsers have no Keychain/Keystore equivalent to move to regardless.
 
 ## Current — `knowledge/` (done 2026-07-10)
 

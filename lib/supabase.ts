@@ -3,8 +3,9 @@ import './crypto-polyfill';
 // supabase-js's postgrest/storage clients use the `URL` global; Hermes' is incomplete.
 import 'react-native-url-polyfill/auto';
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+
+import { secureSessionStorage } from './secure-storage';
 
 // Static dot access only (never destructured) — the expo/no-dynamic-env-var lint rule
 // requires this, and CLAUDE.md documents why: EXPO_PUBLIC_* vars are inlined into the
@@ -22,7 +23,11 @@ if (!supabaseUrl || !supabasePublishableKey) {
 
 export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
-    storage: AsyncStorage,
+    // SecureStore-backed (Keychain/Keystore), not plaintext AsyncStorage — issue #38,
+    // docs/status.md Known Issue #13. See lib/secure-storage.ts for the "LargeSecureStore"
+    // design (SecureStore's ~2KB value limit vs. a full session payload), the transparent
+    // migration for sessions written by the old plaintext adapter, and the web fallback.
+    storage: secureSessionStorage,
     autoRefreshToken: true,
     persistSession: true,
     // The client never parses a session out of the current URL — deep-link OAuth
