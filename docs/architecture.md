@@ -961,7 +961,7 @@ RLS.
 | Method / Route | Auth | Body | Returns | Notes |
 |---|---|---|---|---|
 | `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | `{ result, analysisId, isFallback }` or `402` over-quota / `403` anon | Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. |
-| `POST /functions/v1/purchase-tier` | JWT | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` | Same contract as V2.2; v2 swaps `source` to receipt verification. |
+| `POST /functions/v1/purchase-tier` | JWT | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` or `400 invalid_tier` / `invalid_source` | **Built, Deno-tested, not deployed (issue #51, 2026-07-13)** — see "Current" below. Same contract as V2.2; v2 swaps `source` to receipt verification (a non-`dummy` source is refused today, so that swap must be a conscious code change). The only legitimate writer to `subscriptions`, via the service-role-only `pace_purchase_tier` RPC — no client-writable INSERT/UPDATE policy exists or was added. Idempotent: `purchased_at` (the period anchor) is written once on first purchase and never moved, so a repurchase cannot reset the quota period. |
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, not deployed (issue #50, 2026-07-12)** — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, not deployed (issue #57, 2026-07-12)** — see "Current" below. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. |
 | `POST /functions/v1/delete-account` | JWT | — | `{ deleted: true }` | Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. |
@@ -1593,3 +1593,90 @@ to own).
   `config.toml` outside the `[auth]` block (`[db]`, `[storage]`, `[api]`, etc.) governs a local
   `supabase start` stack only, present because `supabase init` generates the full default file —
   not evidence of any corresponding hosted configuration.
+
+## Current — `POST /functions/v1/purchase-tier` (issue #51, 2026-07-13)
+
+The M5 gate, and the **only legitimate writer to `public.subscriptions`**. Built and Deno-tested
+on `feat/51-purchase-tier`; **not deployed**, and its migration is **written but not applied** —
+same footing `quota-status` (#50) and `analysis` (#57) ship on.
+
+```
+POST /functions/v1/purchase-tier   { tier, source: "dummy" }
+  -> 200 { tier, periodStart, periodEnd }
+  -> 400 invalid_tier | invalid_source | invalid_body
+  -> 401 unauthorized        (missing/expired/invalid JWT)
+  -> 405 method_not_allowed  (anything but POST)
+  -> 500 purchase_unavailable (DB-side failure; never leaks the Postgres error)
+```
+
+The contract is **deliberately identical to V2.2's** so v2 can swap `source` to real receipt
+verification without changing its shape. No real money moves in v1 — no IAP, no Stripe (real IAP
+is Apple-gated and post-MVP). **A non-`dummy` source is refused**, so honoring a real receipt has
+to be a conscious code change rather than something a client can opt into.
+
+**Files.** `supabase/functions/purchase-tier/index.ts` (HTTP/auth glue only) ·
+`_shared/purchase-tier.ts` (portable validation + shaping, unit-tested) ·
+`_shared/purchase-tier-client.ts` (Deno/`npm:` service-role client factory) ·
+`_shared/__tests__/purchase-tier.deno.test.ts` (28 tests) ·
+`supabase/migrations/20260713120000_purchase_tier_function.sql` (`pace_purchase_tier`). Same
+thin-glue/portable-core split as `quota-status` and `analysis`.
+
+### No client-writable policy — the Echo V1 scar stays closed
+
+`20260711150100_subscriptions.sql` gives the client SELECT and **no INSERT/UPDATE policy**,
+deliberately: one would let any authenticated user self-grant elite tier for free with a single
+REST call, which Echo V1's `schema.sql` shipped and then had to remove. **This endpoint is the
+replacement for that policy.** The tier write happens in `pace_purchase_tier` — SECURITY DEFINER,
+pinned `search_path`, EXECUTE revoked from `public`/`anon`/`authenticated` and granted only to
+`service_role`, reachable only by an edge function holding the service-role key. This migration
+adds **no policy and no grant to `authenticated`/`anon`**, and a test asserts on the migration's
+own text that it never grows one.
+
+The caller's id comes from the **verified JWT** (`auth.getUser()`, a real round trip), never the
+request body — `parsePurchaseRequest` reads exactly `tier` and `source`, so there is no channel
+through which a body-supplied `user_id` could reach the RPC.
+
+### `purchased_at` is the period anchor, and it is set exactly once
+
+Quota periods are **derived at read time** from the single column `subscriptions.purchased_at` via
+`pace_current_period` — there are no stored period columns and no rollover cron, by design. Both
+`reserve_analysis` and `pace_quota_status` count a paid user's usage as
+`created_at <@ pace_current_period(purchased_at, now())`.
+
+That makes the anchor load-bearing: **moving `purchased_at` moves the window**, and every analysis
+created before the new anchor falls outside it — silently resetting `used` to 0. Since the v1
+purchase is a free, unlimited dummy, re-anchoring on each call would be an *unlimited
+free-analysis exploit* reachable by replaying one request, not a billing quirk. The same hole
+would open via `pro → elite → pro` tier flapping if a tier change re-anchored.
+
+**So `purchased_at` is written only by the INSERT** (first purchase ever) and is deliberately
+absent from the UPDATE's SET list. A test parses the migration's UPDATE statement and fails if
+`purchased_at` ever appears in it.
+
+### Repurchase / idempotency semantics
+
+Idempotent by construction — no idempotency key, and none is needed: the natural key is the user's
+single `subscriptions` row (PK on `user_id`), and the operation is a **state assertion** ("this
+user's tier is now X"), not an accumulating one. A retry, a double-tapped button, and a replayed
+request all converge on the same state. `pace_purchase_tier` returns an `outcome` (logged
+structurally, never returned — the response contract is exactly three fields):
+
+| Outcome | When | Anchor |
+|---|---|---|
+| `created` | No row existed | **Written** — `purchased_at := now()`. The only path that writes it. |
+| `unchanged` | Same tier, already active | Preserved — a true no-op. The repurchase case. |
+| `tier_changed` | Different tier (up or down) | Preserved — an upgrade raises the limit *within the same window*; a downgrade lowers it (`remaining` floors at 0). Neither resets `used`, which is what makes tier flapping worthless as an exploit. |
+| `reactivated` | Same tier, status was `canceled` | Preserved — harmless, because `pace_current_period` derives the window *containing now()* from any anchor however old, so a long-lapsed user lands in a current period with a correctly-zero usage count without the anchor moving. |
+
+Nothing in v1 writes `canceled` (there is no cancel endpoint yet), but the path is pinned down
+rather than left for whoever adds one to discover. **When real receipt verification replaces
+`source: "dummy"`, the store owns the true renewal date and this anchoring policy should be
+revisited there, consciously — not loosened here.**
+
+### What is deliberately *not* here
+
+No tier limits (free 1 / pro 10 / elite 30) and no frame caps (1 / 5 / 8): `reserve_analysis` is
+the sole enforcement point, and duplicating those numbers into a second place is Echo V1's
+documented duplication mistake. Prices (Pro $6.99 / Elite $14.99) are display-only and live in
+`docs/design/copy-deck.md`. Tests assert the migration contains none of them. This endpoint grants
+a **tier**; it never says what a tier is worth.

@@ -5,6 +5,30 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-13
+
+- **`POST /functions/v1/purchase-tier` built (issue #51, M5 gate)** — the dummy purchase, and the
+  only legitimate writer to `public.subscriptions`. Contract deliberately identical to V2.2's
+  (`{ tier, source: "dummy" }` → `{ tier, periodStart, periodEnd }`) so v2 can swap `source` to
+  real receipt verification without changing its shape; a non-`dummy` source is refused today, so
+  that swap must be a conscious code change. Written and Deno-tested (28 tests), **not deployed**;
+  its `pace_purchase_tier` migration is written but **not applied**.
+  - **No client-writable INSERT/UPDATE policy was added to `subscriptions`** — the tier write goes
+    through a `service_role`-only SECURITY DEFINER RPC. Echo V1 shipped exactly such a policy (any
+    user could self-grant elite for free with one REST call) and had to remove it; this endpoint is
+    the replacement for it, and a test asserts on the migration's own text that it never grows one.
+  - **Repurchase is idempotent, and that is a security property, not a nicety.** `purchased_at` is
+    the period anchor `pace_current_period` derives every quota window from, and both
+    `reserve_analysis` and `pace_quota_status` count usage as
+    `created_at <@ pace_current_period(purchased_at, now())`. Re-anchoring on each call would slide
+    the window and silently reset `used` to 0 — an *unlimited free-analysis exploit*, since the v1
+    purchase is a free, unlimited dummy. So `purchased_at` is written only by the INSERT and is
+    absent from the UPDATE's SET list: repurchase, upgrade, downgrade, and reactivation all
+    preserve the anchor, which also makes `pro → elite → pro` tier flapping worthless.
+  - Caller id comes from the verified JWT (`auth.getUser()`), never the request body. No tier
+    limits, frame caps, or prices live in this function — `reserve_analysis` remains the sole
+    enforcement point, and prices stay display-only in `docs/design/copy-deck.md`.
+
 ## 2026-07-12
 
 - **M2 capture screens built (issue #36)** — design-brief screens 3-5: source picker, in-app
