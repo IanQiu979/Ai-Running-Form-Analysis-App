@@ -1,4 +1,4 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -125,6 +125,13 @@ export default function HomeScreen() {
     }, [fetchQuota])
   );
 
+  // Disable the CTA ONLY when we positively know a free user has already spent their one
+  // lifetime analysis. Loading and error states deliberately leave it enabled: refusing on a
+  // quota we are unsure about would lock out a user who is actually fine, and reserve_analysis
+  // re-checks server-side anyway (it, not this, is the authority — CLAUDE.md).
+  const isOutOfQuota =
+    quota.status === 'ready' && quota.tier === 'free' && quota.hasUsedFreeAnalysis;
+
   function handleSignOut() {
     // onAuthStateChange (lib/session-provider.tsx) flips `session` to null, and the
     // root layout's Stack.Protected guard routes back to (auth) automatically — that happens
@@ -194,17 +201,34 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* Disabled stub for M1 — M2 wires this into the capture flow (source picker ->
-              camera/library -> frames.ts). Tier/quota-gated CTA relabeling (per copy deck's
-              "Ambiguities" #1: "Upgrade to analyze" etc.) is deferred to M5, which is where
-              paywall routing itself gets built — relabeling a CTA that goes nowhere yet would
-              be its own small honesty gap. */}
+          {/* Wired into the capture flow by M2 (issue #36): source picker -> camera/library ->
+              frames.ts. This is the entry point to the product's only job, so without it #86's
+              MVP gate ("a stranger can go sign-up -> analysis -> result with no dead end")
+              cannot pass.
+
+              Gated on a KNOWN-exhausted free quota only. That is a display decision, not a
+              business rule: the server re-checks in reserve_analysis regardless, and it stays
+              the sole authority (CLAUDE.md). We disable rather than let an out-of-quota user
+              film a clip and only then be refused — that wastes their effort to tell them
+              something we already knew. When quota is loading or errored we leave the CTA
+              ENABLED: refusing on a state we are unsure of would lock out a user who is
+              actually fine, and the server would have caught it anyway.
+
+              Tier/quota CTA relabeling ("Upgrade to analyze", copy deck Ambiguities #1) is
+              still M5's, since that is where the paywall it would route to gets built. */}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={Copy.home.cta.analyze}
-            accessibilityState={{ disabled: true }}
-            disabled
-            style={[styles.primaryButton, styles.primaryButtonDisabled]}>
+            accessibilityState={{ disabled: isOutOfQuota }}
+            disabled={isOutOfQuota}
+            onPress={() => {
+              router.push('/capture');
+            }}
+            style={({ pressed }) => [
+              styles.primaryButton,
+              isOutOfQuota && styles.primaryButtonDisabled,
+              pressed && !isOutOfQuota && styles.pressed,
+            ]}>
             <Text style={styles.primaryButtonText}>{Copy.home.cta.analyze}</Text>
           </Pressable>
 
