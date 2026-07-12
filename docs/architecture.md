@@ -221,7 +221,80 @@ knowledge/
 These files are meant to be bundled into the `analyze-form` edge function and injected as
 system context, so every analysis is grounded in certified biomechanics rather than the model's
 general knowledge. Echo V1 stays frozen — copy from it, never into it. **The bundling mechanism
-itself landed 2026-07-12, issue #90** — see the next section.
+itself landed 2026-07-12, issue #90** — see the next section. **The prompt that injects them
+landed 2026-07-12, issue #41** — see "Current — the `analyze-form` prompt" below.
+
+## Current — the `analyze-form` prompt (issue #41, done 2026-07-12)
+
+`supabase/functions/_shared/analyze-form-prompt.ts` — the grounded system prompt, the tier
+verbosity dial, and the structured-output contract. M4's blocker: #44 (the edge function) and #45
+(validation/fallback) both build on it. **Pure and injectable** — no `Deno` global, no `fetch`, no
+env var, and it never calls Anthropic; it turns `(tier, media, frames)` into a request body, so the
+part most likely to change (prompt wording) is testable with zero network and zero API spend. Same
+pure/client split as `ai-guard.ts`. 28 Deno tests.
+
+- **Grounded, provably.** The three certified files are injected verbatim from
+  `knowledge.generated.ts` (#90) — never inlined, never paraphrased. Importing that module runs
+  `assertNonEmptyKnowledge()` at load, so an empty bundle fails the suite before an assertion runs;
+  a test then asserts each file appears in the assembled prompt **byte-for-byte** (an anchor-phrase
+  check would miss a truncation bug).
+- **The tier dial is one parameter on one prompt** (`TIER_VERBOSITY`), never a second prompt or a
+  second call. It is *structurally* incapable of buying certainty: the not-assessed rules, the
+  medical boundary, the #112 timestamp rules, and the input-channel rules are assembled **outside**
+  the dial (`INVARIANT_RULES`) and are byte-identical for Free, Pro, and Elite. A test asserts every
+  certainty rule appears at all three tiers. Higher tier ⇒ more words, never more confidence.
+- **Issue #112 is handled at the prompt layer.** Timestamps are typed and named
+  `requestedTimestampMs`, every rendered time carries `~`/"requested", every interval is
+  "approximately … (NOT an exact interval)", and the model is told the error bar (hundreds of ms,
+  Android keyframe snapping). Precise SPM / GCT-in-ms / VO-in-cm figures are **forbidden at every
+  tier including Elite**. The escape hatch that keeps the product useful: Cadence and Elasticity are
+  steered onto **timestamp-independent** evidence — the overstriding signature and the visible
+  quality of the landing, which `pace_framework.md` already calls the most important thing you can
+  see, and which need no clock.
+- **The note-conditional certified guidance is neutralised at the prompt layer**, not by editing
+  certified text (that needs Ian's review — #39/#40). No note field ships (Known Issue #10), so the
+  prompt states plainly that there is no runner's note, no history, no reported symptoms, and that
+  every note-conditional clause in the certified files is therefore inactive — otherwise a model
+  trying to satisfy them can invent what the runner "reported".
+- **The disclaimer is not model output, deliberately.** It ships as a static footer
+  (`components/result-disclaimer.tsx`, #68) under **every** result, every tier — a stronger
+  guarantee than asking a model to remember it, since a static footer cannot be omitted, reworded,
+  or hallucinated. The model's half is the *boundary* (never diagnose, never name a condition, never
+  prescribe treatment), which is unconditional at every tier, plus an explicit instruction **not** to
+  re-emit the disclaimer text (it would double-render). **Stop-running safety signals override the
+  tier dial** and reach Free as prose in `feedback`, since Free's `flags` is always `[]`.
+- **The output contract IS `PaceResult`.** `submit_pace_analysis`, `strict: true`, forced. A test
+  round-trips schema-shaped responses (fully assessed, the photo case with Cadence/Elasticity `null`,
+  and the all-null case) through `isPaceResult` — so #45 can never reject a perfectly obedient
+  model. The schema encodes Anthropic's documented strict-mode limits (no `minimum`/`maximum` — the
+  0–100 range lives in the description and is enforced at runtime by `isPaceResult`;
+  `additionalProperties: false` everywhere; ≤16 `anyOf` unions), guarded by a test.
+- **The band vocabulary is translated explicitly.** The certified rubric speaks in labels
+  ("Solid"), `ScoreBand` speaks in codes (`'good'`). `SCORE_BAND_RUBRIC` maps them, and a test
+  asserts every label it claims actually appears in `pace_framework.md`. Without this the model
+  guesses, and a correctly-scored pillar renders in the wrong colour.
+- **Thinking is ON (adaptive), effort is `medium`, and `tool_choice` is `auto`** — the reasoning,
+  including the unresolved forced-tool/thinking compatibility question, is in step 8 of the
+  `analyze-form` flow above. `thinking` and `tool_choice` are independent options on
+  `buildAnalyzeFormRequest()`; #42 sweeps `effort` via the exported `ANALYZE_FORM_EFFORT` constant.
+- **The spend gate's INPUT estimate was corrected in the same change.**
+  `SYSTEM_PROMPT_TOKENS_ESTIMATE` (`ai-pricing.ts`, #91) shipped at `6000` as an explicit
+  placeholder for a prompt that did not exist ("refine once it exists"). Two things drive the real
+  number: the assembled prompt is ~57k characters at Elite (system + user text + a ~13k-character
+  tool schema, which `tools` bills as input), **and Claude Sonnet 5's new tokenizer produces ~30%
+  more tokens for the same text** — so the familiar ~3.5–4 chars/token rule of thumb silently
+  under-counts. At ~2.7 chars/token the Elite worst case is **~21.5k** tokens, so `6000` was
+  under-reserving every call by ~3.5x — the wrong direction to be wrong in on an account with a
+  hard ceiling and auto-reload off. Now `24000`, with a test that re-measures the assembled prompt
+  at the Sonnet-5 ratio and fails if it outgrows the constant again. Still conservative: it prices
+  all input as uncached even though the knowledge + tools prefix is `cache_control: ephemeral` (a
+  0.1x read in steady state). #44 should pin it exactly with the free `count_tokens` endpoint
+  before the first production call.
+- **The OUTPUT reservation is sound, and thinking does not break it.** Thinking tokens bill as
+  output, but `max_tokens` is a hard limit on thinking + response text *together*, and the request
+  sends `max_tokens = MAX_OUTPUT_TOKENS_BY_TIER[tier]` — the exact number `estimateTokensForCall`
+  reserves as `outputTokens`. So billed output ≤ reserved output, thinking included. A test asserts
+  the two never drift apart, because that equality is the whole guarantee.
 
 ## Current — Deno build/test contract, `pace.ts` location & knowledge bundling (issue #90, done 2026-07-12)
 
@@ -551,21 +624,64 @@ the original video (see "Media pipeline" below).
    atomically, before the model is ever called. Over quota → structured `402`, and — same as
    step 4 — settle the gate's reservation as `'cancelled'` before returning, since the model is
    never going to be called for this request either.
-6. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames with their actual
-   sampled timestamps (Android snaps to keyframes, so the actual timestamps are recorded rather
-   than assumed to be evenly spaced). The frames ride in the request body as base64 and are
-   **not** uploaded by the client — the server writes them to the bucket itself, after the model
-   call (#88). Frame count per tier: Free 1 / Pro 5 / Elite 8.
-7. **Build the grounded prompt**: system message = the certified PACE knowledge (framework +
-   injury flags + drills, bundled with the function, not fetched per call), then the image
-   block(s) plus their timestamps, then the PACE scoring instruction. Detail scales with tier
-   via a verbosity dial on one prompt, not a different call — Free gets scores + one line per
-   pillar and no drills; Pro gets fuller feedback, injury-risk flags, and drills; Elite gets the
-   same analysis as Pro plus a small verbosity/depth bump (the Pro→Elite gap is intentionally
-   tiny).
-8. **One vision call** — `claude-sonnet-5`, explicit thinking config, `max_tokens` 4–8k, a
-   forced tool call returning structured JSON for the 4 PACE pillars (Posture, Arm swing,
-   Cadence, Elasticity), each scored with feedback, plus injury flags and (paid) drills.
+6. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames with the timestamps
+   the client **requested** from the extractor. **These are NOT the actual decoded times** —
+   `expo-video-thumbnails` cannot report those on either platform (Android snaps to the nearest
+   keyframe and exposes no PTS; iOS discards `AVAssetImageGenerator`'s `actualTime`), so the real
+   intervals can differ by hundreds of ms and are not necessarily evenly spaced (issue #112; this
+   paragraph previously claimed the opposite). Cadence and Elasticity are both derived from motion
+   over time, so the prompt (step 7) is required to present these intervals as approximate — see
+   "Current — the `analyze-form` prompt" below. The frames ride in the request body as base64 and
+   are **not** uploaded by the client — the server writes them to the bucket itself, after the
+   model call (#88). Frame count per tier: Free 1 / Pro 5 / Elite 8.
+7. **Build the grounded prompt** — **built, issue #41**: `supabase/functions/_shared/analyze-form-prompt.ts`.
+   System message = the certified PACE knowledge (framework + injury flags + drills, bundled with
+   the function, not fetched per call), then the image block(s) each labelled with their
+   (approximate) timestamps, then the PACE scoring instruction last. Detail scales with tier via a
+   verbosity dial on one prompt, not a different call — Free gets scores + one line per pillar and
+   no drills; Pro gets fuller feedback, injury-risk flags, and drills; Elite gets the same analysis
+   as Pro plus a small verbosity/depth bump (the Pro→Elite gap is intentionally tiny). The dial
+   moves depth and **only** depth: the scoring, not-assessed, medical-boundary, and
+   timestamp-approximation rules are assembled outside it and are identical at every tier.
+8. **One vision call** — `claude-sonnet-5`, **adaptive thinking ON** (`thinking: {type:
+   'adaptive'}`, set explicitly), `output_config: {effort: 'medium'}`, `max_tokens` 4–8k (from
+   `MAX_OUTPUT_TOKENS_BY_TIER`, the same constant the spend gate reserved against), and a
+   `strict: true` `submit_pace_analysis` tool returning structured JSON for the 4 PACE pillars,
+   each scored with feedback, plus injury flags and (paid) drills. **The tool schema IS
+   `PaceResult`** (`_shared/pace.ts`) — no second definition, no adapter.
+
+   **Thinking is ON, and that is deliberate.** This is a multi-step vision-reasoning task over up
+   to 8 frames against a 25KB rubric — the single call the whole product exists to make. Running it
+   with thinking off would be a material quality regression. On `claude-sonnet-5` adaptive thinking
+   is the default (omitting `thinking` does *not* mean off), and manual thinking
+   (`{type: 'enabled', budget_tokens}`) is a 400; we set `{type: 'adaptive'}` explicitly so the
+   intent is legible.
+
+   **`thinking` and `tool_choice` are independent options** in `buildAnalyzeFormRequest()` — no
+   coupling, no throw. The default is `thinking: adaptive` + `tool_choice: auto`. One open
+   question sits behind that default: Anthropic's tool-use and extended-thinking docs both state,
+   **with no platform scoping**, that a forced `tool_choice` (`any`/`tool`) is incompatible with
+   thinking and errors; there is a credible report that this is **Amazon Bedrock only** and that
+   the first-party Claude API (which is what we call) accepts forced + adaptive. It could not be
+   confirmed against the docs. `auto` is correct under **both** readings, so it is the default —
+   we keep thinking (which we cannot afford to lose) and give up only the hard *guarantee* of a
+   tool call, which was never the sole safeguard: `strict: true` still grammar-constrains the tool
+   input to `PaceResult` whenever it is called, the prompt demands the tool call as the entire
+   response, and #45's retry-then-fallback catches a prose reply. **#44 should confirm on its
+   first live call** whether `forceToolCall: true` is accepted alongside adaptive thinking; if it
+   is, flip that one option and gain the guarantee for free.
+
+   **`max_tokens` is a hard limit on thinking + response text together**, so the gate's *output*
+   reservation (`MAX_OUTPUT_TOKENS_BY_TIER`, the same number sent as `max_tokens`) remains a true
+   upper bound on billed output even with thinking on. But the budget is tight, which is why
+   `effort` is **`medium`**, not the default `high`: Anthropic names "drop to `medium` effort" as
+   the direct remedy for a mostly-thinking, truncated answer, and Sonnet 5 at `medium` is
+   comparable in intelligence to Sonnet 4.6 at `high`. **#44 must treat `stop_reason: 'max_tokens'`
+   as a truncation**, never as a usable response.
+
+   Also: this model **rejects any non-default `temperature`/`top_p`/`top_k` with a 400**, so the
+   request sets none of them. Do not add `temperature: 0` for determinism — that buys a 400, not
+   determinism. Determinism comes from `strict: true` (grammar-constrained sampling).
 9. **Validate structurally, loosely** — check the expected shape exists, never judge content.
    On failure retry once; on a second failure, a clearly-labelled partial result if ≥2 pillars
    parsed (`is_fallback: true`, never a fabricated score for the rest), else a clean failure.
