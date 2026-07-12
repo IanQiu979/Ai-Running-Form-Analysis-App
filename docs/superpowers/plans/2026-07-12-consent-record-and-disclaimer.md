@@ -580,12 +580,13 @@ beforeEach(() => {
 it('disables the primary CTA until the checkbox is ticked', () => {
   renderGate();
 
-  const cta = screen.getByTestId('consent-cta-primary');
-  expect(cta.props.accessibilityState.disabled).toBe(true);
+  // Re-query after the press rather than holding the element reference across the re-render —
+  // a held reference can be stale and would silently assert against the pre-toggle tree.
+  expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(true);
 
   fireEvent.press(screen.getByTestId('consent-checkbox'));
 
-  expect(cta.props.accessibilityState.disabled).toBe(false);
+  expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(false);
 });
 
 // Case 2: and the disabled button must be inert, not merely styled as disabled.
@@ -923,10 +924,14 @@ it('renders the copy deck disclaimer verbatim', () => {
   expect(screen.getByText(Copy.result.disclaimer.footer)).toBeTruthy();
 });
 
-it('opens with the words that carry it', () => {
+// The disclaimer must LEAD with the disavowal, not bury it — a reader who stops after one
+// sentence must still have been told this is not medical advice. Asserts against the rendered
+// node, not against the Copy constant (which would only be testing that a string is itself).
+it('leads with the disavowal rather than burying it', () => {
   render(<ResultDisclaimer />);
 
-  expect(Copy.result.disclaimer.footer.startsWith('This is not medical advice.')).toBe(true);
+  const rendered = screen.getByTestId('result-disclaimer-text');
+  expect(rendered.props.children).toEqual(expect.stringMatching(/^This is not medical advice\./));
 });
 ```
 
@@ -970,7 +975,9 @@ export function ResultDisclaimer() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>{Copy.result.disclaimer.footer}</Text>
+      <Text testID="result-disclaimer-text" style={styles.text}>
+        {Copy.result.disclaimer.footer}
+      </Text>
     </View>
   );
 }
