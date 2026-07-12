@@ -199,14 +199,13 @@ Work that landed on `main` on 2026-07-12, in the same pass that produced this fi
 | **#67** — Sign in with Apple | **DELETED → this file.** Never started; wholly Apple-blocked. |
 | **#68** — consent, privacy policy, App Store labels | **PARTIALLY RESOLVED, stays open.** PR #72 landed the unblocked slice: the policy is drafted, the label answers are recorded, no analytics/crash SDK is confirmed, and the consent design was upgraded to an Art. 9-grade explicit checkbox. The in-app halves remain, blocked on M2/M4 — not on Apple. |
 | **#69** — remove `exp://**` from the redirect allowlist | **STAYS OPEN, retitled.** Not Apple-blocked; a simulator dev build unblocks it. |
-| **#70** — server-side HIBP leaked-password protection | **STAYS OPEN — mitigated, not fixed.** PR #73 landed a client-side k-anonymity check (`lib/hibp.ts`, 15 mutation-verified tests). It is **bypassable by design** and covers sign-up only, so the Supabase Pro upgrade remains the real fix. Blocked on **Supabase Pro, not Apple**. |
+| **#70** — server-side HIBP leaked-password protection | **CLOSED 2026-07-12 — genuinely fixed, not just mitigated.** The org (`Echo_Running_Final`) is now on the **Supabase Pro plan**, which removed the blocker; `password_hibp_enabled = true` was applied live and verified (a breached password hard-fails `signUp` with HTTP 422, `reasons: ['pwned']`) and the project's security advisor list is now **completely empty**. This was blocked on **Supabase Pro, not Apple** — it never belonged on this file's actionable list, only on the "still blocked on Ian" one below, and is removed from there too. The client-side check (`lib/hibp.ts`, PR #73) is **kept deliberately** as a UX pre-check and defense-in-depth, not the enforcement point anymore; see `docs/architecture.md`'s "Current — Supabase config" section. |
 | **#9** — 8-char password minimum is invisible and maps to the wrong error | **PARTIALLY RESOLVED, stays open.** PR #73 fixed the error half — there is now a real `auth.error.passwordTooShort` message and a client-side pre-check that runs *before* the breach check. **Still open:** the rule is never shown proactively (no helper text under the password field in sign-up mode), and the literal `8` is now duplicated across `sign-in.tsx`, `constants/copy.ts`, and `supabase/config.toml` with nothing keeping them in sync — the issue asked for one shared constant. |
 
 ## Still blocked on Ian, but NOT on Apple
 
 Listed so this file is not mistaken for the complete blocked list:
 
-- **#70** — needs a **Supabase Pro** upgrade (server-side leaked-password protection is Pro-gated; enabling it returned HTTP 402 on the Free plan).
 - **#48** — needs **CAPTCHA provider keys** (hCaptcha or Turnstile). Blocks `analyze-form` going *live*, not the M4 build.
 - **#39** — needs **Ian's certification** of the drafted Elasticity content and the pillar refinements. It ships into every analysis prompt under his name.
 - **#74** — **partially resolved 2026-07-12.** The endpoint-side half is now covered by a daily

@@ -28,6 +28,8 @@ permissions:
 # they all key off of.
 env:
   CANARY_TITLE: "HIBP canary is red — the leaked-password check has silently stopped working"
+  SERVER_TITLE: "Server-side leaked-password protection is OFF on the Supabase project"
+  SUPABASE_PROJECT_REF: vputdomdlknvthnzritt
 
 jobs:
   canary:
@@ -68,6 +70,55 @@ jobs:
           done
           echo "result=fail" >> "$GITHUB_OUTPUT"
           exit 0
+
+      # The canary above watches `lib/hibp.ts` — the client-side PRE-CHECK. This step watches the
+      # thing that actually enforces the rule since 2026-07-12 (issue #70): `password_hibp_enabled`
+      # on the hosted project. Without this, the asymmetry was absurd — the bypassable, fail-open
+      # convenience check had a daily canary, and the authoritative control had nothing.
+      #
+      # It matters because that control is Pro-plan-gated. A billing lapse, a downgrade to Free, or
+      # a stray Dashboard toggle flips it back to `false`, and `lib/hibp.ts` FAILS OPEN, so it will
+      # not catch the revert. Breached passwords would simply start being accepted again, in total
+      # silence. Nothing else in the repo can even declare this setting — the Supabase CLI has no
+      # config.toml key for it, so `config.toml` cannot reconcile it and drift is undetectable
+      # except from here.
+      #
+      # Read-only ON PURPOSE. The obvious alternative — actually attempt a signup with a known-
+      # breached password and assert it's rejected — is a trap: in the exact scenario this exists
+      # to catch (protection OFF), that probe SUCCEEDS and creates a real, autoconfirmed account on
+      # the production project with the password "password123". A monitor must not be able to cause
+      # the harm it is monitoring for. A GET of the auth config cannot.
+      - name: Assert server-side leaked-password protection is still enabled
+        id: server
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          if [ -z "${SUPABASE_ACCESS_TOKEN}" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN is not set, so password_hibp_enabled cannot be verified. This assertion is UNARMED — the protection could already be off and nothing would notice. Add a Supabase personal access token as the SUPABASE_ACCESS_TOKEN repo secret to arm it. Failing deliberately rather than passing green: a monitor that silently does nothing is worse than no monitor, because it looks like coverage."
+            echo "result=unarmed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # `-f` so a 4xx/5xx is a curl failure rather than a body we'd go on to misparse. A
+          # transient API blip therefore reads as `unknown`, not as `false` — this must never file
+          # a "protection is OFF" alarm on the strength of a failed HTTP call.
+          if ! body="$(curl -fsS \
+              -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+              "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/config/auth")"; then
+            echo "::warning::Could not reach the Supabase Management API. Not treating this as a revert; will re-check on the next run."
+            echo "result=unknown" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          enabled="$(printf '%s' "${body}" | jq -r '.password_hibp_enabled')"
+          echo "password_hibp_enabled = ${enabled}"
+
+          if [ "${enabled}" = "true" ]; then
+            echo "result=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::password_hibp_enabled is '${enabled}', expected 'true'."
+            echo "result=fail" >> "$GITHUB_OUTPUT"
+          fi
 
       # `hibp-canary` is a label this workflow owns outright, so `--force` (idempotent
       # recreate/update) is correct there: the workflow is self-contained and does not depend
@@ -152,7 +203,69 @@ jobs:
               --comment "Canary is green again as of ${RUN_URL} — the HIBP check is working. Closing automatically."
           fi
 
-      # Surface the failure in the Actions tab too, not just as an issue.
+      # A server-side revert is a MORE severe alarm than the client canary going red, and a
+      # separate one: the client check rotting means the pre-check is gone, but this means the
+      # actual enforcement is gone. Distinct title so the two can never collapse into one issue and
+      # mask each other.
+      - name: Open or update the server-side alarm issue
+        if: steps.server.outputs.result == 'fail'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          existing="$(gh issue list --label hibp-canary --state open --limit 20 --json number,title \
+            | jq -r --arg t "${SERVER_TITLE}" '[.[] | select(.title == $t)][0].number // empty')"
+
+          body="$(cat <<EOF
+          \`password_hibp_enabled\` is **false** on the Supabase project (\`${SUPABASE_PROJECT_REF}\`).
+          It was enabled on 2026-07-12 (issue #70), so something has reverted it.
+
+          **What this means:** the server no longer rejects breached passwords. \`lib/hibp.ts\` is a
+          client-side pre-check that is bypassable and **fails open**, so it does not cover this —
+          accounts can now be created with known-breached passwords.
+
+          **Most likely cause:** the setting is **Pro-plan-gated**. Check the org's billing status
+          first — a lapsed or downgraded plan silently disables it. Otherwise, someone toggled it in
+          the Dashboard.
+
+          **Re-enable:**
+          \`\`\`
+          curl -X PATCH -H "Authorization: Bearer \$SUPABASE_ACCESS_TOKEN" \\
+            -H "Content-Type: application/json" -d '{"password_hibp_enabled": true}' \\
+            https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/config/auth
+          \`\`\`
+          A 402 means the org is no longer on Pro.
+
+          Failing run: ${RUN_URL}
+          Refs #70
+          EOF
+          )"
+
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --body "Still off as of ${RUN_URL}"
+          else
+            gh issue create \
+              --title "${SERVER_TITLE}" \
+              --label hibp-canary \
+              --label security \
+              --body "${body}"
+          fi
+
+      - name: Close the server-side alarm issue on recovery
+        if: steps.server.outputs.result == 'pass'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          existing="$(gh issue list --label hibp-canary --state open --limit 20 --json number,title \
+            | jq -r --arg t "${SERVER_TITLE}" '[.[] | select(.title == $t)][0].number // empty')"
+          if [ -n "${existing}" ]; then
+            gh issue close "${existing}" \
+              --comment "password_hibp_enabled is true again as of ${RUN_URL}. Closing automatically."
+          fi
+
+      # Surface the failure in the Actions tab too, not just as an issue. `unarmed` fails on
+      # purpose — see the assertion step.
       - name: Fail the job if the canary is red
-        if: steps.canary.outputs.result == 'fail'
+        if: steps.canary.outputs.result == 'fail' || steps.server.outputs.result == 'fail' || steps.server.outputs.result == 'unarmed'
         run: exit 1

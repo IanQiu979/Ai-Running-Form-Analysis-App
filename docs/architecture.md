@@ -48,7 +48,11 @@ lib/
   auth.ts
   session-provider.tsx
   crypto-polyfill.ts
-  hibp.ts                 # client-side leaked-password check (issue #70) — see "Current —
+  hibp.ts                 # client-side UX pre-check + defense-in-depth (issue #70) — server-side
+                          # HIBP is now the enforcement point, see "Current — Supabase config"
+                          # below
+  auth-errors.ts           # mapAuthError, extracted from sign-in.tsx (issue #70) — maps the
+                          # server's typed leaked-password rejection to copy; see "Current —
                           # Supabase config" below
   consent.ts               # fail-closed read/write of the consent record (issue #68) — see
                           # "Current — consent record & disclaimer" below
@@ -87,8 +91,16 @@ lib/
   hibp.ts                 # current (issue #70) — client-side HaveIBeenPwned leaked-password
                           # check via HIBP's keyless range API (only a 5-char hash prefix ever
                           # leaves the device); runs in sign-in.tsx's sign-up branch only, before
-                          # signUp. Mitigates, not a replacement for, the still-Pro-gated
-                          # server-side setting — see "Current — Supabase config" below.
+                          # signUp. NOT the enforcement point since 2026-07-12 — server-side HIBP
+                          # is now enabled and is the authority. Kept deliberately (Ian's call) as
+                          # a fast UX pre-check plus defense-in-depth; still bypassable and fails
+                          # open, same as before — see "Current — Supabase config" below.
+  auth-errors.ts           # current (issue #70) — `mapAuthError`, extracted from sign-in.tsx so
+                          # this security-relevant mapping gets unit-test coverage (screens
+                          # aren't unit-tested by convention). Maps the server's typed
+                          # `AuthWeakPasswordError` to `Copy.auth.error.passwordBreached` /
+                          # `.passwordTooShort` — see "Current — Supabase config" below for the
+                          # `reasons` accumulation subtlety this depends on.
   consent.ts               # current (issue #68) — hasConsented/grantConsent/withdrawConsent
                           # against public.consents; fails closed (throws) on any query error
                           # rather than defaulting either way — see "Current — consent record &
@@ -280,6 +292,18 @@ required on every PR would make unrelated PRs flaky against a third party's upti
   back at an unobservable control). Only sustained failure across all 3 attempts opens or
   updates a labelled `hibp-canary` + `security` GitHub issue; recovery auto-closes it. See the
   design rationale in `docs/superpowers/specs/2026-07-12-hibp-canary-design.md`.
+- **Also asserts the server-side setting, not just the client-side check (added 2026-07-12, issue
+  #70).** A second, read-only step GETs the hosted project's auth config via the Management API
+  and asserts `password_hibp_enabled === true`, filing a distinct `security`-labelled issue
+  (self-healing on recovery, same as the canary above) if it ever reverts. It deliberately does
+  **not** probe by attempting a real signup with a known-breached password — in the exact
+  scenario it exists to catch (protection off), that probe would succeed and create a real
+  account on the production project. Rationale: the setting is Pro-plan-gated, so a billing lapse
+  or a stray Dashboard toggle silently disables it, and `lib/hibp.ts` fails open, so it would not
+  catch that on its own — nothing else in the repo can even observe this setting, since the
+  Supabase CLI has no `config.toml` key for it. **This step needs a `SUPABASE_ACCESS_TOKEN` repo
+  secret, which does not exist yet** — until it's added, the step deliberately fails the job
+  rather than passing green, so an unarmed monitor can't be mistaken for real coverage.
 - **Collects no user data**: the only two strings ever hashed are the public test vector
   `password` and a fresh random UUID, run from a GitHub runner, not a user's device. It adds no
   SDK to the app bundle, so it does not change any App Store privacy-label answer (see
@@ -586,16 +610,36 @@ to own).
 - **Dashboard-only, never pushed from this file**: which providers are enabled (`google` +
   `email` on; `apple` and `anonymous_users` off — set directly in the dashboard, `docs/status.md`
   Known Issue #3), the Google OAuth client ID/secret, and any future Apple Services ID/key.
-- **Server-side HaveIBeenPwned leaked-password rejection: documented in `config.toml` but still
-  NOT applied** — attempted live via the same PATCH mechanism during the M1 security audit and
-  rejected with HTTP 402 ("available on Pro Plans and up"); this project is below that tier, so
-  it's recorded as deferred rather than silently dropped. **Mitigated, not replaced, by a
-  client-side check added for issue #70**: `lib/hibp.ts`'s `checkPasswordBreached` reimplements
-  the same HIBP data via the free, keyless Pwned Passwords range API, called from
-  `(auth)/sign-in.tsx`'s sign-up branch before `supabase.auth.signUp`. It is not equivalent — the
-  client-side check is bypassable (a caller can talk to the Supabase Auth API directly and skip
-  it), so it protects real users without closing the underlying gap and issue #70 stays open. If
-  this project ever moves to Pro, turn the server-side setting on and delete `lib/hibp.ts`.
+- **Server-side HaveIBeenPwned leaked-password rejection: ENABLED and is the authority (issue
+  #70, closed 2026-07-12).** Attempting to enable it during the M1 security audit
+  (2026-07-11) returned HTTP 402 ("available on Pro Plans and up") because the org
+  (`Echo_Running_Final`) was on the Free plan. The org has since moved to **Pro**, which removed
+  the gate: `password_hibp_enabled = true` was set via the same scoped Management API PATCH
+  (`/v1/projects/vputdomdlknvthnzritt/config/auth`, HTTP 200) and verified live — a breached
+  password now hard-fails `signUp` with HTTP 422, `error_code: 'weak_password'`,
+  `reasons: ['pwned']`; a strong password still succeeds. The `auth_leaked_password_protection`
+  security-advisor lint is gone, and **the project's security advisor list is now completely
+  empty (zero findings)**.
+  - **`lib/hibp.ts` is deliberately KEPT (Ian's call), not deleted, now that the server enforces
+    the real rule.** Its role changed: it is no longer the enforcement point, only (1) a fast,
+    inline pre-check that gives instant feedback before the `signUp` round-trip, and (2)
+    defense-in-depth if `password_hibp_enabled` is ever flipped off again (a billing lapse or a
+    Dashboard toggle — the setting is Pro-plan-gated, so a downgrade silently disables it). It is
+    unchanged from before: still client-side, still bypassable (a caller can talk to the
+    Supabase Auth API directly and skip it), and still fails open on a HIBP timeout/outage — none
+    of that is a coverage gap anymore, because the server backstops it.
+  - **New `lib/auth-errors.ts`** — `mapAuthError`, extracted out of `(auth)/sign-in.tsx`'s catch
+    block purely so this mapping gets real unit-test coverage (`lib/__tests__/auth-errors.test.ts`,
+    8 tests, mutation-verified). It takes the raw caught `unknown`, not a message string, because
+    telling the server's breach rejection apart from a plain too-short password needs
+    supabase-js's typed `AuthWeakPasswordError.reasons` array — both throw the identical error
+    class. **A GoTrue subtlety this depends on**: `reasons` accumulates rather than tagging one
+    cause, so a password that is both too short and breached returns
+    `['length', 'pwned']` (verified live with `"abc123"`). `mapAuthError` checks `length` before
+    `pwned` so the more actionable message wins — a user is never told only "breached" and left
+    never learning the 8-character rule.
+  - **The daily canary now also watches the server-side setting, not just the client-side
+    check** — see "Current — CI" below.
 - **A discovery, not a config change**: the hosted Management API has **no field for a
   sign-in/sign-up rate limit** — `[auth.rate_limit].sign_in_sign_ups` in `config.toml` is a
   CLI/self-hosted-`supabase start`-only setting with no hosted equivalent; a PATCH attempt was

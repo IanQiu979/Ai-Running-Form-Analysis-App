@@ -142,6 +142,54 @@ bulk.
 4. The workflow runs green on `workflow_dispatch`.
 5. A deliberately failing canary run opens a labelled issue; a subsequent green run closes it.
 
+## Update — 2026-07-12: a second, read-only assertion for the server-side setting (issue #70)
+
+This spec originally watched exactly one thing: `lib/hibp.ts`'s live endpoint health, because
+that client-side check was the *only* control in production — issue #70 was blocked on Supabase
+Pro, so server-side enforcement did not exist yet. That premise changed the same day, later in
+the pass: the org moved to Pro, `password_hibp_enabled = true` was applied live, and issue #70
+closed. The client-side check in this spec is no longer the enforcement point — see
+`docs/superpowers/specs/2026-07-12-hibp-password-check-design.md`'s own outcome section.
+
+That created a new, worse-than-before observability gap this spec did not originally cover: the
+*authoritative* control (the server-side setting) had **no monitor at all**, while the
+now-secondary, bypassable, fail-open convenience check had a daily one. The setting is
+Pro-plan-gated, so a billing lapse, a plan downgrade, or a stray Dashboard toggle silently
+reverts it — and `lib/hibp.ts` fails open by design (this is exactly the class of bug this whole
+spec exists to catch), so it would not notice a server-side revert on its own. Nothing else in
+the repo can observe this setting either: the Supabase CLI has no `config.toml` key for it, so
+the config file cannot reconcile drift the way it does for `minimum_password_length`.
+
+`.github/workflows/hibp-canary.yml` therefore gained a second, independent step in the same job:
+
+- **Read-only, deliberately.** It GETs `/v1/projects/{ref}/config/auth` via the Management API
+  and asserts `password_hibp_enabled === true`. The obvious alternative — attempt a real signup
+  with a known-breached password and assert it's rejected, mirroring how the client canary
+  proves its endpoint — is a trap here: in the exact failure mode this step exists to catch
+  (protection is off), that probe *succeeds* and creates a real, autoconfirmed account on the
+  production project with a breached password. A monitor must not be able to cause the harm it
+  watches for. A config GET cannot.
+- **A separate, distinctly-titled alarm issue** (`SERVER_TITLE`, not `CANARY_TITLE`) from the
+  client canary's, opened/updated/closed with the same self-healing pattern. Kept distinct on
+  purpose: the client canary going red means the pre-check rotted; this step going red means the
+  actual enforcement is gone. Collapsing them into one issue would let either mask the other.
+- **Needs a `SUPABASE_ACCESS_TOKEN` repo secret** (a Supabase personal access token) to call the
+  Management API. That secret does not exist in this repo yet (confirmed via `gh secret list` —
+  empty). Until Ian adds it, the step deliberately fails the job (`result=unarmed`) rather than
+  passing green, on the same principle the rest of this spec is built on: a monitor that
+  silently does nothing must never be mistaken for coverage. Adding the secret is the one
+  remaining step to arm it; see `docs/status.md`'s Known Issues.
+- **Not a probe against `lib/hibp.ts`.** This step is entirely independent of the client-side
+  canary above — different target (hosted Management API vs. the public HIBP range API),
+  different failure semantics (a stray `unknown`/unreachable Management API call is treated as
+  `unknown` and never files an alarm on the strength of a failed HTTP call alone, same
+  fail-safe-on-ambiguity principle as `## What the canary cannot see` above).
+
+This does not change the original "What we build" section's design or its success criteria —
+the client-endpoint canary still exists, is still read-only, still excluded from `npm test`,
+and still self-heals the same way. It is additive: the job now has two independent watchers for
+two independent controls.
+
 ## Agent routing (per AGENTS.md)
 
 MEDIUM severity — multi-file, adds CI, adjacent to a security control but modifies no
