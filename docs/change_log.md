@@ -35,6 +35,49 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   - **Not done, on purpose**: no evenly-spaced timestamps computed and presented as actual (that
     looks precise, is wrong, and signals nothing), and no fork of `expo-video-thumbnails`. Real
     timestamps remain the long-term option in #112.
+- **`POST /functions/v1/purchase-tier` built (issue #51, M5 gate)** — the dummy purchase, and the
+  only legitimate writer to `public.subscriptions`. Contract deliberately identical to V2.2's
+  (`{ tier, source: "dummy" }` → `{ tier, periodStart, periodEnd }`) so v2 can swap `source` to
+  real receipt verification without changing its shape; a non-`dummy` source is refused today, so
+  that swap must be a conscious code change. Written and Deno-tested (28 tests), **not deployed**;
+  its `pace_purchase_tier` migration is written but **not applied**.
+  - **No client-writable INSERT/UPDATE policy was added to `subscriptions`** — the tier write goes
+    through a `service_role`-only SECURITY DEFINER RPC. Echo V1 shipped exactly such a policy (any
+    user could self-grant elite for free with one REST call) and had to remove it; this endpoint is
+    the replacement for it, and a test asserts on the migration's own text that it never grows one.
+  - **Repurchase is idempotent, and that is a security property, not a nicety.** `purchased_at` is
+    the period anchor `pace_current_period` derives every quota window from, and both
+    `reserve_analysis` and `pace_quota_status` count usage as
+    `created_at <@ pace_current_period(purchased_at, now())`. Re-anchoring on each call would slide
+    the window and silently reset `used` to 0 — an *unlimited free-analysis exploit*, since the v1
+    purchase is a free, unlimited dummy. So `purchased_at` is written only by the INSERT and is
+    absent from the UPDATE's SET list: repurchase, upgrade, downgrade, and reactivation all
+    preserve the anchor, which also makes `pro → elite → pro` tier flapping worthless.
+  - Caller id comes from the verified JWT (`auth.getUser()`), never the request body. No tier
+    limits, frame caps, or prices live in this function — `reserve_analysis` remains the sole
+    enforcement point, and prices stay display-only in `docs/design/copy-deck.md`.
+
+- **`purchase-tier` hardened same day after a security audit on PR #123** — a HIGH finding: once
+  deployed to this project's open-signup state, the endpoint was a $0 self-grant of the highest
+  paid tier reachable by anyone on the internet (throwaway signup → `tier=elite` → 30 analyses
+  instead of free's 1 → burn quota to trip the shared `ai_ops_config` daily spend cap → every real
+  user's `analyze-form` denied for the rest of the day → repeat). Fixed with a server-side
+  deployment gate, not a comment: the function now returns an indistinguishable `404` for every
+  request unless `PURCHASE_TIER_DUMMY_ENABLED` is exactly `"true"` in its environment — checked
+  before the HTTP method, before auth, before anything about the request is read. **This variable
+  must never be set in production secrets** (`docs/status.md` Known Issue #23, a release blocker),
+  with an optional `PURCHASE_TIER_ALLOWED_USER_IDS` tester allowlist as further defense-in-depth
+  once the gate is on. Also added: basic per-user rate limiting (`rate_limited` outcome, 429 — a
+  repeat call from the same user within 3s of their own last write is a no-op; honestly scoped in
+  the code comments as *not* mitigating the actual amplification vector, which uses one account per
+  call — CAPTCHA/signup throttling, Known Issue #12, is the real lever there). Two MEDIUM/LOW
+  findings closed in the same migration: revoked the default Supabase `grant all` to
+  `authenticated`/`anon` on `subscriptions` and `profiles` (no live exploit — RLS already denied
+  those verbs — but TRUNCATE isn't subject to RLS at all, mirroring the fix already applied to
+  `consents`); and removed `pace_purchase_tier`'s optional `p_as_of` parameter entirely (a
+  caller-suppliable period anchor, unreachable today but one careless edit from reopening the exact
+  re-anchoring exploit the function exists to prevent). 9 new tests (37 total), including
+  mutation-verified migration-text invariants for all three fixes.
 
 ## 2026-07-12
 
