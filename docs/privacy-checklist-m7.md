@@ -119,11 +119,16 @@ real privacy regime, not just GDPR-by-analogy. Flag for counsel before public la
       now **decided** (Ian, 2026-07-12): a checkbox the user must actively tick, gating the
       primary CTA, not a plain Continue/Cancel notice. Copy drafted at `consent.upload.title`
       / `consent.upload.body` / `consent.upload.checkbox` / `consent.upload.cta.primary` /
-      `consent.upload.link.privacy` in `docs/design/copy-deck.md` — M2 must build the
-      checkbox variant, not the plain notice variant.
+      `consent.upload.link.privacy` in `docs/design/copy-deck.md` — the checkbox variant itself
+      is now built (`components/consent-gate.tsx`, landed 2026-07-12); M2 must **host** it on
+      the capture/upload flow, not build it from scratch.
 - [ ] "Not medical advice" disclaimer on every result — **BLOCKED ON M4** (result screen
-      doesn't exist yet); copy already drafted at `result.disclaimer.footer` in
-      `docs/design/copy-deck.md` (sourced from `knowledge/injury_flags.md`).
+      doesn't exist yet); copy at `result.disclaimer.footer` in `docs/design/copy-deck.md` is
+      sourced from `knowledge/pace_framework.md`, **not** `knowledge/injury_flags.md` as this
+      checklist previously claimed — the two disclaimers differ in wording, and
+      `injury_flags.md`'s version is prompt content for the model, not app copy. The component
+      that renders it (`components/result-disclaimer.tsx`) is now built, landed 2026-07-12; M4
+      must host it on the result screen.
 - [ ] **Resolve the runner's-note conflict** (see below) before M3/M4 — if it ships it's a new
       Health data type needing its own label + explicit consent before any tester submits one.
 - [x] Re-confirm no analytics/crash SDK slipped in at build time. Verified 2026-07-12: no
@@ -134,10 +139,21 @@ real privacy regime, not just GDPR-by-analogy. Flag for counsel before public la
 ## MUST — before public launch
 
 - [ ] Complete App Store nutrition labels (+ Data Safety if Android) per the mapping above.
-- [ ] Build the decided Art. 9-grade consent modal (checkbox, names the health processing and
-      Anthropic) for health-data processing + third-party AI transfer — a "by continuing"
-      line is a notice, not Art. 9 consent. Design decided 2026-07-12 (see the TestFlight
-      consent item above); implementation is **BLOCKED ON M2**.
+- [ ] Host the already-built Art. 9-grade consent modal (`components/consent-gate.tsx`; checkbox
+      names the health processing and Anthropic) for health-data processing + third-party AI
+      transfer — a "by continuing" line is a notice, not Art. 9 consent. Design decided
+      2026-07-12 (see the TestFlight consent item above); hosting is **BLOCKED ON M2**.
+
+> **Update 2026-07-12 (issue #68's unblocked slice):** the consent **record** and both
+> components the three boxes above call for now exist — `public.consents` (append-only log,
+> owner-scoped RLS), `lib/consent.ts` (fail-closed `hasConsented`/`grantConsent`/
+> `withdrawConsent`), `components/consent-gate.tsx`, and `components/result-disclaimer.tsx`. All
+> three boxes above stay unticked on purpose: what's left is purely **hosting** them on their
+> screens (M2/M4/M5 — see `docs/status.md`'s M7 milestone row), plus a binding requirement that
+> doesn't exist yet: `analyze-form` (M4) must refuse to run for a user with no recorded consent,
+> or the client checkbox is decorative. See `docs/status.md` Known Issue #14 and
+> `docs/architecture.md`'s "Current — consent record & disclaimer" section.
+
 - [ ] **DPA with Anthropic**; verify current no-training/retention terms; disclose the ~30-day
       processor window; pursue Zero-Data-Retention.
 - [ ] **Stated retention limit** for every store: DB rows, bucket frames, edge-function logs
@@ -191,3 +207,10 @@ real privacy regime, not just GDPR-by-analogy. Flag for counsel before public la
    "close it entirely." Corrected: 30 days is *ordinary* retention; the trust-and-safety
    exception *extends beyond it* to up to two years for flagged content, and that exception
    survives even under ZDR.
+5. ~~This checklist (and issue #68) claimed the "not medical advice" disclaimer was "sourced
+   from `knowledge/injury_flags.md`"~~ — **RESOLVED 2026-07-12**: wrong. `injury_flags.md`'s
+   disclaimer is differently-worded prompt content for the model (it adds a "never run through
+   sharp or worsening pain" sentence, among other changes). The shipped string,
+   `result.disclaimer.footer` in `docs/design/copy-deck.md`, is sourced verbatim from
+   `knowledge/pace_framework.md` instead. Fixed above and in `docs/architecture.md`'s "Current —
+   consent record & disclaimer" section.
