@@ -71,8 +71,11 @@ supabase/
 
 The template's `(tabs)/explore.tsx` and `modal.tsx` are deleted, not left as dead scaffolding.
 Still absent: `supabase/functions/analyze-form` (or any edge function entrypoint — `_shared/`
-has no `Deno.serve` in it), `lib/frames.ts`, `lib/pace.ts`, `lib/subscription.ts`, and every
+has no `Deno.serve` in it), `lib/frames.ts`, `lib/subscription.ts`, and every
 route beyond sign-in + empty Home (capture, result, paywall, settings, history).
+`lib/pace.ts` now exists (#43, PR #102) — the shared PACE types, result shape, and structural
+validator, imported by the app and (once #90 settles the Deno bundling mechanism) the edge
+functions.
 
 ## Route tree — current (M1) vs planned
 
@@ -112,10 +115,12 @@ lib/
                           # rather than defaulting either way — see "Current — consent record &
                           # disclaimer" below. `analyze-form` (M4) must run the equivalent check
                           # server-side; the client call here is not the enforcement point.
-  frames.ts               # planned (M2) — extract, downscale, and upload N frames from a video
-                          # (client-side) direct-to-bucket, for motion analysis
-  pace.ts                 # planned (M4) — PACE pillar types + result parser, imported by app +
-                          # edge functions
+  frames.ts               # planned (M2) — extract and downscale N frames from a video
+                          # (client-side). It does NOT upload: since #88, frames ride in the
+                          # analyze-form request body as base64 and the edge function writes
+                          # them to the bucket itself, after the model call.
+  pace.ts                 # PACE pillar types, result shape, and structural validator, imported
+                          # by the app + (pending #90's Deno bundling) the edge functions (#43)
   subscription.ts         # planned (M5) — tier read + dummy purchase (adapted from Echo V1 /
                           # V2.2) — cosmetic only; tier/quota are never authoritative on the
                           # client (the live reserve_analysis RPC is already the sole
