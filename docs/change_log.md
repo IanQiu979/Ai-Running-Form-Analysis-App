@@ -5,6 +5,37 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-13
+
+- **Frame timestamps are told the truth, end to end (issue #112)** — `expo-video-thumbnails`
+  records the time the client *requested*, never the time it decoded (Android snaps to the nearest
+  keyframe and exposes no PTS; iOS computes `AVAssetImageGenerator`'s `actualTime` and discards
+  it). Cadence and Elasticity are the two PACE pillars derived from motion over time, so intervals
+  presented as exact would have the model reason about a rhythm the runner does not have — and
+  produce confident, fluent, wrong advice without crashing. `lib/frames.ts` was already honest; the
+  gap was in what the prompt let the model *conclude*.
+  - **`pace_framework.md`'s two timing clauses are now amended at the prompt layer**
+    (`TIMESTAMP_RULES` in `supabase/functions/_shared/analyze-form-prompt.ts`), never by editing
+    the certified file — the same mechanism #41 used for #40's runner's-note clauses. The certified
+    *"**Only if frame timestamps are known** may you estimate a cadence *range*"* is quoted back and
+    re-read as **"known approximately"** (a wide, labelled range is the most it can license; a point
+    figure never was), and *"Across evenly-spaced frames…"* as **"not reliably evenly spaced"**
+    (torso height *change* is visible evidence; its *rate* is not). The amendment can only tighten.
+  - **The hedge now has to reach the runner.** Any Cadence/Elasticity judgement leaning on the
+    timing must carry the uncertainty into the user-visible `feedback` — the runner sees only
+    `score`, `band`, and `feedback`, so a hedge the model keeps to itself is not a hedge.
+  - **Tests** (`analyze-form-prompt.deno.test.ts`, 30 → 33): the amendment is asserted present at
+    every tier, and both quoted certified clauses are asserted to still exist in the shipped bundle
+    **byte-for-byte** — so a re-certification that rewords them fails the build rather than leaving
+    an amendment aimed at a sentence that no longer exists.
+  - **Docs**: `docs/architecture.md`'s `analyze-form` flow no longer promises "actual sampled
+    timestamps" (corrected under #41; this pass adds the clause-amendment and runner-visible-hedge
+    bullets), and `lib/frames.ts`'s header now points at the prompt-layer mitigation instead of a
+    doc requirement that no longer exists.
+  - **Not done, on purpose**: no evenly-spaced timestamps computed and presented as actual (that
+    looks precise, is wrong, and signals nothing), and no fork of `expo-video-thumbnails`. Real
+    timestamps remain the long-term option in #112.
+
 ## 2026-07-12
 
 - **M2 capture screens built (issue #36)** — design-brief screens 3-5: source picker, in-app

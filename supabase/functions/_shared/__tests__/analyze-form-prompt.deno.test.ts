@@ -251,6 +251,10 @@ Deno.test('THE INVARIANT: the tier dial can never buy certainty — only depth',
     'A single precise cadence figure',
     'Any ground-contact-time figure in milliseconds',
     'Any vertical-oscillation figure in centimetres',
+    // The #112 amendment to pace_framework.md's timing clauses, and the runner-visible hedge.
+    'READ "known" AS "KNOWN APPROXIMATELY"',
+    'THESE FRAMES ARE NOT RELIABLY EVENLY SPACED',
+    'SAY IT IN THE OUTPUT, NOT JUST IN YOUR HEAD',
     // The medical boundary.
     'SAFETY AND THE MEDICAL BOUNDARY',
     'You are NOT diagnosing',
@@ -502,6 +506,119 @@ Deno.test('Cadence and Elasticity are steered onto timestamp-INDEPENDENT evidenc
     'if the timing is the only thing pointing at a fault, that is not enough to call the fault',
     'The prompt does not stop a timing-only fault call.'
   );
+});
+
+/**
+ * THE TWO CERTIFIED CLAUSES THE PROMPT AMENDS. `pace_framework.md` ships under Ian's name and is
+ * not editable without a certification review (#39/#40), so #112 is neutralised at the PROMPT
+ * layer — exactly as #41 neutralised #40's runner's-note clauses. That only works while the
+ * certified text still says what the amendment quotes it as saying: an amendment aimed at a
+ * sentence that has since been reworded is dead text, and the model would be back to reading
+ * "only if frame timestamps are known" as a satisfied condition.
+ *
+ * So these are asserted BYTE-FOR-BYTE against the shipped bundle, the same way the whole file is
+ * asserted present byte-for-byte in § 1. If a future certification pass rewords either clause,
+ * this test fails loudly and the amendment has to be re-aimed — it cannot rot in silence.
+ */
+const AMENDED_CERTIFIED_CLAUSES = [
+  '**Only if frame timestamps are known** may you estimate a cadence *range*',
+  'Across evenly-spaced frames you can estimate',
+  'vertical bounce (torso',
+  'Never state a precise SPM you cannot derive',
+];
+
+Deno.test('the certified timing clauses the prompt amends still EXIST in the certified file', () => {
+  for (const clause of AMENDED_CERTIFIED_CLAUSES) {
+    assertIncludes(
+      PACE_FRAMEWORK_MD,
+      clause,
+      'TIMESTAMP_RULES quotes this clause from pace_framework.md and amends how it is read, but ' +
+        'the clause is no longer in the certified file. Re-aim the amendment (do NOT delete it): ' +
+        'the timestamps are still requested-not-measured, so whatever replaced this clause still ' +
+        'needs neutralising.'
+    );
+  }
+});
+
+Deno.test('pace_framework.md\'s timing clauses are NEUTRALISED at the prompt layer, not edited', () => {
+  // The #40 precedent, applied to #112. Two things have to be true at once, and this asserts both:
+  //   1. The certified file is in the prompt UNEDITED (§ 1 asserts it verbatim; re-asserted here
+  //      because the amendment is only legitimate if the original is what shipped).
+  //   2. The prompt tells the model how to READ the two timing clauses, quoting them back so the
+  //      instruction cannot be mistaken for a different rule about a different sentence.
+  for (const tier of TIERS) {
+    const prompt = fullPromptText(videoInput(tier));
+
+    assertIncludes(prompt, PACE_FRAMEWORK_MD, 'The certified framework is not shipped verbatim.');
+
+    assertIncludes(
+      prompt,
+      'HOW TO READ pace_framework.md\'s TWO TIMING CLAUSES',
+      `Tier "${tier}" never tells the model how to read the certified timing clauses.`
+    );
+    // The cadence clause: "known" must be re-read as "known APPROXIMATELY" — otherwise the model
+    // sees timestamps in the manifest, scores the condition as met, and computes a step rate off a
+    // rhythm that never happened. This is the single sentence issue #112 turns on.
+    assertIncludes(
+      prompt,
+      'READ "known" AS "KNOWN APPROXIMATELY"',
+      `Tier "${tier}" leaves "only if frame timestamps are known" readable as a satisfied condition.`
+    );
+    assertIncludes(
+      prompt,
+      'NEVER a point figure',
+      `Tier "${tier}" does not cap the amended cadence clause at a wide range.`
+    );
+    // The elasticity clause: the certified file assumes evenly-spaced frames. They are not.
+    assertIncludes(
+      prompt,
+      'THESE FRAMES ARE NOT RELIABLY EVENLY SPACED',
+      `Tier "${tier}" leaves pace_framework.md's evenly-spaced-frames assumption standing.`
+    );
+    assertIncludes(
+      prompt,
+      'never by dividing it by a stated interval',
+      `Tier "${tier}" does not stop a rate being derived from a stated interval.`
+    );
+    // An amendment to certified content may only ever tighten. If it could loosen, the prompt
+    // layer would have become a way to route around certification.
+    assertIncludes(
+      prompt,
+      'it licenses nothing the certified file forbids',
+      `Tier "${tier}" does not bound the amendment to tightening only.`
+    );
+    assertIncludes(
+      prompt,
+      'Every other rule in pace_framework.md stands unchanged and in full',
+      `Tier "${tier}" does not scope the amendment to just the two timing clauses.`
+    );
+  }
+});
+
+Deno.test('the uncertainty must reach the RUNNER — hedged in `feedback`, not just in the head', () => {
+  // #112's requirement (b): the model must SAY SO in its output. A model that privately widens its
+  // confidence and then writes "your cadence is low" has produced the same confident, fluent,
+  // unfalsifiable claim the issue is about — the runner sees score/band/feedback and nothing else.
+  for (const tier of TIERS) {
+    const prompt = fullPromptText(videoInput(tier));
+
+    assertIncludes(
+      prompt,
+      'SAY IT IN THE OUTPUT, NOT JUST IN YOUR HEAD',
+      `Tier "${tier}" does not require the timing hedge to be surfaced to the runner.`
+    );
+    assertIncludes(
+      prompt,
+      'must carry that uncertainty in the `feedback` the runner',
+      `Tier "${tier}" does not name \`feedback\` as where the hedge goes.`
+    );
+    // The worked example — the format the hedge should take. Two examples beat five hundred words.
+    assertIncludes(
+      prompt,
+      'approximate, estimated from frames whose timing is not exact',
+      `Tier "${tier}" gives no example of a correctly hedged cadence claim.`
+    );
+  }
 });
 
 // -------------------------------------------------------------------------------------------
