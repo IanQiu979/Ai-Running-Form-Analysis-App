@@ -12,13 +12,16 @@
  *     both themes — text, >=4.5:1.
  *   - the accent: white CTA label on accent — text, >=4.5:1; accent itself on every surface —
  *     non-text button/tint boundary, >=3:1.
+ *   - `Semantic.error` on every surface, both themes — text, >=4.5:1 (issue #24); also asserted
+ *     distinct from `Score.low.text` in both themes, the issue's actual requirement — a system
+ *     error must not be mistakable for the "Needs work" score band it used to borrow from.
  *
  * `hairline` is intentionally not asserted here — see the comment on it in theme.ts: it's a
  * decorative structural rule, not text or a UI-component boundary, so WCAG 1.4.11 does not apply.
  */
 
 import { AA_NON_TEXT, AA_TEXT, contrastRatio } from '../contrast';
-import { Accent, Colors, type ColorScheme, Score, ScoreBandOrder } from '../theme';
+import { Accent, Colors, type ColorScheme, Score, ScoreBandOrder, Semantic } from '../theme';
 
 const SCHEMES: readonly ColorScheme[] = ['light', 'dark'];
 
@@ -38,6 +41,7 @@ const scoreFillPairs: Pair[] = [];
 const scoreTextPairs: Pair[] = [];
 const accentTextPairs: Pair[] = [];
 const accentNonTextPairs: Pair[] = [];
+const semanticErrorTextPairs: Pair[] = [];
 
 for (const scheme of SCHEMES) {
   const c = Colors[scheme];
@@ -51,6 +55,11 @@ for (const scheme of SCHEMES) {
       bg: surfaceHex,
     });
     accentNonTextPairs.push({ label: `${scheme} accent on ${surfaceName}`, fg: Accent.value, bg: surfaceHex });
+    semanticErrorTextPairs.push({
+      label: `${scheme} semantic.error on ${surfaceName}`,
+      fg: Semantic.error[scheme],
+      bg: surfaceHex,
+    });
   }
 
   for (const band of ScoreBandOrder) {
@@ -81,6 +90,10 @@ describe('theme contrast — text pairs clear AA (>=4.5:1)', () => {
   test.each(accentTextPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_TEXT);
   });
+
+  test.each(semanticErrorTextPairs)('$label', ({ fg, bg }) => {
+    expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_TEXT);
+  });
 });
 
 describe('theme contrast — non-text pairs clear AA (>=3:1)', () => {
@@ -90,6 +103,16 @@ describe('theme contrast — non-text pairs clear AA (>=3:1)', () => {
 
   test.each(accentNonTextPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+});
+
+describe('semantic.error is not score.low — issue #24', () => {
+  // The whole point of adding this token: a system error must not resolve to the same colour as
+  // the "Needs work" score band, which the app used to borrow it from (see the comment on
+  // `Semantic` in theme.ts). Asserted per-scheme, not just once, since the two tokens are
+  // maintained independently and could drift back into collision in only one theme.
+  test.each(SCHEMES)('%s: semantic.error !== score.low.text', (scheme) => {
+    expect(Semantic.error[scheme]).not.toBe(Score.low[scheme].text);
   });
 });
 
