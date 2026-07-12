@@ -7,6 +7,39 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **`GET /functions/v1/quota-status` built (issue #50), the server-authoritative read that #54
+  (Home's quota display) must replace its client-side count query with.** `app/(tabs)/index.tsx`
+  currently derives quota itself via a `subscriptions` + `analyses` count query, which CLAUDE.md's
+  "no business rules in the client" rule forbids and which cannot even be completed for Pro/Elite
+  (`pace_current_period`'s `EXECUTE` is revoked from `authenticated`). Built and Deno-tested on
+  `fix/50`; **not deployed**. See `docs/architecture.md`'s "Current — `GET
+  /functions/v1/quota-status` (issue #50)" section for the full design.
+  - **Added** `supabase/migrations/20260712233000_quota_status_function.sql`: a new, read-only,
+    `SECURITY DEFINER` function, `pace_quota_status(p_user_id, p_as_of)`, granted to
+    `service_role` only — **WRITTEN, NOT APPLIED** to any database (issue #50's hard constraint).
+    Calls the exact same `pace_current_period`/`pace_is_farming_signal` functions the live
+    `reserve_analysis` calls (verified via `pg_get_functiondef` against project
+    `vputdomdlknvthnzritt` before writing this file), so period math and farming-signal
+    classification cannot drift between the two. Does not `create or replace` `reserve_analysis`,
+    `settle_analysis`, or `release_analysis`. The one unavoidable duplication — the literal tier
+    -> limit/frame_cap table `reserve_analysis` inlines rather than exposing as a helper — is
+    copied verbatim with a loud "keep in sync" comment, since closing it fully would require
+    editing `reserve_analysis`'s own body, out of scope here.
+  - **Added** `supabase/functions/quota-status/index.ts`, `_shared/quota-status.ts` (pure
+    orchestration), `_shared/quota-status-client.ts` (service-role client factory, same
+    `ai-guard-client.ts`/`delete-analysis-client.ts` split). The response represents the issue #6
+    anti-farm block as a state independent of quota — `blocked`/`blockedReason`/`blockedUntil`
+    can be true/set even while `remaining > 0`, so a rate-limited-but-not-out-of-quota user is
+    never shown a plain "1 analysis left."
+  - **Added** `supabase/functions/_shared/__tests__/quota-status.deno.test.ts` (18 tests): RPC
+    response-shaping tests (free lifetime exhaustion, paid period windowing, the
+    blocked-with-quota-remaining case) against an injected fake `RpcClient`, plus migration-text
+    invariant tests proving the migration's counting queries never filter on `deleted_at` (a
+    soft-deleted analysis keeps counting, matching `reserve_analysis`) and that its tier -> limit
+    table matches the live `reserve_analysis`'s literal values. No live/local database was
+    available or permitted to integration-test against — see the architecture doc section above
+    for the honest scope of what this proves.
+
 - **Client-side soft-delete bypass around #57's delete endpoint closed (found by #57's agent,
   fixed alongside #6, migration written, not yet applied to the live project).** #2's soft-delete
   `UPDATE(deleted_at)` grant + policy on `public.analyses` was the intended client delete path
