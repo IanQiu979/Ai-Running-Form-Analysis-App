@@ -24,20 +24,21 @@ app/
   (tabs)/_layout.tsx      # protected stack; single Home tab for M1 (template Explore removed)
   (tabs)/index.tsx        # M1 empty Home per screen 2 — RLS-scoped, display-only quota caption,
                           # disabled Analyze stub, temporary sign-out
-components/              # still the create-expo-app template UI (external-link, haptic-tab,
+components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout.tsx), plus
+                          # consent-gate.tsx and result-disclaimer.tsx (2026-07-12, issue #68) —
+                          # real, tested components; see "Current — consent record & disclaimer".
+                          # The unreferenced create-expo-app template UI (external-link,
                           # hello-wave, parallax-scroll-view, themed-text, themed-view,
-                          # ui/collapsible, ui/icon-symbol); a few were rewired to the new token
-                          # names so the app keeps compiling, not yet redesigned to "Gait Plate".
-                          # consent-gate.tsx and result-disclaimer.tsx (added 2026-07-12, issue
-                          # #68) are the exception — real, tested components, not template
-                          # leftovers; see "Current — consent record & disclaimer" below
+                          # ui/collapsible) and hooks/use-theme-color.ts were deleted 2026-07-12
+                          # (#33) — themed-text carried the last hardcoded color in the repo.
+                          # Everything new is built against constants/theme.ts tokens.
 constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
                           # palette, spacing/radii/type scales; M1 added
                           # ControlHeight/ControlWidth/HitTarget/Opacity
 constants/copy.ts         # strings lifted verbatim from docs/design/copy-deck.md — sign-in and
                           # Home's copy live here first (M1); more screens' copy lands with them
 constants/contrast.ts     # contrast-ratio helper backing the AA proof below
-constants/__tests__/theme-contrast.test.ts  # 61-assertion Jest proof every text/surface and
+constants/__tests__/theme-contrast.test.ts  # 69-assertion Jest proof every text/surface and
                           # band pair clears WCAG AA (9 brief-§2 intent values were darkened/
                           # lightened minimally to pass — each old → new value is a comment in
                           # theme.ts next to the token it changed)
@@ -169,7 +170,7 @@ general knowledge. Echo V1 stays frozen — copy from it, never into it.
   compliance checklist gating M7 (App Store privacy labels, consent upgrade, data inventory,
   retention limits), plus two conflicts surfaced for Ian (see `docs/status.md`).
 - `constants/theme.ts` + `constants/contrast.ts` — the brief's §2 tokens as light+dark theme
-  values, spacing/radii/type scales, and the score-band palette, with a 61-assertion Jest test
+  values, spacing/radii/type scales, and the score-band palette, with a 69-assertion Jest test
   (`constants/__tests__/theme-contrast.test.ts`) proving every text/surface and band pair clears
   WCAG AA. Font families (`@expo-google-fonts/archivo`, `inter`, `ibm-plex-mono`) installed via
   `npx expo install`; `expo-font` added to `app.json`'s plugins.

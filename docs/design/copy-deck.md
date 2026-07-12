@@ -62,11 +62,12 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 | `auth.cta.email` | "Continue with email" | Opens the email/password fields. |
 | `auth.email.placeholder` | "Email" | |
 | `auth.password.placeholder` | "Password" | |
+| `auth.password.hint` | "At least 8 characters." | Helper line under the password field, **sign-up mode only** (the rule is irrelevant when signing in to an existing account). Added for issue #24 — before it, the 8-character minimum was only ever revealed *after* a failed submit. The number is not typed here: `constants/copy.ts` templates it off `PASSWORD_MIN_LENGTH` (`constants/auth.ts`), which is tied by comment to `supabase/config.toml`'s `minimum_password_length` — the server remains the authority. If that server value changes, this string follows automatically. |
 | `auth.signIn.submit` | "Sign in" | |
 | `auth.signUp.submit` | "Create account" | |
 | `auth.signUp.link` | "New here? Create an account" | Text link on the sign-in screen, not a second button (brief §4.1). |
 | `auth.signIn.link` | "Already have an account? Sign in" | Text link on the sign-up screen. |
-| `auth.error.invalidCredentials` | "Email or password doesn't match. Try again or reset your password." | Sign-in fails on bad credentials. |
+| `auth.error.invalidCredentials` | "Email or password doesn't match. Try again." | Sign-in fails on bad credentials. Trimmed 2026-07-12 (issue #18, Ian's call): the string previously closed "…or reset your password," but no forgot-password link, reset screen, or `resetPasswordForEmail` flow exists — this is the error a returning user is most likely to hit, so it was pointing them at a capability the app doesn't have. Don't restore that clause except in the same change that ships the route. |
 | `auth.error.emailInUse` | "An account already exists with this email. Sign in instead." | Sign-up with a taken email. |
 | `auth.error.generic` | "Sign-in didn't go through. Try again." | Any other auth failure — provisional until Phase 1 wires real Supabase error codes; replace with a specific string per code where one exists rather than falling back to this by default. |
 | `auth.error.passwordBreached` | "That password has shown up in a data breach before. Pick a different one to keep your account secure." | Sign-up: the submitted password matches a known-breached password (client-side HaveIBeenPwned range-API check, issue #70 — Supabase's server-side version is Pro-plan-gated). Blocks account creation; no jargon ("pwned," "hash," "HaveIBeenPwned") and no blaming the user — reused passwords are common, the copy just asks for a different one. |
@@ -78,6 +79,7 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 
 | Key | String | Shows when |
 |---|---|---|
+| `home.title` | "Home" | The screen's heading and its tab-bar label — one key, both call sites (`app/(tabs)/index.tsx` and `app/(tabs)/_layout.tsx`), which is the point: they must never drift. Added for issue #30, which found the string hand-written in both places. **Open design question, deliberately not settled here:** whether Home should carry a "Home" heading at all when the tab bar directly beneath it already says "Home" — the brief describes Home as "a motif + a CTA," not a headline screen. Resolve before M7's polish pass; if the heading is dropped, this key stays and serves the tab label alone. |
 | `home.cta.analyze` | "Analyze my form" | Default primary CTA — user has quota remaining (Free: unused; Pro/Elite: remaining > 0). Fixed wording per brief §4.2. |
 | `home.cta.upgradeToAnalyze` | "Upgrade to analyze" | Free tier, lifetime analysis already used. Routes to Paywall. Replaces `analyze` rather than reusing it — tapping this never starts an analysis, so the label must say so (see "ambiguities" at the end of this deck). |
 | `home.cta.upgradeForMore` | "Upgrade for more" | Pro tier, period quota used up but an upgrade path (Elite) exists. Routes to Paywall. |

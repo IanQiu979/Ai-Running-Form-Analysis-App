@@ -23,7 +23,7 @@ import {
   HitTarget,
   Opacity,
   Radius,
-  Score,
+  Semantic,
   Spacing,
   type ColorScheme,
   type ThemeColors,
@@ -201,13 +201,12 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.xs,
     },
-    // No dedicated "error"/"danger" token exists in constants/theme.ts yet — score.low's text
-    // role (clay red-orange, AA-proven in constants/__tests__/theme-contrast.test.ts) is the
-    // closest available token-only "negative" hue, so it's reused here rather than hardcoding a
-    // new color. Same precedent as app/(auth)/sign-in.tsx's errorText. Worth design-system
-    // adding a real semantic error token later.
+    // Semantic.error, not Score.low. This component originally borrowed the score scale's
+    // "Needs work" clay because no error role existed; issue #24 added one on main while this
+    // branch was open. Borrowing the clay would bleed *score* meaning into a consent failure —
+    // and on the result screen it would sit next to real clay pillar bars.
     error: {
-      color: Score.low[scheme].text,
+      color: Semantic.error[scheme],
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.sm,
     },

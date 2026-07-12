@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PASSWORD_MIN_LENGTH } from '@/constants/auth';
 import { Copy } from '@/constants/copy';
 import {
   Accent,
@@ -21,7 +22,7 @@ import {
   FontSize,
   Opacity,
   Radius,
-  Score,
+  Semantic,
   Spacing,
   type ColorScheme,
   type ThemeColors,
@@ -99,17 +100,17 @@ export default function SignInScreen() {
       if (mode === 'signUp') {
         // UX pre-check only, run BEFORE the breach check below — not a business rule the
         // client owns. `minimum_password_length = 8` in supabase/config.toml is the ONLY
-        // authority on this; if that value ever changes, this literal and
-        // Copy.auth.error.passwordTooShort must change with it or they'll silently drift.
-        // `mapAuthError`'s "password should be at least" branch stays as the server-side
-        // backstop regardless of what this pre-check does.
+        // authority on this; PASSWORD_MIN_LENGTH (constants/auth.ts) — imported here and by
+        // Copy.auth.error.passwordTooShort / Copy.auth.password.hint — must change with it or
+        // they'll silently drift. `mapAuthError`'s "password should be at least" branch stays
+        // as the server-side backstop regardless of what this pre-check does.
         //
         // Why it has to run first: a password like "1234" is both too short AND breached.
         // Without this check, the breach check below would return first and the user would
         // only ever be told "breached" — never the real, fixable problem — so they'd pick
         // another short password and hit "breached" again, never learning the length rule.
         // It also saves a pointless HIBP round-trip on a password that can never be accepted.
-        if (password.length < 8) {
+        if (password.length < PASSWORD_MIN_LENGTH) {
           setErrorMessage(Copy.auth.error.passwordTooShort);
           return;
         }
@@ -171,7 +172,7 @@ export default function SignInScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            <Text style={styles.wordmark}>Pace AnalysisAI</Text>
+            <Text style={styles.wordmark}>{Copy.auth.wordmark}</Text>
             <Text style={styles.valueProp}>{Copy.auth.valueProp}</Text>
           </View>
 
@@ -183,7 +184,9 @@ export default function SignInScreen() {
               disabled={isBusy}
               style={({ pressed }) => [
                 styles.secondaryButton,
-                (pressed || isBusy) && styles.buttonDimmed,
+                styles.secondaryButtonRaised,
+                isBusy && styles.buttonDisabled,
+                pressed && styles.buttonPressed,
               ]}>
               {pendingAction === 'google' ? (
                 <ActivityIndicator color={colors.text.primary} />
@@ -200,7 +203,9 @@ export default function SignInScreen() {
                 disabled={isBusy}
                 style={({ pressed }) => [
                   styles.secondaryButton,
-                  (pressed || isBusy) && styles.buttonDimmed,
+                  styles.secondaryButtonBase,
+                  isBusy && styles.buttonDisabled,
+                  pressed && styles.buttonPressed,
                 ]}>
                 <Text style={styles.secondaryButtonText}>{Copy.auth.cta.email}</Text>
               </Pressable>
@@ -225,6 +230,8 @@ export default function SignInScreen() {
                   style={styles.input}
                   placeholder={Copy.auth.password.placeholder}
                   accessibilityLabel={Copy.auth.password.placeholder}
+                  accessibilityHint={mode === 'signUp' ? Copy.auth.password.hint : undefined}
+                  accessibilityLabelledBy={mode === 'signUp' ? 'password-hint' : undefined}
                   placeholderTextColor={colors.text.secondary}
                   value={password}
                   onChangeText={setPassword}
@@ -233,6 +240,15 @@ export default function SignInScreen() {
                   textContentType={mode === 'signUp' ? 'newPassword' : 'password'}
                   editable={!isBusy}
                 />
+                {/* Proactive rule, sign-up mode only — noise in sign-in mode, where the rule
+                    doesn't apply to an existing password (issue #9). `nativeID` + the
+                    TextInput's accessibilityLabelledBy above associates this for a screen
+                    reader (Android); accessibilityHint carries it cross-platform too. */}
+                {mode === 'signUp' && (
+                  <Text nativeID="password-hint" style={styles.passwordHint}>
+                    {Copy.auth.password.hint}
+                  </Text>
+                )}
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={
@@ -242,7 +258,8 @@ export default function SignInScreen() {
                   disabled={isBusy}
                   style={({ pressed }) => [
                     styles.primaryButton,
-                    (pressed || isBusy) && styles.buttonDimmed,
+                    isBusy && styles.buttonDisabled,
+                    pressed && styles.buttonPressed,
                   ]}>
                   {pendingAction === 'email' ? (
                     <ActivityIndicator color={Accent.onAccent} />
@@ -266,7 +283,7 @@ export default function SignInScreen() {
             accessibilityRole="button"
             onPress={toggleMode}
             disabled={isBusy}
-            style={styles.toggleLink}>
+            style={({ pressed }) => [styles.toggleLink, pressed && styles.buttonPressed]}>
             <Text style={styles.toggleLinkText}>
               {mode === 'signIn' ? Copy.auth.signUp.link : Copy.auth.signIn.link}
             </Text>
@@ -316,10 +333,19 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       borderRadius: Radius.card,
       borderWidth: 1,
       borderColor: colors.hairline,
-      backgroundColor: colors.surface.raised,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: Spacing.lg,
+    },
+    // `surface.raised` is theme.ts's "one raised element per screen" — Google is the
+    // lower-friction path (brief §4.1 lists it first), so it gets the raised treatment; the
+    // email button below is `surface.base` instead, kept legible as a button by the shared
+    // `hairline` border above (issue #25).
+    secondaryButtonRaised: {
+      backgroundColor: colors.surface.raised,
+    },
+    secondaryButtonBase: {
+      backgroundColor: colors.surface.base,
     },
     secondaryButtonText: {
       fontFamily: FontFamily.body.semiBold,
@@ -339,8 +365,14 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       fontSize: FontSize.md,
       color: Accent.onAccent,
     },
-    buttonDimmed: {
+    // Pressed and disabled/busy are two different states and must not render at the same
+    // opacity — a disabled button was previously indistinguishable from a pressed one here,
+    // and Home already used the 0.4 disabled token for the same meaning.
+    buttonPressed: {
       opacity: Opacity.pressed,
+    },
+    buttonDisabled: {
+      opacity: Opacity.disabled,
     },
     emailForm: {
       gap: Spacing.md,
@@ -356,14 +388,18 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       fontSize: FontSize.md,
       color: colors.text.primary,
     },
-    // No dedicated "error"/"danger" token exists in constants/theme.ts yet — score.low's text
-    // role (clay red-orange, AA-proven in constants/__tests__/theme-contrast.test.ts) is the
-    // closest available token-only "negative" hue, so it's reused here rather than
-    // hardcoding a new color. Worth design-system adding a real semantic error token later.
+    // Small, secondary, quiet — the proactive password rule (issue #9), sign-up mode only.
+    passwordHint: {
+      fontFamily: FontFamily.body.regular,
+      fontSize: FontSize.xs,
+      color: colors.text.secondary,
+    },
+    // AA-proven against every surface in both themes — see
+    // constants/__tests__/theme-contrast.test.ts.
     errorText: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
-      color: Score.low[scheme].text,
+      color: Semantic.error[scheme],
       textAlign: 'center',
     },
     toggleLink: {

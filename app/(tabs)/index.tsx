@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Copy } from '@/constants/copy';
@@ -31,6 +31,13 @@ type QuotaState =
   | { status: 'error'; lastKnown: ReadyQuota | null }
   | ({ status: 'ready' } & ReadyQuota);
 
+/** One of these is minted per focus (see the `useFocusEffect` below) and threaded into every
+ * `fetchQuota` call started while it's current. Its cleanup flips `active` to false the moment
+ * that focus ends, so a call that started under an older focus — or after the screen unmounted
+ * entirely (e.g. mid-fetch sign-out) — can tell it's stale and skip `setQuota` instead of
+ * overwriting a newer, correct result or firing on an unmounted component. */
+type ActiveFlag = { active: boolean };
+
 /** Pulls the last successful quota reading (if any) out of whatever state we're currently in,
  * so a fetch failure can keep showing it alongside the stale caption instead of just replacing
  * it — see the `error` branch's render below. */
@@ -47,8 +54,11 @@ export default function HomeScreen() {
   const { session } = useSession();
   const userId = session?.user.id;
   const [quota, setQuota] = useState<QuotaState>({ status: 'loading' });
+  // Holds whichever ActiveFlag the most recent focus minted, so the Retry button — which calls
+  // fetchQuota directly, outside useFocusEffect — can pass a flag too instead of racing unguarded.
+  const activeFlagRef = useRef<ActiveFlag>({ active: false });
 
-  const fetchQuota = useCallback(async () => {
+  const fetchQuota = useCallback(async (active: ActiveFlag) => {
     if (!userId) return;
 
     try {
@@ -76,10 +86,12 @@ export default function HomeScreen() {
         ]);
 
       if (subscriptionError || countError) {
+        if (!active.active) return;
         setQuota((current) => ({ status: 'error', lastKnown: lastKnownFrom(current) }));
         return;
       }
 
+      if (!active.active) return;
       const tier: SubscriptionTier = subscription?.tier ?? 'free';
       setQuota({
         status: 'ready',
@@ -87,6 +99,7 @@ export default function HomeScreen() {
         hasUsedFreeAnalysis: tier === 'free' && (count ?? 0) >= 1,
       });
     } catch {
+      if (!active.active) return;
       setQuota((current) => ({ status: 'error', lastKnown: lastKnownFrom(current) }));
     }
   }, [userId]);
@@ -95,34 +108,62 @@ export default function HomeScreen() {
   // (tabs) once signed in), so this both loads the quota on first mount and refetches on every
   // later focus — a transient fetch failure self-heals just by revisiting the tab instead of
   // sticking until the app restarts. Also wired to the error state's Retry action below.
+  //
+  // Nothing sequences or cancels calls across focuses/Retry taps, so a slow, older call can
+  // still resolve after a newer one. The ActiveFlag minted here (see its type doc above) is
+  // what keeps that from corrupting state: it's live only for this focus, flips off the instant
+  // the screen blurs or unmounts, and every fetchQuota call — this one and Retry's — checks its
+  // own flag before ever calling setQuota.
   useFocusEffect(
     useCallback(() => {
-      fetchQuota();
+      const active: ActiveFlag = { active: true };
+      activeFlagRef.current = active;
+      fetchQuota(active);
+      return () => {
+        active.active = false;
+      };
     }, [fetchQuota])
   );
 
   function handleSignOut() {
     // onAuthStateChange (lib/session-provider.tsx) flips `session` to null, and the
-    // root layout's Stack.Protected guard routes back to (auth) automatically.
-    supabase.auth.signOut();
+    // root layout's Stack.Protected guard routes back to (auth) automatically — that happens
+    // even if the network call below fails, because auth-js clears the local session either way.
+    // The `{ error }` this returns is intentionally discarded, not just forgotten: on a failed
+    // *global* revoke the local sign-out still succeeds, so the user isn't stuck, but the
+    // server-side refresh tokens survive and nobody is told. Surfacing that failure needs
+    // copy-deck text that doesn't exist yet — tracked separately by issue #27, which this does
+    // NOT close. `void` + `.catch` only makes the discard explicit and keeps the rejection from
+    // becoming an unhandled promise rejection.
+    void supabase.auth.signOut().catch(() => {});
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.content}>
+      {/* Same ScrollView + flexGrow:1 pattern as app/(auth)/sign-in.tsx: the content still
+          centers when there is room, but at the largest Dynamic Type sizes it scrolls instead
+          of clipping (design brief §7: layouts reflow, never clip). */}
+      <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
-          <Text style={styles.header}>Home</Text>
+          <Text style={styles.header}>{Copy.home.title}</Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={Copy.settings.signOut.cta}
             onPress={handleSignOut}
-            style={styles.signOutButton}>
+            style={({ pressed }) => [styles.signOutButton, pressed && styles.pressed]}>
             <Text style={styles.signOutText}>{Copy.settings.signOut.cta}</Text>
           </Pressable>
         </View>
 
         <View style={styles.centerBlock}>
-          {quota.status === 'loading' && <ActivityIndicator color={colors.text.secondary} />}
+          {quota.status === 'loading' && (
+            <View style={styles.loadingBlock}>
+              <ActivityIndicator color={colors.text.secondary} />
+              <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
+                {Copy.home.quota.loading}
+              </Text>
+            </View>
+          )}
 
           {quota.status === 'ready' && (
             <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
@@ -145,9 +186,9 @@ export default function HomeScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={Copy.home.quota.error.retry}
                 onPress={() => {
-                  fetchQuota();
+                  fetchQuota(activeFlagRef.current);
                 }}
-                style={({ pressed }) => [styles.retryButton, pressed && styles.retryButtonPressed]}>
+                style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
                 <Text style={styles.retryText}>{Copy.home.quota.error.retry}</Text>
               </Pressable>
             </View>
@@ -169,7 +210,7 @@ export default function HomeScreen() {
 
           <Text style={styles.emptyCaption}>{Copy.home.empty.caption}</Text>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -185,7 +226,7 @@ function describeReadyQuota(quota: ReadyQuota): string {
   // `quota-status` wiring, not yet built. This branch is unreachable today (subscriptions
   // can only hold 'pro'/'elite' once that RPC exists), but a plain tier-name fallback beats
   // either crashing or fabricating a free-tier caption for a paid user.
-  const tierName = quota.tier === 'pro' ? 'Pro' : 'Elite';
+  const tierName = quota.tier === 'pro' ? Copy.home.quota.tier.pro : Copy.home.quota.tier.elite;
   return `${tierName} plan`;
 }
 
@@ -196,7 +237,9 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.background,
     },
     content: {
-      flex: 1,
+      // flexGrow (not flex) — this is a ScrollView contentContainerStyle now: it fills the
+      // viewport when the content is short, and grows past it when Dynamic Type makes it tall.
+      flexGrow: 1,
       padding: Spacing.xl,
       gap: Spacing.xxl,
     },
@@ -229,6 +272,10 @@ function createStyles(colors: ThemeColors) {
       justifyContent: 'center',
       gap: Spacing.xl,
     },
+    loadingBlock: {
+      alignItems: 'center',
+      gap: Spacing.md,
+    },
     quotaCaption: {
       fontFamily: FontFamily.mono.regular,
       fontSize: FontSize.md,
@@ -246,16 +293,27 @@ function createStyles(colors: ThemeColors) {
       textAlign: 'center',
     },
     retryButton: {
+      // The 44x44 floor design-brief §7 calls non-negotiable — padding alone left this at
+      // ~28pt around 15pt text. `signOutButton` above already uses the same token.
+      minHeight: HitTarget.min,
+      minWidth: HitTarget.min,
+      alignItems: 'center',
+      justifyContent: 'center',
       paddingVertical: Spacing.xs,
       paddingHorizontal: Spacing.sm,
     },
-    retryButtonPressed: {
+    /** The one pressed-state dim shared by every touchable on this screen. */
+    pressed: {
       opacity: Opacity.pressed,
     },
+    // Not Accent — that's the primary CTA's color and only the primary CTA's (theme.ts). This
+    // is a small underlined text action; `text.primary` + underline reads as the more
+    // prominent of this screen's two links, next to `signOutText` below at `text.secondary` +
+    // underline, without spending the accent on it (issue #21).
     retryText: {
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.sm,
-      color: Accent.value,
+      color: colors.text.primary,
       textDecorationLine: 'underline',
     },
     primaryButton: {

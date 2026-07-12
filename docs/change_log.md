@@ -7,6 +7,93 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Repo audit, second pass: the six actionable Low-severity issues (closes #9, #21, #24, #25,
+  #29, #30).** All six needed a design decision, which is why they were not taken in the first
+  pass; each decision below is derived from `docs/design/frontend-design-brief.md` §2/§4.1 rather
+  than invented. The two remaining Low issues (#60 Elite comparison, #61 motion) are blocked on
+  M6/M4 screens that do not exist yet and were left open.
+  - **A real semantic error token (#24).** `constants/theme.ts` gains `Semantic.error` (light
+    `#C23B52` / dark `#D47383`) — a cool crimson (hue ~350°) deliberately ~335° away from
+    `Score.low`'s clay red-orange (hue ~15°), so a **system error and a low pillar score can
+    never read as the same thing** on M6's Result screen. Both values clear WCAG AA as text
+    (4.5:1) against `background`, `surface.base` **and** `surface.raised` in both themes — worst
+    pair 4.61:1 (light/bg) and 4.70:1 (dark/surface.raised, the binding constraint in dark mode).
+    Proven, not asserted: 8 new assertions in `constants/__tests__/theme-contrast.test.ts`,
+    including an inequality lock against `Score.low`. `sign-in.tsx`'s error text now uses it.
+    `success`/`warning` were deliberately **not** added — no consumer exists, and an unproven
+    token is exactly what this file's discipline forbids.
+  - **The accent is single-use again (#21).** `constants/theme.ts` reserves `Accent.value` for
+    "the primary CTA and *only* the primary CTA"; it was appearing 2–3 times at once. Home's
+    Retry link → `text.primary` + underline (it keeps the underline, which is what marks it as an
+    action). The tab bar's active tint → `text.primary`, and `tabBarInactiveTintColor` is now set
+    to `text.secondary` instead of falling back to React Navigation's stock gray. `Accent` now
+    appears exactly once per screen: the primary CTA fill. (The full nav-theme rework is #12 and
+    was left alone.)
+  - **One raised element per screen (#25).** `surface.raised` is defined as "the one raised
+    element per screen" and sign-in was giving it to **both** secondary buttons. Google keeps it
+    (brief §4.1 lists it first, and it is the lower-friction path); "Continue with email" drops to
+    `surface.base`, keeping its `hairline` border. **No accent primary button was introduced** —
+    which button should be primary is #20, it is entangled with the not-yet-installed Sign in with
+    Apple button, and it stays open.
+  - **Four hardcoded strings routed through the copy deck (#30).** `Copy.auth.wordmark`,
+    `Copy.home.title` (shared by the heading and the tab label — two independent `'Home'` literals
+    before), and `Copy.home.quota.tier.pro`/`.elite`. Two of these have **no deck entry** and are
+    backfilled with the gap recorded in-place: whether Home should carry a "Home" heading above a
+    "Home" tab at all, and whether the wordmark should become the real mark asset (which now
+    exists at `assets/source/mark-*.svg`), are open design questions this change deliberately does
+    not answer.
+  - **One password-length constant, and the rule shown before you break it (#9).** New
+    `constants/auth.ts` exports `PASSWORD_MIN_LENGTH = 8`; the sign-up pre-check and **both** copy
+    strings now template off it, killing the triplicated literal. It still **cannot** bind
+    `supabase/config.toml`'s `minimum_password_length`, which remains the sole authority — that
+    constraint is now stated at the constant itself, not scattered across three files. Sign-up mode
+    also shows the rule as helper text under the password field (`Copy.auth.password.hint`), wired
+    to the field via `accessibilityHint` so a screen reader gets it too.
+  - **Reduced motion is wired (#29).** New `hooks/use-reduced-motion.ts` reads
+    `AccessibilityInfo.isReduceMotionEnabled()` and subscribes to `reduceMotionChanged`. It gates
+    the one animation that exists today — expo-router's default Stack transition in
+    `app/_layout.tsx`. **No new motion was added**: `docs/design/motion-consult.md` is binding, and
+    this is the mechanism #61 must plug every future animation into, built before there is anything
+    to retrofit.
+- **Repo audit: seven small, self-contained M1 bugs fixed in one pass (closes #13, #14, #19,
+  #22, #23, #31, #33).** Each had a prescribed, mechanical fix in its issue and needed no design
+  decision; everything larger or ambiguous found in the same read-through was left as an issue
+  rather than fixed inline.
+  - `app/_layout.tsx` — both splash-screen calls (`preventAutoHideAsync`, `hideAsync`) can reject
+    and neither was caught (#31). Also caught `Linking.getInitialURL()`'s rejection in
+    `lib/session-provider.tsx`, the same class of unhandled promise, found in the same pass.
+  - `app/(tabs)/index.tsx` — Home's root is now a `ScrollView` with `flexGrow: 1` (the pattern
+    sign-in already used), so large Dynamic Type sizes reflow instead of clipping with no way to
+    reach the CTA (#19); the loading state renders `Copy.home.quota.loading` ("Checking your
+    plan…") next to the spinner instead of leaving the deck key unused and screen readers with
+    nothing to announce (#14); the quota Retry button gets `HitTarget.min` on both axes, up from
+    ~28pt (#13); and the sign-out link gets the pressed-state dim every other touchable has (#22).
+  - `app/(auth)/sign-in.tsx` — pressed and disabled/busy no longer render at the same opacity
+    (#23): `buttonPressed` (0.6) and `buttonDisabled` (0.4) are now separate, matching Home's
+    meaning of the two tokens. The mode-toggle link gets press feedback (#22).
+  - Deleted the unreferenced create-expo-app template UI — `external-link`, `hello-wave`,
+    `parallax-scroll-view`, `ui/collapsible`, `themed-text`, `themed-view`, `hooks/use-theme-color`
+    and the four `react-logo` assets (#33). `themed-text` held `#0a7ea4`, the last hardcoded color
+    outside `constants/theme.ts`. `haptic-tab` and `ui/icon-symbol` are the only components left,
+    both live via `(tabs)/_layout.tsx`.
+- **Trimmed the sign-in error that promised a password reset the app doesn't have (closes #18).**
+  `auth.error.invalidCredentials` is now "Email or password doesn't match. Try again." — the
+  clause "or reset your password" is gone from both `docs/design/copy-deck.md` (Screen 1) and
+  `constants/copy.ts`. There is no forgot-password link, no reset screen, and no
+  `resetPasswordForEmail` call anywhere in the repo, and this is the error a returning user is
+  most likely to hit, so it was routing them at a capability that does not exist. Ian's call
+  (2026-07-12) was to trim the copy rather than build the flow; a real reset flow is an auth
+  feature (new screen + deep-link/redirect config) and would be filed separately.
+- **Closed #65 (M7: remaining empty/error/offline states) as not planned, no code changed.** It
+  was an umbrella whose two halves both belong elsewhere. Wiring the deck's states into screens
+  3–11 is blocked — those screens don't exist (M2–M6 not started) — and lifting a screen's copy
+  keys is part of building that screen, not a polish pass afterwards, so it belongs in each
+  milestone's own issue rather than a standing M7 one. Its actionable half (the M1 audit's
+  missing deck keys) was already covered by #30, #17, #9, and #18. The audit found gaps wider
+  than those issues recorded; they're now comments on #30 (a third hardcoded string,
+  `title: 'Home'` in `app/(tabs)/_layout.tsx`, plus hardcoded `'Pro'`/`'Elite'` in
+  `describeReadyQuota`) and #9 (the `8` is triplicated across `config.toml`, `sign-in.tsx`, and
+  the `copy.ts` string, and the rule is still invisible until the user fails).
 - **Merged the three open PRs to `main` and cleared the Apple-blocked work out of the tracker.**
   - Merged PR #73 (client-side HIBP check), PR #72 (privacy policy + labels + consent design),
     and PR #75 (EAS init + icon/splash) into `main`, resolving the conflicts between them. All
