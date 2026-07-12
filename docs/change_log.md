@@ -7,6 +7,94 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Client-side soft-delete bypass around #57's delete endpoint closed (found by #57's agent,
+  fixed alongside #6, migration written, not yet applied to the live project).** #2's soft-delete
+  `UPDATE(deleted_at)` grant + policy on `public.analyses` was the intended client delete path
+  before a server-side delete endpoint existed; now that #57's `DELETE
+  /functions/v1/analysis/:id` edge function exists (built in a sibling worktree), that path is a
+  bypass — a client can PATCH `deleted_at` directly, firing #2's redaction trigger (which wipes
+  `media_paths`) without ever purging the Storage objects it named. That is issue #3 (deleted
+  media never actually purged) reintroduced through the door #2 opened. Not exploited today:
+  verified live (project `vputdomdlknvthnzritt`) that `public.analyses` has 0 rows, and a
+  repo-wide grep of `app/`, `lib/`, `components/` found zero client code writing `deleted_at` or
+  calling `.update()` against `analyses` — the only client reference to the table is the
+  read-only quota-count `SELECT` in `app/(tabs)/index.tsx`. Revoking this breaks nothing live
+  today.
+  - **Added** `supabase/migrations/20260712230000_analyses_client_delete_removed.sql`: revokes
+    `authenticated`'s `update (deleted_at)` column grant and drops the "Users can soft-delete
+    their own analyses" policy. Leaves the `deleted_at` column, the redaction trigger, and all
+    three quota RPCs (`reserve_analysis`/`settle_analysis`/`release_analysis`) untouched —
+    `service_role` (which the delete edge function runs as) holds its own separate, unrevoked
+    grant set and bypasses RLS regardless, confirmed by reading
+    `information_schema.column_privileges` live rather than assumed. Resulting matrix on
+    `public.analyses`: `anon` — nothing; `authenticated` — `SELECT` only (one policy, no
+    INSERT/UPDATE/DELETE/TRUNCATE); `service_role` — unchanged, full access. Delete is now
+    exclusively server-side. Composes cleanly with this same branch's other pending migration
+    (`20260712220000`, the anti-farm fix below) — timestamped later, touches no statement the
+    other one wrote (policies/grants only here; a function body and a CHECK constraint only
+    there).
+  - **Added** `supabase/migrations/__tests__/analyses_client_delete_removed.test.ts` (13 tests)
+    and **updated** `supabase/migrations/__tests__/analyses_quota_soft_delete.test.ts`'s two
+    cross-migration policy-simulation assertions — that suite dynamically scans every migration
+    file's `CREATE`/`DROP POLICY` statements to compute the net-effect policy set, so adding this
+    migration correctly changes its computed end state from "one SELECT + one UPDATE policy
+    survive" to "one SELECT policy survives, zero UPDATE"; a new test was added alongside it that
+    checks the soft-delete policy's shape directly against #2's own migration file (independent of
+    later supersession), so #2's fix is still provably correct as originally written even though a
+    later migration removes what it added.
+  - **Updated** `docs/architecture.md`'s `analyses`'s RLS section with a new "Planned" paragraph;
+    not yet applied to the live project, same not-yet-live footing as #6's anti-farm migration.
+
+- **Anti-farming cap now distinguishes our infrastructure failures from genuine abuse (fixes
+  #6, HIGH — migration written, not yet applied to the live project).** `reserve_analysis`
+  counted every `status = 'released'` row toward its 3-failed-attempt anti-farming cap
+  regardless of cause; free's branch has no window (matching its lifetime quota), so 3
+  transient Anthropic timeouts/outages — none of them the user's fault — permanently bricked a
+  free account with no recovery path. Verified live before touching anything: the current
+  `reserve_analysis` (`pg_get_functiondef` against project `vputdomdlknvthnzritt`) matched
+  `20260712123606_frame_upload_ordering.sql` (#88's 4-arg signature) byte-for-byte, and
+  `public.analyses` had 0 rows against 2 `profiles` — no account is bricked today, so this ships
+  with no data backfill.
+  - **Added** `supabase/migrations/20260712220000_anti_farm_release_reason_fix.sql`: pins
+    `release_reason` (previously freeform, "observability only") to a closed vocabulary via a
+    new CHECK constraint — `model_error` / `provider_timeout` / `internal_error` (server-fault,
+    excluded from the cap) vs. `validation_failed` (fires on genuine abuse AND on honest
+    hard/confusing input, since #45's retry+honest-partial fallback doesn't exist yet to
+    distinguish them — still counted, but see the windowing point below for why that alone isn't
+    enough) — and adds `public.pace_is_farming_signal(text)`, a standalone classifier kept
+    deliberately OUT of `reserve_analysis`'s body so a future taxonomy change never needs to
+    `create or replace` that function again (the exact two-migrations-collide hazard #88's and
+    #2's own header comments warn about, after one such collision already cost this repo work).
+    **Free's anti-farm count is windowed to a rolling 24h** (`released_at > now() - interval
+    '24 hours'`) rather than left lifetime-scoped like its quota — a same-day review (Ian +
+    the coordinating agent) caught that an unwindowed count on `validation_failed` could
+    permanently lock out a first-time user after 3 merely-confusing (not malicious) videos,
+    a narrower recurrence of the exact bug #6 exists to close. The governing invariant, stated
+    explicitly in the migration: **a user who has never successfully received an analysis must
+    never be permanently unable to obtain one** — anti-farming may throttle, never permanently
+    deny. 24h was chosen over shorter (too weak a deterrent) or period-length (too long a wait
+    for a first-time user) alternatives, and turns out to match what the original spec always
+    said — "3 free retries **per period**" (`planning/02-product-requirements.md:64`,
+    `planning/03-engineering-requirements.md:81`, `docs/mvp-build-prompt.md:223`) — distinct from
+    the lifetime quota, which the first implementation had conflated. Pro/elite's existing
+    purchase-anchored period window is left as-is (it already self-resets, so never had this
+    failure mode) and only gains the same reason filter. Every other line of `reserve_analysis` —
+    signature, quota check, insert, exception handler — is preserved verbatim from #88.
+    `settle_analysis`/`release_analysis` are untouched. The cap itself is not weakened: 3
+    confirmed, recent farming-signal releases still trips `too_many_failed_attempts`.
+  - **Added** `supabase/migrations/__tests__/anti_farm_release_reason_fix.test.ts` (30 tests),
+    following this repo's existing text-level migration-contract convention (no pgTAP/local
+    Postgres available — see that suite's own header, and `analyses_quota_soft_delete.test.ts`
+    for precedent) — asserts the CHECK constraint's exact vocabulary, the classifier's boolean
+    semantics, that both `reserve_analysis` branches gained the filter, that free's branch is
+    additionally windowed to 24h while pro/elite's is not further shrunk, and that no data-repair
+    statement was added.
+  - **Updated** `docs/architecture.md`'s new "Planned — anti-farming cap distinguishes our fault
+    from theirs" section (this migration is written but **not yet applied** to the live
+    project — same not-yet-live footing the AI spend guardrail migrations were on before their
+    own 2026-07-12 push), including a flagged copy gap: `too_many_failed_attempts` has no
+    `docs/design/copy-deck.md` string yet — `ux-copywriter`'s job, not added here.
+
 - **Session storage moved off plaintext AsyncStorage to a SecureStore-backed adapter (closes
   #38, `docs/status.md` Known Issue #13).** `lib/supabase.ts` was passing `storage: AsyncStorage`
   straight to `createClient` — the session, including the refresh token, sat unencrypted on

@@ -1,0 +1,112 @@
+-- Closes a hole found by issue #57's agent (building `DELETE
+-- /functions/v1/analysis/:id` in a sibling worktree) while wiring up the
+-- server-side delete flow: #2's soft-delete UPDATE grant/policy on
+-- public.analyses is a client-reachable BYPASS around that endpoint, and
+-- using the bypass orphans body-image frames in the private Storage bucket
+-- — issue #3 (deleted media never actually purged) reintroduced through the
+-- door #2 opened, which CLAUDE.md is explicit must never happen.
+--
+-- ROOT CAUSE. #2 (20260712040000_analyses_quota_soft_delete.sql) gave the
+-- client `grant update (deleted_at) on public.analyses to authenticated`
+-- plus a policy permitting the `deleted_at NULL -> NOT NULL` transition —
+-- the intended soft-delete mechanism AT THE TIME, because no server-side
+-- delete path existed yet (that migration's own header: "the planned DELETE
+-- /functions/v1/analysis/:id edge function is the *preferred* path... but
+-- RLS still permits the row-only delete as a fallback/direct path"). Now
+-- that #57's edge function exists (service_role, purges Storage by
+-- `{user_id}/{analysis_id}/` PREFIX per #88's contract — see
+-- 20260712123606_frame_upload_ordering.sql's "DELETION AUTHORITY"), that
+-- fallback is no longer a fallback — it is a way to mark a row deleted
+-- WITHOUT the one thing that ever purges its Storage objects. Worse, #2's
+-- own redaction trigger wipes `media_paths` to `'{}'` on soft-delete, so a
+-- client that takes this bypass leaves a row that no longer even NAMES the
+-- objects it stranded (they stay recoverable only because #57 purges by
+-- prefix rather than by the stored list — precisely why that contract
+-- exists, not a coincidence).
+--
+-- NOT EXPLOITED TODAY, verified live immediately before writing this
+-- migration (project vputdomdlknvthnzritt):
+--   * `pg_policy` on public.analyses: exactly two policies —
+--     "Users can view their own analyses" (SELECT) and
+--     "Users can soft-delete their own analyses" (UPDATE, the
+--     deleted_at-transition policy this migration removes).
+--   * `information_schema.role_table_grants`: `authenticated` holds
+--     table-level SELECT only (no table-wide INSERT/UPDATE/DELETE/
+--     TRUNCATE — #2's `revoke all ... from authenticated, anon` is intact).
+--   * `information_schema.column_privileges`: `authenticated` holds exactly
+--     one column-level grant beyond the automatic per-column SELECT
+--     mirror — `UPDATE` on `deleted_at`. This is the grant this migration
+--     revokes.
+--   * `service_role` holds its OWN full column/table privilege set on this
+--     table (every privilege type, every column, `is_grantable = NO`
+--     meaning explicitly granted, not inherited) — entirely separate ACL
+--     entries from `authenticated`'s. A `revoke ... from authenticated`
+--     cannot touch a grant recorded against a different grantee; this was
+--     confirmed by reading the grants, not assumed. #57's edge function
+--     (service_role) and `reserve_analysis`/`settle_analysis`/
+--     `release_analysis` (SECURITY DEFINER, owned by the migration role,
+--     which also bypasses RLS and holds its own unrevoked grants) are
+--     unaffected by anything in this file.
+--   * `public.analyses` has 0 rows (2 `profiles`) — same live check as the
+--     anti-farm migration. No row has ever been soft-deleted.
+--   * Repo-wide grep (`app/`, `lib/`, `components/`, excluding migrations
+--     and tests) for `.update(` against Supabase or any `deleted_at`
+--     reference: zero hits. The one and only client reference to this
+--     table is a read-only `count`-only `SELECT` in
+--     `app/(tabs)/index.tsx` (quota display). **Nothing in the app
+--     performs a client-side soft-delete today — this migration breaks no
+--     existing code path.**
+--
+-- COMPOSES CLEANLY with 20260712220000_anti_farm_release_reason_fix.sql
+-- (this branch's other pending migration, timestamped earlier so it applies
+-- first): that migration only touches `reserve_analysis` (a `create or
+-- replace function`, no policy/grant statements) plus a new CHECK
+-- constraint on `release_reason` and a new standalone function; this one
+-- only touches policies/grants. Neither file contains a `create or
+-- replace function public.reserve_analysis` collision, neither re-issues
+-- any statement the other one made, and both are pure ADD/REVOKE/DROP
+-- against the same table with zero statement overlap — order between them
+-- does not matter, but they are kept in separate files exactly as
+-- instructed, one concern per file, matching #2/#88's own precedent for
+-- migrations that touch the same table for independent reasons.
+--
+-- WHAT THIS MIGRATION DOES NOT TOUCH, deliberately: the `deleted_at` column
+-- itself, the `analyses_redact_on_soft_delete` trigger, and
+-- `reserve_analysis`/`settle_analysis`/`release_analysis`. The edge
+-- function (service_role) still needs all of these — it still sets
+-- `deleted_at`, still relies on the trigger to redact `result`/
+-- `media_paths` at the moment of deletion, and none of the quota RPCs ever
+-- reference `deleted_at` at all (see #2's own migration for why that's
+-- correct and must stay that way). Only the CLIENT's ability to reach any
+-- of this is removed.
+--
+-- RESULTING GRANT/POLICY MATRIX on public.analyses (verify with
+-- has_table_privilege / pg_policy after applying):
+--   anon           — nothing (unchanged; anon never had any access here)
+--   authenticated  — SELECT only, table-level, own rows via RLS
+--                    ("Users can view their own analyses"). No INSERT, no
+--                    UPDATE (not even column-scoped), no DELETE, no
+--                    TRUNCATE. Exactly one policy survives on this table
+--                    for `authenticated`.
+--   service_role   — unchanged, full access, its own grants, bypasses RLS
+--                    (SECURITY DEFINER RPCs and the future delete edge
+--                    function both run as this role or under a SECURITY
+--                    DEFINER function owned by the migration role).
+-- Delete is now exclusively server-side, matching CLAUDE.md's requirement
+-- that deleted media actually gets purged.
+
+-- ---------------------------------------------------------------------------
+-- 1. Revoke the client's column-scoped write. This is the actual bypass.
+-- ---------------------------------------------------------------------------
+
+revoke update (deleted_at) on public.analyses from authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 2. Drop the policy that made the (now-revoked) grant reachable. Both
+--    steps are required — RLS policy alone is not the privilege layer (see
+--    #2's own header on why grants and policies are two separate gates),
+--    and leaving the policy while the grant is gone is dead but harmless;
+--    dropped anyway so no future re-grant silently reopens this path.
+-- ---------------------------------------------------------------------------
+
+drop policy "Users can soft-delete their own analyses" on public.analyses;
