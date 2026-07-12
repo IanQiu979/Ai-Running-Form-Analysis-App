@@ -136,10 +136,63 @@ export const Copy = {
     },
   },
   result: {
+    // --- issue #56 additions start ---
+    // The Screen 7 keys below are lifted verbatim from docs/design/copy-deck.md, except the
+    // three explicitly marked NEW — those aren't in the deck and are added here, delimited, per
+    // this issue's instruction ("if one is genuinely missing, add it in a clearly-delimited
+    // block and say so").
+    overall: {
+      label: 'Overall',
+    },
+    pillar: {
+      posture: { label: 'Posture' },
+      armSwing: { label: 'Arm swing' },
+      cadence: { label: 'Cadence' },
+      elasticity: { label: 'Elasticity' },
+      notAssessed: {
+        angle: 'Not assessed — film side-on for this.',
+        needsVideo: 'Not assessed — needs video, not a photo.',
+        // NEW key, not in the deck. `supabase/functions/_shared/pace.ts`'s own doc comment on
+        // `PaceNotAssessedReason` says a model response is NOT structurally required to report
+        // exactly 'angle' | 'needsVideo' — an honest "couldn't assess this" that names some
+        // other reason (or none at all) must still render as not-assessed, never be dropped or
+        // treated as a shape violation. Also doubles as the overall headline's not-assessed
+        // fallback text when every pillar comes back null (`PaceOverall.band === null`).
+        generic: "Not assessed — the media didn't support scoring this.",
+      },
+      a11yLabel: '{pillar}, {score} out of 100, {band}.',
+    },
+    hero: {
+      altText: 'Your running frame, marked with posture and ground lines.',
+    },
+    partial: {
+      banner: {
+        title: 'Partial read',
+        body: "We could confidently score {n} of 4 pillars from this clip. The rest are marked not assessed — we don't guess at a score.",
+      },
+    },
+    // NEW keys, not in the deck. The deck covers this screen's happy/partial/disclaimer states
+    // but not "the fetch of the stored row itself failed" — a real state per CLAUDE.md ("build
+    // the states, not just the happy view") and issue #56's own "Retry/Cancel must never trap
+    // the user in a dead end."
+    error: {
+      notFound: "We couldn't find this analysis.",
+      loadFailed: "Couldn't load this analysis.",
+      retry: 'Retry',
+    },
+    cta: {
+      done: 'Back to Home',
+    },
+    // Deck key `result.loadingFromHistory` — its table row sits under the Screen 8 (Past
+    // Analyses) heading, but the key's own namespace (`result.*`, not `history.*`) and its
+    // "Shows when" column ("Opening a stored result cold") both name this screen, not Screen 8's
+    // list — kept under `result` here to match the key's actual namespace.
+    loadingFromHistory: 'Loading your result…',
     disclaimer: {
       footer:
         'This is not medical advice. PACE analyzes visible running form and flags movement patterns that research associates with elevated injury risk — it does not diagnose injuries or conditions. Form assessment from a photo or short video is an estimate, not a lab measurement. If you have pain, swelling, or a persistent problem, or before making a big change to how you run, consult a doctor or a qualified sports physiotherapist.',
     },
+    // --- issue #56 additions end ---
   },
   settings: {
     signOut: {
