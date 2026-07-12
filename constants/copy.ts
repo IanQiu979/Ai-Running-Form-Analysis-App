@@ -135,6 +135,36 @@ export const Copy = {
       },
     },
   },
+  // Screen 6 — Analyzing (issue #80). Lifted verbatim from docs/design/copy-deck.md.
+  analyzing: {
+    title: 'Analyzing',
+    step: {
+      reading: 'Reading your form…',
+      scoring: 'Scoring the four pillars…',
+    },
+    longWait: 'Still analyzing — a full read takes a moment.',
+    error: {
+      failed: {
+        title: "Your analysis didn't go through",
+        body: "The analysis service didn't return a usable result. This one wasn't counted against your quota — try again.",
+      },
+      timeout: {
+        title: 'Analysis timed out',
+        body: "The read took too long to finish. This one wasn't counted against your quota — try again.",
+      },
+      cta: {
+        // The deck says "Reuse shared.cta.retry" / "shared.cta.cancel" — no Copy.shared
+        // namespace exists in this codebase yet. Every screen shipped so far (Home's
+        // `quota.error.retry`, ConsentGate's `cta.secondary`) has likewise duplicated the
+        // literal string under its own key rather than introducing one; following that
+        // established precedent here instead of unilaterally adding an app-wide namespace
+        // from this screen's issue (out of scope per issue #80: "do NOT reorganize
+        // constants/copy.ts").
+        retry: 'Retry',
+        cancel: 'Cancel',
+      },
+    },
+  },
   result: {
     // --- issue #56 additions start ---
     // The Screen 7 keys below are lifted verbatim from docs/design/copy-deck.md, except the

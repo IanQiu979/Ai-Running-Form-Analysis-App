@@ -11,6 +11,9 @@ milestone "done" criteria.
 |---|---|
 | M1 — Foundation (sign-up creates an account → empty Home) | **Done 2026-07-11** — security audit (no Critical/High) + code review (5 findings fixed), gate passed with Ian's on-phone sign-up test; merged via PR from `feat/m1-spine` |
 | M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Not started |
+| M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files exist; Elasticity pending Ian's certification |
+| M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. **The Analyzing screen (issue #80) shipped 2026-07-12**, built entirely against the documented `analyze-form` contract via an injectable `AnalyzeFormClient` seam (`lib/analyze-form.ts`, currently bound to a dev mock — no real network call anywhere) — the `analyze-form` edge function itself (#44) is still not started; #80 only removed the client-side hole so #44 has a screen to plug into once it exists. |
+| M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | **In progress** — the grounded prompt, tier verbosity dial, and structured-output contract landed 2026-07-12 (issue #41, `supabase/functions/_shared/analyze-form-prompt.ts`, 28 Deno tests, **no live model call made**), unblocking M4's #44/#45. The milestone's own gate — "prompt *provably* includes the framework text" — is proven statically today (the three certified files are asserted present **byte-for-byte** in the assembled prompt); proving the *output* references the PACE pillars still needs #42's live-call eval harness. Still open: **#39** (Ian certifies Elasticity + the pillar refinements — the prompt ships his name) and **#40** (the runner's-note guidance in `injury_flags.md`; #41 neutralises it at the prompt layer, but the certified file itself still says "if the note reports…", so #40 stays open for Ian's review). |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. `purchase-tier` and every M5 screen (paywall, tier-aware CTAs) remain unbuilt. |
@@ -379,6 +382,15 @@ milestone "done" criteria.
     follow-up is recommended before M6 is called done. The product-level mitigation in the
     meantime: the app's UI must always route a user's "delete" action through this endpoint, never
     call `supabase.from('analyses').update({ deleted_at })` directly.
+20. **NEW — the result route's path is named two different ways across the design docs (found
+    while building the Analyzing screen, issue #80, 2026-07-12).** `docs/architecture.md`'s route
+    tree says `result/[id]` (singular); `docs/design/motion-consult.md`'s item 3 example
+    (`router.replace('/results/[id]', ...)`) says `results/[id]` (plural). `app/analyzing.tsx`
+    navigates to `/result/[id]` (matching `architecture.md`, the more authoritative source) on a
+    completed analysis, forward-referenced via an `as Href` cast since the route doesn't exist in
+    that worktree — nothing enforces that whoever builds #56 picks the same name. Whoever builds
+    #56 must pick one and, if it's not `result/[id]`, update `app/analyzing.tsx`'s navigation call
+    in the same change.
 
 ## Next action
 
