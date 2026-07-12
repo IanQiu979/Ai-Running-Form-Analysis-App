@@ -12,13 +12,16 @@
  *     both themes — text, >=4.5:1.
  *   - the accent: white CTA label on accent — text, >=4.5:1; accent itself on every surface —
  *     non-text button/tint boundary, >=3:1.
+ *   - `Feedback.error` (system/form error text, e.g. sign-in's `errorText`) on every surface,
+ *     both themes — text, >=4.5:1. `Feedback.onError` — the label atop a solid `error` fill —
+ *     text, >=4.5:1.
  *
  * `hairline` is intentionally not asserted here — see the comment on it in theme.ts: it's a
  * decorative structural rule, not text or a UI-component boundary, so WCAG 1.4.11 does not apply.
  */
 
 import { AA_NON_TEXT, AA_TEXT, contrastRatio } from '../contrast';
-import { Accent, Colors, type ColorScheme, Score, ScoreBandOrder } from '../theme';
+import { Accent, Colors, type ColorScheme, Feedback, Score, ScoreBandOrder } from '../theme';
 
 const SCHEMES: readonly ColorScheme[] = ['light', 'dark'];
 
@@ -38,6 +41,7 @@ const scoreFillPairs: Pair[] = [];
 const scoreTextPairs: Pair[] = [];
 const accentTextPairs: Pair[] = [];
 const accentNonTextPairs: Pair[] = [];
+const feedbackTextPairs: Pair[] = [];
 
 for (const scheme of SCHEMES) {
   const c = Colors[scheme];
@@ -51,7 +55,18 @@ for (const scheme of SCHEMES) {
       bg: surfaceHex,
     });
     accentNonTextPairs.push({ label: `${scheme} accent on ${surfaceName}`, fg: Accent.value, bg: surfaceHex });
+    feedbackTextPairs.push({
+      label: `${scheme} feedback.error on ${surfaceName}`,
+      fg: Feedback[scheme].error,
+      bg: surfaceHex,
+    });
   }
+
+  feedbackTextPairs.push({
+    label: `${scheme} feedback.onError on feedback.error`,
+    fg: Feedback[scheme].onError,
+    bg: Feedback[scheme].error,
+  });
 
   for (const band of ScoreBandOrder) {
     const { fill, text } = Score[band][scheme];
@@ -79,6 +94,10 @@ describe('theme contrast — text pairs clear AA (>=4.5:1)', () => {
   });
 
   test.each(accentTextPairs)('$label', ({ fg, bg }) => {
+    expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+
+  test.each(feedbackTextPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_TEXT);
   });
 });

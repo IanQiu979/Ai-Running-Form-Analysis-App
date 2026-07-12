@@ -166,6 +166,47 @@ export const Accent = {
 } as const;
 
 // -------------------------------------------------------------------------------------------
+// Feedback — a semantic role the brief's original scales don't cover: system/form feedback (a
+// failed sign-in, a rejected upload) that is not a score. Added for #24: `sign-in.tsx` used to
+// borrow `Score.low.text` (the "Needs work" clay) for auth errors — token-clean, but it bleeds
+// score meaning into a non-score context, and gets actively confusing once the Result screen
+// (#56) puts real clay pillar bars on the same screen as a system error.
+//
+// A new hue, deliberately far from the score scale's clay (`Score.low` sits at hue ~15°, a
+// muted, ~51%-saturated rust/terracotta): a more saturated wine/crimson at hue ~345°, ~68%
+// saturation — warm (not a cool, generic Material red — the brief's base is warm bone/graphite,
+// per §2) but unmistakably a different color family from clay side by side, which is the entire
+// point of the split. Two roles, mirroring `Accent`'s `value`/`onAccent`: `error` is the
+// foreground for error text/icons directly on a neutral surface (background, surface.base,
+// surface.raised), and doubles as the fill if a future feedback banner needs one; `onError` is
+// the only legal label color on top of a solid `error` fill.
+//
+// No "brief intent" value exists for this (the brief never named an error hue), so both schemes'
+// `error` are picked directly to the target ratio rather than adjusted from one:
+//   light `error` #A31F40 -> 6.58:1 (background) / 7.05:1 (surface.base) / 7.43:1
+//   (surface.raised).
+//   dark `error` #E26584 -> 5.47:1 (background) / 5.08:1 (surface.base) / 4.59:1
+//   (surface.raised) — surface.raised is dark mode's lightest surface, so (as with every Score
+//   band) it's the binding constraint, cleared with the same slim margin the score bands use.
+// `onError`: light reuses white — identical to `surface.raised`, so it's the same pair as
+// `error` on surface.raised above (7.43:1). Dark reuses `Colors.dark.background`'s hex verbatim
+// (5.47:1 on dark `error`) rather than inventing a new near-black.
+// -------------------------------------------------------------------------------------------
+
+export const Feedback = {
+  light: {
+    /** Error text/icons on a neutral surface; also the fill for a solid error banner. */
+    error: '#A31F40', // 6.58:1 (background) / 7.05:1 (surface.base) / 7.43:1 (surface.raised)
+    /** The only legal label color on an `error` fill. */
+    onError: '#FFFFFF', // white — 7.43:1 on `error` (same pair as error-on-surface.raised above)
+  },
+  dark: {
+    error: '#E26584', // 5.47:1 (background) / 5.08:1 (surface.base) / 4.59:1 (surface.raised)
+    onError: '#1A1712', // Colors.dark.background's hex, reused verbatim — 5.47:1 on `error`
+  },
+} as const;
+
+// -------------------------------------------------------------------------------------------
 // Type — brief §2 "Type". Three families, each isolated to its role: Archivo (grotesque) for
 // display/numerals — distinct from V2.2's Barlow Condensed; Inter for body/UI, shared with the
 // family; IBM Plex Mono for measured readouts, the "instrument" signal carried over from V2.2.

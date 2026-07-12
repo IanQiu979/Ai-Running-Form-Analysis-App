@@ -17,11 +17,11 @@ import {
   Accent,
   Colors,
   ControlHeight,
+  Feedback,
   FontFamily,
   FontSize,
   Opacity,
   Radius,
-  Score,
   Spacing,
   type ColorScheme,
   type ThemeColors,
@@ -365,14 +365,10 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       fontSize: FontSize.md,
       color: colors.text.primary,
     },
-    // No dedicated "error"/"danger" token exists in constants/theme.ts yet — score.low's text
-    // role (clay red-orange, AA-proven in constants/__tests__/theme-contrast.test.ts) is the
-    // closest available token-only "negative" hue, so it's reused here rather than
-    // hardcoding a new color. Worth design-system adding a real semantic error token later.
     errorText: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
-      color: Score.low[scheme].text,
+      color: Feedback[scheme].error,
       textAlign: 'center',
     },
     toggleLink: {
