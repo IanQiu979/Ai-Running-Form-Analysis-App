@@ -225,6 +225,85 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   - `docs/status.md` Known Issue numbering: renumbered this work's issues to **#22**/**#23** — #121
     (the `delete-account` edge function's own PR) independently claimed **#21** for a related but
     distinct caveat; both PRs adding a "#21" would have collided on merge.
+- **M4 review fixes (two MEDIUM findings on PR #127, both fixed in place):**
+  - **A suppressed retry no longer charges an anti-farming strike for our own degradation.**
+    `classifyReleaseReason` returned `'validation_failed'` (the one farming signal, counted toward
+    the 3-strike cap) whenever every response was a content failure — *including when only one
+    attempt ran*. But the flow **skips** the retry when the deadline is nearly spent and its spend
+    gate **denies** it when the daily cap is near or the breaker is open. So a model that degraded
+    to prose exactly when the breaker tripped under load would strike three unlucky Free users out
+    of their one lifetime analysis in 24h, for an outage that was entirely ours (the exact harm
+    issue #6 exists to close). Fix: `decideOutcome`/`classifyReleaseReason` now take an explicit
+    `retryRan` flag threaded from the flow; `'validation_failed'` requires the retry to have
+    **actually run** and *still* only produced content failures. A lone content failure with a
+    suppressed retry releases as `'model_error'` (server fault — refunds quota, does not tick the
+    counter). Tests cover all three sub-cases: retry skipped (low budget), retry gate denied, and a
+    genuine two-attempt farmer.
+  - **Uncapped frame count was a $0-cost global-cap DoS.** `parseRequestBody` capped total bytes
+    (5 MB) but not the number of frames. Because the gate runs before the reserve (#91), a caller
+    whose quota is spent could send ~2000 tiny valid-base64 frames — `estimateTokensForCall(2000,
+    'elite')` ≈ $9.9 — which `gate_ai_call` holds against the live $10 daily cap as a `'pending'`
+    row for the request's lifetime; the reserve then denies and the hold cancels at $0 real spend,
+    but sustained it saturates the **global** cap and every legitimate analysis gets a `daily_cap`
+    503. Fix: `parseRequestBody` rejects `frames.length > PACE_FRAME_CAP.elite` (8) with
+    `too_many_frames` / 400 **before** the gate/reserve/model, bounding the pre-reserve estimate to
+    ~$0.23. `reserve_analysis` still owns the real per-tier cap; this is only a DoS bound.
+- **M4: the `analyze-form` edge function is built (issues #44 + #45)** — the core of the product.
+  A side-on clip now returns an honest, certified, well-parsed PACE result, or an honest failure
+  that costs the user nothing. Not deployed: the code is written and fully tested; `supabase
+  functions deploy` and `supabase secrets set ANTHROPIC_API_KEY` remain Ian's to run.
+  - **Added** `supabase/functions/analyze-form/{index.ts,flow.ts,deps.ts}` — HTTP/auth glue, the
+    pure orchestration, and the Deno/Supabase/Anthropic wiring, the same three-way split
+    `analysis/` (#57) and `quota-status/` (#50) already use. Plus
+    `supabase/functions/_shared/analyze-form-validation.ts` (#45) — structural validation, the
+    honest-partial salvage, and the `release_reason` classifier.
+  - **84 new Deno tests** (`analyze-form/__tests__/flow.deno.test.ts`,
+    `_shared/__tests__/analyze-form-validation.deno.test.ts`). Zero Anthropic spend: the model is
+    a fake queue. One suite per binding contract rule, each written against the production hazard
+    it exists to prevent.
+  - **#45, never fabricate a score**: validation is structural, never content. A pillar the model
+    did not return, or returned unreadably, comes back `score: null` / `band: null` and no
+    invented `notAssessedReason` — never Echo V1's 75 + "No feedback available". Fail → retry
+    once → ≥2 pillars parsed (and ≥1 actually scored) → `settle_analysis(is_fallback = true)`;
+    otherwise a clean failure and the quota slot is refunded. A photo's two honestly-null pillars
+    still validate as a FULL success, not a fallback.
+  - **`release_reason` is classified, not guessed** (the `20260712220000` taxonomy): only a pure
+    content failure across every attempt is `'validation_failed'` (the one farming signal). A
+    truncation, a refusal, or a dead call is `'model_error'`; a timeout is `'provider_timeout'`;
+    our own bug is `'internal_error'` — none of which tick a user's anti-farming counter for
+    something we did.
+  - **`release_analysis` and `recordAiCall` have exactly one call site each, both in a `finally`.**
+    The body of the flow never releases and never records; it only sets the intent. A branch
+    cannot forget an obligation it does not perform, and an unexpected throw takes the same path.
+  - **The retry is a second billed call and gets its own `gateAiCall()`**, so the daily cap and
+    the circuit breaker both see it. Each gated call is settled with *its own* outcome: an attempt
+    that failed and was rescued by a retry still settles as the failure it was, or the breaker
+    would never see a model that has stopped calling tools correctly.
+  - **Model config, verified against the live Anthropic docs (not recalled)**: `claude-sonnet-5`,
+    `thinking: {type: 'adaptive'}`, `output_config: {effort: 'medium'}`, `max_tokens` 4–8k from
+    `MAX_OUTPUT_TOKENS_BY_TIER`. `stop_reason: 'max_tokens'` is treated as truncation and is never
+    usable.
+  - **The output contract moved to STRUCTURED OUTPUTS (`output_config.format`), and the tool is
+    gone from the request.** This corrects a false claim that had propagated from
+    `_shared/analyze-form-prompt.ts` (#41) into `docs/architecture.md` and, briefly, into this
+    function: that Anthropic's docs state "with no platform scoping" that a *forced* `tool_choice`
+    is incompatible with extended thinking. **That restriction is Amazon Bedrock ONLY** — on
+    Bedrock a forced `tool_choice` requires `thinking: {type: 'disabled'}`; the first-party Claude
+    API (which is what `analyze-form/deps.ts` calls: `api.anthropic.com`, `x-api-key`) and Vertex
+    do not require it. The fix is not "force the tool call" but to use the mechanism that makes the
+    question moot: `output_config.format` grammar-constrains the RESPONSE ITSELF against
+    `PACE_RESULT_SCHEMA`. With no `tools` and no `tool_choice` in the request, there is nothing left
+    for a platform-specific tool-choice rule to conflict with, the guarantee is stronger (the answer
+    is schema-conformant by construction, not "some tool got called"), and the tool schema stops
+    being billed as input on every call. The tool is kept as an opt-in (`includeTool`) for #42's
+    evals. **#45's fallback path is unchanged and is NOT dead code**: structured outputs explicitly
+    does *not* guarantee the schema on `stop_reason: 'refusal'` or `'max_tokens'`, and
+    `minimum`/`maximum` are not in the supported JSON Schema subset — so "score is 0–100" is
+    enforceable only in code. The schema guarantees the shape; `isPaceResult` guarantees the range.
+  - **Fixed while self-reviewing**: a gate denial was forwarding `gate_ai_call`'s `detail` to the
+    client, which on `daily_cap` carries `spent_usd`/`cap_usd` — any authenticated user could read
+    our AI spend and our ceiling by tripping the cap. The client now gets `{ error, code }` only;
+    the detail is logged server-side.
 
 ## 2026-07-12
 

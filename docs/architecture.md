@@ -357,10 +357,13 @@ pure/client split as `ai-guard.ts`. 28 Deno tests.
   ("Solid"), `ScoreBand` speaks in codes (`'good'`). `SCORE_BAND_RUBRIC` maps them, and a test
   asserts every label it claims actually appears in `pace_framework.md`. Without this the model
   guesses, and a correctly-scored pillar renders in the wrong colour.
-- **Thinking is ON (adaptive), effort is `medium`, and `tool_choice` is `auto`** — the reasoning,
-  including the unresolved forced-tool/thinking compatibility question, is in step 8 of the
-  `analyze-form` flow above. `thinking` and `tool_choice` are independent options on
-  `buildAnalyzeFormRequest()`; #42 sweeps `effort` via the exported `ANALYZE_FORM_EFFORT` constant.
+- **Thinking is ON (adaptive), effort is `medium`, and — as of 2026-07-13 (#44) — there is no
+  `tool_choice` at all**: the output contract moved to structured outputs (`output_config.format`).
+  The "unresolved forced-tool/thinking compatibility question" this bullet used to point at is
+  RESOLVED and was based on a false premise — the restriction is **Amazon Bedrock only** and never
+  applied to this project's first-party Claude API calls. See "Current — `analyze-form` edge
+  function" at the end of this file for the correction and the mechanism that replaced it. #42
+  sweeps `effort` via the exported `ANALYZE_FORM_EFFORT` constant.
 - **The spend gate's INPUT estimate was corrected in the same change.**
   `SYSTEM_PROMPT_TOKENS_ESTIMATE` (`ai-pricing.ts`, #91) shipped at `6000` as an explicit
   placeholder for a prompt that did not exist ("refine once it exists"). Two things drive the real
@@ -872,19 +875,16 @@ the original video (see "Media pipeline" below).
    (`{type: 'enabled', budget_tokens}`) is a 400; we set `{type: 'adaptive'}` explicitly so the
    intent is legible.
 
-   **`thinking` and `tool_choice` are independent options** in `buildAnalyzeFormRequest()` — no
-   coupling, no throw. The default is `thinking: adaptive` + `tool_choice: auto`. One open
-   question sits behind that default: Anthropic's tool-use and extended-thinking docs both state,
-   **with no platform scoping**, that a forced `tool_choice` (`any`/`tool`) is incompatible with
-   thinking and errors; there is a credible report that this is **Amazon Bedrock only** and that
-   the first-party Claude API (which is what we call) accepts forced + adaptive. It could not be
-   confirmed against the docs. `auto` is correct under **both** readings, so it is the default —
-   we keep thinking (which we cannot afford to lose) and give up only the hard *guarantee* of a
-   tool call, which was never the sole safeguard: `strict: true` still grammar-constrains the tool
-   input to `PaceResult` whenever it is called, the prompt demands the tool call as the entire
-   response, and #45's retry-then-fallback catches a prose reply. **#44 should confirm on its
-   first live call** whether `forceToolCall: true` is accepted alongside adaptive thinking; if it
-   is, flip that one option and gain the guarantee for free.
+   **SUPERSEDED 2026-07-13 (#44) — this paragraph's premise was false.** It used to say that the
+   docs state, "with no platform scoping", that a forced `tool_choice` is incompatible with
+   thinking, that the Bedrock-only reading "could not be confirmed", and that `tool_choice: auto`
+   was therefore the safe default. **The restriction IS Amazon Bedrock only** — the first-party
+   Claude API (what this project calls) accepts a forced tool call alongside adaptive thinking. But
+   the request no longer sends a tool at all: the output contract moved to **structured outputs**
+   (`output_config.format` against `PACE_RESULT_SCHEMA`), which is a stronger guarantee, makes the
+   platform question moot, and is cheaper. See "Current — `analyze-form` edge function" at the end
+   of this file for the full correction, and `_shared/analyze-form-prompt.ts`'s header for the
+   reasoning in code.
 
    **`max_tokens` is a hard limit on thinking + response text together**, so the gate's *output*
    reservation (`MAX_OUTPUT_TOKENS_BY_TIER`, the same number sent as `max_tokens`) remains a true
@@ -1971,3 +1971,134 @@ state with a real link in the same change that publishes the policy.
 **Not built, deliberately:** `settings.plan.cta` ("See plans") and `settings.restorePurchases.cta`.
 Both route to a Paywall (#52) and an IAP flow that do not exist; shipping them would build a dead
 end. #52 adds them back with the route they point at.
+
+## Current — `analyze-form` edge function (issues #44 + #45, built 2026-07-13, NOT deployed)
+
+The core of the product, and the first code in this repo that spends money. Written and fully
+tested; **not deployed** — `supabase functions deploy analyze-form` and `supabase secrets set
+ANTHROPIC_API_KEY` are still Ian's to run. This section supersedes "Planned — `analyze-form` edge
+function flow" above wherever the two disagree.
+
+**File split** (the same three-way shape `analysis/` and `quota-status/` already use):
+
+| File | Role | Tested |
+|---|---|---|
+| `analyze-form/index.ts` | HTTP + auth glue only. Verifies the JWT via `auth.getUser()`. | — |
+| `analyze-form/flow.ts` | The whole orchestration, against injected deps. No npm/Deno import. | 50 Deno tests |
+| `analyze-form/deps.ts` | Deno wiring: service-role Supabase client, Storage, the Anthropic `fetch`. | — (thin factory) |
+| `_shared/analyze-form-validation.ts` | #45: read the response, validate structurally, salvage, classify. | 34 Deno tests |
+
+The model is a **fake queue** in every test. The suite makes **zero Anthropic calls** and costs $0.
+
+**The order, as built:**
+
+```
+auth → consent → AI gate → idempotency + reserve → prompt → call (+1 retry) → upload → settle
+                                                                            ↘ (any failure) release
+```
+
+**How the five binding contract rules are discharged:**
+
+1. **`p_user_id` from the verified JWT.** `index.ts` resolves it via `auth.getUser()` and passes it
+   as `callerUserId`; `flow.ts` threads that one value into every RPC. There is no field in the
+   request body that could name a user, and a test asserts that a body carrying `userId`/`user_id`/
+   `p_user_id` cannot influence any RPC argument or any upload path.
+2. **Branch on `reserve_analysis`'s `status`.** `handleExisting()`: `'delivered'` → 200 with the
+   stored result (410 if it was soft-deleted and its `result` redacted to NULL); `'released'` → 409
+   `previous_attempt_failed`, never a delivery; `'reserved'` → 409 `analysis_in_progress`, never a
+   second model call against a live reservation; any unknown status → 409, because an unknown state
+   is never a deliverable one.
+3. **`release_analysis` on every failure path.** There is exactly ONE `release_analysis` call site
+   and one `recordAiCall` call site in the whole function, both in a `finally`. The body never
+   releases and never records — it only sets the intent (`releaseReason`, and each open call's
+   attempt binding). A branch cannot forget an obligation it does not perform, and an unexpected
+   throw takes the same path.
+4. **Consent (`upload.health.v1`), fail-closed.** Checked before the gate, the reserve, the model,
+   and the bucket. A missing row, `granted = false`, AND a query error all refuse with 403. A test
+   asserts that a refusal leaves *zero* RPC calls behind.
+5. **`gateAiCall()` before every Anthropic request; `recordAiCall()` on every exit.** The first gate
+   runs before idempotency/reserve (so a denial never creates a reservation). **The retry gets its
+   own gate** — it is a second billed call, and the daily cap and breaker must see it. Each gated
+   call is settled with **its own** outcome, so an attempt that failed and was rescued by a retry
+   still settles as `'validation_failed'`/`'model_error'`, not as `'success'` — otherwise a model
+   that had stopped calling tools correctly would be invisible to the circuit breaker while
+   silently doubling spend on every request.
+
+**The model call — verified against the live Anthropic docs on 2026-07-13, not recalled.**
+`claude-sonnet-5`, `thinking: {type: 'adaptive'}`, `output_config: {effort: 'medium', format:
+{type: 'json_schema', schema: PACE_RESULT_SCHEMA}}`, `max_tokens` 4–8k from
+`MAX_OUTPUT_TOKENS_BY_TIER`. **No `tools`. No `tool_choice`.**
+
+- **The output contract is STRUCTURED OUTPUTS (`output_config.format`), not a tool call.** This
+  supersedes both the "forced tool call" of the original spec and the `tool_choice: auto` this
+  section briefly recommended. Grammar-constrained sampling is applied to the **response itself**
+  against `PACE_RESULT_SCHEMA` — the same single schema constant the (now optional) tool would use,
+  so there is still exactly one definition of the shape. GA on `claude-sonnet-5` on the Claude API,
+  and documented compatible with extended thinking, so adaptive thinking stays on.
+- **CORRECTION — the forced-`tool_choice`-conflicts-with-thinking rule is AMAZON BEDROCK ONLY.**
+  This section, and `analyze-form-prompt.ts`'s header, previously claimed the restriction was stated
+  "with no platform scoping" and that the Bedrock-only reading "could not be confirmed". **That was
+  wrong.** On Bedrock, a forced `tool_choice` requires `thinking: {type: 'disabled'}`; the
+  **first-party Claude API** (`api.anthropic.com` + `x-api-key`, which is what `analyze-form/deps.ts`
+  calls) and Vertex AI do **not** require this. Forcing the tool call would never have 400'd here.
+  The claim is deleted rather than merely annotated, because leaving it visible is how it got
+  re-derived twice.
+- **Why structured outputs rather than simply forcing the tool now that we may.** Three reasons, in
+  order of weight: (1) it is a **stronger** guarantee — a forced tool call guarantees only that a
+  tool was invoked, and the schema then constrains that tool's *input*; structured outputs
+  constrains the *answer*, with no indirection; (2) it makes the platform question **moot** — with
+  no `tools` and no `tool_choice` in the request, there is nothing for a platform-specific
+  tool-choice rule to be incompatible with, and the request is correct on the Claude API, Bedrock,
+  and Vertex under every reading; (3) it is **cheaper** — `tools` is billed as input (~13k characters
+  of schema descriptions), plus a ~474-token tool-use system preamble when forced. The tool is
+  retained as an opt-in (`BuildRequestOptions.includeTool`, `forceToolCall`) purely so #42 can eval
+  the two mechanisms against each other.
+- **The schema does NOT make #45's fallback path dead code, and it was not weakened.** Structured
+  outputs explicitly does not guarantee conformance when `stop_reason` is `'refusal'` ("the output
+  may not match your schema because the refusal message takes precedence") or `'max_tokens'` ("the
+  output may be incomplete and not match your schema"). And **`minimum`/`maximum` are not in the
+  supported JSON Schema subset**, so "score is an integer 0–100" is *unenforceable* by the schema —
+  a `score: 140` is schema-valid and is caught only by `isPaceResult` at runtime. **The schema
+  guarantees the shape; code guarantees the range.**
+- **The response parser accepts both envelopes** — a JSON text block (structured outputs) and a
+  `tool_use` block (if anyone opts the tool back in). Insurance, not indecision: the zero-spend rule
+  meant no live call could confirm the structured-output envelope before shipping.
+- **Thinking tokens count against `max_tokens`** (docs: "Use `max_tokens` as a hard limit on total
+  output (thinking + response text)"). `stop_reason: 'max_tokens'` is therefore treated as a
+  **truncation and is never usable**, whatever the content looks like — Echo V1's exact bug.
+
+**Timing.** Total model budget `ANALYZE_FORM_DEADLINE_MS` = 105s, per-attempt cap 65s; the retry is
+skipped when under `MIN_RETRY_BUDGET_MS` (20s) remains, because a call we start and abort is a call
+we pay for and cannot use. 105s sits under the client's own `ANALYZING_TIMEOUT_MS` (120s), so a
+doomed request fails as our structured `{ error, code }` — reservation released, ledger settled —
+rather than as the client's blind timeout, which would leave the row `'reserved'` until #47's sweep.
+
+**Status codes** (every non-2xx body is `{ error, code }`):
+
+| Status | Code | When |
+|---|---|---|
+| 200 | — | `{ result, analysisId, isFallback }`. A full success and an honest partial share this shape. |
+| 400 | `invalid_request` / `frame_cap_exceeded` / `invalid_*` | Bad body, or a reserve-side input refusal. |
+| 401 | `unauthorized` | No/!valid JWT. |
+| 402 | `quota_exceeded` | Over quota — the one code the paywall (#52) routes on. |
+| 403 | `consent_required` | No recorded `upload.health.v1` grant. |
+| 409 | `analysis_in_progress` / `previous_attempt_failed` | The idempotency key names a live or released reservation. |
+| 410 | `analysis_deleted` | Replay of a key whose analysis was soft-deleted (its `result` is redacted). |
+| 422 | `validation_failed` | Clean failure after the retry. Quota refunded. |
+| 429 | `too_many_failed_attempts` | Anti-farming throttle. Deliberately not a 402 — it clears on its own. |
+| 503 | `killed`/`breaker_open`/`daily_cap` · `model_error`/`provider_timeout` | Our brake, or the provider. Never the caller's fault. |
+| 500 | `internal_error` / `misconfigured` | Our bug, or a missing secret. |
+
+The gate's `detail` payload is **never** forwarded to the client: on a `daily_cap` denial it carries
+`spent_usd`/`cap_usd`, so returning it would let any authenticated user read our AI spend and our
+ceiling by tripping the cap. It is logged server-side instead.
+
+**Observability.** One structured JSON line per request: model outcome, tier, media type, frame
+count, attempt count, whether it retried, whether it fell back, the release reason if any, every
+`stop_reason`, the four token counts, frames uploaded, latency, and the HTTP status. Without these
+you cannot tell a prompt regression from a provider incident.
+
+**Open, deliberately** (see `docs/status.md` Known Issue #21): the consent-withdrawal-vs-idempotent-
+replay question is resolved as **refuse** (consent is checked before idempotency, so a replay after a
+withdrawal is refused rather than served from cache) — the safer read, and the one that agrees with
+what the delete/purge path (#57) does to such a row anyway.

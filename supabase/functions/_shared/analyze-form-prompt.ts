@@ -160,15 +160,30 @@ export type AnthropicToolChoice =
  * explicitly here. Manual thinking (`{type:'enabled', budget_tokens}`) is a 400 on this model. */
 export type AnthropicThinkingConfig = { type: 'disabled' } | { type: 'adaptive' };
 
+/**
+ * STRUCTURED OUTPUTS — `output_config.format` (verified against the live docs 2026-07-13:
+ * `/docs/en/build-with-claude/structured-outputs`). Grammar-constrained sampling applied to the
+ * RESPONSE ITSELF, not to a tool's input. GA on `claude-sonnet-5` on the first-party Claude API,
+ * which is what this project calls. This is the mechanism the analysis uses — see
+ * `buildAnalyzeFormRequest`'s header for why it replaced the forced-tool-call approach.
+ */
+export interface AnthropicOutputFormat {
+  type: 'json_schema';
+  schema: Record<string, unknown>;
+}
+
 export interface AnalyzeFormRequest {
   model: string;
   max_tokens: number;
   system: AnthropicTextBlock[];
   messages: [{ role: 'user'; content: AnthropicContentBlock[] }];
-  tools: [AnthropicTool];
-  tool_choice: AnthropicToolChoice;
+  /** Omitted by default — structured outputs (`output_config.format`) carries the output contract
+   * instead. Present only when a caller explicitly opts back in via `BuildRequestOptions.includeTool`
+   * (kept for #42's evals, which may want to compare the two mechanisms head to head). */
+  tools?: [AnthropicTool];
+  tool_choice?: AnthropicToolChoice;
   thinking: AnthropicThinkingConfig;
-  output_config: { effort: PaceEffort };
+  output_config: { effort: PaceEffort; format?: AnthropicOutputFormat };
 }
 
 /** The model `analyze-form` calls. Matches `ai-pricing.ts`'s `AI_MODEL_PRICING` key and
@@ -354,8 +369,73 @@ const PILLAR_LABELS: Record<string, string> = {
   elasticity: 'Elasticity (E)',
 };
 
-/** The forced tool. Its `input_schema` is `PaceResult` — the identical shape the app renders and
- * `analyses.result` stores. There is no parallel definition and no adapter. */
+/**
+ * THE OUTPUT CONTRACT, as one JSON Schema: exactly `PaceResult` from `./pace.ts` (#43) — the
+ * identical shape the app renders and `analyses.result` stores. There is no parallel definition
+ * and no adapter.
+ *
+ * ONE definition, TWO possible carriers. It is sent as `output_config.format.schema` (structured
+ * outputs — the default, see `buildAnalyzeFormRequest`) and, when a caller opts in with
+ * `includeTool`, as `PACE_ANALYSIS_TOOL.input_schema` as well. Both are the same
+ * grammar-constrained-sampling pipeline on Anthropic's side, and both are fed from this single
+ * constant, so the two carriers can never describe different shapes.
+ *
+ * WHAT THIS SCHEMA CANNOT ENFORCE, and why `isPaceResult` still runs on the way out (#45):
+ * numerical constraints (`minimum`/`maximum`) are NOT in the supported JSON Schema subset, so
+ * "score is 0-100" is unenforceable here and lives in the descriptions plus a runtime check. The
+ * schema guarantees the SHAPE; code guarantees the RANGE. This is not belt-and-braces, it is a
+ * documented hole.
+ */
+export const PACE_RESULT_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    pillars: {
+      type: 'object',
+      description: 'All four PACE pillars. Every pillar is always present, even when not assessed.',
+      properties: Object.fromEntries(
+        PACE_PILLARS.map((id) => [id, pillarSchema(PILLAR_LABELS[id])])
+      ),
+      required: [...PACE_PILLARS],
+      additionalProperties: false,
+    },
+    overall: {
+      type: 'object',
+      description:
+        'The headline number: the average of the pillar scores you actually assessed. Null ' +
+        '(with a null band) when NO pillar could be assessed — never a fabricated overall ' +
+        'built from zero real data.',
+      properties: {
+        score: {
+          anyOf: [{ type: 'integer' }, { type: 'null' }],
+          description:
+            'Average of the non-null pillar scores, rounded to an integer. Do not count ' +
+            'not-assessed pillars as zeros — that would silently punish the runner for a ' +
+            'camera angle. Null only when every pillar is null. ' +
+            SCORE_DESCRIPTION,
+        },
+        band: {
+          anyOf: [{ type: 'string', enum: [...SCORE_BAND_VALUES] }, { type: 'null' }],
+          description: BAND_DESCRIPTION,
+        },
+      },
+      required: ['score', 'band'],
+      additionalProperties: false,
+    },
+  },
+  required: ['pillars', 'overall'],
+  additionalProperties: false,
+};
+
+/** The `output_config.format` payload — the default carrier for the schema above. */
+export const PACE_OUTPUT_FORMAT: AnthropicOutputFormat = {
+  type: 'json_schema',
+  schema: PACE_RESULT_SCHEMA,
+};
+
+/** The tool form of the same contract. NO LONGER SENT BY DEFAULT (see `buildAnalyzeFormRequest`) —
+ * structured outputs carries the contract instead. Kept, exported, and tested because #42's evals
+ * may want to compare the two mechanisms, and because `strict: true` on it is still the correct
+ * configuration if anyone ever does send it. */
 export const PACE_ANALYSIS_TOOL: AnthropicTool = {
   name: PACE_ANALYSIS_TOOL_NAME,
   description:
@@ -364,45 +444,7 @@ export const PACE_ANALYSIS_TOOL: AnthropicTool = {
     '(report those with score: null, never a guessed number). This is the only way to return a ' +
     'result; do not answer in prose.',
   strict: true,
-  input_schema: {
-    type: 'object',
-    properties: {
-      pillars: {
-        type: 'object',
-        description: 'All four PACE pillars. Every pillar is always present, even when not assessed.',
-        properties: Object.fromEntries(
-          PACE_PILLARS.map((id) => [id, pillarSchema(PILLAR_LABELS[id])])
-        ),
-        required: [...PACE_PILLARS],
-        additionalProperties: false,
-      },
-      overall: {
-        type: 'object',
-        description:
-          'The headline number: the average of the pillar scores you actually assessed. Null ' +
-          '(with a null band) when NO pillar could be assessed — never a fabricated overall ' +
-          'built from zero real data.',
-        properties: {
-          score: {
-            anyOf: [{ type: 'integer' }, { type: 'null' }],
-            description:
-              'Average of the non-null pillar scores, rounded to an integer. Do not count ' +
-              'not-assessed pillars as zeros — that would silently punish the runner for a ' +
-              'camera angle. Null only when every pillar is null. ' +
-              SCORE_DESCRIPTION,
-          },
-          band: {
-            anyOf: [{ type: 'string', enum: [...SCORE_BAND_VALUES] }, { type: 'null' }],
-            description: BAND_DESCRIPTION,
-          },
-        },
-        required: ['score', 'band'],
-        additionalProperties: false,
-      },
-    },
-    required: ['pillars', 'overall'],
-    additionalProperties: false,
-  },
+  input_schema: PACE_RESULT_SCHEMA,
 };
 
 // -------------------------------------------------------------------------------------------
@@ -770,8 +812,9 @@ function buildOutputContract(input: AnalyzeFormPromptInput): string {
     'pillar you could not assess, does not soften the medical boundary, and does not buy a more',
     'precise cadence figure. A paid analysis is longer, not more certain.',
     '',
-    `RETURN THE RESULT BY CALLING THE \`${PACE_ANALYSIS_TOOL_NAME}\` TOOL EXACTLY ONCE. That call is`,
-    'your entire response — no prose before or after it. Its schema is the contract:',
+    'RETURN THE RESULT AS A SINGLE JSON OBJECT MATCHING THE REQUIRED OUTPUT SCHEMA. That object is',
+    'your entire response — no prose before or after it, no markdown fence. The schema is the',
+    'contract:',
     '- `pillars`: all four (`posture`, `armSwing`, `cadence`, `elasticity`), always all four,',
     '  every one with `score`, `band`, `feedback`, `flags`, `drills`.',
     '- `score`: an integer 0-100, or `null` if you could not assess it. `band` is null exactly',
@@ -833,53 +876,74 @@ export function buildUserContent(input: AnalyzeFormPromptInput): AnthropicConten
 // -------------------------------------------------------------------------------------------
 
 /**
- * THINKING AND TOOL CHOICE ARE INDEPENDENT KNOBS. This module does not couple them, and there is
- * no local throw stopping you from combining them — that was an earlier overreach here, and it
- * had a real cost: it forced the product's core reasoning call to run with thinking OFF, which is
- * a material quality regression on a hard multi-step vision task, and #44 could not have turned
- * it back on without editing this file.
+ * HOW THE OUTPUT CONTRACT IS ENFORCED — settled 2026-07-13 against the live docs, replacing an
+ * earlier note here that was WRONG in a way that mattered. Read this before changing any of it.
  *
- * WHAT THE DOCS SAY, AND THE ONE THING THAT IS UNSETTLED (read before flipping `forceToolCall`):
+ * THE CORRECTION. This comment used to say that Anthropic's docs state, "with NO platform
+ * scoping", that a forced `tool_choice` is incompatible with extended thinking, and that a report
+ * of the restriction being Amazon-Bedrock-only "could not be confirmed". That was wrong, and it
+ * was load-bearing: it talked #44 out of a guarantee it could have had, and it very nearly got
+ * hardened into a permanent "you can never force the tool call" rule. **The restriction is
+ * BEDROCK-ONLY.** On Amazon Bedrock, a forced `tool_choice` requires `thinking: {type:
+ * 'disabled'}`; **the first-party Claude API and Vertex AI do not require this.** This project
+ * calls the first-party Claude API (`api.anthropic.com`, `x-api-key`, from the `analyze-form` edge
+ * function — see `analyze-form/deps.ts`), so the restriction never applied to us at all.
  *
- *   - `claude-sonnet-5` runs ADAPTIVE THINKING BY DEFAULT. Omitting `thinking` does not mean
- *     "off"; it means "adaptive". We set it EXPLICITLY anyway, so the intent is legible and can
- *     never be misread as "nobody thought about this".
- *   - Anthropic's tool-use and extended-thinking docs both state, with NO platform scoping, that
- *     forced tool use is incompatible with thinking: "Tool use with thinking only supports
- *     `tool_choice: {type: 'auto'}` or `{type: 'none'}`. Using `{type: 'any'}` or `{type: 'tool',
- *     name: '...'}` will result in an error because these options force tool use, which is
- *     incompatible with extended thinking."
- *   - There is a credible report that this restriction is in fact AMAZON BEDROCK ONLY, and that
- *     the first-party Claude API (which is what this project calls — `ANTHROPIC_API_KEY`,
- *     `api.anthropic.com`, from the `analyze-form` edge function) accepts forced tool use
- *     alongside adaptive thinking. That would be good news. It could not be confirmed against the
- *     docs available here (checked: tool-use/define-tools, build-with-claude/extended-thinking,
- *     models/migration-guide, models/whats-new-sonnet-5 — all state the restriction universally).
+ * THE MECHANISM WE ACTUALLY USE, AND WHY IT IS NEITHER OF THE TWO WE WERE ARGUING ABOUT:
+ * **structured outputs** (`output_config.format`, GA on `claude-sonnet-5` on the Claude API).
+ * Grammar-constrained sampling applied to the RESPONSE ITSELF, against `PACE_RESULT_SCHEMA`.
  *
- * SO THE DEFAULT IS THE CONFIGURATION THAT IS CORRECT UNDER BOTH READINGS: adaptive thinking ON
- * (the quality that matters) + `tool_choice: auto` (documented-valid everywhere). We keep the
- * thing we cannot afford to lose — the model reasoning about the frames — and give up only the
- * hard *guarantee* of a tool call, which we were never relying on alone anyway: `strict: true`
- * still guarantees the tool INPUT matches `PaceResult` whenever it is called, the prompt
- * instructs the tool call as the entire response in the strongest terms, and #45's
- * retry-then-fallback exists precisely for a response that comes back malformed.
+ * Why this, rather than settling the forced-tool-call question:
+ *   1. It is a STRONGER guarantee. A forced tool call guarantees "some tool was invoked"; the
+ *      schema then constrains that tool's input. Structured outputs constrain the answer itself —
+ *      the response is schema-conformant by construction, with no tool-call indirection at all.
+ *   2. It makes the whole dispute MOOT. With no `tools` and no `tool_choice` in the request, there
+ *      is nothing for a platform-specific tool-choice rule to be incompatible with. The request is
+ *      correct on the Claude API, on Bedrock, and on Vertex, under every reading of every doc.
+ *      That is a better place to be than "we picked the right side of an argument."
+ *   3. It is documented compatible with extended thinking, so we keep adaptive thinking — which is
+ *      the thing we could never afford to lose on a multi-step vision task over 8 frames.
+ *   4. It is cheaper. `tools` is billed as input like everything else (~13k characters of schema
+ *      descriptions here), and a forced tool call adds a ~474-token tool-use system prompt on top.
+ *      Dropping both removes that from every call. Structured outputs injects a system prompt of
+ *      its own, so this is a reduction, not an elimination — but it is a reduction.
  *
- * If the Bedrock-only reading is right, `forceToolCall: true` + the default adaptive thinking is
- * a legal, strictly-better request, and it is one option away. That is a cheap thing for #44 to
- * confirm on its first live call, and a cheap thing for #42 to sweep. What this module will not
- * do is *guess* — a forced call that turns out to be incompatible is not a soft failure, it is a
- * 400 on 100% of analyses.
+ * WHAT STRUCTURED OUTPUTS DOES *NOT* GUARANTEE (verified, and it is why #45's fallback path stays
+ * exactly where it is — do not delete it on the theory that the schema makes failure impossible):
+ *   - `stop_reason: 'refusal'` — "the output may not match your schema because the refusal message
+ *     takes precedence over schema constraints."
+ *   - `stop_reason: 'max_tokens'` — "the output may be incomplete and not match your schema."
+ *     Thinking tokens count against `max_tokens`, so this is a live risk on every call.
+ *   - Numerical constraints (`minimum`/`maximum`) are NOT in the supported JSON Schema subset, so
+ *     "score is an integer 0-100" is UNENFORCEABLE by the schema. `isPaceResult` enforces the
+ *     range at runtime.
+ *   - Enum casing is best-effort, not exact.
+ * So the response is *usually* schema-perfect and *occasionally* not, in exactly the situations
+ * where a runner's analysis is most likely to go wrong. Validate anyway.
+ *
+ * UNCHANGED AND STILL CORRECT: `thinking` is set to `{type: 'adaptive'}` EXPLICITLY (on
+ * `claude-sonnet-5`, omitting it also means adaptive, but an explicit value cannot be misread
+ * later as an oversight), and NO `temperature`/`top_p`/`top_k` is sent (this model 400s on any
+ * non-default value of them, on every request).
  */
 export interface BuildRequestOptions {
   /**
-   * Defaults to `{type: 'adaptive'}` — thinking ON, which is what this call needs. Pass
-   * `{type: 'disabled'}` only with a measured reason to (it is the lowest-latency option, and it
-   * is the platform-safe partner for `forceToolCall` if forced+thinking turns out to be rejected).
+   * Defaults to `{type: 'adaptive'}` — thinking ON, which is what this call needs. Structured
+   * outputs is compatible with it, so there is no longer any reason to trade one for the other.
    */
   thinking?: AnthropicThinkingConfig;
   /**
-   * Force the tool call (`tool_choice: {type: 'tool'}`) instead of `auto`. Defaults to `false` —
-   * see the note above for exactly why, and what would let you turn it on.
+   * Send the `submit_pace_analysis` TOOL alongside/instead of structured outputs. Defaults to
+   * `false`: the output contract travels in `output_config.format`, and adding a tool that
+   * describes the same shape a second time is redundant, more expensive, and reintroduces the
+   * platform-specific `tool_choice` question for no benefit. Exists for #42, which may want to
+   * eval the two mechanisms head to head.
+   */
+  includeTool?: boolean;
+  /**
+   * Only meaningful with `includeTool`. Forces `tool_choice: {type: 'tool'}` instead of `auto`.
+   * This is LEGAL alongside adaptive thinking on the first-party Claude API — the incompatibility
+   * is Bedrock-only (see the note above).
    */
   forceToolCall?: boolean;
   /** Defaults to `ANALYZE_FORM_EFFORT` (`medium`) — see that constant for the reasoning. */
@@ -951,18 +1015,25 @@ export function buildAnalyzeFormRequest(
 
   const thinking: AnthropicThinkingConfig = options.thinking ?? { type: 'adaptive' };
 
-  const toolChoice: AnthropicToolChoice = options.forceToolCall
-    ? { type: 'tool', name: PACE_ANALYSIS_TOOL_NAME, disable_parallel_tool_use: true }
-    : { type: 'auto', disable_parallel_tool_use: true };
-
-  return {
+  const request: AnalyzeFormRequest = {
     model: options.model ?? ANALYZE_FORM_MODEL,
     max_tokens: MAX_OUTPUT_TOKENS_BY_TIER[input.tier],
     system: buildSystemPrompt(input),
     messages: [{ role: 'user', content: buildUserContent(input) }],
-    tools: [PACE_ANALYSIS_TOOL],
-    tool_choice: toolChoice,
     thinking,
-    output_config: { effort: options.effort ?? ANALYZE_FORM_EFFORT },
+    // The output contract. `format` is the whole reason `tools` is absent below.
+    output_config: {
+      effort: options.effort ?? ANALYZE_FORM_EFFORT,
+      format: PACE_OUTPUT_FORMAT,
+    },
   };
+
+  if (options.includeTool) {
+    request.tools = [PACE_ANALYSIS_TOOL];
+    request.tool_choice = options.forceToolCall
+      ? { type: 'tool', name: PACE_ANALYSIS_TOOL_NAME, disable_parallel_tool_use: true }
+      : { type: 'auto', disable_parallel_tool_use: true };
+  }
+
+  return request;
 }

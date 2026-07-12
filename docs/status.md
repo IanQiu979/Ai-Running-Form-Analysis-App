@@ -516,6 +516,75 @@ milestone "done" criteria.
     Retry labels. They were written to the deck's own rules (name the outcome, never claim a state
     that isn't true, no jargon) but they are drafts. Review them, then mirror the approved wording
     into copy-deck.md § Screen 11 the way #36's and #56's NEW keys were.
+21. **NEW — `analyze-form` is BUILT but NOT DEPLOYED (issues #44 + #45, 2026-07-13).** The edge
+    function exists, all four binding contract
+    rules from Known Issue #14 are discharged in code and locked by tests, and #91's gate/record
+    contract (Known Issue #17) is honoured including a **separate gate for the retry**. See
+    `docs/architecture.md`'s "Current — `analyze-form` edge function" section. What remains:
+    - **Two deploy steps only Ian can run**, both deliberately not done from the worktree:
+      `supabase functions deploy analyze-form` and `supabase secrets set ANTHROPIC_API_KEY=…`.
+      Until both land, the function does not exist in production and `lib/analyze-form.ts` is still
+      bound to its dev mock (#80's seam — swapping that one binding is the client half, and is not
+      part of #44).
+    - **The `analyze-form` API contract is satisfied exactly as `lib/analyze-form.ts` documents it**
+      — request `{ mediaType, frames: string[], timestamps: number[], idempotencyKey }`, 200
+      `{ result, analysisId, isFallback }`, every non-2xx `{ error, code }`. No divergence.
+    - **A FALSE CLAIM WAS CORRECTED, and the output contract changed as a result.**
+      `_shared/analyze-form-prompt.ts` (#41) and `docs/architecture.md` both asserted that
+      Anthropic's docs say, "with no platform scoping", that a *forced* `tool_choice` is
+      incompatible with extended thinking, and that the report of it being Bedrock-only "could not
+      be confirmed". **That is wrong: the restriction is Amazon Bedrock ONLY.** On Bedrock a forced
+      `tool_choice` requires `thinking: {type: 'disabled'}`; the **first-party Claude API** (which
+      is what this project calls — `api.anthropic.com` + `x-api-key`, see `analyze-form/deps.ts`)
+      and Vertex do not require it. The claim has been deleted from that file's header and from
+      `architecture.md` and replaced with the scoped fact, so nobody re-derives it.
+    - **The output contract now travels in `output_config.format` (structured outputs), not in a
+      tool.** This is the mechanism neither side of the forced-tool-call argument had reached for,
+      and it is strictly better: grammar-constrained sampling applies to the RESPONSE ITSELF against
+      `PACE_RESULT_SCHEMA`, so the answer is schema-conformant by construction rather than "a tool
+      got invoked and we then constrain its input". With **no `tools` and no `tool_choice` in the
+      request at all**, the platform-specific tool-choice question becomes *moot* — the request is
+      correct on the Claude API, Bedrock, and Vertex under every reading. It is also cheaper (the
+      ~13k-character tool schema stops being billed as `tools` input, and the forced-tool system
+      preamble is gone). The tool is retained as an opt-in (`BuildRequestOptions.includeTool`) so
+      #42 can eval both mechanisms head to head.
+    - **#45's fallback path is NOT made redundant by the schema, and was not weakened.** Structured
+      outputs explicitly does *not* guarantee schema conformance on `stop_reason: 'refusal'` ("the
+      output may not match your schema") or `'max_tokens'` ("the output may be incomplete and not
+      match your schema" — and thinking tokens count against `max_tokens`, so this is live on every
+      call). And `minimum`/`maximum` are **not in the supported JSON Schema subset**, so "score is
+      an integer 0–100" is unenforceable by the schema and is caught only by `isPaceResult` at
+      runtime. The schema guarantees the SHAPE; code guarantees the RANGE. Retry-once, the ≥2-pillar
+      honest partial, and clean-failure-refunds-quota all still stand — they are product contracts,
+      not parser conveniences.
+    - **The response parser accepts BOTH envelopes** (a JSON text block *and* a `tool_use` block).
+      Deliberate insurance, not indecision: the zero-spend constraint means no live call could
+      confirm the structured-output response envelope before shipping, so the parser is correct
+      under either. **Ian's first live call should confirm the envelope**; if it is anything other
+      than a JSON text block, `extractPayload` already handles it.
+    - **Two MEDIUM review findings fixed in-place (2026-07-13, see `docs/change_log.md`):** (1) a
+      suppressed retry (deadline nearly spent, or the retry's spend gate denied by the daily cap /
+      open breaker) no longer releases a lone content failure as `'validation_failed'` — that would
+      have ticked the anti-farming cap for our own outage; it now requires the retry to have
+      actually run (`retryRan`) and releases `'model_error'` otherwise. (2) `parseRequestBody` now
+      caps `frames.length` at `PACE_FRAME_CAP.elite` (8) with `too_many_frames`/400 before the gate,
+      closing a $0-real-cost DoS that could saturate the global daily $ cap with ~$9.9 `'pending'`
+      holds. The broader "$10 global cap + open signup" availability exposure is a config/design
+      decision above this PR and is being raised with Ian separately.
+    - **Consent-withdrawal vs. idempotent replay — DECIDED: refuse.** Known Issue #14 left this
+      open ("do not silently pick one"). The consent check runs before idempotency, so a replay of
+      an already-settled key by a user who has since withdrawn consent is **refused (403)**, not
+      served from cache. Rationale: continuing to serve health inferences after a withdrawal is the
+      riskier read, and it agrees with what the delete/purge path (#57) does to such a row anyway.
+      GDPR Art. 7(3) makes the already-completed processing lawful either way, so nothing is lost by
+      refusing. The user's own past analyses remain readable via their normal RLS `select` — this
+      only refuses to re-run or re-serve through the analysis endpoint.
+    - **Left open, on purpose**: a model response that *validly* reports all four pillars as
+      not-assessed is delivered as a real result (`isFallback: false`) and therefore burns a quota
+      slot — the model honestly said "I can't read this, here's the shot that would fix it", which
+      is genuinely useful, but on Free that is their one lifetime analysis. Not changed here because
+      it would alter what "a valid result" means, which is a product call. (The *fallback* path does
+      guard against this: a salvage with no pillar actually scored is a clean failure, refunded.)
 
 ## Next action
 
