@@ -32,7 +32,9 @@ components/              # only the two live components remain (haptic-tab, ui/i
                           # repo. New components are built against constants/theme.ts tokens.
 constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
                           # palette, spacing/radii/type scales; M1 added
-                          # ControlHeight/ControlWidth/HitTarget/Opacity
+                          # ControlHeight/ControlWidth/HitTarget/Opacity; issue #24 (2026-07-12)
+                          # added Feedback (error/onError) — auth/system error color, a hue
+                          # deliberately distinct from Score.low's clay
 constants/copy.ts         # strings lifted verbatim from docs/design/copy-deck.md — sign-in and
                           # Home's copy live here first (M1); more screens' copy lands with them
 constants/validation.ts   # client-side mirrors of server-enforced rules, not the authority —
@@ -40,7 +42,7 @@ constants/validation.ts   # client-side mirrors of server-enforced rules, not th
                           # minimum_password_length so sign-in.tsx's pre-check and copy.ts's
                           # password-rule strings derive from one number (issue #9)
 constants/contrast.ts     # contrast-ratio helper backing the AA proof below
-constants/__tests__/theme-contrast.test.ts  # 61-assertion Jest proof every text/surface and
+constants/__tests__/theme-contrast.test.ts  # 69-assertion Jest proof every text/surface and
                           # band pair clears WCAG AA (9 brief-§2 intent values were darkened/
                           # lightened minimally to pass — each old → new value is a comment in
                           # theme.ts next to the token it changed)
@@ -165,7 +167,7 @@ general knowledge. Echo V1 stays frozen — copy from it, never into it.
   compliance checklist gating M7 (App Store privacy labels, consent upgrade, data inventory,
   retention limits), plus two conflicts surfaced for Ian (see `docs/status.md`).
 - `constants/theme.ts` + `constants/contrast.ts` — the brief's §2 tokens as light+dark theme
-  values, spacing/radii/type scales, and the score-band palette, with a 61-assertion Jest test
+  values, spacing/radii/type scales, and the score-band palette, with a 69-assertion Jest test
   (`constants/__tests__/theme-contrast.test.ts`) proving every text/surface and band pair clears
   WCAG AA. Font families (`@expo-google-fonts/archivo`, `inter`, `ibm-plex-mono`) installed via
   `npx expo install`; `expo-font` added to `app.json`'s plugins.

@@ -7,7 +7,19 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
-- **Five low-severity M7 polish fixes, one pass (closes #9, #21, #25, #29, #30).**
+- **Six low-severity M7 polish fixes, one pass (closes #9, #21, #24, #25, #29, #30).**
+  - **#24 — auth errors reused `Score.low`'s clay.** `sign-in.tsx`'s error text borrowed
+    `Score.low[scheme].text` — the "Needs work" score-band clay — token-clean but semantically
+    wrong: it bleeds score-scale meaning into a plain form/auth error, and gets confusing once
+    Results puts real clay pillar bars on the same screen as a system error. New
+    `Feedback = { error, onError }` token group in `constants/theme.ts` (light+dark) picks a
+    wine/crimson hue (~345°) deliberately far from `Score.low`'s rust/terracotta (~15°); `error`
+    is the foreground for error text/icons on a neutral surface (and doubles as a future banner
+    fill), `onError` is the only legal label color atop a solid `error` fill.
+    `app/(auth)/sign-in.tsx`'s `errorText` now reads `Feedback[scheme].error` instead, and the
+    stale comment asking for a real error token is gone. `constants/__tests__/theme-contrast.test.ts`
+    gained 8 new assertions proving `Feedback.error` (both schemes, every surface) and
+    `Feedback.onError` (atop `error`) clear WCAG AA — 61 → 69 total.
   - **#30 — hardcoded strings.** Added `Copy.app.name` ("Pace AnalysisAI", the wordmark) and
     `Copy.home.title` ("Home", the tab label) to the deck and `constants/copy.ts`, then
     repointed `app/(auth)/sign-in.tsx` and `app/(tabs)/_layout.tsx` at them. The on-screen

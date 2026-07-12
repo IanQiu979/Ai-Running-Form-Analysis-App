@@ -205,8 +205,11 @@ export default function SignInScreen() {
                   styles.secondaryButton,
                   // surface.base, not surface.raised — theme.ts documents surface.raised as
                   // "the one raised element per screen," and Google above already claims it as
-                  // the recommended path (issue #25). Keeps this button legible (still has the
-                  // hairline border + primary-colored label) without contradicting the token.
+                  // the recommended path (issue #25). The label stays text.primary and legible;
+                  // the button's own boundary relies on the hairline, which is below WCAG
+                  // 1.4.11's 3:1 control-boundary floor on this surface — pre-existing across
+                  // secondaryButton and input (Google on surface.raised is equally under it),
+                  // not introduced here, and tracked separately.
                   styles.emailButtonSurface,
                   isBusy && styles.buttonDisabled,
                   pressed && styles.buttonPressed,

@@ -47,6 +47,9 @@ function RootLayoutNav() {
   // reduced-motion mapping already applies — Android's stack transition must be forced to a
   // fade, while iOS already honors the OS setting natively (keyed to "Prefer Cross-Fade
   // Transitions", a distinct native-stack behavior) and needs no override here.
+  // `useReducedMotion()` (per Reanimated's own JSDoc) only reflects the system setting as it
+  // was "when the app started" and explicitly does not rerender on a later toggle — so flipping
+  // reduce-motion mid-session won't change this screen's behavior until the app relaunches.
   const reducedMotion = useReducedMotion();
   const [fontsLoaded, fontError] = useFonts({
     Archivo_400Regular,

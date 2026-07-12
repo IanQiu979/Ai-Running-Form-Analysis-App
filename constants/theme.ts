@@ -175,11 +175,14 @@ export const Accent = {
 // A new hue, deliberately far from the score scale's clay (`Score.low` sits at hue ~15°, a
 // muted, ~51%-saturated rust/terracotta): a more saturated wine/crimson at hue ~345°, ~68%
 // saturation — warm (not a cool, generic Material red — the brief's base is warm bone/graphite,
-// per §2) but unmistakably a different color family from clay side by side, which is the entire
-// point of the split. Two roles, mirroring `Accent`'s `value`/`onAccent`: `error` is the
-// foreground for error text/icons directly on a neutral surface (background, surface.base,
-// surface.raised), and doubles as the fill if a future feedback banner needs one; `onError` is
-// the only legal label color on top of a solid `error` fill.
+// per §2). In light mode this is unmistakably a different color family from clay side by side
+// (L* 36.3 vs 46.2). In dark mode the separation is hue-only, not lightness: `error` #E26584 and
+// clay's dark `text` #CB785B sit at L* 59.1 vs 58.9 — a 1.01:1 luminance ratio — so it reads as
+// two colors for typical vision but converges toward one under protanopia/deuteranopia. Two
+// roles, mirroring `Accent`'s `value`/`onAccent`: `error` is the foreground for error text/icons
+// directly on a neutral surface (background, surface.base, surface.raised), and doubles as the
+// fill if a future feedback banner needs one; `onError` is the only legal label color on top of
+// a solid `error` fill.
 //
 // No "brief intent" value exists for this (the brief never named an error hue), so both schemes'
 // `error` are picked directly to the target ratio rather than adjusted from one:
@@ -188,6 +191,9 @@ export const Accent = {
 //   dark `error` #E26584 -> 5.47:1 (background) / 5.08:1 (surface.base) / 4.59:1
 //   (surface.raised) — surface.raised is dark mode's lightest surface, so (as with every Score
 //   band) it's the binding constraint, cleared with the same slim margin the score bands use.
+//   4.59:1 leaves less headroom above the 4.5:1 AA floor than the light-mode pairs above;
+//   nudging dark `error` lighter later would both widen that margin and open the L* gap from
+//   clay noted above, so the two fixes are the same fix.
 // `onError`: light reuses white — identical to `surface.raised`, so it's the same pair as
 // `error` on surface.raised above (7.43:1). Dark reuses `Colors.dark.background`'s hex verbatim
 // (5.47:1 on dark `error`) rather than inventing a new near-black.

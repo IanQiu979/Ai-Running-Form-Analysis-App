@@ -312,8 +312,10 @@ function createStyles(colors: ThemeColors) {
       fontSize: FontSize.sm,
       // Not Accent.value — the accent is reserved for the primary CTA and only the primary CTA
       // (theme.ts), and Retry rendering in it put the accent on screen twice at once alongside
-      // the always-rendered primary CTA below (issue #21). text.primary + underline instead,
-      // the same treatment as the sign-out link.
+      // the always-rendered primary CTA below (issue #21). text.primary + underline: the same
+      // underline affordance as the sign-out link, but a step above the surrounding
+      // text.secondary captions, so the one actionable control in the error block isn't
+      // chromatically identical to them.
       color: colors.text.primary,
       textDecorationLine: 'underline',
     },
