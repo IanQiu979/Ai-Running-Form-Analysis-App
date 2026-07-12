@@ -7,6 +7,55 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Screen 6 — Analyzing built (issue #80), the wait screen between "frames uploaded" and
+  "result rendered."** Built on `fix/80` in an isolated worktree, in parallel with three other
+  in-flight screen issues. Neither `analyze-form` (#44) nor the result screen (#56) exist yet;
+  this screen is built entirely against their documented contracts, with a clean, injectable seam
+  #44 drops its real implementation into.
+  - **Added** `lib/analyze-form.ts`: `AnalyzeFormRequest`/`AnalyzeFormClientResult` types matching
+    `docs/architecture.md`'s `analyze-form` request/response contract exactly (two parallel
+    `frames`/`timestamps` arrays, not `PaceFrame[]`), the `AnalyzeFormClient` interface, a dev-only
+    mock (`success` / `fallback` / `failed` / `timeout` / `thrown` outcomes, nothing calls the
+    Anthropic API or any edge function), `toAnalyzeFormRequest()` (the missing glue flattening
+    `lib/frames.ts`'s `PaceFrameSet` into the wire shape — nothing needed it before this issue,
+    since no caller of `extractFrames()` existed yet), and a one-shot module-level
+    `setPendingAnalyzeFormRequest`/`takePendingAnalyzeFormRequest` mailbox (not a state-management
+    library — a multi-megabyte base64 payload is far past what's sane to round-trip through
+    expo-router's serialized route params).
+  - **Added** `lib/analyzing-machine.ts`: the screen's pure, fully unit-tested state machine —
+    `analyzingReducer` (`waiting` → `succeeded` / `failed` / `timedOut`, with an attempt-counter
+    staleness guard so a late-arriving stale event from an old attempt, e.g. a timeout firing
+    after a Retry already started a new attempt, can never clobber the current one) and
+    `captionPhaseForElapsed` (the `docs/design/motion-consult.md` wait-state pacing: a fixed
+    step-list floor, then the honesty-threshold "Still analyzing" line — pure function of elapsed
+    time, no timers inside, so it's testable with plain numbers). 31 tests across both new `lib/`
+    files.
+  - **Added** `app/analyzing.tsx` and registered it as a new `<Stack.Screen name="analyzing">`
+    inside `app/_layout.tsx`'s existing signed-in `Stack.Protected` group (minimal, additive —
+    nothing else in that file changed). Renders the step list, the honesty-threshold fade (plain
+    RN `Animated`, no new motion dependency), and the `analyzing.error.failed.*` /
+    `.timeout.*` states with Retry/Cancel (Cancel routes to Home; Retry reuses the SAME
+    `idempotencyKey`, never mints a new one, so a client-side timeout followed by Retry can never
+    double-run the model or double-burn quota). A full result and an honest `isFallback: true`
+    partial (issue #45) route through the identical success path to the result screen
+    (`/result/[id]`, forward-referenced via an `as Href` cast since that route doesn't exist in
+    this worktree) — never treated as a failure. Explicitly does NOT build #64's backgrounding-
+    recovery flow or #61's full motion/reduced-motion spec — the wait-state signaling this screen
+    implements is motion-consult.md's own documented exemption from reduced-motion suppression
+    ("opacity/color-only functional state signaling," not a vestibular trigger), not an oversight.
+  - **Added** `Copy.analyzing` to `constants/copy.ts` — every string lifted verbatim from
+    `docs/design/copy-deck.md` Screen 6 (`analyzing.title`, `.step.reading`/`.scoring`,
+    `.longWait`, `.error.failed.*`, `.error.timeout.*`); the Retry/Cancel CTA strings duplicate
+    the literal "Retry"/"Cancel" values under this screen's own keys rather than introducing a
+    `Copy.shared` namespace — no such namespace exists anywhere in this codebase yet (Home and
+    ConsentGate made the same call before this issue), and adding one was explicitly out of scope.
+  - Verified end-to-end, not just typechecked: a throwaway (not committed) React Testing Library
+    smoke test mounted the real screen against the real default mock client with fake timers and
+    confirmed the full happy path — step 1 → step 2 → the long-wait fade → navigation to
+    `/result/[id]` with `justAnalyzed: '1'` — actually renders and transitions correctly, plus a
+    clean `npx expo export -p ios` bundle (1456 modules, zero errors).
+  - `npm run typecheck && npm run lint && npm test` clean (340 Jest + 29 Deno tests, up from 309 +
+    29).
 - **Client-side soft-delete bypass around #57's delete endpoint closed (found by #57's agent,
   fixed alongside #6, migration written, not yet applied to the live project).** #2's soft-delete
   `UPDATE(deleted_at)` grant + policy on `public.analyses` was the intended client delete path

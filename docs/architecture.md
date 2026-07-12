@@ -81,7 +81,7 @@ supabase/
 
 The template's `(tabs)/explore.tsx` and `modal.tsx` are deleted, not left as dead scaffolding.
 Still absent: `supabase/functions/analyze-form` and `purchase-tier`/`quota-status`, `lib/
-frames.ts`, `lib/subscription.ts`, and every route beyond sign-in + empty Home (capture, result,
+subscription.ts`, and every route beyond sign-in, empty Home, and Analyzing (capture, result,
 paywall, settings, history). **One edge function now exists**: `supabase/functions/analysis/
 index.ts` (issue #57, 2026-07-12) — `DELETE /functions/v1/analysis/:id`, the first
 `Deno.serve` entrypoint in the repo. Written and Deno-tested on `fix/57` only; **not deployed**,
@@ -89,7 +89,12 @@ no migration applied. See "Current — `DELETE /functions/v1/analysis/:id` (issu
 `supabase/functions/_shared/pace.ts` now exists (#43; moved here from `lib/pace.ts` by #90,
 2026-07-12, which settled the Deno bundling mechanism) — the shared PACE types, result shape,
 and structural validator, imported by the app (via the new `@shared/*` tsconfig alias) and,
-once it exists, the edge functions.
+once it exists, the edge functions. `lib/frames.ts` (issue #34, 2026-07-12) also now exists —
+client-side frame extraction/downscaling/budget-check; see "`lib/` layout" below. **The
+Analyzing screen now exists too** (`app/analyzing.tsx`, issue #80, 2026-07-12) — Screen 6, built
+entirely against `analyze-form`'s documented contract via an injectable client seam
+(`lib/analyze-form.ts`), since `analyze-form` itself (#44) is still not built. See "Current — the
+Analyzing screen (issue #80)" below.
 
 ## Route tree — current (M1) vs planned
 
@@ -98,8 +103,15 @@ app/
   (auth)/sign-in         # current — sign-up folds into the same screen, no separate route
   (tabs)/index           # current — Home / Analyze (pick source is still a disabled stub)
   (tabs)/history         # planned — past analyses (M6)
+  analyzing               # current (issue #80, 2026-07-12) — Screen 6, the analyze-form wait
+                          # screen; top-level route (not nested under (tabs)/capture), guarded
+                          # the same as (tabs). See "Current — the Analyzing screen" below.
   capture/                # planned — record or pick, framing guide (stack) (M2)
-  result/[id]             # planned — analysis result view (M4/M6)
+  result/[id]             # planned — analysis result view (M4/M6). NOTE: docs/design/
+                          # motion-consult.md's own nav-param example names this route
+                          # `results/[id]` (plural) — a doc inconsistency, not yet reconciled;
+                          # see docs/status.md Known Issue #20. `app/analyzing.tsx` navigates to
+                          # `result/[id]` (singular, matching this table).
   paywall, settings       # planned (M5)
 ```
 
@@ -129,10 +141,21 @@ lib/
                           # rather than defaulting either way — see "Current — consent record &
                           # disclaimer" below. `analyze-form` (M4) must run the equivalent check
                           # server-side; the client call here is not the enforcement point.
-  frames.ts               # planned (M2) — extract and downscale N frames from a video
-                          # (client-side). It does NOT upload: since #88, frames ride in the
-                          # analyze-form request body as base64 and the edge function writes
-                          # them to the bucket itself, after the model call.
+  frames.ts               # current (issue #34, 2026-07-12) — extracts and downscales N frames
+                          # from a photo/video (client-side). Does NOT upload: since #88, frames
+                          # ride in the analyze-form request body as base64 and the edge function
+                          # writes them to the bucket itself, after the model call. Exports
+                          # PaceFrame/PaceFrameSet, consumed by lib/analyze-form.ts below.
+  analyze-form.ts          # current (issue #80, 2026-07-12) — the analyze-form CLIENT seam:
+                          # AnalyzeFormRequest/AnalyzeFormClient types matching the documented
+                          # wire contract, toAnalyzeFormRequest() (flattens a PaceFrameSet into
+                          # it), a dev-only mock client (analyze-form/#44 doesn't exist yet — the
+                          # `analyzeFormClient` binding is the one line #44 swaps for the real
+                          # implementation), and the one-shot pending-request mailbox
+                          # app/analyzing.tsx reads from. See "Current — the Analyzing screen"
+                          # below.
+  analyzing-machine.ts     # current (issue #80, 2026-07-12) — the Analyzing screen's pure,
+                          # unit-tested wait-state reducer + caption-pacing function; no I/O.
   # pace.ts is NOT here — moved to supabase/functions/_shared/pace.ts by issue #90 (2026-07-12),
   # the single source of truth for the app + edge function (no copy/codegen/symlink). The app
   # imports it via the `@shared/*` tsconfig alias (`@shared/pace`). See "Current — Deno
@@ -503,6 +526,54 @@ M4/M5 own where they get hosted, and the three #68 checkboxes stay unticked unti
 wording differs (it adds a "never run through sharp or worsening pain" sentence, among other
 changes). The shipped string, `result.disclaimer.footer`, is sourced from `knowledge/
 pace_framework.md` via `docs/design/copy-deck.md`, verbatim — not from `injury_flags.md`.
+
+## Current — the Analyzing screen (issue #80, 2026-07-12)
+
+Screen 6 — the wait screen shown while `analyze-form` is in flight (§4.6 of the design brief).
+Built on `fix/80` before `analyze-form` (#44) or the result screen (#56) existed, entirely
+against their documented contracts (this section and the two "Planned" sections right below it).
+
+- **`lib/analyze-form.ts`** — the client seam. `AnalyzeFormRequest` mirrors the documented wire
+  body exactly (`{ mediaType, frames: string[], timestamps: number[], idempotencyKey }`, not
+  `PaceFrame[]`); `toAnalyzeFormRequest()` is the missing glue that flattens `lib/frames.ts`'s
+  `PaceFrameSet` into it (nothing needed this before #80, since no caller of `extractFrames()`
+  existed yet). `AnalyzeFormClient.submit()` resolves `{ ok: true, data }` for a 200 (a full
+  result and an honest `isFallback: true` partial — issue #45 — are the SAME shape, never a
+  different response type) or resolves `{ ok: false, error }` for a documented non-2xx; the real
+  implementation (#44) is expected to produce that error shape via issue #46's shared `{ error,
+  code }` unwrapper, which #80 does not build. The `analyzeFormClient` binding is currently a
+  dev-only mock (`success`/`fallback`/`failed`/`timeout`/`thrown` outcomes) — the one line #44
+  swaps for the real implementation. A one-shot module-level mailbox
+  (`setPendingAnalyzeFormRequest`/`takePendingAnalyzeFormRequest`) hands the request from whatever
+  builds the capture flow (#36) to the screen — not route params, since a request carries
+  multi-megabyte base64 frame data, and not a state-management library.
+- **`lib/analyzing-machine.ts`** — the screen's pure, unit-tested state machine:
+  `waiting → succeeded | failed | timedOut`, with an attempt-counter staleness guard (a late
+  event from an old attempt — e.g. a timeout that fires after a Retry already started a new
+  attempt — is dropped, never applied) and `captionPhaseForElapsed`, a pure function of elapsed
+  time implementing `docs/design/motion-consult.md`'s wait-state pacing (a fixed two-step list,
+  each held ~400ms, then a ~1.75s dwell before the honesty-threshold "Still analyzing" line fades
+  in once).
+- **`app/analyzing.tsx`** — a top-level route (registered in `app/_layout.tsx`'s signed-in
+  `Stack.Protected` group, not nested under `(tabs)` or `capture/`). Client-side timeout
+  (`ANALYZING_TIMEOUT_MS`, 120s) does NOT cancel the underlying `submit()` call — the server
+  settles the analysis and releases/keeps quota regardless of whether this screen is still
+  listening (see "Backgrounding recovery" below) — and Retry always resubmits the SAME
+  `AnalyzeFormRequest` (same `idempotencyKey`), never minting a new one, so a timeout followed by
+  Retry can never double-run the model or double-burn quota. A success and an honest
+  `isFallback: true` partial both navigate to `/result/[id]` (with `justAnalyzed: '1'`, per
+  `docs/design/motion-consult.md` item 3) — never to a failure state.
+- **Explicitly out of scope, by design**: issue #64's full backgrounding-recovery flow (this
+  screen only avoids assuming a promise survives backgrounding — see `lib/analyzing-machine.ts`'s
+  header comment — it does not implement the "Your analysis finished — see Past Analyses" toast),
+  and issue #61's full motion/reduced-motion spec (this screen implements only what
+  `motion-consult.md` already pins down for the wait state, which that doc marks EXEMPT from
+  reduced-motion suppression).
+- **Copy**: `Copy.analyzing.*` in `constants/copy.ts`, lifted verbatim from
+  `docs/design/copy-deck.md` Screen 6. No `Copy.shared` namespace exists in this codebase (Home
+  and `<ConsentGate />` each independently duplicated "Retry"/"Cancel" under their own keys before
+  this issue too); `Copy.analyzing.error.cta.*` follows that same precedent rather than
+  introducing one.
 
 ## Planned — `analyze-form` edge function flow
 

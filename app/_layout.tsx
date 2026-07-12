@@ -84,6 +84,10 @@ function RootLayoutNav() {
             router.replace() call anywhere in sign-in.tsx or the sign-out handler. */}
         <Stack.Protected guard={!!session}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          {/* Screen 6 — Analyzing (issue #80). A top-level route, not nested under (tabs), since
+              it has no tab bar; guarded the same as (tabs) — analyze-form requires a signed-in
+              user, so this screen should not be reachable signed out either. */}
+          <Stack.Screen name="analyzing" options={{ headerShown: false }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />

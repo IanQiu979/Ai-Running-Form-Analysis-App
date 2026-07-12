@@ -12,7 +12,7 @@ milestone "done" criteria.
 | M1 — Foundation (sign-up creates an account → empty Home) | **Done 2026-07-11** — security audit (no Critical/High) + code review (5 findings fixed), gate passed with Ian's on-phone sign-up test; merged via PR from `feat/m1-spine` |
 | M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Not started |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files exist; Elasticity pending Ian's certification |
-| M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. |
+| M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. **The Analyzing screen (issue #80) shipped 2026-07-12**, built entirely against the documented `analyze-form` contract via an injectable `AnalyzeFormClient` seam (`lib/analyze-form.ts`, currently bound to a dev mock — no real network call anywhere) — the `analyze-form` edge function itself (#44) is still not started; #80 only removed the client-side hole so #44 has a screen to plug into once it exists. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
 | M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
@@ -379,6 +379,15 @@ milestone "done" criteria.
     follow-up is recommended before M6 is called done. The product-level mitigation in the
     meantime: the app's UI must always route a user's "delete" action through this endpoint, never
     call `supabase.from('analyses').update({ deleted_at })` directly.
+20. **NEW — the result route's path is named two different ways across the design docs (found
+    while building the Analyzing screen, issue #80, 2026-07-12).** `docs/architecture.md`'s route
+    tree says `result/[id]` (singular); `docs/design/motion-consult.md`'s item 3 example
+    (`router.replace('/results/[id]', ...)`) says `results/[id]` (plural). `app/analyzing.tsx`
+    navigates to `/result/[id]` (matching `architecture.md`, the more authoritative source) on a
+    completed analysis, forward-referenced via an `as Href` cast since the route doesn't exist in
+    that worktree — nothing enforces that whoever builds #56 picks the same name. Whoever builds
+    #56 must pick one and, if it's not `result/[id]`, update `app/analyzing.tsx`'s navigation call
+    in the same change.
 
 ## Next action
 
