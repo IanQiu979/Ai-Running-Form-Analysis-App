@@ -35,6 +35,7 @@ import {
   REMOVE_BATCH_SIZE,
   type AccountRows,
   type AuthAdmin,
+  type DeleteAccountErrorCode,
   type DeleteAccountResult,
 } from '../delete-account.ts';
 import type { StorageBucket, StorageEntry } from '../delete-analysis.ts';
@@ -574,8 +575,17 @@ Deno.test(
 );
 
 Deno.test(
-  'deleteAccount: if the post-delete sweep cannot clear a late-landing frame, it reports orphans_remaining (loudly) rather than a clean delete',
+  'deleteAccount: if the post-delete sweep cannot clear a late-landing frame, it reports orphans_remaining as a SUCCESS (200), and alerts only via the log — never a non-2xx',
   async () => {
+    // Fixed after PR #121 review: by the time this outcome is reached, storage, rows, AND the
+    // auth.users record are ALL already deleted — the account is irreversibly gone. The original
+    // implementation returned a 500 with a body carrying BOTH `deleted: true` and `error`/`code`,
+    // which (a) violates docs/architecture.md's "every non-2xx body is { error, code }" contract
+    // (this body was neither shape) and (b) is unconsumable by any correct client: a client that
+    // sees a non-2xx reports failure and tells the user to retry, but retrying only ever 401s
+    // (there is no account left to authenticate with), and "still active, try again" is false on
+    // every clause. The ops response — the exact prefix a human must clean — belongs in the
+    // error-level log, not in the HTTP response the end user's client has to render.
     const ops: Op[] = [];
     const storage = new FakeStorage(accountFrames(USER_A), ops);
     const rows = new FakeRows({ [USER_A]: 1 }, [USER_A], ops);
@@ -590,14 +600,25 @@ Deno.test(
     const result = await deleteAccount(rows, storage, auth, { userId: USER_A, log: (e) => events.push(e) });
 
     assertTrue(result.outcome === 'orphans_remaining', `expected orphans_remaining, got ${result.outcome}`);
-    assertEquals(httpStatusForAccountOutcome('orphans_remaining'), 500, 'not a 503 — a retry cannot help, the account is already gone');
+
+    // The HTTP contract: 200, success body, orphansRemaining flag, no error/code anywhere.
+    assertEquals(httpStatusForAccountOutcome('orphans_remaining'), 200, 'a 200 — the account is fully deleted, a retry cannot help, and telling the client otherwise is false');
+    const body = accountResponseBodyForOutcome(result);
+    assertEquals(body.deleted, true, 'the account really is gone, and the body must say so');
+    assertEquals(body.orphansRemaining, true, 'the client needs the flag to soften its copy ("some media may take longer"), not to imply the account survived');
+    assertEquals(body.error, undefined, 'no error key — this is not the error shape');
+    assertEquals(body.code, undefined, 'no code key — this is not the error shape');
+    assertTrue(typeof body.purgedObjectCount === 'number', 'the success body fields must still be present');
+    assertTrue(typeof body.consentEventsPurged === 'number', 'consentEventsPurged must be the real count, not omitted or zeroed');
+
+    // The ops alarm lives ONLY in the log, since the HTTP response now carries no actionable detail.
     assertTrue(
       events.some((e) => e.event === 'delete_account.orphans_remaining' && e.level === 'error'),
       'this MUST be logged at error level: it is unrecoverable without a human, and a silent orphan is the exact failure this whole function exists to prevent'
     );
     assertTrue(
       events.some((e) => e.event === 'delete_account.orphans_remaining' && typeof e.prefix === 'string'),
-      'the log must name the prefix a human has to go clean up'
+      'the log must name the prefix a human has to go clean up — that is now the ONLY alarm, since the response is a clean 200'
     );
   }
 );
@@ -686,43 +707,99 @@ Deno.test('deleteAccount: emits a structured event at every boundary, in order',
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
-// Pure HTTP-mapping helpers.
+// Pure HTTP-mapping helpers — the status/body matrix settled after PR #121 review. `deleted` and
+// `orphans_remaining` are BOTH 200 (the account is fully gone either way); the three genuine
+// failures are 503. No response body may ever carry both `deleted` and `error`/`code` at once —
+// that mixed shape was the bug.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 
-Deno.test('httpStatusForAccountOutcome maps every outcome to the documented status', () => {
+Deno.test('httpStatusForAccountOutcome maps every outcome to the documented status — matrix from delete-account.ts', () => {
   const cases: Array<[DeleteAccountResult['outcome'], number]> = [
     ['deleted', 200],
+    ['orphans_remaining', 200], // NOT 500 — fixed post-#121-review, see the doc comment on this outcome
     ['purge_failed', 503],
     ['rows_failed', 503],
     ['auth_delete_failed', 503],
-    ['orphans_remaining', 500],
   ];
   for (const [outcome, status] of cases) {
     assertEquals(httpStatusForAccountOutcome(outcome), status, `outcome "${outcome}" should map to ${status}`);
   }
 });
 
-Deno.test('accountResponseBodyForOutcome returns { deleted: true } on success and a structured { error, code } otherwise', () => {
+Deno.test('accountResponseBodyForOutcome: the two success outcomes get the success shape, the three failures get { error, code } — never both on one body', () => {
   assertEquals(
     accountResponseBodyForOutcome({ outcome: 'deleted', purgedObjectCount: 6, consentEventsPurged: 2, profileExisted: true }),
     { deleted: true, purgedObjectCount: 6, consentEventsPurged: 2 }
   );
 
-  for (const result of [
+  assertEquals(
+    accountResponseBodyForOutcome({ outcome: 'orphans_remaining', reason: 'boom', purgedObjectCount: 6, consentEventsPurged: 2 }),
+    { deleted: true, orphansRemaining: true, purgedObjectCount: 6, consentEventsPurged: 2 },
+    'orphans_remaining must return the SUCCESS shape plus the flag — not an error body'
+  );
+
+  const failureCases: DeleteAccountResult[] = [
     { outcome: 'purge_failed', reason: 'boom' },
     { outcome: 'rows_failed', reason: 'boom', purgedObjectCount: 1 },
     { outcome: 'auth_delete_failed', reason: 'boom', purgedObjectCount: 1 },
-  ] as const) {
+  ];
+  for (const result of failureCases) {
     const body = accountResponseBodyForOutcome(result);
     assertEquals(body.code, result.outcome);
     assertTrue(typeof body.error === 'string' && (body.error as string).length > 0, `${result.outcome} needs a human-readable error`);
     assertTrue(body.deleted === undefined, `${result.outcome} must never claim the account was deleted`);
     assertTrue(!JSON.stringify(body).includes('boom'), 'the raw internal reason must never leak to the caller');
   }
+});
 
-  // The one failure that DOES report deleted: the account really is gone, and saying otherwise
-  // would send the user back to retry a delete that already happened (and would only 401).
-  const orphaned = accountResponseBodyForOutcome({ outcome: 'orphans_remaining', reason: 'boom', purgedObjectCount: 6 });
-  assertEquals(orphaned.deleted, true);
-  assertEquals(orphaned.code, 'orphans_remaining');
+Deno.test(
+  'accountResponseBodyForOutcome: NO response body, for ANY outcome, ever carries both `deleted` and `error`/`code` — the bug PR #121 review caught',
+  () => {
+    const allOutcomes: DeleteAccountResult[] = [
+      { outcome: 'deleted', purgedObjectCount: 0, consentEventsPurged: 0, profileExisted: true },
+      { outcome: 'orphans_remaining', reason: 'boom', purgedObjectCount: 0, consentEventsPurged: 0 },
+      { outcome: 'purge_failed', reason: 'boom' },
+      { outcome: 'rows_failed', reason: 'boom', purgedObjectCount: 0 },
+      { outcome: 'auth_delete_failed', reason: 'boom', purgedObjectCount: 0 },
+    ];
+    for (const result of allOutcomes) {
+      const body = accountResponseBodyForOutcome(result);
+      const hasDeleted = 'deleted' in body && body.deleted !== undefined;
+      const hasError = ('error' in body && body.error !== undefined) || ('code' in body && body.code !== undefined);
+      assertTrue(
+        !(hasDeleted && hasError),
+        `outcome "${result.outcome}" produced a body with BOTH deleted and error/code: ${JSON.stringify(body)}`
+      );
+      // And the HTTP status must agree with which shape was returned: a 2xx body must never be
+      // paired with a status this project's own error contract would read as a failure, and vice
+      // versa — this is the mismatch a client's generic { error, code } unwrapper would trip on.
+      const status = httpStatusForAccountOutcome(result.outcome);
+      if (hasDeleted) {
+        assertEquals(status, 200, `"${result.outcome}" returns a success body, so its status must be 200, got ${status}`);
+      } else {
+        assertEquals(status, 503, `"${result.outcome}" returns an error body, so its status must be non-2xx, got ${status}`);
+      }
+    }
+  }
+);
+
+Deno.test('DeleteAccountErrorCode: the three failure outcomes are exactly its members, matching accountResponseBodyForOutcome\'s `code` field', () => {
+  // A stringly-typed `code: string` is how the original mixed-body bug survived review — nothing
+  // forced a switch over it to be exhaustive. This assignment is the compiler-adjacent guarantee:
+  // if a failure outcome is ever renamed or a new one added without updating
+  // DeleteAccountErrorCode to match, this array literal (typed against the exported union) fails
+  // to compile, not just fails at runtime.
+  const codes: DeleteAccountErrorCode[] = ['purge_failed', 'rows_failed', 'auth_delete_failed'];
+  assertEquals(codes.length, 3);
+
+  const failureResults: DeleteAccountResult[] = [
+    { outcome: 'purge_failed', reason: 'x' },
+    { outcome: 'rows_failed', reason: 'x', purgedObjectCount: 0 },
+    { outcome: 'auth_delete_failed', reason: 'x', purgedObjectCount: 0 },
+  ];
+  for (const result of failureResults) {
+    const code: DeleteAccountErrorCode = result.outcome as DeleteAccountErrorCode;
+    const body = accountResponseBodyForOutcome(result);
+    assertEquals(body.code, code);
+  }
 });

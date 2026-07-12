@@ -399,39 +399,55 @@ milestone "done" criteria.
     that worktree — nothing enforces that whoever builds #56 picks the same name. Whoever builds
     #56 must pick one and, if it's not `result/[id]`, update `app/analyzing.tsx`'s navigation call
     in the same change.
-21. **NEW — `delete-account` is built but NOT deployed, and #59's live-DB half is still open
-    (issue #58, 2026-07-13).** `POST /functions/v1/delete-account` is written and Deno-tested on
-    `feat/58-delete-account` (20 tests: zero orphaned Storage objects, nested-prefix recursion,
-    delete order, a mid-purge failure leaving the auth user alive, the consent-trail decision). It
-    reuses #57's `purgePrefix()` — one implementation, two callers — and sweeps the whole
-    `{user_id}/` prefix, so it also cleans up the frames Known Issue #19 describes (rows
-    soft-deleted through #2's client UPDATE policy never purge their own frames; an account delete
-    now does, because the sweep is by prefix and never consults a row). **What is still open:**
-    - **Not deployed.** `supabase functions deploy delete-account` is Ian's to run. Until then
-      Guideline 5.1.1(v) is not satisfied and Known Issue #15's second blocker (in-app account
-      deletion "actually shipping and purging") stays unticked — the privacy policy still cannot
-      be published. No migration is needed: `service_role` already holds every grant this function
-      uses, so it is a deploy, not a schema change.
-    - **Issue #59's other half.** The tests here mock the Supabase client, so they prove the
-      *contract* (ordering, recursion, atomicity, idempotency). #59 also asks for the same
-      properties against a real local Postgres **and** real Storage, because the property under
-      test is precisely that two different systems agree — a fake cannot fail the way production
-      fails. Not built; no local `supabase start` harness exists in this repo yet.
-    - **No re-authentication requirement.** A stolen access token can delete an account outright.
-      The mitigation is a recent-login / AAL check, not a confirmation field in the body (an
-      attacker would simply send the field too). Deliberately not built; worth filing.
-    - **Wall-clock bound, not checkpointed.** The removes ARE bounded (`REMOVE_BATCH_SIZE = 500` —
-      an unbounded single `remove()` would have made the heaviest accounts undeletable), but the
-      sweep still issues one sequential `list()` per analysis prefix. An account with many hundreds
-      of analyses would make many hundreds of round trips in one invocation. Fine at any plausible
-      near-term volume (Free = 1 lifetime, Pro/Elite ≈ 10/month), but if a user ever gets large
-      enough to approach the function's wall-clock limit, the purge needs to checkpoint and resume
-      rather than restart. Not built — no durable work record exists to checkpoint against.
+21. **NEW — `delete-account` does not work end to end yet: the edge function is built but NOT
+    deployed, AND the client is still on a mock pending #122's binding swap (issue #58,
+    2026-07-13; response-contract fixed post-review same date).** Read this plainly: shipping this
+    issue and shipping #122 are BOTH required before Guideline 5.1.1(v) is actually satisfied.
+    Neither issue alone says that; read together without this note they could be misread as "works
+    once deployed" — it will not, because until #122 lands, the Settings screen it builds is
+    calling a mock, not this function.
+    - **`POST /functions/v1/delete-account`**: written and Deno-tested on `feat/58-delete-account`
+      (25 tests: zero orphaned Storage objects, nested-prefix recursion, delete order, a mid-purge
+      failure leaving the auth user alive, the consent-trail decision, the full response
+      status/body matrix). Reuses #57's `purgePrefix()` — one implementation, two callers — and
+      sweeps the whole `{user_id}/` prefix, so it also cleans up the frames Known Issue #19
+      describes (rows soft-deleted through #2's client UPDATE policy never purge their own frames;
+      an account delete now does, because the sweep is by prefix and never consults a row).
+    - **Not deployed.** `supabase functions deploy delete-account` is Ian's to run. No migration is
+      needed: `service_role` already holds every grant this function uses, so it is a deploy, not a
+      schema change.
+    - **Response contract, fixed on PR #121 after security/code review** (both reviewers confirmed
+      the purge logic itself — ordering, prefix purge, `purgePrefix`'s export, no partial-failure
+      path that deletes the auth user — was sound; this was the one real finding). The original
+      `orphans_remaining` outcome (storage, rows, AND the auth user all already deleted, but a
+      concurrent-upload race left something the post-delete sweep couldn't clear) returned `500`
+      with a body carrying both `deleted: true` and `error`/`code` — off-contract (`architecture.md`
+      promises every non-2xx is a clean `{ error, code }`) and unconsumable (a client seeing a
+      non-2xx would tell an already-fully-deleted user "still active, please retry", which is false
+      on every clause, since retrying can only `401`). Fixed to the matrix now in
+      `docs/architecture.md`'s "Current — `POST /functions/v1/delete-account`" section:
+      `orphans_remaining` is now a `200` with `orphansRemaining: true` added to the success body,
+      and the three genuine failures (`purge_failed`/`rows_failed`/`auth_delete_failed`) are `503`
+      with a clean `{ error, code }` and nothing else. `DeleteAccountErrorCode` is now an exported
+      discriminated union, not a bare `string`, so #122's client can exhaustively switch on it. A
+      test asserts no response body, for any outcome, ever carries both `deleted` and `error`/`code`.
+    - **Issue #59's other half — still open.** The 25 tests here mock the Supabase client, so they
+      prove the *contract* (ordering, recursion, atomicity, idempotency, the response matrix). #59
+      also asks for the same properties against a real local Postgres **and** real Storage, because
+      the property under test is precisely that two different systems agree — a fake cannot fail
+      the way production fails. Not built; no local `supabase start` harness exists in this repo
+      yet.
     - **The consent trail is purged, deliberately** (GDPR Art. 17(3)(e) reasoning in
       `_shared/delete-account.ts`'s header and `docs/architecture.md`), which keeps
       `docs/privacy-policy.md`'s "Deleting your account removes everything" literally true and
       needs no policy amendment. **Revisit if EU/UK users are admitted** — see Known Issue #15's
       note that the TestFlight beta currently excludes them.
+    - **Filed separately, deliberately out of scope for #58: issue #124** (no re-authentication —
+      a stolen access token can delete an account outright; the fix is a recent-login/AAL check,
+      not a body confirmation field an attacker would just send too) **and issue #125** (the sweep
+      is wall-clock-bound but not checkpointed — bounded per-batch by `REMOVE_BATCH_SIZE = 500`,
+      but an account with many hundreds of analyses still makes many hundreds of sequential `list()`
+      round trips in one invocation; fine at any plausible near-term volume, not fine indefinitely).
 
 ## Next action
 

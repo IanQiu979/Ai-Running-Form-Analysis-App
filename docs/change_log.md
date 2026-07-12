@@ -46,6 +46,36 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     the auth user alive, the consent-trail decision, cross-user isolation, retry convergence, and
     the boundary logs.
 
+- **`delete-account`'s response contract fixed, on the same PR (#121), after security/code
+  review.** CORRECTS the entry directly above: `orphans_remaining` no longer returns a `500` with
+  a body carrying both `deleted: true` and `error`/`code`. Two problems with the original shape:
+  it violated `docs/architecture.md`'s own contract that every non-2xx body is a clean
+  `{ error, code }` (this body was neither shape, it was both), and it was unconsumable by any
+  correct client — by the time `orphans_remaining` fires, storage, every row, AND the `auth.users`
+  record are ALL already deleted, so a client reporting "still active, please retry" off a non-2xx
+  would be false on every clause (the account is not active; retrying can only `401`; the user
+  would sit on a dead access token indefinitely).
+  - **New matrix** (also in `docs/architecture.md`'s "Current — `POST /functions/v1/delete-account`"
+    section): `deleted` and `orphans_remaining` are both `200` — `orphans_remaining` adds
+    `orphansRemaining: true` to the success body, with no retry affordance, because there is
+    nothing left to retry. `purge_failed`/`rows_failed`/`auth_delete_failed` stay `503` with a
+    clean `{ error, code }` and nothing else. The ops alarm — the exact `{user_id}/` prefix a human
+    must go clean for `orphans_remaining` — now lives **only** in the existing error-level
+    structured log, since the HTTP response carries no user-actionable remedy.
+  - **`DeleteAccountErrorCode`** (`'purge_failed' | 'rows_failed' | 'auth_delete_failed'`) is now
+    exported as its own discriminated union from `_shared/delete-account.ts`, replacing a bare
+    `code: string`. The original bug survived because nothing forced a switch over `code` to be
+    exhaustive; a stringly-typed code let a client (or this file's own tests) silently ignore a
+    case.
+  - **5 new/rewritten Deno tests**, bringing the suite to 25: `orphans_remaining` is asserted as a
+    `200` with the success-plus-flag body, the full status/body matrix is asserted end to end, and
+    a new invariant test asserts — for every outcome — that no response body ever carries both
+    `deleted` and `error`/`code`.
+  - Known Issue #21 rewritten (not just appended) to state plainly that `delete-account` does not
+    work end to end until **both** this issue and #122 (the client's binding swap off its current
+    mock) ship — read alone, neither issue said that. Issues #124 (no re-authentication) and #125
+    (wall-clock bound, not checkpointed) filed separately and are explicitly out of scope here.
+
 ## 2026-07-12
 
 - **M2 capture screens built (issue #36)** — design-brief screens 3-5: source picker, in-app

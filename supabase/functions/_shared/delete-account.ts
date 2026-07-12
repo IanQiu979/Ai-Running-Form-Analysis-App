@@ -73,8 +73,20 @@
  * frames after our purge but before the auth user is gone (its `reserve_analysis` row would have
  * been created before our row delete, so the upload lands under an already-swept prefix). That is
  * a real race, not a theoretical one, so a second sweep runs AFTER the auth user is deleted and
- * reports `orphans_remaining` if it cannot clear what reappeared. That outcome is the alert-worthy
- * one: the account is gone and cannot be un-deleted, so it must be loud rather than swallowed.
+ * reports `orphans_remaining` if it cannot clear what reappeared.
+ *
+ * `orphans_remaining` IS A SUCCESS RESPONSE (`200`, `deleted: true`), NOT AN ERROR — fixed after
+ * security/code review on PR #121 flagged the original `500` + mixed `{ deleted, error }` body as
+ * both a contract violation (`docs/architecture.md` promises every non-2xx body is a clean
+ * `{ error, code }`; the original body was neither shape) and unconsumable by a correct client: by
+ * this point the storage purge, every row, AND the `auth.users` record are ALL already gone — the
+ * account is irreversibly deleted. A client that sees a non-2xx and reports "still active, please
+ * retry" would be lying on every clause (the account is not active, retrying cannot help, and the
+ * user is holding an access token for a row that no longer exists). What failed is a cleanup step
+ * with NO user-facing remedy, so the ops response belongs on the server — the error-level log two
+ * lines below, naming the exact prefix, is what a human acts on. The client's job is just to sign
+ * the user out and say the account is gone (see `httpStatusForAccountOutcome`/
+ * `accountResponseBodyForOutcome` below for the corrected shape).
  *
  * ═══════════════════════════════════════════════════════════════════════════════════════════════
  * THE CONSENT TRAIL: purge — explicitly, in code, NOT by inheriting the FK cascade.
@@ -169,6 +181,17 @@ export interface AuthAdmin {
 /** Structured log sink — one event per boundary crossed. See `index.ts` for the production wiring. */
 export type LogEvent = (event: Record<string, unknown>) => void;
 
+/**
+ * The three outcomes that are genuinely retryable failures — nothing (or not everything) was
+ * destroyed, and a client can act on the code. Exported as its own union, not a bare `string`, so
+ * `accountResponseBodyForOutcome`'s switch is exhaustive and a caller (this file, or the client
+ * consuming the response) gets a compiler error on a missed case rather than a silently-ignored
+ * code. `orphans_remaining` is deliberately NOT a member: it is not a failure a client can retry
+ * its way out of (see `DeleteAccountResult` below), so it never appears in an `{ error, code }`
+ * body — it appears in a success body instead.
+ */
+export type DeleteAccountErrorCode = 'purge_failed' | 'rows_failed' | 'auth_delete_failed';
+
 export type DeleteAccountResult =
   | {
       outcome: 'deleted';
@@ -186,11 +209,18 @@ export type DeleteAccountResult =
   /** Storage and rows are gone but `auth.users` survives. No personal data remains. Retry converges. */
   | { outcome: 'auth_delete_failed'; reason: string; purgedObjectCount: number }
   /**
-   * The account is fully deleted, but the post-delete sweep found objects it could not remove —
-   * almost certainly a concurrent `analyze-form` upload that landed mid-delete. Unrecoverable by
-   * retry (there is no account left to authenticate), so it MUST be alerted on, never swallowed.
+   * The account is FULLY DELETED — storage, rows, and the `auth.users` record are all gone — but
+   * the post-delete sweep found objects it could not remove, almost certainly a concurrent
+   * `analyze-form` upload that landed mid-delete. This is a SUCCESS from the caller's standpoint
+   * (nothing about it is retryable — there is no account left to authenticate a retry with) and is
+   * mapped to `200`/`deleted: true` by `httpStatusForAccountOutcome`/`accountResponseBodyForOutcome`
+   * below, never to an `{ error, code }` shape. It must still be alerted on, never swallowed — that
+   * alerting is the error-level log this outcome triggers in `deleteAccount()`, not the HTTP
+   * response, because there is no user-side remedy for it to drive. Carries `consentEventsPurged`
+   * (rows were already deleted in step 2 by the time this outcome is reached) so the success body
+   * is complete rather than a degraded one.
    */
-  | { outcome: 'orphans_remaining'; reason: string; purgedObjectCount: number };
+  | { outcome: 'orphans_remaining'; reason: string; purgedObjectCount: number; consentEventsPurged: number };
 
 export interface DeleteAccountParams {
   /** ALWAYS from a verified JWT. Never from the request body. See the header's AUTHORIZATION note. */
@@ -324,10 +354,11 @@ export async function deleteAccount(
   } catch (err) {
     const reason = errorMessage(err);
     // The account is gone and cannot be restored, so this cannot be fixed by a retry from the
-    // client — it needs a human. Loud, structured, and surfaced as a non-2xx so it cannot be
-    // mistaken for a clean delete.
+    // client — it needs a human. Loud, structured, error-level, and naming the exact prefix: this
+    // log is the ONLY alarm for this outcome, since the HTTP response is (correctly) a 200 with no
+    // retry affordance — see accountResponseBodyForOutcome's doc comment for why.
     log({ event: 'delete_account.orphans_remaining', userId, prefix, reason, level: 'error', durationMs: Date.now() - startedAt });
-    return { outcome: 'orphans_remaining', reason, purgedObjectCount };
+    return { outcome: 'orphans_remaining', reason, purgedObjectCount, consentEventsPurged };
   }
 
   log({
@@ -349,9 +380,35 @@ function errorMessage(err: unknown): string {
 // HTTP mapping — pure, tested here rather than eyeballed in index.ts.
 // ---------------------------------------------------------------------------
 
+/**
+ * Status/body matrix (settled centrally after PR #121 review, so this endpoint and the #122
+ * client agent build to the identical contract without diverging):
+ *
+ * | Outcome             | Status | Body                                                            |
+ * |----------------------|--------|-----------------------------------------------------------------|
+ * | `deleted`            | 200    | `{ deleted: true, purgedObjectCount, consentEventsPurged }`      |
+ * | `orphans_remaining`  | 200    | `{ deleted: true, orphansRemaining: true, purgedObjectCount, consentEventsPurged }` |
+ * | `purge_failed`       | 503    | `{ error, code: 'purge_failed' }`                                |
+ * | `rows_failed`        | 503    | `{ error, code: 'rows_failed' }`                                 |
+ * | `auth_delete_failed` | 503    | `{ error, code: 'auth_delete_failed' }`                          |
+ *
+ * INVARIANT, enforced by construction (and by a test): NO response body ever carries both
+ * `deleted` and `error`/`code`. A body has exactly one shape or the other — the success shape
+ * (optionally with `orphansRemaining: true` bolted on) or the `{ error, code }` shape. The
+ * original implementation violated this for `orphans_remaining` (a `500` with both `deleted: true`
+ * and `error`/`code` present) and that shape is not just off-contract, it's unconsumable: a client
+ * has to choose one branch, and whichever it picks, the other half of the body was pointless.
+ */
 export function httpStatusForAccountOutcome(outcome: DeleteAccountResult['outcome']): number {
   switch (outcome) {
+    // Both `deleted` and `orphans_remaining` are 200: from the caller's standpoint the account is
+    // gone in both cases, and that is the only fact an HTTP status can usefully carry here. See
+    // `DeleteAccountResult`'s `orphans_remaining` doc comment for why it is not an error status —
+    // by the time it is reached, storage, rows, AND the auth user are already fully deleted, so a
+    // non-2xx would tell the client to retry an operation that (a) already succeeded and (b) can
+    // only ever 401 on retry, since the account no longer exists to authenticate as.
     case 'deleted':
+    case 'orphans_remaining':
       return 200;
     // Nothing was destroyed that a retry cannot redo, and none of these are the caller's fault —
     // 503 signals "our side, safe to retry", the same idiom `delete-analysis.ts` and `ai-guard.ts`
@@ -360,14 +417,15 @@ export function httpStatusForAccountOutcome(outcome: DeleteAccountResult['outcom
     case 'rows_failed':
     case 'auth_delete_failed':
       return 503;
-    // NOT retryable and NOT the caller's problem: their account really is deleted. A 500 (not 503)
-    // says so — retrying would only 401. This is the code that should page a human.
-    case 'orphans_remaining':
-      return 500;
   }
 }
 
-/** Structured `{ error, code }` body matching `docs/architecture.md`'s error contract. */
+/**
+ * Maps every outcome to exactly one of the two body shapes in the matrix above — never both. The
+ * error-message text lives here (not spread across the three failure branches) partly for
+ * locality, but mainly to make it visually obvious at a glance that no failure branch spells
+ * `deleted`, and the one branch that does (`orphans_remaining`) never spells `error`/`code`.
+ */
 export function accountResponseBodyForOutcome(result: DeleteAccountResult): Record<string, unknown> {
   switch (result.outcome) {
     case 'deleted':
@@ -376,28 +434,29 @@ export function accountResponseBodyForOutcome(result: DeleteAccountResult): Reco
         purgedObjectCount: result.purgedObjectCount,
         consentEventsPurged: result.consentEventsPurged,
       };
-    case 'purge_failed':
-      return {
-        error: 'Could not remove your stored frames, so nothing was deleted. Your account is unchanged — please try again.',
-        code: 'purge_failed',
-      };
-    case 'rows_failed':
-      return {
-        error: 'Your stored frames were removed but your account could not be deleted. Please try again.',
-        code: 'rows_failed',
-      };
-    case 'auth_delete_failed':
-      return {
-        error: 'Your data was deleted but your sign-in could not be removed. Please try again.',
-        code: 'auth_delete_failed',
-      };
     case 'orphans_remaining':
-      // Deliberately still tells the user the account is gone — because it is. Lying in either
-      // direction here is worse than the truth: "deleted, but contact us" is actionable.
+      // Success shape, not the error shape — see the matrix and DeleteAccountResult's doc comment.
+      // The account really is gone; `orphansRemaining: true` is a client hint (e.g. "some stored
+      // media may take longer to purge") with no retry affordance attached, because there is
+      // nothing left for the client to retry. The actionable response — the exact `{user_id}/`
+      // prefix a human must go clean — lives only in the error-level log `deleteAccount()` emits;
+      // it is deliberately NOT this body's job to carry ops detail to an end user.
       return {
         deleted: true,
-        error: 'Your account was deleted, but some stored frames could not be removed. Please contact support.',
-        code: 'orphans_remaining',
+        orphansRemaining: true,
+        purgedObjectCount: result.purgedObjectCount,
+        consentEventsPurged: result.consentEventsPurged,
       };
+    case 'purge_failed':
+      return errorBody('purge_failed', 'Could not remove your stored frames, so nothing was deleted. Your account is unchanged — please try again.');
+    case 'rows_failed':
+      return errorBody('rows_failed', 'Your stored frames were removed but your account could not be deleted. Please try again.');
+    case 'auth_delete_failed':
+      return errorBody('auth_delete_failed', 'Your data was deleted but your sign-in could not be removed. Please try again.');
   }
+}
+
+/** Builds the `{ error, code }` shape — and only that shape — for the three retryable failures. */
+function errorBody(code: DeleteAccountErrorCode, error: string): Record<string, unknown> {
+  return { error, code };
 }

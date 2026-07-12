@@ -964,7 +964,7 @@ RLS.
 | `POST /functions/v1/purchase-tier` | JWT | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` | Same contract as V2.2; v2 swaps `source` to receipt verification. |
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, not deployed (issue #50, 2026-07-12)** — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, not deployed (issue #57, 2026-07-12)** — see "Current" below. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. |
-| `POST /functions/v1/delete-account` | JWT | — | `{ deleted: true, purgedObjectCount, consentEventsPurged }` or `503 purge_failed` / `503 rows_failed` / `503 auth_delete_failed` / `500 orphans_remaining` | **Built, Deno-tested, not deployed (issue #58, 2026-07-13)** — see "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. |
+| `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, not deployed (issue #58, 2026-07-13; response contract fixed post-review, same date)** — see "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
 `supabase.functions.invoke` wraps non-2xx responses in a generic `FunctionsHttpError`, so the
@@ -1636,10 +1636,37 @@ Three files, the same three-way split as `analysis/index.ts` (#57):
   empty prefix, zero rows, and an already-absent auth user are all successes.
 - **A second sweep runs after the auth user is deleted**, closing the one race blocking cannot: an
   `analyze-form` call that reserved its row before our row delete can upload frames into a prefix
-  we already swept. If that sweep cannot clear them, the outcome is `orphans_remaining` — a `500`
-  (not a `503`; the account is gone, so a retry would only `401`) logged at **error** level with
-  the prefix a human must go clean. It is the one failure that still reports `deleted: true`,
-  because the account really is deleted and lying in either direction would be worse.
+  we already swept. If that sweep cannot clear them, the outcome is `orphans_remaining`.
+- **Response contract — the status/body matrix, settled centrally after PR #121 security/code
+  review** (both reviewers confirmed the purge logic itself is sound; the one real finding was
+  here, not there):
+
+  | Outcome | Status | Body |
+  |---|---|---|
+  | Full success (`deleted`) | `200` | `{ deleted: true, purgedObjectCount, consentEventsPurged }` |
+  | `orphans_remaining` | `200` | `{ deleted: true, orphansRemaining: true, purgedObjectCount, consentEventsPurged }` |
+  | `purge_failed` | `503` | `{ error, code: 'purge_failed' }` |
+  | `rows_failed` | `503` | `{ error, code: 'rows_failed' }` |
+  | `auth_delete_failed` | `503` | `{ error, code: 'auth_delete_failed' }` |
+
+  **`orphans_remaining` is a `200`, not the `500` this endpoint originally returned.** By the time
+  that outcome fires, the storage purge, every row, AND the `auth.users` record are ALL already
+  destroyed — the account is irreversibly gone. The original implementation returned a `500` whose
+  body carried **both** `deleted: true` and `error`/`code` at once, which (a) violates this very
+  API table's own stated contract that every non-2xx body is a clean `{ error, code }` — the body
+  was neither shape, it was both — and (b) is unconsumable by any correct client: a client seeing a
+  non-2xx does the sane thing and reports failure, but every clause of "still active, please retry"
+  is false here (the account is not active, a retry can only `401` since there is no user left to
+  authenticate as, and the client would then sit the user on a dead access token indefinitely). The
+  fix: `orphans_remaining` returns the SUCCESS shape plus an `orphansRemaining: true` hint (for
+  copy like "some stored media may take longer to purge"), with no retry affordance, because there
+  is nothing left to retry. The ops response — the exact `{user_id}/` prefix a human must go clean
+  — lives **only** in the error-level structured log this outcome triggers; it is deliberately kept
+  out of the end-user-facing body, since the user cannot act on it. **Invariant, enforced by a
+  test**: no response body, for any outcome, ever carries both `deleted` and `error`/`code`.
+  `DeleteAccountErrorCode` (`'purge_failed' | 'rows_failed' | 'auth_delete_failed'`) is exported as
+  its own discriminated union rather than a bare `code: string`, so a client can exhaustively switch
+  on it and the compiler — not a missed `if` — catches a new failure code that isn't handled.
 - **The consent trail is PURGED — explicitly, in code, not by inheriting the FK cascade.**
   `consents.user_id references profiles(id) on delete cascade` would erase the Art. 9 consent
   record as a side effect nobody chose; `20260712020729_consents.sql`'s own comment demands a
