@@ -1615,33 +1615,54 @@ of session. This screen hosts sign-out and account deletion; it must never be re
 |---|---|---|
 | Account (email) | `session.user.email` | Real. Falls back to an honest line when a provider returns no email, rather than rendering an empty row. |
 | Plan (tier) | `subscriptions` read, `status = 'active'` | Real, and **display-only** — read, never computed (CLAUDE.md: the client is never the authority on tier). Loading and error are real states; a failed read never silently renders "Free". |
-| Sign out | `lib/sign-out.ts` | Real, and now correct — see below. |
-| Delete account | `lib/delete-account.ts` seam | ⚠️ **Wired, but bound to a MOCK.** #58's edge function does not exist yet. |
+| Sign out | `lib/sign-out.ts` | Real, and correct against all three real outcomes — see below. |
+| Delete account | `lib/delete-account.ts` | Real client, calls `supabase.functions.invoke('delete-account')`. ⚠️ The edge function it calls (#58/#121) is built but not yet merged/deployed — see below. |
 | Privacy disclosure + consent withdrawal | `lib/consent.ts` | Real. Restates the pre-upload disclosure (#68) and calls `withdrawConsent`, which had been built and waiting for a caller since #68. |
 | Privacy policy link | — | **Deliberately not linked.** See below. |
 
 **`lib/sign-out.ts` — the issue #27 fix, made once, in its final home.** The bug: `signOut()` was
 fire-and-forget, so a failed **global** token revoke left server-side refresh tokens alive while the
-user was shown a clean sign-out. The constraint that shapes the fix: **auth-js clears the LOCAL
-session whether or not the server call succeeded**, so "cancel the sign-out and keep the user here"
-is not an available branch — by the time we know it failed, the session is gone and the route guard
-is already unmounting the screen. Therefore:
-- `signOut()` awaits the call, inspects `{ error }`, folds a *thrown* failure into the same result,
-  and **never rejects** (the unhandled-rejection half of #27).
-- The failure is surfaced through a native **`Alert`**, not inline text — an inline error would
-  render into a tree the route guard is tearing down and would never be read.
-- The copy names the split state exactly (signed out **here**, maybe not **everywhere**) and offers
-  the only recovery that works: sign in again, then sign out on a connection. A "Retry" would be
-  theatre — there is no local session left to authenticate a second revoke with.
+user was shown a clean sign-out. `signOut()` awaits the call and **never rejects** (the
+unhandled-rejection half of #27), surfacing a failure through a native **`Alert`** rather than
+inline text, since a failure can mean the route guard is mid-unmount (see below) and an inline
+error would render into a dying tree.
 
-**`lib/delete-account.ts` — an injectable seam, same pattern as `lib/analyze-form.ts` (#80).** Types
-match the documented `POST /functions/v1/delete-account` contract (`{ deleted: true }`, and the
-app-wide `{ error, code }` error body). `submit()` is **nullary on purpose** — the function
-identifies the user from the JWT; a client that could name the user to delete would be a
-vulnerability. #58 replaces exactly one binding line at the bottom of the file. Until it does,
-**tapping "Delete account and data" purges nothing** — do not ship a build with the mock bound, as
-that would tell a user their account was deleted when it was not (the precise lie App Store
-Guideline 5.1.1(v) exists to prevent).
+⚠️ **Corrected 2026-07-13, same day, per a security audit on PR #122 (finding F3):** the paragraph
+this replaces claimed auth-js clears the LOCAL session unconditionally on any `signOut()` failure.
+That is FALSE — verified against the installed `@supabase/auth-js` source (`GoTrueClient.js`'s
+`_signOut`, ~line 3360): an expired access token whose refresh also fails takes an **early return**
+that reports an error WITHOUT ever clearing the local session. So there are genuinely **three**
+outcomes, not two, and `signOut()` re-checks `supabase.auth.getSession()` after any failure to tell
+them apart, rather than assuming the local session is gone:
+1. Success — server revoke landed, local session cleared.
+2. `globalRevokeFailed` — local session **is** cleared; other sessions may still be active. Not
+   retryable from here (no local session survives to retry with) — the copy offers the one recovery
+   that works: sign in again, then sign out on a connection.
+3. `stillSignedIn` — the early-return case. Nothing happened; the user is signed in **everywhere**,
+   still. A real retry **is** offered here (the session it would authenticate with still exists).
+`hasLocalSession()`'s own read failure fails closed toward `stillSignedIn` — the same direction
+`lib/consent.ts`'s `hasConsented` fails closed — rather than ever guessing the reassuring answer.
+
+**`lib/delete-account.ts` — a real client (fixed 2026-07-13, same audit, finding F1).** This
+section originally described an injectable seam bound to a dev mock, on the theory that #58 would
+"replace one binding line." That handoff had no owner: #58/#121's file list is entirely under
+`supabase/functions/` and never touches `lib/`, so the swap would never have happened and
+production would have shipped silently lying about account erasure. `lib/delete-account.ts` now
+calls the real `supabase.functions.invoke('delete-account')`, against this response contract:
+
+| Outcome | Status | Body |
+|---|---|---|
+| Full success | `200` | `{ deleted: true, purgedObjectCount, consentEventsPurged }` |
+| `orphans_remaining` | `200` | `{ deleted: true, orphansRemaining: true, … }` — a **success**: the account is irreversibly gone; only a few stray objects didn't clear. No retry offered (there is no account left to retry deleting). |
+| `purge_failed` / `rows_failed` / `auth_delete_failed` | `503` | `{ error, code }` — all three retryable. The screen's copy (finding F2) deliberately does NOT claim a specific "what survived" per code, since the purge order (storage → rows → auth user) means different codes leave different things destroyed; it says only what's true across all three: some data may already be gone, retry is safe. |
+
+`submit()` stays **nullary** — the function identifies the user from the JWT; a client that could
+name the user to delete would be a vulnerability. Two things still narrow this implementation:
+the edge function (#58/#121) is **built but not yet merged to `main` or deployed**, so calling this
+today gets a 404, which the client folds into an honest, retryable failure rather than a false
+success (proven by test); and the exact contract may still drift, since this PR cannot import
+`#121`'s real `DeleteAccountErrorCode` type (barred from touching `supabase/functions/`) and
+instead hand-maintains a mirror of it — see `lib/delete-account.ts`'s header.
 
 **The privacy policy is not linked, and the draft is not rendered in-app.** `docs/privacy-policy.md`
 still carries its `DO NOT PUBLISH` guard: the data-controller legal identity, country, and contact

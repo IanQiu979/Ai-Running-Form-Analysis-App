@@ -26,11 +26,16 @@ milestone "done" criteria.
   top-level pushed route (not a tab), declared inside the signed-in `Stack.Protected` block, reached
   from Home's header. Carries Account (email), Plan (tier — display-only), Sign out, Delete account,
   and the #68 privacy restatement + consent-withdrawal path (the first caller `withdrawConsent` has
-  ever had). **#27 is fixed here, in its final home**: sign-out now awaits, inspects the returned
-  error, never rejects, and surfaces a failed *global* revoke instead of swallowing it (new
-  `lib/sign-out.ts`, tested). Two caveats, both tracked as Known Issues below: **delete-account is
-  bound to a MOCK** until #58 lands (#21), and the screen ships **uncertified copy** needing review
-  (#22). The privacy policy is deliberately **not linked** — it is still `DO NOT PUBLISH`.
+  ever had). **#27 is fixed here, in its final home** — and, per a same-day security audit on PR
+  #122, fixed correctly against all THREE real outcomes `supabase.auth.signOut()` can leave a
+  device in, not the two the first version of the fix assumed (`lib/sign-out.ts`, tested; see that
+  file's header for the auth-js source citation behind the third state). **Delete account calls the
+  real `delete-account` edge function** (`lib/delete-account.ts`) — also corrected the same audit
+  pass, after the original mock binding turned out to have no owner ever assigned to swap it for a
+  real one. Two caveats, both tracked as Known Issues below: the edge function it calls (#58/#121)
+  is **built but not yet merged or deployed** (#22), and the screen ships **uncertified copy**
+  needing review (#23). The privacy policy is deliberately **not linked** — it is still
+  `DO NOT PUBLISH`.
 - Expo SDK 54 app scaffolded (expo-router template, TypeScript strict, `@/*` path alias ->
   `./*`; no `src/` in this project — code lives at the repo root in `app/`, `components/`,
   `constants/`, `hooks/`).
@@ -408,24 +413,34 @@ milestone "done" criteria.
     that worktree — nothing enforces that whoever builds #56 picks the same name. Whoever builds
     #56 must pick one and, if it's not `result/[id]`, update `app/analyzing.tsx`'s navigation call
     in the same change.
-21. **NEW — `delete-account` is wired but MOCKED (issue #53, 2026-07-13).** The Settings screen's
-    "Delete account and data" flow is built end-to-end against `lib/delete-account.ts`'s injectable
-    seam, which is currently bound to a **dev mock** because #58's edge function does not exist yet.
-    The confirmation is real; **the purge is not** — today the button deletes nothing. #58 closes
-    this by swapping one binding line at the bottom of that file (a test in
-    `lib/__tests__/delete-account.test.ts` asserts the mock is still bound, so it fails loudly at
-    the moment of the swap and forces whoever does it to confirm the real client is wired).
-    ⚠️ **Do not ship a build to a real user with the mock bound**: it would tell them their account
-    was deleted when it was not — exactly the failure App Store Guideline 5.1.1(v) exists to
-    prevent, and the policy-publication gate in Known Issue #15 stays shut until the real purge runs.
-22. **NEW — the Settings screen ships UNCERTIFIED copy (issue #53, 2026-07-13).** `constants/copy.ts`
+22. **NEW — `lib/delete-account.ts`'s client is real, but built against an unmerged, moving-target
+    contract (issue #53, 2026-07-13; corrected the same day per a security audit on PR #122,
+    finding F1).** The Settings screen's "Delete account and data" flow originally shipped bound to
+    a dev mock with no owner assigned to ever swap it for a real client — #58/#121's own file list
+    never touches `lib/`, so that swap would not have happened and the button would have silently
+    deleted nothing while telling the user it had. Fixed the same day: `lib/delete-account.ts` now
+    calls the real `supabase.functions.invoke('delete-account')`, built against the response
+    contract `purge_failed` / `rows_failed` / `auth_delete_failed` (503, retryable) and
+    `orphans_remaining` (200, a SUCCESS — the account is gone). Two things still narrow this:
+    - **The edge function itself (#58/#121) is built but not yet merged to `main` or deployed.**
+      Calling this in the live app today gets a 404, which the client folds into an honest,
+      retryable failure — never a false success (proven by test, not just asserted) — but the
+      button will not actually work end-to-end until #121 merges and is deployed.
+    - **The exact contract may still drift.** `DeleteAccountErrorCode` in `lib/delete-account.ts`
+      is a hand-maintained mirror of `supabase/functions/_shared/delete-account.ts`'s outcome union
+      — this PR is barred from touching anything under `supabase/functions/`, so it cannot import
+      the real type. Whoever merges #121 should replace the mirror with a real `@shared/*` import
+      and confirm the codes still match.
+23. **NEW — the Settings screen ships UNCERTIFIED copy (issue #53, 2026-07-13).** `constants/copy.ts`
     gained a clearly-delimited block of strings that are **not in `docs/design/copy-deck.md`** and
-    have not been through `ux-copywriter` or Ian: the sign-out failure alert (the string issue #27
-    explicitly said had to be written), the delete-account failure alert, the consent-withdrawal
-    confirmation, the "policy not published yet" line, and two screen-reader-only Retry labels.
-    They were written to the deck's own rules (name the outcome, never claim a state that isn't
-    true, no jargon) but they are drafts. Review them, then mirror the approved wording into
-    copy-deck.md § Screen 11 the way #36's and #56's NEW keys were.
+    have not been through `ux-copywriter` or Ian: two distinct sign-out failure alerts (the string
+    issue #27 explicitly said had to be written — a security audit, finding F3, found there are
+    genuinely two of them, not one — see Known Issue #22's sibling note in `lib/sign-out.ts`), the
+    delete-account failure alert and its separate orphans-remaining success alert (finding F2), the
+    consent-withdrawal confirmation, the "policy not published yet" line, and two screen-reader-only
+    Retry labels. They were written to the deck's own rules (name the outcome, never claim a state
+    that isn't true, no jargon) but they are drafts. Review them, then mirror the approved wording
+    into copy-deck.md § Screen 11 the way #36's and #56's NEW keys were.
 
 ## Next action
 

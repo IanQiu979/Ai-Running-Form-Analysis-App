@@ -307,33 +307,56 @@ export const Copy = {
       retryA11yLabel: 'Retry loading your plan',
     },
     signOutError: {
-      // THE ISSUE #27 STRING. This is the decision that issue asked for, so it deserves its
-      // reasoning written down.
+      // THE ISSUE #27 STRING(S). A security audit on PR #122 (finding F3) found a THIRD real
+      // state here, not just the two below — see lib/sign-out.ts's header for the full
+      // reasoning (verified against @supabase/auth-js's source, not guessed).
       //
-      // auth-js clears the LOCAL session whether or not the server revoke succeeded, so "keep the
-      // user signed in and show an error" is not on the menu — by the time we know it failed, they
-      // are already signed out on this device and the route guard is tearing the screen down. The
-      // only remaining choice is what to TELL them, and the one thing we must not do is let a
-      // failed global revoke look like a clean sign-out: on a shared or stolen device, "signed
-      // out" is the one claim that has to be true.
-      //
-      // So this names the split state exactly — signed out HERE, maybe not THERE — and gives the
-      // only recovery that actually works (a fresh sign-in mints a session a later sign-out can
-      // revoke with; a "Retry" from here would have no session left to authenticate with, so it
-      // would be theatre). No jargon: no "token", no "revoke", no "session" as a noun.
-      title: 'Signed out here — but maybe not everywhere',
-      body: "You're signed out on this device. We couldn't reach the server to end your other sessions, so they may still be active. Sign in again while you have a connection, then sign out to end them everywhere.",
+      // `globalRevokeFailed`: auth-js cleared the LOCAL session even though the server-side
+      // revoke failed, so "keep the user signed in and show an error" is not on the menu — by
+      // the time we know it failed, they are already signed out on this device and the route
+      // guard is tearing the screen down. The one thing we must not do is let a failed global
+      // revoke look like a clean sign-out: on a shared or stolen device, "signed out" is the one
+      // claim that has to be true. No jargon: no "token", no "revoke", no "session" as a noun.
+      globalRevokeFailed: {
+        title: 'Signed out here — but maybe not everywhere',
+        body: "You're signed out on this device. We couldn't reach the server to end your other sessions, so they may still be active. Sign in again while you have a connection, then sign out to end them everywhere.",
+      },
+      // `stillSignedIn`: the state the audit found missing. Here retrying is NOT theatre — the
+      // local session a retry would authenticate with is still fully intact, unlike the case
+      // above — so this offers a real retry instead of just an acknowledgement.
+      stillSignedIn: {
+        title: "You're still signed in",
+        body: "We couldn't reach the server, so nothing changed — you're still signed in here and everywhere else. Check your connection and try again.",
+        cta: {
+          primary: 'Try again',
+          secondary: 'Cancel',
+        },
+      },
     },
     deleteAccountState: {
       pending: 'Deleting your account…',
+      // `orphansRemaining: true` is a SUCCESS, not a failure (audit finding F2) — the account IS
+      // gone, irreversibly. The only thing that didn't finish is clearing a handful of stray
+      // objects (almost always a concurrent upload landing mid-delete), which is why there is no
+      // retry here: there is no account left to retry deleting.
+      success: {
+        orphansRemaining: {
+          title: 'Account deleted',
+          body: 'Your account and everything in it are deleted. A small amount of stored media may take a little longer to finish clearing — contact support if that concerns you.',
+        },
+      },
       error: {
         title: "We couldn't delete your account",
-        // Deliberately does NOT say "nothing was deleted." #58's purge runs storage objects →
-        // rows → auth user, so a mid-purge failure CAN have removed some frames already. What is
-        // always true on any failure is that the auth user — deleted last — still exists, so the
-        // account is still there and the user is not locked out. Claiming a clean no-op would be
-        // the exact "never claim a state that isn't true" violation the deck's §5 rule forbids.
-        body: "Your account is still active — we couldn't finish deleting it. Check your connection and try again.",
+        // Rewritten per audit finding F2: the previous string claimed "the account is still
+        // active" as if that were always true on any failure. It is not — #58's purge runs
+        // storage objects → rows → auth user in strict order, so DIFFERENT failure codes mean
+        // DIFFERENT things actually got destroyed before it stopped (e.g. `auth_delete_failed`
+        // means storage AND rows are already gone; only the sign-in record survives). A single
+        // static "nothing changed" claim would be true for some failures and false for others —
+        // exactly the "never claim a state that isn't true" violation the deck's §5 rule forbids.
+        // This says only what is true across every retryable failure: some data may already be
+        // gone, and retrying is safe (every step is idempotent).
+        body: 'Some of your data may already have been removed. Check your connection and try again.',
       },
     },
     consent: {

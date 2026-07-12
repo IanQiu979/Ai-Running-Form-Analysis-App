@@ -14,13 +14,16 @@
  * sign-out and account deletion; reachable while signed out is not an option. It is declared.
  *
  * WHAT IS REAL AND WHAT IS NOT, TODAY:
- *   - Sign out — real, and now correct (#27; see `lib/sign-out.ts`).
+ *   - Sign out — real, and correct against all THREE states a security audit found here (#27,
+ *     finding F3; see `lib/sign-out.ts`'s header for why two states was wrong).
  *   - Consent withdrawal — real, writes to `public.consents` via `lib/consent.ts`.
  *   - Email / tier — real reads. Tier is DISPLAY-ONLY: read from `subscriptions`, never computed
  *     here. CLAUDE.md — "the client may display tier/quota state but is never the authority for it."
- *   - Delete account — wired end-to-end against `lib/delete-account.ts`'s injectable seam, which
- *     is currently bound to a MOCK because `delete-account` (#58) does not exist yet. The
- *     confirmation is real; the purge is not. See that file's binding note.
+ *   - Delete account — a REAL `supabase.functions.invoke('delete-account')` call (fixed 2026-07-13,
+ *     finding F1: the original mock binding had no owner to swap it for a real one, so it would
+ *     have shipped silently lying about erasure). `delete-account`'s edge function (#58/#121) is
+ *     built but not yet merged to `main` or deployed — see `lib/delete-account.ts`'s header for
+ *     what that means for this screen today (an honest, retryable failure, never a false success).
  *
  * CONFIRMATIONS USE NATIVE `Alert`, NOT AN IN-SCREEN SHEET. That is a correctness requirement for
  * sign-out, not a style preference: the moment sign-out resolves, the session flips to null and the
@@ -48,9 +51,13 @@ import {
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { hasConsented, UPLOAD_HEALTH_CONSENT, withdrawConsent } from '@/lib/consent';
-import { deleteAccountClient } from '@/lib/delete-account';
+import {
+  deleteAccountClient,
+  type DeleteAccountErrorCode,
+  type DeleteAccountSuccessOutcome,
+} from '@/lib/delete-account';
 import { useSession } from '@/lib/session-provider';
-import { signOut } from '@/lib/sign-out';
+import { signOut, type SignOutResult } from '@/lib/sign-out';
 import { supabase } from '@/lib/supabase';
 
 type SubscriptionTier = 'free' | 'pro' | 'elite';
@@ -174,20 +181,63 @@ export default function SettingsScreen() {
     // Never rejects (lib/sign-out.ts), so no try/catch here by design.
     const result = await signOut();
 
-    // Deliberately NOT guarded by isMountedRef: by now the session has flipped to null and the
-    // route guard has unmounted this screen. The alert is a native, screen-independent surface —
-    // that is exactly why the failure is reported through one. Guarding it here would swallow the
-    // very message issue #27 exists to deliver.
+    // Deliberately NOT guarded by isMountedRef: on a `globalRevokeFailed` result the session has
+    // flipped to null and the route guard is unmounting this screen right now — the alert is a
+    // native, screen-independent surface, which is exactly why the failure is reported through
+    // one rather than inline. On `stillSignedIn` the screen is NOT unmounting (the session is
+    // untouched), so this alert is just an ordinary one either way.
     if (!result.ok) {
-      Alert.alert(Copy.settings.signOutError.title, Copy.settings.signOutError.body, [
-        { text: Copy.settings.alertDismiss },
-      ]);
+      showSignOutFailureAlert(result);
     }
 
     if (isMountedRef.current) setIsSigningOut(false);
   }
 
-  // --- Delete account (entry point for #58) ---------------------------------------------------
+  /**
+   * Exhaustively switches on `SignOutResult`'s failure `reason` so that if `lib/sign-out.ts` ever
+   * grows a fourth state, this fails to COMPILE rather than silently falling through to the wrong
+   * copy — the exact class of bug finding F3 caught here (a real third state the original two-way
+   * model couldn't represent at all).
+   */
+  function showSignOutFailureAlert(result: Extract<SignOutResult, { ok: false }>) {
+    // Bound to a local before switching, not `switch (result.reason)` directly: TypeScript's
+    // exhaustiveness narrowing to `never` in the `default` branch doesn't propagate through a
+    // property-access discriminant the way it does through a plain variable — a real compiler
+    // quirk, verified in isolation, not a mistake to "simplify" back to `result.reason`.
+    const reason = result.reason;
+    switch (reason) {
+      case 'globalRevokeFailed':
+        Alert.alert(
+          Copy.settings.signOutError.globalRevokeFailed.title,
+          Copy.settings.signOutError.globalRevokeFailed.body,
+          [{ text: Copy.settings.alertDismiss }]
+        );
+        return;
+      case 'stillSignedIn':
+        // Unlike globalRevokeFailed, retrying here is real — the local session a retry would
+        // authenticate with is still fully intact (see lib/sign-out.ts's header).
+        Alert.alert(
+          Copy.settings.signOutError.stillSignedIn.title,
+          Copy.settings.signOutError.stillSignedIn.body,
+          [
+            { text: Copy.settings.signOutError.stillSignedIn.cta.secondary, style: 'cancel' },
+            {
+              text: Copy.settings.signOutError.stillSignedIn.cta.primary,
+              onPress: () => {
+                void handleSignOut();
+              },
+            },
+          ]
+        );
+        return;
+      default: {
+        const exhaustive: never = reason;
+        throw new Error(`Unhandled SignOutResult reason: ${String(exhaustive)}`);
+      }
+    }
+  }
+
+  // --- Delete account (#58's real edge function, via lib/delete-account.ts) ------------------
 
   function confirmDeleteAccount() {
     Alert.alert(
@@ -210,33 +260,91 @@ export default function SettingsScreen() {
     if (isBusy) return;
     setIsDeleting(true);
 
-    let succeeded = false;
+    let result: Awaited<ReturnType<typeof deleteAccountClient.submit>>;
     try {
-      const result = await deleteAccountClient.submit();
-      succeeded = result.ok;
+      result = await deleteAccountClient.submit();
     } catch {
-      // A thrown client (no connectivity, unexpected error) is the same user-facing truth as a
-      // documented failure: the account was not deleted. See lib/delete-account.ts's seam contract.
-      succeeded = false;
+      // A thrown client (no connectivity, unexpected error) is the same user-facing truth as the
+      // generic documented failure: the account was not confirmed deleted. See
+      // lib/delete-account.ts's DeleteAccountClient contract.
+      result = { ok: false, error: { error: 'The account could not be deleted.', code: 'unknown' } };
     }
 
-    if (!succeeded) {
+    if (!result.ok) {
       if (!isMountedRef.current) return;
       setIsDeleting(false);
-      Alert.alert(
-        Copy.settings.deleteAccountState.error.title,
-        Copy.settings.deleteAccountState.error.body,
-        [{ text: Copy.settings.alertDismiss }]
-      );
+      showDeleteAccountFailureAlert(result.error.code);
       return;
     }
 
-    // The server has purged the account. The local session now points at a user that no longer
-    // exists, so clear it — the route guard then lands the user on (auth), which is the honest
-    // end state. We ignore the sign-out result on purpose: a failed *global* revoke is moot when
-    // the user it would revoke has just been deleted server-side.
-    await signOut();
-    // No setState after this: the guard has already unmounted this screen.
+    // `outcome` distinguishes two DIFFERENT successes (audit finding F2) — both mean the account
+    // is gone, but only one of them needs its own copy. See handleDeleteAccountSuccess below.
+    handleDeleteAccountSuccess(result.data.outcome);
+    // No setState after this in either branch: the account is deleted either way, so the local
+    // session is about to be cleared and the route guard is about to unmount this screen.
+  }
+
+  /**
+   * `'deleted'` — the ordinary case: sign out immediately and silently, same as before this fix.
+   * `'orphansRemaining'` — ALSO a success (the account IS gone, irreversibly), but the user is
+   * told so explicitly rather than just vanishing into the sign-in screen, and — deliberately —
+   * is NOT offered a retry: there is no account left to retry deleting.
+   *
+   * Exhaustively switched so a third success outcome, if `delete-account` ever grows one, fails
+   * to compile here rather than silently taking the "no news" `deleted` path.
+   */
+  function handleDeleteAccountSuccess(outcome: DeleteAccountSuccessOutcome) {
+    switch (outcome) {
+      case 'deleted':
+        // We ignore the sign-out result on purpose: a failed *global* revoke is moot when the
+        // user it would revoke has just been deleted server-side.
+        void signOut();
+        return;
+      case 'orphansRemaining':
+        Alert.alert(
+          Copy.settings.deleteAccountState.success.orphansRemaining.title,
+          Copy.settings.deleteAccountState.success.orphansRemaining.body,
+          [
+            {
+              text: Copy.settings.alertDismiss,
+              onPress: () => {
+                void signOut();
+              },
+            },
+          ]
+        );
+        return;
+      default: {
+        const exhaustive: never = outcome;
+        throw new Error(`Unhandled DeleteAccountSuccessOutcome: ${String(exhaustive)}`);
+      }
+    }
+  }
+
+  /**
+   * Every failure code — the three the server documents plus this client's own 'unknown' bucket
+   * (lib/delete-account.ts) — currently renders the SAME honest, retryable copy (audit finding
+   * F2: a per-code claim about exactly what survived would be true for some codes and false for
+   * others). Still switched exhaustively, not defaulted, so a fifth code added later forces a
+   * conscious decision here instead of silently inheriting this one.
+   */
+  function showDeleteAccountFailureAlert(code: DeleteAccountErrorCode) {
+    switch (code) {
+      case 'purge_failed':
+      case 'rows_failed':
+      case 'auth_delete_failed':
+      case 'unknown':
+        Alert.alert(
+          Copy.settings.deleteAccountState.error.title,
+          Copy.settings.deleteAccountState.error.body,
+          [{ text: Copy.settings.alertDismiss }]
+        );
+        return;
+      default: {
+        const exhaustive: never = code;
+        throw new Error(`Unhandled DeleteAccountErrorCode: ${String(exhaustive)}`);
+      }
+    }
   }
 
   // --- Consent withdrawal (issue #68) ---------------------------------------------------------
