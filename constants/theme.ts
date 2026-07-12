@@ -297,6 +297,13 @@ export const HitTarget = {
   min: 44,
 } as const;
 
+export const CheckboxSize = {
+  /** The drawn box. The tappable row around it is `HitTarget.min` — the box itself is smaller
+   *  than 44pt on purpose; it is the ROW that must meet the target, not the glyph. */
+  box: 24,
+  border: 2,
+} as const;
+
 export const Opacity = {
   /** A disabled control (e.g. Home's primary CTA before capture is wired up). */
   disabled: 0.4,

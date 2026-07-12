@@ -106,6 +106,31 @@ export const Copy = {
       caption: 'Nothing analyzed yet.',
     },
   },
+  consent: {
+    upload: {
+      title: 'Before you upload',
+      body: 'Your frames are stored privately until you delete them. We send them to Anthropic, our AI provider, to analyse your form. The analysis produces health-related feedback about you, including injury-risk flags.',
+      checkbox:
+        'I consent to my images being analysed to produce health-related feedback, and to Anthropic processing them to do so.',
+      link: {
+        privacy: 'Privacy details in Settings',
+      },
+      cta: {
+        primary: 'I consent — continue',
+        secondary: 'Cancel',
+      },
+      error: {
+        record:
+          "We couldn't record your consent, so nothing has been uploaded. Check your connection and try again.",
+      },
+    },
+  },
+  result: {
+    disclaimer: {
+      footer:
+        'This is not medical advice. PACE analyzes visible running form and flags movement patterns that research associates with elevated injury risk — it does not diagnose injuries or conditions. Form assessment from a photo or short video is an estimate, not a lab measurement. If you have pain, swelling, or a persistent problem, or before making a big change to how you run, consult a doctor or a qualified sports physiotherapist.',
+    },
+  },
   settings: {
     signOut: {
       cta: 'Sign out',

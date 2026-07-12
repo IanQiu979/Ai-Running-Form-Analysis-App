@@ -329,6 +329,7 @@ earlier plain Continue/Cancel draft.
 | `consent.upload.link.privacy` | "Privacy details in Settings" | Points to `settings.privacy.body` for the fuller version. Unchanged. |
 | `consent.upload.cta.primary` | "I consent — continue" | Proceeds into the upload/capture flow. **Disabled until `consent.upload.checkbox` is ticked.** |
 | `consent.upload.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel`; returns to the source picker without uploading anything. Unchanged. |
+| `consent.upload.error.record` | "We couldn't record your consent, so nothing has been uploaded. Check your connection and try again." | NEW key. The consent write to `public.consents` failed. States plainly that nothing was sent — matching `offline.blocked.body`'s "nothing has been sent yet" rule (brief §5: never claim a state that isn't true). The gate stays up and the primary CTA stays available for a retry; the user is never advanced into the upload flow on a failed consent write. |
 
 ## Cross-cutting — Offline
 

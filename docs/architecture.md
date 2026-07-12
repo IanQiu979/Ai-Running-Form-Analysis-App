@@ -24,19 +24,21 @@ app/
   (tabs)/_layout.tsx      # protected stack; single Home tab for M1 (template Explore removed)
   (tabs)/index.tsx        # M1 empty Home per screen 2 — RLS-scoped, display-only quota caption,
                           # disabled Analyze stub, temporary sign-out
-components/              # only the two live components remain (haptic-tab, ui/icon-symbol), both
-                          # used by (tabs)/_layout.tsx. The unreferenced create-expo-app template
-                          # UI (external-link, hello-wave, parallax-scroll-view, themed-text,
-                          # themed-view, ui/collapsible) and hooks/use-theme-color.ts were deleted
-                          # 2026-07-12 (#33) — themed-text carried the last hardcoded color in the
-                          # repo. New components are built against constants/theme.ts tokens.
+components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout.tsx), plus
+                          # consent-gate.tsx and result-disclaimer.tsx (2026-07-12, issue #68) —
+                          # real, tested components; see "Current — consent record & disclaimer".
+                          # The unreferenced create-expo-app template UI (external-link,
+                          # hello-wave, parallax-scroll-view, themed-text, themed-view,
+                          # ui/collapsible) and hooks/use-theme-color.ts were deleted 2026-07-12
+                          # (#33) — themed-text carried the last hardcoded color in the repo.
+                          # Everything new is built against constants/theme.ts tokens.
 constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
                           # palette, spacing/radii/type scales; M1 added
                           # ControlHeight/ControlWidth/HitTarget/Opacity
 constants/copy.ts         # strings lifted verbatim from docs/design/copy-deck.md — sign-in and
                           # Home's copy live here first (M1); more screens' copy lands with them
 constants/contrast.ts     # contrast-ratio helper backing the AA proof below
-constants/__tests__/theme-contrast.test.ts  # 61-assertion Jest proof every text/surface and
+constants/__tests__/theme-contrast.test.ts  # 69-assertion Jest proof every text/surface and
                           # band pair clears WCAG AA (9 brief-§2 intent values were darkened/
                           # lightened minimally to pass — each old → new value is a comment in
                           # theme.ts next to the token it changed)
@@ -48,11 +50,13 @@ lib/
   crypto-polyfill.ts
   hibp.ts                 # client-side leaked-password check (issue #70) — see "Current —
                           # Supabase config" below
+  consent.ts               # fail-closed read/write of the consent record (issue #68) — see
+                          # "Current — consent record & disclaimer" below
 supabase/
   config.toml              # local mirror of live auth config — see "Current — Supabase config"
   functions/.env.example   # committed placeholder; the real ANTHROPIC_API_KEY is in the
                           # gitignored functions/.env locally and in production secrets
-  migrations/               # 7 migrations, applied live — see "Current — DB schema" below
+  migrations/               # 8 migrations, applied live — see "Current — DB schema" below
 ```
 
 The template's `(tabs)/explore.tsx` and `modal.tsx` are deleted, not left as dead scaffolding.
@@ -85,6 +89,11 @@ lib/
                           # leaves the device); runs in sign-in.tsx's sign-up branch only, before
                           # signUp. Mitigates, not a replacement for, the still-Pro-gated
                           # server-side setting — see "Current — Supabase config" below.
+  consent.ts               # current (issue #68) — hasConsented/grantConsent/withdrawConsent
+                          # against public.consents; fails closed (throws) on any query error
+                          # rather than defaulting either way — see "Current — consent record &
+                          # disclaimer" below. `analyze-form` (M4) must run the equivalent check
+                          # server-side; the client call here is not the enforcement point.
   frames.ts               # planned (M2) — extract, downscale, and upload N frames from a video
                           # (client-side) direct-to-bucket, for motion analysis
   pace.ts                 # planned (M4) — PACE pillar types + result parser, imported by app +
@@ -161,7 +170,7 @@ general knowledge. Echo V1 stays frozen — copy from it, never into it.
   compliance checklist gating M7 (App Store privacy labels, consent upgrade, data inventory,
   retention limits), plus two conflicts surfaced for Ian (see `docs/status.md`).
 - `constants/theme.ts` + `constants/contrast.ts` — the brief's §2 tokens as light+dark theme
-  values, spacing/radii/type scales, and the score-band palette, with a 61-assertion Jest test
+  values, spacing/radii/type scales, and the score-band palette, with a 69-assertion Jest test
   (`constants/__tests__/theme-contrast.test.ts`) proving every text/surface and band pair clears
   WCAG AA. Font families (`@expo-google-fonts/archivo`, `inter`, `ibm-plex-mono`) installed via
   `npx expo install`; `expo-font` added to `app.json`'s plugins.
@@ -253,38 +262,102 @@ config" below) is a required pre-first-dev-build cleanup, not yet done. It is **
 the `development` profile's `ios.simulator: true` build needs no Apple account and is enough to
 retire Expo Go. See `docs/status.md` Known Issue #7.
 
+## Current — consent record & disclaimer (done 2026-07-12, issue #68)
+
+The client-side half of #68's two blocked checklist items — a durable consent **record**, not
+just a checkbox, and the "not medical advice" footer. Both ship as components, not screens: M2/
+M4/M5 own where they get hosted, and the three #68 checkboxes stay unticked until then (see
+`docs/status.md` Known Issue #14 and `docs/privacy-checklist-m7.md`).
+
+- **`public.consents`** (8th migration, `20260712020729_consents.sql`) — an append-only log of
+  consent events: `id`, `user_id` (defaults to `auth.uid()`, FK to `profiles` on delete cascade,
+  so `delete-account` purges it with no code change needed), `consent_key`, `granted`,
+  `created_at`. RLS has owner-scoped SELECT and INSERT policies and deliberately **no UPDATE and
+  no DELETE policy** — RLS default-denies anything it has no policy for, so that absence, not a
+  convention, is what makes the log immutable. A withdrawal is a new row with `granted = false`,
+  never a mutation of the original grant. Verified live against the real database with an
+  `authenticated` JWT.
+- **`lib/consent.ts`** — `UPLOAD_HEALTH_CONSENT` (`'upload.health.v1'`), `hasConsented`,
+  `grantConsent`, `withdrawConsent`. Versioning lives in the key, not a column: rewording the
+  consent copy mints a `v2` key, and `hasConsented` is automatically false for every existing
+  user until they re-tick — no migration, no version-column check at each call site. **Fails
+  closed**: `hasConsented` throws on any query error (offline, RLS misconfigured, network flake)
+  rather than defaulting either way — a silent `false` would be indistinguishable from a real
+  non-consent, and a silent `true` would process Art. 9 health data with no legal basis. 10 tests.
+- **`components/consent-gate.tsx`** — the Art. 9 modal content: checkbox unticked by default, the
+  primary CTA disabled until it's ticked (the affirmative, unbundled act that separates real
+  consent from a "by continuing" notice), and a fail-closed error state if the write to
+  `public.consents` fails (the gate stays up, nothing is uploaded). 6 tests.
+- **`components/result-disclaimer.tsx`** — the "not medical advice" footer, rendering
+  `result.disclaimer.footer` from the copy deck. 2 tests.
+- **`constants/copy.ts`** gained the `consent.upload.*` keys plus one genuinely new one,
+  `consent.upload.error.record` (the consent-write-failed message); `docs/design/copy-deck.md`
+  documents both.
+- **`@testing-library/react-native`** added as a devDependency — a deliberate, narrow exception
+  to `CLAUDE.md`'s "screens are not unit-tested for now": these are components, not screens, and
+  the disabled-until-ticked gate is a compliance control that must not be able to regress
+  silently.
+- **Server-side enforcement does not exist yet.** `analyze-form` (M4) must refuse to run for a
+  user with no recorded consent — the `<ConsentGate />` above is UX only and can be bypassed by
+  anyone calling the function directly. See `docs/status.md` Known Issue #14 for the exact
+  required check.
+
+**Correction to issue #68**: the issue claims the disclaimer content "is already in
+`knowledge/injury_flags.md`." That file's disclaimer is prompt content for the model and its
+wording differs (it adds a "never run through sharp or worsening pain" sentence, among other
+changes). The shipped string, `result.disclaimer.footer`, is sourced from `knowledge/
+pace_framework.md` via `docs/design/copy-deck.md`, verbatim — not from `injury_flags.md`.
+
 ## Planned — `analyze-form` edge function flow
 
 The core of the app. Frames only — the client never sends, and the function never receives,
 the original video (see "Media pipeline" below).
 
 1. **Auth** — verify the JWT, reject anon.
-2. **Idempotency** — an existing `(user_id, idempotency_key)` row is returned as-is instead of
+2. **Consent** — refuse to run for a user with no recorded consent in `public.consents` (added
+   2026-07-12, issue #68): a missing row, a `granted = false` row, or a query error all mean
+   refuse. The client's `<ConsentGate />` is UX only and does not enforce this — see
+   `docs/status.md` Known Issue #14 for the exact check.
+
+   **Open question for M4, unresolved — do not silently pick one**: this step runs before
+   idempotency (step 3) on purpose, refuse-before-work, but that leaves undecided what happens
+   when consent is withdrawn *after* an analysis already settled under an idempotency key. A
+   replay of that same request now hits this step first and is refused, rather than reaching
+   step 3 and returning the existing row as-is, which is what idempotency currently promises.
+   Both readings have a real argument: returning the cached row is arguably fine (GDPR Art.
+   7(3) — withdrawal "shall not affect the lawfulness of processing based on consent before its
+   withdrawal," and serving an already-produced result isn't new processing), while refusing is
+   the safer read (continuing to serve health inferences derived from withdrawn consent is at
+   least awkward). Whoever builds M4 must decide and document which wins — and note that the
+   answer likely coincides with whatever the delete/purge path (#57, #58) already does to that
+   row, since a withdrawn-consent analysis is exactly the kind of row that path should be
+   removing anyway.
+3. **Idempotency** — an existing `(user_id, idempotency_key)` row is returned as-is instead of
    re-running the analysis.
-3. **Atomic reserve** — a `SECURITY DEFINER` RPC checks the tier's limit (Free 1 lifetime / Pro
+4. **Atomic reserve** — a `SECURITY DEFINER` RPC checks the tier's limit (Free 1 lifetime / Pro
    10 / Elite 30 per purchase-anchored period) and frame-count cap, then reserves the analysis
    atomically, before the model is ever called. Over quota → structured `402`.
-4. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames with their actual
+5. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames with their actual
    sampled timestamps (Android snaps to keyframes, so the actual timestamps are recorded rather
    than assumed to be evenly spaced); those same frames were already uploaded direct-to-bucket,
    and their storage paths ride in the request alongside the base64 frame data. Frame count per
    tier: Free 1 / Pro 5 / Elite 8.
-5. **Build the grounded prompt**: system message = the certified PACE knowledge (framework +
+6. **Build the grounded prompt**: system message = the certified PACE knowledge (framework +
    injury flags + drills, bundled with the function, not fetched per call), then the image
    block(s) plus their timestamps, then the PACE scoring instruction. Detail scales with tier
    via a verbosity dial on one prompt, not a different call — Free gets scores + one line per
    pillar and no drills; Pro gets fuller feedback, injury-risk flags, and drills; Elite gets the
    same analysis as Pro plus a small verbosity/depth bump (the Pro→Elite gap is intentionally
    tiny).
-6. **One vision call** — `claude-sonnet-5`, explicit thinking config, `max_tokens` 4–8k, a
+7. **One vision call** — `claude-sonnet-5`, explicit thinking config, `max_tokens` 4–8k, a
    forced tool call returning structured JSON for the 4 PACE pillars (Posture, Arm swing,
    Cadence, Elasticity), each scored with feedback, plus injury flags and (paid) drills.
-7. **Validate structurally, loosely** — check the expected shape exists, never judge content.
+8. **Validate structurally, loosely** — check the expected shape exists, never judge content.
    On failure retry once; on a second failure, a clearly-labelled partial result if ≥2 pillars
    parsed (`is_fallback: true`, never a fabricated score for the rest), else a clean failure.
    The reserve is released either way — failures and fallbacks never burn quota — capped at 3
    free retries per period against prompt-injection farming.
-8. **Settle** — mark the reservation delivered, persist the result to `analyses`
+9. **Settle** — mark the reservation delivered, persist the result to `analyses`
    (`result` JSONB, `media_paths`, `tier_at_run`, `frame_count`, `is_fallback`), return
    `{ result, analysisId, isFallback }`.
 
@@ -343,12 +416,14 @@ Direct Supabase-client reads (RLS-guarded, `user_id = auth.uid()`): list own `an
 own `subscriptions`; read own frames from the private bucket via short-TTL signed URLs. Inserts
 into `analyses` happen only inside `analyze-form`.
 
-## Current — DB schema (LIVE, applied 2026-07-11)
+## Current — DB schema (LIVE, applied 2026-07-11 – 2026-07-12)
 
-The live Supabase project (`v2.3Analysis`) has **7 migrations applied** (`supabase db push`,
+The live Supabase project (`v2.3Analysis`) has **8 migrations applied** (`supabase db push`,
 security advisors clean) — this is the as-built schema, not the draft in `planning/03` (which
 drifted on a few points, noted inline below; `planning/03` and `planning/02` should be treated
-as the design intent, this section as ground truth for what's actually deployed).
+as the design intent, this section as ground truth for what's actually deployed). The first 7
+landed with M1 on 2026-07-11; the 8th, `consents` (issue #68), landed 2026-07-12 — see "Current —
+consent record & disclaimer" above.
 
 ```sql
 -- public.profiles: one row per auth.users row, auto-created by an AFTER INSERT trigger
@@ -384,6 +459,18 @@ analyses       (id uuid pk default gen_random_uuid(),
                 created_at, delivered_at, released_at, updated_at)
 -- indexes: (user_id, created_at desc) for "list my analyses"; (user_id, status, created_at)
 -- for the quota-window counts the RPCs below run.
+
+-- public.consents: append-only log of consent events (issue #68), one immutable row per grant
+-- or withdrawal. No UPDATE or DELETE policy exists for anyone — see RLS below. This is the
+-- record that DEMONSTRATES consent (GDPR Art. 7(1)); the client checkbox only collects it.
+consents       (id uuid pk default gen_random_uuid(),
+                user_id uuid not null default auth.uid() -> profiles(id) on delete cascade,
+                consent_key text not null,    -- versioned in the key itself, e.g.
+                                               -- 'upload.health.v1' — not a separate column
+                granted boolean not null,      -- false = withdrawal
+                created_at timestamptz not null default now())
+-- index: (user_id, consent_key, created_at desc) — the only read this table serves is
+-- "latest row for this user and key".
 ```
 
 **Quota RPC family — `reserve_analysis` / `settle_analysis` / `release_analysis`, live and the
@@ -430,7 +517,9 @@ select-own only (no client insert/update/delete — writes are trigger- or futur
 only). `analyses` is select-own **and delete-own** (direct client `DELETE` is allowed by RLS as
 a fallback path; the planned `DELETE /functions/v1/analysis/:id` edge function is still
 preferred so the row and its Storage objects can't get out of sync) — no client insert/update,
-since rows are written only by the RPCs above.
+since rows are written only by the RPCs above. `consents` is select-own and **insert-own only** —
+deliberately **no UPDATE and no DELETE policy for anyone**, which is what makes the log
+append-only (RLS default-denies whatever it has no policy for).
 
 **Media privacy, as deployed**: the private `media` bucket (5MB/object cap, `image/jpeg` only)
 has owner-scoped `storage.objects` RLS for insert/select/delete — first path segment must equal

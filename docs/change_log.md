@@ -259,6 +259,54 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   `exp://**` from the Supabase redirect allowlist (#69) is still a required pre-first-EAS-build
   cleanup and has not been done. `docs/status.md` Known Issue #7 is split rather than closed to
   reflect this.
+- **Built the consent record + the two Art. 9 UI drop-ins (issue #68), plus the binding
+  `analyze-form` consent check they depend on.** The client checkbox only *collects* consent;
+  GDPR Art. 7(1) requires being able to *demonstrate* it, so this adds the record that does that.
+  - New `public.consents` (8th migration, `20260712020729_consents.sql`) — an append-only log of
+    consent events: `id`, `user_id` (defaults to `auth.uid()`, FK to `profiles` on delete
+    cascade), `consent_key`, `granted`, `created_at`. Owner-scoped SELECT and INSERT RLS
+    policies; deliberately **no UPDATE and no DELETE policy at all** — RLS default-denies
+    whatever it has no policy for, so that absence, not a convention, is what makes the log
+    append-only. A withdrawal is a new row with `granted = false`, never a mutation of the
+    grant. Verified live against the real database with an `authenticated` JWT.
+  - New `lib/consent.ts` — `UPLOAD_HEALTH_CONSENT` (`'upload.health.v1'`), `hasConsented`,
+    `grantConsent`, `withdrawConsent`. Versioning lives in the key, not a column: rewording the
+    consent copy mints a `v2` key and `hasConsented` is automatically false for every existing
+    user until they re-tick, no migration needed. **Fails closed**: `hasConsented` throws on any
+    query error instead of defaulting to `true` (would process Art. 9 health data with no legal
+    basis) or `false` (indistinguishable from a real non-consent, which hides an outage — the
+    same class of bug already open at #74, where `lib/hibp.ts` fails *open* with nothing saying
+    so). 10 tests.
+  - New `components/consent-gate.tsx` — the Art. 9 modal content: checkbox unticked by default,
+    primary CTA disabled until it's ticked (the affirmative, unbundled act that makes this
+    consent rather than a "by continuing" notice), and a fail-closed error state if the write to
+    `public.consents` fails (the gate stays up, nothing is uploaded). 6 tests.
+  - New `components/result-disclaimer.tsx` — the "not medical advice" footer,
+    `result.disclaimer.footer` from the copy deck. 2 tests.
+  - `constants/copy.ts` gained the `consent.upload.*` keys and one genuinely new one,
+    `consent.upload.error.record` (the consent-write-failed message); `docs/design/copy-deck.md`
+    documents both.
+  - New devDependency `@testing-library/react-native` — a deliberate, narrow exception to
+    `CLAUDE.md`'s "screens are not unit-tested for now": these are components, not screens, and
+    the disabled-until-ticked gate is a compliance control that must not be able to regress
+    silently.
+  - **The binding half of this work: `analyze-form` (M4, issue #44) must refuse to run for a
+    user with no recorded consent, or none of the above is enforcement, just UX that anyone
+    calling the API directly can skip.** That function doesn't exist yet, so the exact check is
+    recorded where its builder will find it — `docs/status.md` Known Issue #14 (a fourth,
+    binding contract bullet alongside the existing M4 notes) and `docs/architecture.md`'s
+    `analyze-form` flow spec.
+  - `docs/status.md`'s M7 milestone row and `docs/privacy-checklist-m7.md` updated: the three
+    #68 checkboxes (consent modal, disclaimer, and the public-launch consent-modal item) stay
+    **unticked** — this is UI still blocked on M2/M4/M5 hosting it — but each now notes that the
+    record, copy bindings, and both components already exist, so what's left is purely hosting
+    plus the M4 server-side check.
+  - **Corrected a factual error in issue #68 and this checklist**: both claimed the disclaimer
+    was "sourced from `knowledge/injury_flags.md`." Checked against both knowledge files —
+    `injury_flags.md`'s disclaimer is differently-worded prompt content for the model (it adds a
+    "never run through sharp or worsening pain" sentence, among other changes). The shipped
+    string, `result.disclaimer.footer`, is sourced verbatim from `knowledge/pace_framework.md`
+    instead.
 
 ## 2026-07-11
 
