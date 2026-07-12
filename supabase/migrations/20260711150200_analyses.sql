@@ -81,3 +81,12 @@ create policy "Users can delete their own analyses"
 -- DELETE /functions/v1/analysis/:id edge function is the *preferred* path
 -- for keeping the row and its Storage objects from getting out of sync, but
 -- RLS still permits the row-only delete as a fallback/direct path.
+
+-- SUPERSEDED 2026-07-12 by 20260712041500_analysis_usage_ledger.sql (issue #2):
+-- the "Users can delete their own analyses" policy above is DROPPED and the
+-- DELETE/UPDATE/TRUNCATE grants revoked. Counting live analyses rows for quota
+-- meant deleting the row deleted the evidence of quota being used — a free user
+-- could DELETE their row and get unlimited free analyses. Quota now derives from
+-- the append-only public.analysis_usage ledger; deletion is exclusively
+-- DELETE /functions/v1/analysis/:id (#57). The "intentionally allowed" comment
+-- above is retracted.

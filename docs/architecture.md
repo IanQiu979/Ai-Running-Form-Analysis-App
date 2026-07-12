@@ -56,7 +56,7 @@ supabase/
   config.toml              # local mirror of live auth config — see "Current — Supabase config"
   functions/.env.example   # committed placeholder; the real ANTHROPIC_API_KEY is in the
                           # gitignored functions/.env locally and in production secrets
-  migrations/               # 8 migrations, applied live — see "Current — DB schema" below
+  migrations/               # 10 migrations, applied live — see "Current — DB schema" below
 ```
 
 The template's `(tabs)/explore.tsx` and `modal.tsx` are deleted, not left as dead scaffolding.
@@ -368,8 +368,9 @@ the original video (see "Media pipeline" below).
 3. **Idempotency** — an existing `(user_id, idempotency_key)` row is returned as-is instead of
    re-running the analysis.
 4. **Atomic reserve** — a `SECURITY DEFINER` RPC checks the tier's limit (Free 1 lifetime / Pro
-   10 / Elite 30 per purchase-anchored period) and frame-count cap, then reserves the analysis
-   atomically, before the model is ever called. Over quota → structured `402`.
+   10 / Elite 30 per purchase-anchored period, counted from the append-only `public.analysis_usage`
+   ledger, not live `analyses` rows — see "Current — DB schema" below) and frame-count cap, then
+   reserves the analysis atomically, before the model is ever called. Over quota → structured `402`.
 5. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames with their actual
    sampled timestamps (Android snaps to keyframes, so the actual timestamps are recorded rather
    than assumed to be evenly spaced); those same frames were already uploaded direct-to-bucket,
@@ -436,8 +437,8 @@ RLS.
 |---|---|---|---|---|
 | `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], mediaPaths: string[], idempotencyKey }` | `{ result, analysisId, isFallback }` or `402` over-quota / `403` anon | Core call. `mediaPaths` are the direct-to-bucket paths of the same frames being analyzed — nothing large rides the JSON body. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. |
 | `POST /functions/v1/purchase-tier` | JWT | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` | Same contract as V2.2; v2 swaps `source` to receipt verification. |
-| `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, periodEnd }` | Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). Computed from `count(analyses)`, never a client counter. |
-| `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true }` | User-initiated delete: removes the `analyses` row **and** its frame objects atomically, so they can't get out of sync. |
+| `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, periodEnd }` | Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). Must be computed from `public.analysis_usage` (`count(reserved) − count(released)`), never a client counter and never live `analyses` rows — counting `analyses` directly is the exact bug migration `20260712041500` (issue #2) fixed; re-deriving this endpoint from `analyses` would reopen it. |
+| `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true }` | User-initiated delete, and — since `20260712041500` removed the client's own `DELETE` on `analyses` (issue #2) — the **only** delete path for an analysis. Must purge the `analyses` row and its Storage frame objects atomically, so they can't get out of sync, but must **NOT** delete the corresponding `public.analysis_usage` rows: those are the ledger the quota fix depends on, and deleting them reopens #2 through this endpoint instead of a raw client `DELETE`. |
 | `POST /functions/v1/delete-account` | JWT | — | `{ deleted: true }` | Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
@@ -446,17 +447,23 @@ client uses one shared wrapper that parses `{ error, code }` back out of that ex
 than re-parsing it at each call site.
 
 Direct Supabase-client reads (RLS-guarded, `user_id = auth.uid()`): list own `analyses`; read
-own `subscriptions`; read own frames from the private bucket via short-TTL signed URLs. Inserts
-into `analyses` happen only inside `analyze-form`.
+own `subscriptions`; read own frames from the private bucket via short-TTL signed URLs; read own
+`analysis_usage` rows (grant exists since `20260712041500`, though nothing in the client reads it
+yet — it's there so a future Home quota read or `quota-status` can use it without a further
+migration). Inserts into `analyses` happen only inside `analyze-form`; since `20260712041500` the
+client no longer has INSERT/UPDATE/DELETE on `analyses`, `profiles`, or `subscriptions` either
+(see "Current — DB schema"'s RLS-as-deployed summary).
 
 ## Current — DB schema (LIVE, applied 2026-07-11 – 2026-07-12)
 
-The live Supabase project (`v2.3Analysis`) has **8 migrations applied** (`supabase db push`,
+The live Supabase project (`v2.3Analysis`) has **10 migrations applied** (`supabase db push`,
 security advisors clean) — this is the as-built schema, not the draft in `planning/03` (which
 drifted on a few points, noted inline below; `planning/03` and `planning/02` should be treated
 as the design intent, this section as ground truth for what's actually deployed). The first 7
-landed with M1 on 2026-07-11; the 8th, `consents` (issue #68), landed 2026-07-12 — see "Current —
-consent record & disclaimer" above.
+landed with M1 on 2026-07-11; the 8th (`consents`, issue #68) and 9th (`consents_grant_hardening`,
+a same-day privilege-layer follow-up closing gaps RLS alone doesn't reach — see its own header
+comment) landed 2026-07-12 — see "Current — consent record & disclaimer" above; the 10th,
+`analysis_usage_ledger` (issue #2, the quota-bypass fix below), landed the same day.
 
 ```sql
 -- public.profiles: one row per auth.users row, auto-created by an AFTER INSERT trigger
@@ -491,7 +498,10 @@ analyses       (id uuid pk default gen_random_uuid(),
                 release_reason text,                        -- e.g. 'validation_failed' — observability only
                 created_at, delivered_at, released_at, updated_at)
 -- indexes: (user_id, created_at desc) for "list my analyses"; (user_id, status, created_at)
--- for the quota-window counts the RPCs below run.
+-- (analyses_user_status_created_idx) — as of migration 20260712041500 (issue #2), no longer
+-- used by the quota RPCs, which count public.analysis_usage instead; it now only backs the
+-- client's Home quota count in app/(tabs)/index.tsx and retires once that read moves onto the
+-- ledger with issue #57.
 
 -- public.consents: append-only log of consent events (issue #68), one immutable row per grant
 -- or withdrawal. No UPDATE or DELETE policy exists for anyone — see RLS below. This is the
@@ -504,16 +514,45 @@ consents       (id uuid pk default gen_random_uuid(),
                 created_at timestamptz not null default now())
 -- index: (user_id, consent_key, created_at desc) — the only read this table serves is
 -- "latest row for this user and key".
+
+-- public.analysis_usage: append-only quota ledger (issue #2, migration 20260712041500) —
+-- reserve_analysis/release_analysis count THIS, never live analyses rows; that swap, plus
+-- dropping analyses' client DELETE policy below, is the entire fix for #2 (a free user could
+-- previously DELETE their own analyses row from the client and reset live-row quota counting
+-- to 0). One immutable row per reservation event; no UPDATE or DELETE policy exists for anyone
+-- — see RLS below.
+analysis_usage (id uuid pk default gen_random_uuid(),
+                user_id     uuid not null -> profiles(id) on delete cascade,
+                analysis_id uuid not null,   -- deliberately NO FK to analyses: the ledger row
+                                              -- must survive a hard-delete of the analysis it
+                                              -- was reserved for (on delete cascade would
+                                              -- reintroduce #2 exactly; on delete restrict
+                                              -- would block the planned
+                                              -- DELETE /functions/v1/analysis/:id, issue #57)
+                event       analysis_usage_event not null,  -- enum: 'reserved' | 'released'
+                tier_at_run analysis_tier not null,
+                reserved_at timestamptz not null, -- the RESERVATION's timestamp, copied onto
+                                                    -- both events for one analysis — this, not
+                                                    -- created_at, is what the pro/elite period
+                                                    -- window filters on
+                created_at  timestamptz not null default now()) -- this event's own append
+                                                                   -- time; audit/ordering only
+-- constraint: unique(analysis_id, event) — at most one 'reserved' and one 'released' event per
+-- analysis, ever. index: (user_id, reserved_at, event) — covers both branches reserve_analysis
+-- runs (free: user_id-prefix count only; pro/elite: + a reserved_at range) with no heap fetch.
 ```
 
 **Quota RPC family — `reserve_analysis` / `settle_analysis` / `release_analysis`, live and the
-sole enforcement point.** All three are `SECURITY DEFINER`, `EXECUTE` revoked from
-`public`/`anon`/`authenticated` and granted only to `service_role` — so only a future edge
-function calling with the service-role key can invoke them, never the client directly.
+sole enforcement point** (and, since migration `20260712041500` (issue #2), backed by a ledger
+no client action can shrink — see `public.analysis_usage` above). All three are
+`SECURITY DEFINER`, `EXECUTE` revoked from `public`/`anon`/`authenticated` and granted only to
+`service_role` — so only a future edge function calling with the service-role key can invoke
+them, never the client directly.
 
 - **`reserve_analysis(p_user_id, p_idempotency_key, p_media_type, p_frame_count, p_media_paths)`**
-  — the sole write path for new `analyses` rows. Serializes concurrent calls for one user via
-  `pg_advisory_xact_lock(hashtext(p_user_id || ':analysis_reserve'))` (a bare
+  — the sole write path for new `analyses` rows, and, since `20260712041500`, the sole write
+  path for the `analysis_usage` event it counts against. Serializes concurrent calls for one
+  user via `pg_advisory_xact_lock(hashtext(p_user_id || ':analysis_reserve'))` (a bare
   count-then-insert does not close the race on its own — see the migration's own comment for
   why); `UNIQUE (user_id, idempotency_key)` is a second, unconditional backstop against a lock-
   hash collision. An existing row for `(user_id, idempotency_key)` is returned as-is, **whatever
@@ -521,21 +560,31 @@ function calling with the service-role key can invoke them, never the client dir
   request against a since-released reservation returns `allowed: true, existing: true, status:
   "released"`). Tier is derived server-side from `subscriptions` (no row = `free`), never
   trusted from the caller. Enforces, in order: frame-count cap per tier (Free 1 / Pro 5 /
-  Elite 8 — photo must be exactly 1 frame), the 3-failed-attempt anti-farming cap (counts
-  `'released'` rows in the window — a released reservation never counts toward the quota limit,
-  but does count here, since failures/fallbacks don't cost quota and would otherwise be a free
-  retry farm), then the quota limit itself (Free 1 **lifetime**, count of all
-  `'reserved'`/`'delivered'` rows ever; Pro 10 / Elite 30 **per current period**, via
-  `pace_current_period` below — Free does not reuse the period logic, a separate branch).
+  Elite 8 — photo must be exactly 1 frame), the 3-failed-attempt anti-farming cap
+  (`count(released events) >= 3` in `public.analysis_usage` — a released reservation never
+  counts toward the quota limit, but does count here, since failures/fallbacks don't cost quota
+  and would otherwise be a free retry farm), then the quota limit itself: `used =
+  count(reserved events) − count(released events)`, floored at 0 (Free counts **lifetime**, no
+  window, over the user's whole ledger; Pro 10 / Elite 30 **per current period**, windowed on
+  `reserved_at <@ pace_current_period(...)` below). **Counts `public.analysis_usage`, never live
+  `analyses` rows** — before `20260712041500` it counted `analyses` directly, and a client-issued
+  `DELETE` on that table (RLS allowed it) reset the count to 0; see the DB schema's
+  `analysis_usage` entry above and `docs/change_log.md` 2026-07-12 for the exploit and the fix.
 - **`settle_analysis(p_user_id, p_analysis_id, p_result, p_is_fallback)`** — marks a `'reserved'`
   row `'delivered'` with its result; guarded to only affect a still-`'reserved'` row, so a
   duplicate/late call is a safe no-op rather than overwriting an already-delivered result.
+  Unaffected by the `analysis_usage` ledger — a delivered analysis's quota is already covered by
+  its `'reserved'` event, so there is nothing further to append.
 - **`release_analysis(p_user_id, p_analysis_id, p_reason)`** — the compensating release: a
   `'reserved'` row that never gets settled (the vision call errored after its one retry, or the
   response was a clean failure) moves to `'released'` so it stops counting toward quota, while
   the row itself is kept (not hard-deleted) so it still counts toward the 3-failed-attempt cap.
-  **Must be called on every M4 failure path** — an unreleased `'reserved'` row silently eats a
-  quota slot forever (`docs/status.md` Known Issue #14).
+  Since `20260712041500`, also appends a `'released'` event to `public.analysis_usage`, carrying
+  forward the same `reserved_at` its matching `'reserved'` event was stamped with (not this
+  call's own `now()`), so both events for one analysis window identically regardless of which
+  period `now()` falls in at release time. **Must be called on every M4 failure path** — an
+  unreleased `'reserved'` row silently eats a quota slot forever (`docs/status.md` Known
+  Issue #14).
 - **`pace_current_period(anchor, as_of)` / `pace_add_months_clamped(base, n)`** — SQL port of
   V2.2's `currentPeriod(anchorDate, now)`: purchase-day-anchored, month-end clamped (Jan 31 →
   Feb 28 → Mar 31, verified), computed inside the same transaction as the reserve, no cron, no
@@ -546,13 +595,25 @@ function calling with the service-role key can invoke them, never the client dir
 **RLS, as deployed** (all policies wrap `auth.uid()` as `(select auth.uid())` — a performance
 fix, InitPlan-evaluated once per statement instead of once per row, applied in the 7th
 migration; behavior is identical to bare `auth.uid()`): `profiles` and `subscriptions` are
-select-own only (no client insert/update/delete — writes are trigger- or future-service-role-
-only). `analyses` is select-own **and delete-own** (direct client `DELETE` is allowed by RLS as
-a fallback path; the planned `DELETE /functions/v1/analysis/:id` edge function is still
-preferred so the row and its Storage objects can't get out of sync) — no client insert/update,
-since rows are written only by the RPCs above. `consents` is select-own and **insert-own only** —
-deliberately **no UPDATE and no DELETE policy for anyone**, which is what makes the log
-append-only (RLS default-denies whatever it has no policy for).
+select-own only — no client insert/update/delete (writes are trigger- or future-service-role-
+only). As of `20260712041500` (issue #2) that is enforced at the **grant** layer too, not just
+RLS: INSERT/UPDATE/DELETE/TRUNCATE are revoked from `authenticated`/`anon` on both tables,
+defense-in-depth for `analysis_usage`'s cascade chain
+(`analysis_usage.user_id -> profiles(id) -> auth.users(id)`) in case a self-serve delete
+policy is ever added to either. `analyses` is **select-own only** — its owner-scoped `DELETE`
+policy (the reachable exploit behind issue #2: a free user could `DELETE` their own row and
+reset live-row quota counting to 0) was dropped by that same migration, and
+INSERT/UPDATE/DELETE/TRUNCATE are revoked from `authenticated`/`anon`; rows are written only by
+the RPCs above, and the sole delete path is now the planned
+`DELETE /functions/v1/analysis/:id` edge function (#57), which must purge the row and its
+Storage objects but must **not** touch `analysis_usage`. `consents` is select-own and
+**insert-own only** — deliberately **no UPDATE and no DELETE policy for anyone**, which is what
+makes the log append-only (RLS default-denies whatever it has no policy for). `analysis_usage`
+is **select-own only**, the same append-only-by-absence design as `consents` — no
+insert/update/delete policy for anyone; the ledger is written exclusively by the RPCs as
+`service_role` under `SECURITY DEFINER`, and `authenticated`'s SELECT is an explicit grant
+rather than Supabase's default `grant all` (a future Supabase default change removes automatic
+exposure for new tables — see `config.toml`'s note on this).
 
 **Media privacy, as deployed**: the private `media` bucket (5MB/object cap, `image/jpeg` only)
 has owner-scoped `storage.objects` RLS for insert/select/delete — first path segment must equal

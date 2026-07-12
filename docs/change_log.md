@@ -7,6 +7,57 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Fixed a quota bypass that let a free user farm unlimited `claude-sonnet-5` vision calls
+  (closes #2), migration `20260712041500_analysis_usage_ledger.sql`.** `reserve_analysis`
+  (`20260711150400`) counted quota by querying live `public.analyses` rows, and
+  `20260711150200` had given `authenticated` an owner-scoped `DELETE` policy on that same
+  table — so a free user who'd used their one lifetime analysis could simply `DELETE FROM
+  analyses WHERE id = ...` from the client (a plain PostgREST call, no RPC involved) and their
+  live-row count went back to 0, unlocking another reservation, and another: unlimited
+  Anthropic vision calls for a nominally-free tier. The identical delete also reset the
+  3-released anti-farm cap, turning a bounded validation-failure retry into an unbounded one.
+  - **New append-only ledger, `public.analysis_usage`** — enum `analysis_usage_event`
+    (`'reserved'` / `'released'`), columns `id, user_id, analysis_id` (deliberately **no FK to
+    `analyses`**, so a ledger row outlives a hard-delete of the row it was reserved for),
+    `event, tier_at_run, reserved_at, created_at`, `unique(analysis_id, event)`, index
+    `(user_id, reserved_at, event)`. `reserve_analysis` now counts **the ledger**, not
+    `analyses`: `used = count(reserved) − count(released)` (floored at 0), and the anti-farm
+    cap is `count(released) >= 3`. Free tier counts lifetime (no window); Pro/Elite window on
+    `reserved_at <@ pace_current_period(purchased_at, now())` — deliberately the
+    *reservation's* timestamp, not the release event's own append time, so a failure released
+    after a period rolls over can't drive `used` negative in the new period.
+    `release_analysis` now also appends the `'released'` event, carrying forward the original
+    `reserved_at` so both events for one analysis window identically.
+  - **RLS**: one owner-scoped SELECT policy on `analysis_usage`, no insert/update/delete policy
+    for anyone (RLS default-denies whatever has no policy — that absence is what makes it
+    append-only). Grants hardened to match: `authenticated` gets an explicit SELECT-only grant,
+    `anon` gets nothing; the RPCs write as `service_role` under `SECURITY DEFINER`.
+  - **Client `DELETE` on `analyses` is gone.** The `"Users can delete their own analyses"`
+    policy is dropped, and INSERT/UPDATE/DELETE/TRUNCATE are revoked from
+    `authenticated`/`anon` (SELECT is kept — the Home quota display and future Past Analyses
+    both still need to read it). Row deletion becomes exclusively the future
+    `DELETE /functions/v1/analysis/:id` (#57), which must purge the `analyses` row and its
+    Storage objects but must **NOT** touch `analysis_usage` — deleting the ledger would reopen
+    #2 through the same door. The same INSERT/UPDATE/DELETE/TRUNCATE revokes were added to
+    `profiles` and `subscriptions` too, defense-in-depth for the ledger's cascade chain
+    (`analysis_usage.user_id -> profiles(id) -> auth.users(id)`) — closes the privilege before
+    anyone adds a self-serve delete policy to either table.
+  - `reserve_analysis`'s `unique_violation` handler hardened: it used to assume any
+    `unique_violation` meant the `(user_id, idempotency_key)` race on `analyses` and
+    unconditionally return the existing row; now that the ledger insert adds a second unique
+    constraint reachable from the same function body, it re-fetches by idempotency key and
+    `raise`s if that lookup comes back empty, instead of fabricating a success payload.
+  - Backfilled `analysis_usage` from every existing `analyses` row before swapping the RPCs
+    over, preserving exact parity with the old counting rule — see the migration's own comment
+    for the equivalence proof. `settle_analysis` is unchanged (a delivered analysis's quota was
+    already covered by its `'reserved'` event).
+  - **Verified**: security audit found no exploitable path; `typecheck`/`lint`/`test` clean
+    (108 tests); applied and behaviorally tested on a Supabase branch — the #2 regression case
+    (delete the row, reserve again) now correctly returns `quota_exceeded`.
+  - **Accepted residual, documented not defended**: free-tier quota keys on `user_id`, so
+    deleting an account and re-signing up with the same email mints a fresh `auth.users.id` and
+    a zero-row ledger — the lifetime cap resets. Inherent to any per-account quota for a
+    one-shot free tier; not worth defending for a budget of exactly one free analysis.
 - **HIBP fail-open is now observable (refs #74).** `lib/hibp.ts` fails open and deliberately
   never logs, which made the leaked-password check silently unobservable: if HIBP's endpoint
   rotted, every sign-up would pass the check forever with nothing to show for it.

@@ -13,7 +13,7 @@ milestone "done" criteria.
 | M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Not started |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files exist; Elasticity pending Ian's certification |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started |
-| M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
+| M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — **except its quota-integrity done-criterion, already satisfied at the DB layer 2026-07-12**: issue #2 (quota resettable via a client `DELETE`) is fixed by the append-only `public.analysis_usage` ledger (migration `20260712041500`) — see `docs/architecture.md`'s DB schema section and Known Issue #16 below. M5 itself (tier-gated UI, the dummy paywall, `purchase-tier`/`quota-status` edge functions) has not started. |
 | M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
 
@@ -208,6 +208,30 @@ milestone "done" criteria.
     information (s6D(4)(b)) — an app producing injury-risk assessments plausibly qualifies, which
     would make this a full APP entity regardless of size (APP 8 overseas disclosure + a
     complaints process). See `docs/privacy-checklist-m7.md`.
+16. ~~**Quota bypassable via a client-issued `DELETE`**~~ **RESOLVED 2026-07-12** — migration
+    `20260712041500_analysis_usage_ledger.sql` (closes #2). `reserve_analysis` counted quota by
+    querying live `public.analyses` rows, and that table had an owner-scoped `DELETE` policy a
+    free user could call directly from the client to reset their live-row count (and the
+    3-released anti-farm count) to 0. Fixed by replacing live-row counting with an append-only
+    `public.analysis_usage` ledger the RPCs count instead, and by dropping `analyses`' client
+    `DELETE` policy entirely (INSERT/UPDATE/DELETE/TRUNCATE revoked from `authenticated`/`anon`,
+    SELECT kept). See `docs/change_log.md` 2026-07-12 and `docs/architecture.md`'s DB schema
+    section for the mechanism. This satisfies M5's "quota unbypassable server-side" done-criterion
+    at the DB layer early — M5 itself (tier-gated UI, paywall, `purchase-tier`/`quota-status`) is
+    still Not started (see the milestone table above).
+
+    **Carries a required follow-on for issue #57** (`DELETE /functions/v1/analysis/:id`, still
+    unbuilt) — whoever builds it must satisfy two constraints or this fix regresses:
+    - It must purge the `analyses` row and its Storage frame objects, but must **NOT** delete the
+      corresponding `public.analysis_usage` rows — deleting the ledger reopens #2 through the
+      exact same door (a hard-delete resetting quota), just moved from a raw client `DELETE` to
+      this endpoint.
+    - The Home quota display (`app/(tabs)/index.tsx`) currently counts live `analyses` rows
+      (`status in ('reserved','delivered')`), which stays truthful only because nothing can
+      hard-delete a row today. The moment #57 ships, that read diverges from real quota (a
+      purged-but-still-quota-counted analysis would vanish from the display while still consuming
+      quota server-side) — the Home read must move onto `public.analysis_usage` (or a
+      `GET /functions/v1/quota-status` endpoint backed by it) as part of #57, not as a follow-up.
 
 ## Next action
 
