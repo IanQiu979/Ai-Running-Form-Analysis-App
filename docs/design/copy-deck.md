@@ -119,6 +119,10 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 | `sourcePicker.permission.library.denied.body` | "Turn on photo library access in Settings to upload a clip." | |
 | `sourcePicker.permission.library.denied.cta` | "Open Settings" | Reuse `shared.cta.openSettings`; deep-links to the app's OS Settings page. |
 | `sourcePicker.permission.library.denied.secondary` | "Record instead" | Offers the other path so the user isn't stuck — routes to Capture. |
+| `sourcePicker.error.clipTooLong.title` | "This clip is longer than 15 seconds" | NEW key (issue #36). A library-picked video, unlike an in-app recording (bounded by `CameraView`'s own `maxDuration`), can be arbitrarily long — `lib/media-caps.ts`'s `checkMediaCaps` catches it after the picker returns. |
+| `sourcePicker.error.clipTooLong.body` | "Pick a shorter clip, or record a new one in the app — recording stops automatically at 15 seconds." | |
+| `sourcePicker.error.fileTooLarge.title` | "This file is too large to analyze" | NEW key (issue #36). The picked photo/video exceeds `lib/media-caps.ts`'s 50MB pre-compress cap. Shared with `app/capture/extracting.tsx`'s pre-flight re-check. |
+| `sourcePicker.error.fileTooLarge.body` | "Choose a smaller photo or video, or record a new clip in the app." | |
 
 ---
 
@@ -159,18 +163,35 @@ original video is never uploaded. The brief's prose (§4.5) lists "upload %, the
 the opposite order; this deck follows the engineering ruling as the source of truth. See
 "Ambiguities" at the end.
 
+**Update, issue #36 (2026-07-12):** issue #88 (merged, live) went further than the sequencing
+note above — the client no longer uploads frames **at all**; `analyze-form` (M4) writes them
+server-side, after the model call. `upload.step.uploading`/`upload.error.*`/`upload.offline.*`
+below describe a client-upload step that no longer exists in the live contract and are **not**
+implemented by `app/capture/extracting.tsx` — kept here as a record of the deck's original
+design, not deleted, since a future direct-upload path (if one ever returns) would want the same
+copy. `constants/copy.ts`'s `upload.*` namespace only implements `title`/`step.extracting` from
+this table, plus the NEW keys below for states this table never covered (a local extraction
+failure, not a network one).
+
 | Key | String | Shows when |
 |---|---|---|
 | `upload.title` | "Preparing your analysis" | Screen header, covers both steps. |
 | `upload.step.extracting` | "Extracting frames {current} / {total}" | Local frame extraction, `frames.ts` running — no network yet. |
-| `upload.step.uploading` | "Uploading {percent}%" | Extracted frames uploading direct-to-bucket. |
-| `upload.error.title` | "Upload didn't go through" | Frame upload fails. |
+| `upload.step.uploading` | "Uploading {percent}%" | Extracted frames uploading direct-to-bucket. **Not implemented** — see the #36 update note above. |
+| `upload.error.title` | "Upload didn't go through" | Frame upload fails. **Not implemented** — see the #36 update note above. |
 | `upload.error.body` | "We couldn't upload your frames — check your connection and try again." | |
 | `upload.error.cta.retry` | "Retry" | Reuse `shared.cta.retry`. |
 | `upload.error.cta.cancel` | "Cancel" | Reuse `shared.cta.cancel`; returns to the source picker. |
-| `upload.offline.title` | "You're offline" | Connectivity drops mid-upload. |
+| `upload.offline.title` | "You're offline" | Connectivity drops mid-upload. **Not implemented** — see the #36 update note above. |
 | `upload.offline.body` | "Uploading needs a connection. Reconnect and try again — nothing has been saved yet." | Explicit "nothing saved yet" honors the "never claim saved when it isn't" rule (brief §5). |
 | `upload.offline.cta` | "Retry" | Reuse `shared.cta.retry`. |
+| `upload.error.budgetExceeded.title` | "This clip is too large to analyze" | NEW key (issue #36). `lib/frames.ts`'s `FrameBudgetExceededError` — the fully-extracted frame set exceeds the `analyze-form` request budget. No retry CTA (only "Back" to the source picker): the same input would fail again. |
+| `upload.error.budgetExceeded.body` | "Its extracted frames add up to more data than one analysis can send. Try a shorter clip or a lower-resolution recording." | |
+| `upload.error.extractionFailed.title` | "Couldn't process this clip" | NEW key (issue #36). Any other extraction failure (corrupt file, native-module error, malformed route params) — distinct from budgetExceeded because retrying CAN succeed here, so this state offers Retry as well as Back. |
+| `upload.error.extractionFailed.body` | "Something went wrong preparing your frames. Try again or choose a different clip." | |
+| `upload.ready.title` | "Frames ready" | NEW key (issue #36). Extraction succeeded. There is no next screen yet — `analyze-form` (M4, issue #44) and the Analyzing wait screen (issue #80) don't exist — so this is a genuine, honest stopping point, not a placeholder implying more exists. |
+| `upload.ready.body` | "{frameCount} frame(s) extracted and ready for analysis." | |
+| `upload.ready.cta` | "Done" | Reuse `shared.cta.done` ("Dismisses a screen with no further action needed" — exactly true today). Returns to Home. M4 replaces this branch with the real handoff into analysis. |
 
 ---
 

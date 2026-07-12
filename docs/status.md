@@ -10,7 +10,7 @@ milestone "done" criteria.
 | Milestone | Status |
 |---|---|
 | M1 — Foundation (sign-up creates an account → empty Home) | **Done 2026-07-11** — security audit (no Critical/High) + code review (5 findings fixed), gate passed with Ian's on-phone sign-up test; merged via PR from `feat/m1-spine` |
-| M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Not started |
+| M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Screens built (issue #36, `fix/36`, 2026-07-12) — source picker, in-app muted record + framing guide, permission-denied states, and honest extraction progress; see `docs/architecture.md`'s "Current — capture screens (issue #36)". Not fully closed: issue #37 (frames.ts test coverage) and issue #112 (frame timestamp accuracy) are still open, and Home's CTA isn't wired to `/capture` yet (a deliberately flagged gap, not this issue's scope — see the same architecture.md section). Issue #35 (direct-to-bucket upload) is superseded by #88's live contract and should not be built as originally scoped. |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files exist; Elasticity pending Ian's certification |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. **The Analyzing screen (issue #80) shipped 2026-07-12**, built entirely against the documented `analyze-form` contract via an injectable `AnalyzeFormClient` seam (`lib/analyze-form.ts`, currently bound to a dev mock — no real network call anywhere) — the `analyze-form` edge function itself (#44) is still not started; #80 only removed the client-side hole so #44 has a screen to plug into once it exists. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
@@ -117,6 +117,14 @@ milestone "done" criteria.
   fails the build if `knowledge/*.md` is edited without regenerating — verified live the same way.
   Full detail: `docs/architecture.md`'s "Current — Deno build/test contract, pace.ts location &
   knowledge bundling" section.
+- **M2 capture screens landed 2026-07-12 (issue #36)** — source picker, in-app muted record with
+  the side-on framing guide, permission-denied states for both camera and photo library, and
+  honest frame-extraction progress (`app/capture/{index,record,extracting}.tsx`), built against
+  `lib/frames.ts` (#34) and the live #88 no-client-upload contract. New tested `lib/` logic:
+  `media-caps.ts`, `media-file-size.ts`, `permission-state.ts`, `parse-capture-params.ts`. Full
+  detail, including the known gaps this issue does not close (Home's CTA not yet wired to
+  `/capture`; #37/#112 still open): `docs/architecture.md`'s "Current — capture screens (issue
+  #36)" section.
 - Full dated history: [`docs/change_log.md`](change_log.md).
 
 ## Known issues
