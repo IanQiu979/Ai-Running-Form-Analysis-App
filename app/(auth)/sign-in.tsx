@@ -183,7 +183,8 @@ export default function SignInScreen() {
               disabled={isBusy}
               style={({ pressed }) => [
                 styles.secondaryButton,
-                (pressed || isBusy) && styles.buttonDimmed,
+                isBusy && styles.buttonDisabled,
+                pressed && styles.buttonPressed,
               ]}>
               {pendingAction === 'google' ? (
                 <ActivityIndicator color={colors.text.primary} />
@@ -200,7 +201,8 @@ export default function SignInScreen() {
                 disabled={isBusy}
                 style={({ pressed }) => [
                   styles.secondaryButton,
-                  (pressed || isBusy) && styles.buttonDimmed,
+                  isBusy && styles.buttonDisabled,
+                  pressed && styles.buttonPressed,
                 ]}>
                 <Text style={styles.secondaryButtonText}>{Copy.auth.cta.email}</Text>
               </Pressable>
@@ -242,7 +244,8 @@ export default function SignInScreen() {
                   disabled={isBusy}
                   style={({ pressed }) => [
                     styles.primaryButton,
-                    (pressed || isBusy) && styles.buttonDimmed,
+                    isBusy && styles.buttonDisabled,
+                    pressed && styles.buttonPressed,
                   ]}>
                   {pendingAction === 'email' ? (
                     <ActivityIndicator color={Accent.onAccent} />
@@ -266,7 +269,7 @@ export default function SignInScreen() {
             accessibilityRole="button"
             onPress={toggleMode}
             disabled={isBusy}
-            style={styles.toggleLink}>
+            style={({ pressed }) => [styles.toggleLink, pressed && styles.buttonPressed]}>
             <Text style={styles.toggleLinkText}>
               {mode === 'signIn' ? Copy.auth.signUp.link : Copy.auth.signIn.link}
             </Text>
@@ -339,8 +342,14 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       fontSize: FontSize.md,
       color: Accent.onAccent,
     },
-    buttonDimmed: {
+    // Pressed and disabled/busy are two different states and must not render at the same
+    // opacity — a disabled button was previously indistinguishable from a pressed one here,
+    // and Home already used the 0.4 disabled token for the same meaning.
+    buttonPressed: {
       opacity: Opacity.pressed,
+    },
+    buttonDisabled: {
+      opacity: Opacity.disabled,
     },
     emailForm: {
       gap: Spacing.md,

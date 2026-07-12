@@ -7,6 +7,27 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Repo audit: seven small, self-contained M1 bugs fixed in one pass (closes #13, #14, #19,
+  #22, #23, #31, #33).** Each had a prescribed, mechanical fix in its issue and needed no design
+  decision; everything larger or ambiguous found in the same read-through was left as an issue
+  rather than fixed inline.
+  - `app/_layout.tsx` — both splash-screen calls (`preventAutoHideAsync`, `hideAsync`) can reject
+    and neither was caught (#31). Also caught `Linking.getInitialURL()`'s rejection in
+    `lib/session-provider.tsx`, the same class of unhandled promise, found in the same pass.
+  - `app/(tabs)/index.tsx` — Home's root is now a `ScrollView` with `flexGrow: 1` (the pattern
+    sign-in already used), so large Dynamic Type sizes reflow instead of clipping with no way to
+    reach the CTA (#19); the loading state renders `Copy.home.quota.loading` ("Checking your
+    plan…") next to the spinner instead of leaving the deck key unused and screen readers with
+    nothing to announce (#14); the quota Retry button gets `HitTarget.min` on both axes, up from
+    ~28pt (#13); and the sign-out link gets the pressed-state dim every other touchable has (#22).
+  - `app/(auth)/sign-in.tsx` — pressed and disabled/busy no longer render at the same opacity
+    (#23): `buttonPressed` (0.6) and `buttonDisabled` (0.4) are now separate, matching Home's
+    meaning of the two tokens. The mode-toggle link gets press feedback (#22).
+  - Deleted the unreferenced create-expo-app template UI — `external-link`, `hello-wave`,
+    `parallax-scroll-view`, `ui/collapsible`, `themed-text`, `themed-view`, `hooks/use-theme-color`
+    and the four `react-logo` assets (#33). `themed-text` held `#0a7ea4`, the last hardcoded color
+    outside `constants/theme.ts`. `haptic-tab` and `ui/icon-symbol` are the only components left,
+    both live via `(tabs)/_layout.tsx`.
 - **Trimmed the sign-in error that promised a password reset the app doesn't have (closes #18).**
   `auth.error.invalidCredentials` is now "Email or password doesn't match. Try again." — the
   clause "or reset your password" is gone from both `docs/design/copy-deck.md` (Screen 1) and

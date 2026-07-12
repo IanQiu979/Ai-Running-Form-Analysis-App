@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Copy } from '@/constants/copy';
@@ -109,20 +109,30 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.content}>
+      {/* Same ScrollView + flexGrow:1 pattern as app/(auth)/sign-in.tsx: the content still
+          centers when there is room, but at the largest Dynamic Type sizes it scrolls instead
+          of clipping (design brief §7: layouts reflow, never clip). */}
+      <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <Text style={styles.header}>Home</Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={Copy.settings.signOut.cta}
             onPress={handleSignOut}
-            style={styles.signOutButton}>
+            style={({ pressed }) => [styles.signOutButton, pressed && styles.pressed]}>
             <Text style={styles.signOutText}>{Copy.settings.signOut.cta}</Text>
           </Pressable>
         </View>
 
         <View style={styles.centerBlock}>
-          {quota.status === 'loading' && <ActivityIndicator color={colors.text.secondary} />}
+          {quota.status === 'loading' && (
+            <View style={styles.loadingBlock}>
+              <ActivityIndicator color={colors.text.secondary} />
+              <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
+                {Copy.home.quota.loading}
+              </Text>
+            </View>
+          )}
 
           {quota.status === 'ready' && (
             <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
@@ -147,7 +157,7 @@ export default function HomeScreen() {
                 onPress={() => {
                   fetchQuota();
                 }}
-                style={({ pressed }) => [styles.retryButton, pressed && styles.retryButtonPressed]}>
+                style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
                 <Text style={styles.retryText}>{Copy.home.quota.error.retry}</Text>
               </Pressable>
             </View>
@@ -169,7 +179,7 @@ export default function HomeScreen() {
 
           <Text style={styles.emptyCaption}>{Copy.home.empty.caption}</Text>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -196,7 +206,9 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.background,
     },
     content: {
-      flex: 1,
+      // flexGrow (not flex) — this is a ScrollView contentContainerStyle now: it fills the
+      // viewport when the content is short, and grows past it when Dynamic Type makes it tall.
+      flexGrow: 1,
       padding: Spacing.xl,
       gap: Spacing.xxl,
     },
@@ -229,6 +241,10 @@ function createStyles(colors: ThemeColors) {
       justifyContent: 'center',
       gap: Spacing.xl,
     },
+    loadingBlock: {
+      alignItems: 'center',
+      gap: Spacing.md,
+    },
     quotaCaption: {
       fontFamily: FontFamily.mono.regular,
       fontSize: FontSize.md,
@@ -246,10 +262,17 @@ function createStyles(colors: ThemeColors) {
       textAlign: 'center',
     },
     retryButton: {
+      // The 44x44 floor design-brief §7 calls non-negotiable — padding alone left this at
+      // ~28pt around 15pt text. `signOutButton` above already uses the same token.
+      minHeight: HitTarget.min,
+      minWidth: HitTarget.min,
+      alignItems: 'center',
+      justifyContent: 'center',
       paddingVertical: Spacing.xs,
       paddingHorizontal: Spacing.sm,
     },
-    retryButtonPressed: {
+    /** The one pressed-state dim shared by every touchable on this screen. */
+    pressed: {
       opacity: Opacity.pressed,
     },
     retryText: {
