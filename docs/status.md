@@ -188,6 +188,13 @@ milestone "done" criteria.
       idempotent request after a withdrawal could either be refused or return the existing
       settled row as-is — see `docs/architecture.md`'s consent step for both readings; the
       answer likely tracks whatever the delete/purge path (#57, #58) already does to that row.
+    - **Settled by #88, 2026-07-12 (migration written, not yet applied — see Known Issue #16):**
+      the request body carries **no `mediaPaths`**. `reserve_analysis` is 4 args (no
+      `p_media_paths`); `settle_analysis` is 5 (it takes them, guarded to `{p_user_id}/
+      {p_analysis_id}/`). Order is reserve → model call → **on success/honest-partial only**,
+      upload frames service-role to `{user_id}/{analysis_id}/frame-{NN}.jpg` → settle with
+      whichever paths landed. Never upload before the reserve — a rejection must leave nothing
+      in the bucket. A frame that fails to upload does not fail the request.
 15. **NEW — privacy policy is drafted but publication is ON HOLD (issue #68, 2026-07-12).**
     `docs/privacy-policy.md` is written and reviewed, but it cannot go live until Ian resolves
     two things, and the file carries a `DO NOT PUBLISH` guard until he does:
@@ -223,6 +230,36 @@ milestone "done" criteria.
     information (s6D(4)(b)) — an app producing injury-risk assessments plausibly qualifies, which
     would make this a full APP entity regardless of size (APP 8 overseas disclosure + a
     complaints process). See `docs/privacy-checklist-m7.md`.
+16. **NEW — frame-upload ordering fixed at the contract level; migration written but NOT applied
+    to the live project (issue #88, 2026-07-12).** The old contract was unbuildable
+    (`{user_id}/{analysis_id}/` needed an id that didn't exist yet when the client had to name
+    it) and leaking (every rejected `reserve_analysis` call — over-quota, frame-cap, anti-farming
+    — left already-uploaded body-image frames in the private bucket with no row ever created to
+    point at them, undeletable forever). Fixed at the contract level: the upload moves
+    server-side, into `analyze-form`, after `reserve_analysis` has already minted the row, so no
+    object can exist before the row that owns it — see `docs/superpowers/specs/
+    2026-07-12-frame-upload-ordering-design.md` for the full design and
+    `supabase/migrations/20260712123606_frame_upload_ordering.sql` for the migration.
+    - **NOT applied to `v2.3Analysis` (live).** There is no non-production Supabase environment
+      (issue #92), so applying a migration hits prod directly, and the worktree this was built in
+      was explicitly barred from doing that. The file is a real, reviewed migration — it just
+      needs someone with authority over the live project to apply it (`supabase db push` or the
+      `apply_migration` MCP tool) and then run the live-verification queries in
+      `docs/superpowers/plans/2026-07-12-frame-upload-ordering.md`'s Task 2.
+    - **Overlaps issue #2** (free quota resettable via client `DELETE` on `analyses`), worked
+      concurrently in a sibling worktree. Both fixes want the client `DELETE` policy on
+      `public.analyses` gone, for independent reasons — no conflict there. But #2 may also need to
+      change `reserve_analysis`'s *counting* logic (e.g. a soft-delete filter or a ledger read),
+      and this migration's `reserve_analysis` body is a full `create or replace` (only trimmed to
+      drop `p_media_paths`, counting logic otherwise unchanged from today's live version).
+      **Whichever of the two migrations applies last will silently overwrite the other's function
+      body in full** unless someone manually merges the two `reserve_analysis` definitions into
+      one before either is applied. Do not apply both files back to back without doing that merge.
+    - Closes #8 (namespace guard in `settle_analysis`) and #7 (client loses storage `INSERT`
+      entirely) once applied. Re-scopes #35 (no direct-to-bucket upload left to build). Adds a
+      requirement to #47 (the stale-`reserved` sweep must also purge the storage prefix, not just
+      flip the row's status) and to #57 (now a hard prerequisite for any user-facing delete, since
+      the client's row `DELETE` is also gone).
 
 ## Next action
 
@@ -243,7 +280,9 @@ into `planning/*` and `docs/architecture.md`. Immediate:
    migrations live), auth spine (email + Google), empty Home, code-review fixes, security audit
    (no Critical/High). Pending Ian's on-phone gate test and the PR merge.
 6. **Start Phase 2 — Capture (M2)** once the M1 PR merges: `lib/frames.ts` (extraction +
-   downscale + direct-to-bucket upload) and the capture/pick screens, per
-   `docs/mvp-build-prompt.md`'s Phase 2. Also due at/around M2: the SecureStore session-storage
-   move (#13). Neither #10 (runner's note, resolved) nor #12 (CAPTCHA) nor #14 (Phase 4 contract
-   notes) block M2 — #12 blocks M4 going live, #14 is scoped to the M4 build itself.
+   downscale; **no Storage upload** — that moved server-side under #88, see Known Issue #16) and
+   the capture/pick screens, per `docs/mvp-build-prompt.md`'s Phase 2. Also due at/around M2: the
+   SecureStore session-storage move (#13). Neither #10 (runner's note, resolved) nor #12
+   (CAPTCHA) nor #14 (Phase 4 contract notes) block M2 — #12 blocks M4 going live, #14 is scoped
+   to the M4 build itself. **#16's migration must be applied to the live project before M2/M4
+   code is written against the old contract.**

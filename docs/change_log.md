@@ -48,6 +48,52 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     check being the only line of defense is rewritten to reflect that the server now backstops
     it.
   - Verification: `npm run typecheck && npm run lint && npm test` all clean (116 tests).
+- **Frame uploads move server-side, after the model call — contract settled, migration written
+  but NOT applied to the live project (issue #88).** The old contract was both unbuildable and
+  leaking: `reserve_analysis` minted the analysis id server-side yet took `p_media_paths` as an
+  input, so the client had to name `{user_id}/{analysis_id}/` before that id existed — and every
+  rejection branch (402 over-quota, frame cap, anti-farming) returned *before* the insert, so a
+  Free user who had spent their one lifetime analysis uploaded frames, got a 402, and left
+  images of their body in the bucket with no row pointing at them, undeletable forever.
+  - **Changed** `reserve_analysis` to drop `p_media_paths` (now 4 args) and `settle_analysis` to
+    take it (now 5 args), guarded so every path must sit under `{p_user_id}/{p_analysis_id}/` —
+    which is what permanently closes #8. Old signatures are `drop function`'d, not merely
+    replaced, so no overload keeps the old contract callable.
+  - **Removes** the client's `INSERT` and `DELETE` policies on `storage.objects` — the server
+    uploads with the service-role key, so a bucket-fill by an authenticated client (#7) stops
+    being *possible* rather than being budgeted against.
+  - **Removes** the client's `DELETE` policy on `analyses`. With the storage `DELETE` gone, a
+    client-side row delete would have stranded that row's frames — #88's own bug from the other
+    end. Deletion becomes exclusively #57's edge function, which makes **#57 a hard prerequisite
+    for any user-facing delete**. Nothing regressed today: no client code deletes an analysis and
+    the M6 delete UI does not exist. This is also the exact policy issue #2 needs gone (deleting
+    a row currently resets the free-tier lifetime quota count) — see the overlap note below.
+  - **Establishes** that purge deletes by the `{user_id}/{analysis_id}/` **prefix**, never by
+    iterating `media_paths` — reachability comes from the row existing, not from `media_paths`
+    being populated. #47/#57/#58 inherit this.
+  - **Net effect for the client, once applied:** frames cross the wire **once** (base64 in the
+    body) instead of twice (bucket + body), and `lib/frames.ts` (#34) never touches Storage.
+  - **NOT applied to the live `v2.3Analysis` project.** There is no non-production Supabase
+    environment (#92), so applying goes straight to prod, and this work was explicitly scoped to
+    write the migration file only (`supabase/migrations/20260712123606_frame_upload_ordering.sql`)
+    — read-only MCP queries confirmed the live schema matches the repo's other 9 migrations
+    exactly, with no drift, before this file was authored. Applying it and running the live
+    verification queries (`docs/superpowers/plans/2026-07-12-frame-upload-ordering.md` Task 2) is
+    the required next step before #34/#44 are built.
+  - **Overlaps issue #2**, worked concurrently in a sibling worktree: both fixes drop the same
+    `analyses` DELETE policy (compatible), but #2 may also rewrite `reserve_analysis`'s
+    quota-counting query inside the function body, and this migration's `create or replace
+    function public.reserve_analysis(...)` is a full body replacement — whichever migration
+    applies last silently wins in full. The two `reserve_analysis` bodies need manual merging
+    before either is applied to the live project, not a sequential apply of both files.
+  - Added `supabase/__tests__/frame-upload-ordering.test.ts` — a structural regression lock
+    against the migration file's text (no pgTAP harness exists in this repo, and the migration
+    can't be verified live yet — see above).
+  - Docs updated to describe the settled (not-yet-live) contract: `docs/architecture.md` (new
+    "Pending" section, the analyze-form flow, the media-pipeline section, the API table row, the
+    RPC/RLS/media-privacy paragraphs annotated as pending), `CLAUDE.md` (the media bullet),
+    `docs/status.md` (new Known Issue #16, a note on #14's contract list, the M2 next-action
+    item).
 - **HIBP fail-open is now observable (refs #74).** `lib/hibp.ts` fails open and deliberately
   never logs, which made the leaked-password check silently unobservable: if HIBP's endpoint
   rotted, every sign-up would pass the check forever with nothing to show for it.

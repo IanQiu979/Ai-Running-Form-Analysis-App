@@ -61,7 +61,16 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
   `docs/mvp-build-prompt.md`). Frames live in a **private Storage bucket with owner-scoped
   RLS**, are **kept by default** so they can appear in Past Analyses, and are **purged** when
   the user deletes an analysis or deletes their account. No public URLs; access via signed
-  URLs or authenticated reads.
+  URLs or authenticated reads. **The client never writes to the bucket** — it sends frames as
+  base64 in the `analyze-form` request body and the edge function uploads them with the
+  service-role key, only after the model call succeeds, so a rejected or failed analysis leaves
+  nothing behind (#88). Client RLS on the bucket is **select-only** (for signed URLs); purge is
+  server-side and deletes by the `{user_id}/{analysis_id}/` prefix, never by the row's
+  `media_paths` list. This is the settled contract to build `lib/frames.ts` (#34) and
+  `analyze-form` (#44) against — as of 2026-07-12 the migration that makes it true
+  (`supabase/migrations/20260712123606_frame_upload_ordering.sql`) is written but **not yet
+  applied to the live project** (no non-prod environment exists, #92); see `docs/status.md`
+  Known Issue #16 before assuming it's live.
 
 ## Git etiquette
 
