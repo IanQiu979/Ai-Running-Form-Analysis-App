@@ -7,6 +7,56 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Anti-farming cap now distinguishes our infrastructure failures from genuine abuse (fixes
+  #6, HIGH — migration written, not yet applied to the live project).** `reserve_analysis`
+  counted every `status = 'released'` row toward its 3-failed-attempt anti-farming cap
+  regardless of cause; free's branch has no window (matching its lifetime quota), so 3
+  transient Anthropic timeouts/outages — none of them the user's fault — permanently bricked a
+  free account with no recovery path. Verified live before touching anything: the current
+  `reserve_analysis` (`pg_get_functiondef` against project `vputdomdlknvthnzritt`) matched
+  `20260712123606_frame_upload_ordering.sql` (#88's 4-arg signature) byte-for-byte, and
+  `public.analyses` had 0 rows against 2 `profiles` — no account is bricked today, so this ships
+  with no data backfill.
+  - **Added** `supabase/migrations/20260712220000_anti_farm_release_reason_fix.sql`: pins
+    `release_reason` (previously freeform, "observability only") to a closed vocabulary via a
+    new CHECK constraint — `model_error` / `provider_timeout` / `internal_error` (server-fault,
+    excluded from the cap) vs. `validation_failed` (fires on genuine abuse AND on honest
+    hard/confusing input, since #45's retry+honest-partial fallback doesn't exist yet to
+    distinguish them — still counted, but see the windowing point below for why that alone isn't
+    enough) — and adds `public.pace_is_farming_signal(text)`, a standalone classifier kept
+    deliberately OUT of `reserve_analysis`'s body so a future taxonomy change never needs to
+    `create or replace` that function again (the exact two-migrations-collide hazard #88's and
+    #2's own header comments warn about, after one such collision already cost this repo work).
+    **Free's anti-farm count is windowed to a rolling 24h** (`released_at > now() - interval
+    '24 hours'`) rather than left lifetime-scoped like its quota — a same-day review (Ian +
+    the coordinating agent) caught that an unwindowed count on `validation_failed` could
+    permanently lock out a first-time user after 3 merely-confusing (not malicious) videos,
+    a narrower recurrence of the exact bug #6 exists to close. The governing invariant, stated
+    explicitly in the migration: **a user who has never successfully received an analysis must
+    never be permanently unable to obtain one** — anti-farming may throttle, never permanently
+    deny. 24h was chosen over shorter (too weak a deterrent) or period-length (too long a wait
+    for a first-time user) alternatives, and turns out to match what the original spec always
+    said — "3 free retries **per period**" (`planning/02-product-requirements.md:64`,
+    `planning/03-engineering-requirements.md:81`, `docs/mvp-build-prompt.md:223`) — distinct from
+    the lifetime quota, which the first implementation had conflated. Pro/elite's existing
+    purchase-anchored period window is left as-is (it already self-resets, so never had this
+    failure mode) and only gains the same reason filter. Every other line of `reserve_analysis` —
+    signature, quota check, insert, exception handler — is preserved verbatim from #88.
+    `settle_analysis`/`release_analysis` are untouched. The cap itself is not weakened: 3
+    confirmed, recent farming-signal releases still trips `too_many_failed_attempts`.
+  - **Added** `supabase/migrations/__tests__/anti_farm_release_reason_fix.test.ts` (30 tests),
+    following this repo's existing text-level migration-contract convention (no pgTAP/local
+    Postgres available — see that suite's own header, and `analyses_quota_soft_delete.test.ts`
+    for precedent) — asserts the CHECK constraint's exact vocabulary, the classifier's boolean
+    semantics, that both `reserve_analysis` branches gained the filter, that free's branch is
+    additionally windowed to 24h while pro/elite's is not further shrunk, and that no data-repair
+    statement was added.
+  - **Updated** `docs/architecture.md`'s new "Planned — anti-farming cap distinguishes our fault
+    from theirs" section (this migration is written but **not yet applied** to the live
+    project — same not-yet-live footing the AI spend guardrail migrations were on before their
+    own 2026-07-12 push), including a flagged copy gap: `too_many_failed_attempts` has no
+    `docs/design/copy-deck.md` string yet — `ux-copywriter`'s job, not added here.
+
 - **Edge-function build/test contract closed (closes #90).** Three previously-unowned mechanics
   that #41/#43/#44/#49/#59 all silently assumed, found by the full-repo audit the same day:
   - **No runner could execute edge-function code.** Added `supabase/functions/deno.json`

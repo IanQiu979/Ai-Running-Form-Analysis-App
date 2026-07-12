@@ -810,6 +810,59 @@ policy permitting either statement, not because the privilege is gone. No defens
 policy is ever carelessly re-added, or RLS disabled on this table. Tracked as issue #100 — see
 `docs/status.md` Known Issue #18.
 
+## Planned — anti-farming cap distinguishes our fault from theirs (issue #6, migration written
+2026-07-12, NOT yet applied)
+
+`supabase/migrations/20260712220000_anti_farm_release_reason_fix.sql` exists in the repo but has
+**not** been pushed to the live project — same footing the two AI spend guardrail migrations
+below were on before their 2026-07-12 push (see that section's note on this same convention).
+Local migrations and the live DB are therefore 14 files vs. 13 applied until this one lands.
+
+**The bug it fixes**: `reserve_analysis`'s `v_released_count` (both the DB schema section above
+and the live database, verified via `pg_get_functiondef` before writing the fix) counted every
+`status = 'released'` row with no regard for *why* it was released — a transient Anthropic
+timeout counted identically to a deliberate prompt-injection/farming attempt. Free's branch has
+no window at all (matching its lifetime quota), so 3 such failures — entirely Anthropic's fault —
+permanently bricked a free account with no recovery path, before this fix.
+
+**The fix, and a correction made the same day.** `release_reason` (previously freeform,
+"observability only, not read by any check" — see the schema block above) is pinned to a closed
+vocabulary via a new CHECK constraint: `model_error` / `provider_timeout` / `internal_error` are
+server-fault and excluded from the anti-farm count; `validation_failed` is the farming signal and
+still counts. Classification lives in one new standalone function,
+`public.pace_is_farming_signal(text)` — deliberately kept OUT of `reserve_analysis`'s body so a
+future taxonomy change never has to `create or replace` that function again (the exact
+two-migrations-collide hazard #88's and #2's own header comments flag). The first cut of this
+migration then left free's cap **lifetime**-scoped on `validation_failed`, reasoning that a
+confirmed farming signal deserved a lifetime consequence. Review (Ian + the coordinating agent)
+caught that this reopened a narrower version of the same bug: `validation_failed` is an *outcome*
+label ("we couldn't produce a valid result" — it fires on genuinely hard/honest inputs too, not
+just attacks), and #45 (retry-once + honest-partial fallback) doesn't exist yet to reduce that
+noise. A first-time user who hit 3 confusing (not malicious) videos would be permanently locked
+out, having never received a result. **Fixed by windowing free's anti-farm count to a rolling
+24 hours** (`released_at > now() - interval '24 hours'`) — which turns out to match what the
+original spec always said ("3 free retries **per period**", `planning/02`, `planning/03`,
+`docs/mvp-build-prompt.md:223`) rather than the lifetime scope the first implementation gave it.
+Pro/elite's existing purchase-anchored period window is untouched beyond gaining the same reason
+filter — it already self-resets, so it never had this failure mode. Both branches of
+`reserve_analysis` filter `v_released_count` through the classifier; every other line —
+signature, quota check, insert, exception handler — is unchanged from #88's version.
+`settle_analysis`/`release_analysis` are not touched. The 3-attempt threshold and the cap itself
+are preserved — this narrows and time-bounds what counts, it does not remove the cap. The
+governing invariant: **a user who has never successfully received an analysis must never be
+permanently unable to obtain one** — anti-farming may throttle, never permanently deny.
+
+No data backfill ships with it: verified live immediately before writing the migration,
+`public.analyses` has 0 rows and `public.profiles` has 2 — no account is bricked today. Whoever
+builds `analyze-form` (#44) must call `release_analysis` with one of the four pinned reason
+strings above on every failure path, or the CHECK constraint rejects the call.
+
+**Copy gap, flagged not filled**: `reserve_analysis` can return `reason: 'too_many_failed_attempts'`
+but `docs/design/copy-deck.md` has no string for it — the nearest strings
+(`analyzing.error.failed.*`) cover a single failed attempt and unconditionally say "try again"
+with no cap-awareness. `ux-copywriter` needs to add a key for this refusal (ideally naming the
+24h recovery window) before #44 ships; not added here — out of a database migration's scope.
+
 ## Current — AI spend guardrails substrate (issue #91, 2026-07-12)
 
 **Migrations applied to the live project 2026-07-12** (`supabase db push`, alongside #2's and
