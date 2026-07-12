@@ -39,12 +39,40 @@ export const AI_MODEL_PRICING: Record<string, ModelPricing> = {
 // puts each frame at roughly 1600 image tokens under Anthropic's vision pricing.
 export const TOKENS_PER_FRAME = 1600;
 
-// The certified PACE knowledge (framework + injury flags + drills) is bundled as the system
-// prompt on every call (docs/architecture.md step 6), not fetched per call. This is a
-// deliberately conservative round number, not measured against the real prompt (#44 hasn't
-// built it yet) — refine once it exists. Erring high here only ever makes the gate MORE
-// conservative, never less, so it is safe to ship ahead of the real prompt.
-export const SYSTEM_PROMPT_TOKENS_ESTIMATE = 6000;
+// Every input token of a call that is NOT a frame: the system prompt (the certified PACE
+// knowledge — framework + injury flags + drills — bundled with the function, not fetched per
+// call), the user turn's text blocks, the `tools` parameter (a tool schema is billed as input
+// too, and this one is ~3.7k tokens of descriptions), and the ~474-token tool-use system prompt
+// the API prepends when `tool_choice` is forced on claude-sonnet-5.
+//
+// MEASURED against the real prompt as of issue #41 (`analyze-form-prompt.ts`), which is what the
+// original 6000 here was a placeholder for ("refine once it exists"). 6000 was not conservative —
+// it under-reserved every call by ~3.5x, which on a hard credit ceiling with auto-reload off is
+// the wrong direction to be wrong in.
+//
+// TWO THINGS DRIVE THE NUMBER, AND THE SECOND IS EASY TO MISS:
+//   1. Size. The assembled prompt is ~57k characters at Elite (system + user text + the tool
+//      schema, which is ~13k characters of descriptions and is billed as input like everything
+//      else in `tools`).
+//   2. Claude Sonnet 5's NEW TOKENIZER, which produces "approximately 30% more tokens for the
+//      same text" than Sonnet 4.6. The familiar ~3.5-4 chars/token rule of thumb is a PRE-Sonnet-5
+//      heuristic and silently under-counts here. Budgeting at ~2.7 chars/token instead puts the
+//      Elite worst case at ~21.5k tokens (plus the ~474-token forced-tool system prompt).
+//      Anthropic's own migration guidance is blunt about this: "Don't reuse counts measured
+//      against earlier models; recount against Claude Sonnet 5."
+//
+// 24000 rounds that up with ~11% headroom. `analyze-form-prompt.deno.test.ts`'s "the spend gate's
+// estimate still covers the real prompt" test re-measures the assembled prompt at 2.7 chars/token
+// and fails if it ever outgrows this constant again.
+//
+// Still deliberately conservative in the two ways that matter: it rounds up, and it prices every
+// input token as uncached even though the prompt sets `cache_control: ephemeral` over the
+// knowledge + tools prefix, so the steady state is a 0.1x cache read. Erring high only ever makes
+// the gate stricter, never laxer.
+//
+// TODO(#44): pin this exactly with Anthropic's `/v1/messages/count_tokens` endpoint (it is free
+// and does not consume credits) before the first production call, and replace the heuristic.
+export const SYSTEM_PROMPT_TOKENS_ESTIMATE = 24000;
 
 // docs/architecture.md step 7: "max_tokens 4-8k", tier-scaled per step 6's verbosity dial (Free
 // gets scores + one line per pillar and no drills; Pro fuller feedback + injury flags + drills;

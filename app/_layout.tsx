@@ -84,10 +84,20 @@ function RootLayoutNav() {
             router.replace() call anywhere in sign-in.tsx or the sign-out handler. */}
         <Stack.Protected guard={!!session}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          {/* The capture flow (design brief screens 3-5, issue #36) — registered here rather
-              than nested under (tabs) because it's a full-screen record/pick flow, not a tab.
-              Session-gated the same as (tabs): no anonymous capture. */}
+          {/* The core flow, in the order the user walks it: capture -> analyzing -> result.
+              All three are top-level routes rather than tabs (each is full-screen with no tab
+              bar), and all three sit inside this session-guarded group. That guard placement is
+              load-bearing, not stylistic: expo-router only excludes a route from the Stack when
+              it is named inside a Protected block whose guard is false — an *undeclared* route
+              file would render as an always-available, unguarded top-level screen regardless of
+              session. */}
+
+          {/* Capture flow (design brief screens 3-5, issue #36) — record or pick, then extract. */}
           <Stack.Screen name="capture" options={{ headerShown: false }} />
+          {/* Screen 6 — Analyzing (issue #80) — the wait on analyze-form. */}
+          <Stack.Screen name="analyzing" options={{ headerShown: false }} />
+          {/* result/[id] — the PACE readout (issue #56) — the payload. */}
+          <Stack.Screen name="result/[id]" options={{ headerShown: false }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
