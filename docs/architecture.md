@@ -24,10 +24,12 @@ app/
   (tabs)/_layout.tsx      # protected stack; single Home tab for M1 (template Explore removed)
   (tabs)/index.tsx        # M1 empty Home per screen 2 — RLS-scoped, display-only quota caption,
                           # disabled Analyze stub, temporary sign-out
-components/              # still the create-expo-app template UI (external-link, haptic-tab,
-                          # hello-wave, parallax-scroll-view, themed-text, themed-view,
-                          # ui/collapsible, ui/icon-symbol); a few were rewired to the new token
-                          # names so the app keeps compiling, not yet redesigned to "Gait Plate"
+components/              # only the two live components remain (haptic-tab, ui/icon-symbol), both
+                          # used by (tabs)/_layout.tsx. The unreferenced create-expo-app template
+                          # UI (external-link, hello-wave, parallax-scroll-view, themed-text,
+                          # themed-view, ui/collapsible) and hooks/use-theme-color.ts were deleted
+                          # 2026-07-12 (#33) — themed-text carried the last hardcoded color in the
+                          # repo. New components are built against constants/theme.ts tokens.
 constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
                           # palette, spacing/radii/type scales; M1 added
                           # ControlHeight/ControlWidth/HitTarget/Opacity

@@ -25,7 +25,10 @@ import { SessionProvider, useSession } from '@/lib/session-provider';
 // initial auth check (SessionProvider's getSession()) are ready — see RootLayoutNav below —
 // so the very first frame the user sees is never a system-font flash or a route flicker
 // between the auth and tabs groups.
-SplashScreen.preventAutoHideAsync();
+// Both splash calls can reject (e.g. "already hidden" if the OS got there first). A rejection
+// here is not actionable and must not surface as an unhandled rejection, so both are caught —
+// the same treatment the rejected session read already gets in lib/session-provider.tsx.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   return (
@@ -56,7 +59,7 @@ function RootLayoutNav() {
 
   useEffect(() => {
     if (isReady) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [isReady]);
 
