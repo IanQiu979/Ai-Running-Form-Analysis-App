@@ -14,7 +14,7 @@ milestone "done" criteria.
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files exist; Elasticity pending Ian's certification |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
-| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started |
+| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
 
 ## Done so far
@@ -361,6 +361,24 @@ milestone "done" criteria.
     in depth if a future migration ever adds a policy back carelessly, or if RLS is ever disabled
     on this table by mistake. Fix (not yet done): `revoke insert, delete on storage.objects from
     authenticated;`, mirroring #2's pattern.
+19. **NEW — the client's direct soft-delete UPDATE policy (issue #2) can still leave frames
+    orphaned without ever touching `DELETE /functions/v1/analysis/:id` (issue #57, found while
+    building #57, 2026-07-12).** #2's `public.analyses` UPDATE policy (`deleted_at: null -> now()`
+    on the caller's own row) is a real, live, client-reachable path that does not purge Storage —
+    it exists for the free-quota-exploit fix (#2), not as a delete UX. `deleteAnalysis()` (#57)
+    narrows this: it always attempts the Storage purge regardless of the row's current
+    `deleted_at`, so calling the endpoint for an analysis already soft-deleted through the direct
+    path still cleans up its frames (proven by a test). **What this does NOT close**: nothing
+    forces a client to ever call the endpoint for that analysis at all — a soft-delete via the
+    direct policy, with no follow-up DELETE call, leaves the frames orphaned indefinitely, silently
+    reproducing issue #3 through a different door. Two real fixes, neither built: (a) a scheduled
+    reconciliation job that finds soft-deleted rows and purges any remaining objects under their
+    prefix, or (b) an async (`pg_net`-based) AFTER UPDATE trigger that calls the Storage API
+    directly on the same transition the redact trigger already fires on. Out of scope for #57
+    itself (the client soft-delete policy is #2's settled, applied contract) — filing as a
+    follow-up is recommended before M6 is called done. The product-level mitigation in the
+    meantime: the app's UI must always route a user's "delete" action through this endpoint, never
+    call `supabase.from('analyses').update({ deleted_at })` directly.
 
 ## Next action
 

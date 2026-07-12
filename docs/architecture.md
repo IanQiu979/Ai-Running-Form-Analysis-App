@@ -80,9 +80,12 @@ supabase/
 ```
 
 The template's `(tabs)/explore.tsx` and `modal.tsx` are deleted, not left as dead scaffolding.
-Still absent: `supabase/functions/analyze-form` (or any edge function entrypoint — `_shared/`
-has no `Deno.serve` in it), `lib/frames.ts`, `lib/subscription.ts`, and every
-route beyond sign-in + empty Home (capture, result, paywall, settings, history).
+Still absent: `supabase/functions/analyze-form` and `purchase-tier`/`quota-status`, `lib/
+frames.ts`, `lib/subscription.ts`, and every route beyond sign-in + empty Home (capture, result,
+paywall, settings, history). **One edge function now exists**: `supabase/functions/analysis/
+index.ts` (issue #57, 2026-07-12) — `DELETE /functions/v1/analysis/:id`, the first
+`Deno.serve` entrypoint in the repo. Written and Deno-tested on `fix/57` only; **not deployed**,
+no migration applied. See "Current — `DELETE /functions/v1/analysis/:id` (issue #57)" below.
 `supabase/functions/_shared/pace.ts` now exists (#43; moved here from `lib/pace.ts` by #90,
 2026-07-12, which settled the Deno bundling mechanism) — the shared PACE types, result shape,
 and structural validator, imported by the app (via the new `@shared/*` tsconfig alias) and,
@@ -621,13 +624,14 @@ burn, no extra storage, no new edge function or API route.
 
 ## Planned — API
 
-None of these edge functions exist yet — `supabase/functions/` has the `.env.example`
-placeholder and, as of 2026-07-12 (issue #91), the `_shared/ai-guard*.ts` spend-gate substrate,
-but no `analyze-form/index.ts` and no `Deno.serve` entrypoint of any kind. `analyze-form`'s core
-dependencies are already live, though: the reserve/settle/release quota RPC family (live — see
-"Current — DB schema" below) and the AI spend gate (live — see "Current — AI spend guardrails
-substrate" above) are both applied and verified against the live database; only the edge
-function code that calls them remains unbuilt. Also read the M1-review contract notes in
+Most of these edge functions do not exist yet — `supabase/functions/` has the `.env.example`
+placeholder, the `_shared/ai-guard*.ts` spend-gate substrate (issue #91), and, as of 2026-07-12,
+`_shared/delete-analysis*.ts` plus `analysis/index.ts` (issue #57 — see "Current" below), but no
+`analyze-form/index.ts`, `purchase-tier/index.ts`, or `quota-status/index.ts`. `analyze-form`'s
+core dependencies are already live, though: the reserve/settle/release quota RPC family (live —
+see "Current — DB schema" below) and the AI spend gate (live — see "Current — AI spend
+guardrails substrate" above) are both applied and verified against the live database; only the
+edge function code that calls them remains unbuilt. Also read the M1-review contract notes in
 `docs/status.md` Known Issue #14 before building it.
 
 The client never talks to Postgres for privileged operations — those go through edge
@@ -639,7 +643,7 @@ RLS.
 | `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | `{ result, analysisId, isFallback }` or `402` over-quota / `403` anon | Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. |
 | `POST /functions/v1/purchase-tier` | JWT | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` | Same contract as V2.2; v2 swaps `source` to receipt verification. |
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, periodEnd }` | Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). Computed from `count(analyses)`, never a client counter. |
-| `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true }` | User-initiated delete: removes the `analyses` row **and** its frame objects atomically, so they can't get out of sync. |
+| `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, not deployed (issue #57, 2026-07-12)** — see "Current" below. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. |
 | `POST /functions/v1/delete-account` | JWT | — | `{ deleted: true }` | Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
@@ -650,6 +654,69 @@ than re-parsing it at each call site.
 Direct Supabase-client reads (RLS-guarded, `user_id = auth.uid()`): list own `analyses`; read
 own `subscriptions`; read own frames from the private bucket via short-TTL signed URLs. Inserts
 into `analyses` happen only inside `analyze-form`.
+
+## Current — `DELETE /functions/v1/analysis/:id` (issue #57, 2026-07-12), closing issue #3
+
+Built and Deno-tested on `fix/57`. **Not deployed** — `supabase functions deploy` was never run,
+and no migration was applied; this section describes what exists in the repo, not live behavior.
+
+```
+supabase/functions/
+  analysis/index.ts                       # Deno.serve entrypoint — the first in the repo.
+                                           # Method + id validation, JWT verification via
+                                           # auth.getUser(), wires the two files below, maps the
+                                           # outcome to the documented HTTP status/body.
+  _shared/delete-analysis.ts               # pure, injectable orchestration — no npm:/Deno-only
+                                           # import, same portability discipline as ai-guard.ts.
+                                           # deleteAnalysis(), the purge/verify/mark-deleted flow,
+                                           # and the HTTP-mapping + URL/UUID parsing helpers.
+  _shared/delete-analysis-client.ts        # the real service-role Supabase/Storage client,
+                                           # untested (nothing pure in a thin Deno/npm: factory),
+                                           # same split as ai-guard.ts / ai-guard-client.ts.
+  _shared/__tests__/delete-analysis.deno.test.ts   # 19 Deno tests
+```
+
+**No schema change was needed.** Verified live via the Supabase MCP before writing any code:
+`service_role` holds unrestricted table-level grants on both `public.analyses` and
+`storage.objects` (confirmed via `information_schema.role_table_grants`/`role_column_grants`,
+bypassing RLS entirely), so the function reads/writes the row and lists/removes Storage objects
+directly through a service-role client — no new RPC, no migration. `reserve_analysis`,
+`settle_analysis`, and `release_analysis` are untouched, per this issue's own hard constraint.
+
+**Ordering, binding**: purge the Storage prefix first, verify it is actually empty by re-listing
+it, and only then mark the row `deleted_at` (a soft-delete — the row is never hard-deleted, so
+`reserve_analysis`'s counting, untouched by this or #2, keeps working exactly as before). If the
+row were marked first and the purge then failed, the analysis would disappear from the user's
+view while its frames — images of a person's body — kept existing in the bucket, which is issue
+#3 itself, reached through a different door. Purging first means a failure leaves the row
+untouched and returns `503 purge_failed` (safe to retry, never the caller's fault), not a false
+`{ deleted: true }`.
+
+**Purge is idempotent and unconditional**: `deleteAnalysis()` always attempts the purge,
+regardless of the row's current `deleted_at`. Two reasons: (1) a retried DELETE call converges
+instead of erroring — re-listing an already-empty prefix is a cheap no-op; (2) `public.analyses`
+still carries #2's client-facing soft-delete UPDATE policy, a real path that does not purge
+Storage — if the client's UI ever does route that same analysis through this endpoint after a
+direct soft-delete, the purge still runs and cleans up the orphan. **This narrows but does not
+fully close that gap** — nothing forces a client to call this endpoint at all. See
+`docs/status.md` Known Issue #19 for the residual risk and the two follow-up fixes that would
+close it (a reconciliation job, or an async trigger-driven purge), neither built here.
+
+**Authorization is explicit code, not RLS**: the service-role lookup has no ownership filter by
+construction (service-role bypasses RLS), so `row.user_id !== callerUserId` is checked directly
+in `deleteAnalysis()` and proven by a test asserting Storage is never even listed for an id that
+isn't the caller's. The Storage prefix is always rooted at the caller's own id (`{callerUserId}/
+{analysisId}/`), never the row's, so a wrong or foreign id can only ever probe an empty prefix
+under the caller's own namespace — no cross-user object deletion is reachable regardless of the
+ownership check.
+
+**The nested-prefix trap, closed**: `docs/privacy-checklist-m7.md` names the exact failure a
+naive port of Echo V1's flat `storage.list(user_id)` would reproduce here (removes nothing,
+orphans every frame, reports success). `collectFiles()` recurses into any entry Storage reports
+as a pseudo-directory (`id: null`) and paginates each level, proven by tests covering a nested
+folder and a multi-page listing.
+
+**Verification run**: `npm run typecheck && npm run lint && npm test` clean.
 
 ## Current — frame-upload ordering fix (#88), applied and verified 2026-07-12
 
