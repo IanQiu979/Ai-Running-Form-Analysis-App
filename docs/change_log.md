@@ -95,6 +95,104 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     own 2026-07-12 push), including a flagged copy gap: `too_many_failed_attempts` has no
     `docs/design/copy-deck.md` string yet — `ux-copywriter`'s job, not added here.
 
+- **Session storage moved off plaintext AsyncStorage to a SecureStore-backed adapter (closes
+  #38, `docs/status.md` Known Issue #13).** `lib/supabase.ts` was passing `storage: AsyncStorage`
+  straight to `createClient` — the session, including the refresh token, sat unencrypted on
+  disk. Harmless while nothing sensitive sat behind a session (M1); no longer true once M2 gates
+  a private bucket of body-image media on it. New `lib/secure-storage.ts` implements Supabase's
+  documented "LargeSecureStore" pattern: `expo-secure-store` (Keychain on iOS, Keystore on
+  Android) enforces roughly a 2048-byte ceiling per value, far too small for a full session
+  (JWT + refresh token + user object), so SecureStore instead holds a fresh random AES-256 key
+  per write (`aes-js`, CTR mode; 64 hex chars, constant size regardless of session size) and
+  AsyncStorage holds the AES-encrypted, size-unbounded session blob. Proven under the 2048-byte
+  limit for an oversized (>2KB) session fixture, not just a small demo one — that's the failure
+  mode a naive `storage: SecureStore` swap hits silently.
+  - **Migration for the app's 2 existing real accounts:** `getItem` detects a legacy plaintext
+    session left over from the old adapter (its leading `{`, since every ciphertext this class
+    writes is pure hex and can never start with `{`) and transparently re-encrypts it in place
+    instead of returning null — which would read to supabase-js as "no session" and silently
+    sign the user out with no explanation on their first launch after this update (the same bug
+    class as issue #5). If the re-encrypt write itself fails, the legacy plaintext value is still
+    returned so the session isn't lost over a storage hiccup.
+  - **Web fallback:** `expo-secure-store` has no web implementation (confirmed against the
+    installed package — `ExpoSecureStore.web.ts` is an empty module) and `npm run web` is a
+    supported dev command in this project, so `createSecureSessionStorage` falls back to plain
+    AsyncStorage on `Platform.OS === 'web'`. Not a new weakness introduced for web specifically —
+    browsers have no Keychain/Keystore equivalent to move to, and this project's real target is
+    the mobile app.
+  - Added dependencies: `expo-secure-store` (`npx expo install`, SDK 54-compatible) and `aes-js`
+    + `@types/aes-js` (pure JS, no native module, safe to run for real under Jest).
+  - `lib/__tests__/secure-storage.test.ts`: 16 cases covering the round trip, the oversized-
+    session/2048-byte requirement, the full migration path (including the failed-migration-write
+    fallback and a "malformed JSON that happens to start with `{`" guard), corrupted-ciphertext
+    fail-closed behavior, and the web/native platform split. Verified load-bearing by temporarily
+    deleting the migration branch and confirming 4 of the 16 tests fail exactly as expected.
+- **Torn-write hardening for the SecureStore session adapter, same-branch review follow-up
+  (still #38).** The AES key (SecureStore) and the ciphertext (AsyncStorage) live in two stores
+  that cannot be written atomically as a pair. The initial #38 implementation above followed
+  Supabase's documented recipe literally — a fresh random key on every `setItem` — which means
+  every write was a two-store transaction: a `setItem` interrupted mid-way (app killed, device
+  out of storage) could leave a new key paired with an old blob, or an old key paired with a new
+  blob. AES-CTR does not error on that mismatch; it produces well-formed-looking garbage. The
+  next `getItem` would have decrypted "successfully" into nonsense, and — with no check beyond
+  "did decrypt throw" — handed it to supabase-js as if it were a real session, or (if the key
+  itself was missing) simply returned null, which supabase-js reads as "no session" — a real,
+  previously-good session silently laundered into an unexplained sign-out. That is the same bug
+  class issue #5 fixed for the OAuth redirect path, and this review round exists specifically so
+  it isn't fixed in one place and shipped broken in another.
+  - **Stable key, per-write IV.** `lib/secure-storage.ts`'s `_getOrCreateKey` now creates the
+    AES-256 key once per storage key and reads it back on every later call instead of
+    regenerating it. After the first successful write there is no longer a key/blob *pair* to
+    tear — SecureStore is never written again for that key, and every later `setItem` touches
+    only AsyncStorage. CTR-mode safety, which the "fresh key every write" trick existed to
+    provide, now comes from a fresh random 16-byte IV generated on every write and prepended to
+    the ciphertext it belongs to (a fixed 32-hex-char prefix `_decrypt` splits back out).
+  - **Residual window, narrowed not eliminated:** the very first write for a storage key still
+    touches two stores (key, then blob), so a process kill strictly between those two writes
+    still leaves a torn state — but since no blob was ever fully written in that case, the next
+    `getItem` sees "nothing to restore," which is honest (no session had actually been
+    established yet), not a previously-good session vanishing.
+  - **Closed the first-write race.** Two `setItem` calls racing on the very first write for the
+    same key (e.g. two auth events firing close together) could previously each find no key,
+    each mint a different one, and clobber each other. `_getOrCreateKey` now serializes that
+    step per storage key via an in-process async lock (a promise chain, not an OS-level lock —
+    sufficient because the only real hazard is concurrent `await`s within this one running JS
+    process, not two independent OS processes, which cannot race a single-instance mobile app).
+  - **A decrypt that doesn't throw is not proof it's real.** `getItem` no longer trusts `_decrypt`
+    just because it didn't throw — a wrong key/IV pairing (the residual torn-write window, or any
+    bit-level corruption) decrypts "successfully" into garbage bytes. A Supabase session is
+    always a JSON object, so `getItem` now runs `JSON.parse` on the result as the actual validity
+    check before trusting it.
+  - **Undecryptable state is cleared and reported, not silently absorbed.** On any unrecoverable
+    blob (missing key, truncated/torn ciphertext, wrong-key-length exception, or a decrypt that
+    fails the JSON check), `getItem` now clears both the AsyncStorage entry and the SecureStore
+    key (so it can't keep failing the same way forever) and calls a new
+    `onSessionRestoreFailure(key)` subscription hook — `getItem`'s `string | null` return type
+    has no room to carry a reason, so this is the side channel. `lib/session-provider.tsx`
+    subscribes to it (registered in the same effect as, and before, the `getSession()` call it
+    needs to catch) and exposes `corruptedSessionError` / `clearCorruptedSessionError`, named
+    distinctly from issue #5's `deepLinkAuthError` / `clearDeepLinkAuthError` on the same
+    context so the two additions merge cleanly. `app/(auth)/sign-in.tsx` now reads it via
+    `useSession()` with `displayedError = errorMessage ?? corruptedSessionError`, the same
+    precedence pattern issue #5 established for its own deep-link error. **Copy: no
+    purpose-written string exists for "we couldn't restore your saved sign-in."** Checked
+    `docs/design/copy-deck.md` and issue #5's additions to `lib/auth-errors.ts` /
+    `constants/copy.ts` (`signInCancelled`, `signInExpired`) first, per instruction not to invent
+    copy — neither fits (both are scoped to the OAuth PKCE flow, not a decayed at-rest session).
+    Reused `Copy.auth.error.generic` ("Sign-in didn't go through. Try again.") instead, per the
+    copy deck's own stated policy for `generic`: fall back to it for "any other auth failure"
+    without a specific string rather than inventing one. A precise string is left as future
+    `ux-copywriter` work.
+  - `lib/__tests__/secure-storage.test.ts` grew from 16 to 21 cases: the stable-key/reused-key
+    behavior with a per-write IV-uniqueness assertion, the concurrent-first-write lock (asserts
+    exactly one SecureStore key is ever created across two racing writes), and four new
+    corrupted/torn-state cases — a blob with no matching key, a truncated/too-short blob, a
+    SecureStore key of the wrong byte length (exercises the exception path), and — the core case
+    review asked for — a decrypt that succeeds under a wrong-but-validly-shaped key and must
+    still be caught by the JSON-validity check, not returned as if real. Verified load-bearing by
+    two separate mutations: removing the `JSON.parse` validity check (failed exactly the
+    "decrypt succeeds under the wrong key" test) and removing the per-key lock (failed exactly
+    the concurrency test, with `SecureStore.setItemAsync` called twice instead of once).
 - **Edge-function build/test contract closed (closes #90).** Three previously-unowned mechanics
   that #41/#43/#44/#49/#59 all silently assumed, found by the full-repo audit the same day:
   - **No runner could execute edge-function code.** Added `supabase/functions/deno.json`
@@ -648,6 +746,105 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   - `CLAUDE.md`, `docs/status.md` (M4 milestone row, Known Issues #16/#17, new Known Issue #18),
     and `docs/architecture.md` (DB schema, RLS, and AI-guardrail sections) updated to describe
     this as live rather than pending.
+- **Built `DELETE /functions/v1/analysis/:id` (issue #57), closing issue #3** (deleting an
+  analysis orphaned its Storage frames forever — a privacy defect, not a storage-cost one).
+  Written and tested only, on `fix/57` — **not deployed and no migration applied**; see
+  `docs/status.md` for exactly what remains before this is live.
+  - **Files**: `supabase/functions/_shared/delete-analysis.ts` (pure, injectable orchestration:
+    ownership check, prefix purge with pagination + recursion + a post-remove verification
+    re-list, HTTP-status/body mapping — fully Deno-tested), `supabase/functions/_shared/
+    delete-analysis-client.ts` (the real service-role Supabase/Storage client, untested, same
+    split as `ai-guard.ts`/`ai-guard-client.ts`), `supabase/functions/analysis/index.ts` (the
+    thin `Deno.serve` entrypoint: method/id validation, JWT verification via
+    `auth.getUser()`, wiring), and 19 new Deno tests in
+    `supabase/functions/_shared/__tests__/delete-analysis.deno.test.ts`.
+  - **No schema change was needed.** Verified live via the Supabase MCP before writing any code:
+    `service_role` holds unrestricted table-level grants on both `public.analyses` and
+    `storage.objects` (bypasses RLS entirely), so the function reads/writes the row and lists/
+    removes Storage objects directly — no new RPC, no migration, and (per this issue's hard
+    constraint) `reserve_analysis`/`settle_analysis`/`release_analysis` were never touched.
+  - **Ordering: purge Storage first, mark the row deleted second — never the reverse.** If the
+    row were marked deleted first and the purge then failed, the analysis would vanish from the
+    user's view while its frames (images of a person's body) kept existing in the bucket — the
+    exact failure issue #3 exists to close, reached through this function instead of a raw
+    client DELETE. Purging first means any failure leaves the row exactly as it was and returns
+    `purge_failed` (503, safe to retry) instead of a false "deleted".
+  - **The purge is idempotent by construction and always attempted, regardless of the row's
+    current `deleted_at`.** This closes two problems with one property: a retried DELETE call
+    converges instead of erroring (re-listing an empty prefix is a cheap no-op), and — more
+    importantly — `public.analyses` still carries a client-facing soft-delete UPDATE policy
+    (issue #2) that a caller can hit directly, bypassing this endpoint and leaving frames
+    orphaned. Because this function never gates the purge on `deleted_at`, if the client's UI
+    ever does route that same analysis's delete through this endpoint, the orphaned frames get
+    purged anyway. **This narrows but does not fully close that gap** — nothing can force a
+    client to call this endpoint at all; a scheduled reconciliation job or an async
+    trigger-driven purge would close it completely and is a good candidate for a follow-up
+    issue, not attempted here (out of scope, and #2's migration is settled).
+  - **Purge-then-verify, not purge-and-trust.** After `remove()` reports no error, the code
+    re-lists the same prefix and refuses to mark the row deleted if anything is still there —
+    proven by a test that makes `remove()` silently drop one path with no reported error.
+  - **Authorization is explicit code, not RLS**: `findById` has no ownership filter (the real
+    client bypasses RLS by design, same as every other service-role path in this codebase);
+    `row.user_id !== callerUserId` is checked in `deleteAnalysis()` itself and proven by a test
+    asserting Storage is never even listed for someone else's analysis id. The Storage prefix is
+    also always rooted at the *caller's own* id, never the row's, so a wrong/foreign id can only
+    ever probe an empty prefix under the caller's own namespace.
+  - **Recursion and pagination**: proven against the exact "nested-prefix trap"
+    `docs/privacy-checklist-m7.md` names (a flat, non-recursive list "removes nothing, and
+    orphans every frame — while reporting success") with a test asserting a nested folder under
+    the prefix is still purged, plus a pagination test across multiple `list()` pages.
+  - **Verification run**: `npm run typecheck && npm run lint && npm test` clean — `tsc --noEmit`,
+    `deno check` (12 files, including the 2 new source files + new test file), `expo lint`, 207
+    Jest tests (unchanged), and 29 Deno tests (19 new + the pre-existing 10) all pass.
+
+- **A failed Google OAuth exchange is no longer a silent no-op (closes #5).** Root cause was
+  two-fold. First, `lib/session-provider.tsx`'s Linking listener — the deep-link fallback path
+  for a redirect that arrives outside `signInWithGoogle`'s own awaited call — discarded every
+  exchange failure with a bare `.catch(() => {})`; nothing else was watching that path, so the
+  failure had nowhere to go. Second, `lib/auth.ts`'s dedupe guard against the Android
+  double-delivery race (the same redirect reaching `createSessionFromUrl` more than once
+  concurrently) marked a code "processed" in a `Set` *before* the exchange resolved and never
+  unmarked it on failure — so the race's loser silently got `null` back (read by
+  `app/(auth)/sign-in.tsx` as "user cancelled") even when the winner's exchange had actually
+  thrown.
+  - `lib/auth.ts`: the `Set` is replaced with a `Map<code, Promise<Session | null>>` of in-flight
+    exchanges. Every concurrent caller racing the same code now awaits the identical promise and
+    gets the identical outcome — success or the real rejection, never a silent `null` — and the
+    entry is evicted once the exchange settles, so it can't grow unbounded either. Provider-
+    reported redirect errors (`?error=access_denied` etc.) now throw a typed `OAuthRedirectError`
+    (`lib/auth-errors.ts`) instead of a plain `Error`, so the message doesn't have to be
+    pattern-matched later.
+  - `lib/session-provider.tsx`: the Linking listener's catch now maps the error (`mapAuthError`)
+    into a new `deepLinkAuthError` on `SessionContextValue`, plus a `clearDeepLinkAuthError()`.
+    Safe to always surface — `createSessionFromUrl` only ever throws for a URL that really was
+    part of an auth redirect; it returns `null`, not a rejection, for any unrelated deep link.
+  - `lib/auth-errors.ts` (`mapAuthError`): two new typed branches. `OAuthRedirectError` with
+    `code === 'access_denied'` → `Copy.auth.error.signInCancelled` (the user declined on the
+    provider's own consent screen — a decision, not a break, but delivered through a different
+    channel than `WebBrowser`'s cancel/dismiss result, so it can't stay silent the way a plain
+    browser-cancel does). Any other provider code, plus `AuthPKCECodeVerifierMissingError` /
+    GoTrue's `flow_state_not_found` / `flow_state_expired` / `bad_code_verifier` /
+    `bad_oauth_state` / `bad_oauth_callback` (a lost or no-longer-matching PKCE verifier — the
+    verifier lives in client storage, so this is a real failure mode, not a hypothetical one) →
+    `Copy.auth.error.signInExpired`. Everything else (bad/expired code, network) still falls
+    through to the existing `Copy.auth.error.generic`, unchanged.
+  - `app/(auth)/sign-in.tsx` reads `deepLinkAuthError` from `useSession()` alongside its own local
+    `errorMessage` (`errorMessage ?? deepLinkAuthError`) and clears both together on every new
+    attempt, so a stale message from a previous failure can't linger into the next one.
+  - New copy: `Copy.auth.error.signInCancelled` ("Sign-in was cancelled.") and
+    `Copy.auth.error.signInExpired` ("Sign-in expired before it could finish. Try again.") —
+    both provider-neutral, since Apple sign-in (`auth.cta.apple`) will reuse the same
+    `createSessionFromUrl` path once it ships. Added to `constants/copy.ts` and
+    `docs/design/copy-deck.md` (Screen 1).
+  - Tests: `lib/__tests__/auth.test.ts` (new) locks `createSessionFromUrl`'s contract directly —
+    a URL with no `code`/`error` still resolves `null`, a provider error throws
+    `OAuthRedirectError`, and the race-condition fix specifically: concurrent callers on the same
+    code share one exchange call and get the identical resolution *or* the identical rejection.
+    Verified this last case is load-bearing by reimplementing the old `Set`-based dedupe
+    standalone and confirming it fails that exact assertion (the race's loser resolves `null`
+    instead of rejecting). `lib/__tests__/auth-errors.test.ts` extended with the two new
+    `mapAuthError` branches, including every `FLOW_STATE_ERROR_CODES` entry individually and a
+    negative case for an unrelated `AuthApiError` code.
 
 ## 2026-07-11
 

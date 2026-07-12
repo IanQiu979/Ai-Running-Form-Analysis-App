@@ -14,7 +14,7 @@ milestone "done" criteria.
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files exist; Elasticity pending Ian's certification |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
-| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started |
+| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
 
 ## Done so far
@@ -192,13 +192,35 @@ milestone "done" criteria.
     farmable accounts). CAPTCHA (`auth.captcha`, hCaptcha or Turnstile) is the only real lever on
     this plan — needs Ian to create provider keys; an account-creation step, not something
     buildable from the repo. **Blocks M4 going live, not the M4 build itself.**
-13. **NEW — session storage is plaintext AsyncStorage today (MEDIUM, audit finding).**
-    `lib/supabase.ts` stores the session (including the refresh token) via AsyncStorage, which
-    is unencrypted on-device. Low urgency for M1 (no sensitive app data sits behind the session
-    yet), but M2 starts writing user media behind a signed-in session. **Move to a
-    SecureStore-backed adapter at M2** (the "LargeSecureStore" pattern: SecureStore holds the
-    encryption key, AsyncStorage holds the encrypted blob — SecureStore alone has no room for a
-    full session payload).
+13. ~~**Session storage is plaintext AsyncStorage today**~~ **RESOLVED 2026-07-12 (issue #38).**
+    `lib/supabase.ts` now passes `storage: secureSessionStorage` (`lib/secure-storage.ts`), the
+    "LargeSecureStore" pattern: an AES-256 key lives in SecureStore (Keychain/Keystore-backed,
+    64 hex chars — provably under the 2048-byte SecureStore value limit regardless of session
+    size), and the AES-CTR-encrypted session blob lives in AsyncStorage. **Hardened on the same
+    branch after review**: the key is created once and reused (not regenerated per write) —
+    SecureStore and AsyncStorage can't be written atomically as a pair, so a fresh-key-per-write
+    design left every `setItem` a two-store transaction a torn write (app killed mid-write, disk
+    full) could interrupt, pairing a new key with an old blob or vice versa; AES-CTR does not
+    error on that mismatch, it produces well-formed-looking garbage. With the key stable, a torn
+    write is only possible on the very first write for a storage key (after that, every write
+    touches only AsyncStorage); CTR safety instead comes from a fresh random IV per write
+    (prepended to its ciphertext) plus a per-key async lock so two concurrent first-writes can't
+    mint two different keys. `getItem` also stopped trusting a decrypt just because it didn't
+    throw — a `JSON.parse` validity check catches the wrong-key/IV "successful" garbage decrypt
+    — and on any unrecoverable blob, clears the broken key+blob pair and calls
+    `onSessionRestoreFailure` so `lib/session-provider.tsx` surfaces `corruptedSessionError` (the
+    sign-in screen shows it via `Copy.auth.error.generic`, reused rather than inventing new copy
+    — see `lib/secure-storage.ts`'s module doc) instead of the failure reading as an unexplained
+    silent sign-out, the same bug class issue #5 fixed for the OAuth redirect path. The app's 2
+    existing real accounts are still migrated transparently on next launch (legacy plaintext
+    JSON, detected by its leading `{`, is read once then re-encrypted) rather than silently
+    signed out. Web (`npm run web`) falls back to plain AsyncStorage — `expo-secure-store` has no
+    web implementation. Covered by `lib/__tests__/secure-storage.test.ts` (21 cases: round trip,
+    the stable-key/per-write-IV behavior and its concurrency lock, the oversized-session/
+    2048-byte case, the migration path incl. a failed-migration-write fallback, four
+    corrupted/torn-state cases incl. a decrypt that "succeeds" under the wrong key, and the
+    web/native platform split) plus `app/(auth)/sign-in.tsx` now rendering
+    `corruptedSessionError` alongside its existing `errorMessage`.
 14. **NEW — Phase 4 (`analyze-form`) contract notes, carried forward from the M1 review.** Not
     code changes today; binding requirements for whoever builds M4:
     - `analyze-form` MUST derive `p_user_id` for the reserve/settle/release RPCs from the
@@ -339,6 +361,24 @@ milestone "done" criteria.
     in depth if a future migration ever adds a policy back carelessly, or if RLS is ever disabled
     on this table by mistake. Fix (not yet done): `revoke insert, delete on storage.objects from
     authenticated;`, mirroring #2's pattern.
+19. **NEW — the client's direct soft-delete UPDATE policy (issue #2) can still leave frames
+    orphaned without ever touching `DELETE /functions/v1/analysis/:id` (issue #57, found while
+    building #57, 2026-07-12).** #2's `public.analyses` UPDATE policy (`deleted_at: null -> now()`
+    on the caller's own row) is a real, live, client-reachable path that does not purge Storage —
+    it exists for the free-quota-exploit fix (#2), not as a delete UX. `deleteAnalysis()` (#57)
+    narrows this: it always attempts the Storage purge regardless of the row's current
+    `deleted_at`, so calling the endpoint for an analysis already soft-deleted through the direct
+    path still cleans up its frames (proven by a test). **What this does NOT close**: nothing
+    forces a client to ever call the endpoint for that analysis at all — a soft-delete via the
+    direct policy, with no follow-up DELETE call, leaves the frames orphaned indefinitely, silently
+    reproducing issue #3 through a different door. Two real fixes, neither built: (a) a scheduled
+    reconciliation job that finds soft-deleted rows and purges any remaining objects under their
+    prefix, or (b) an async (`pg_net`-based) AFTER UPDATE trigger that calls the Storage API
+    directly on the same transition the redact trigger already fires on. Out of scope for #57
+    itself (the client soft-delete policy is #2's settled, applied contract) — filing as a
+    follow-up is recommended before M6 is called done. The product-level mitigation in the
+    meantime: the app's UI must always route a user's "delete" action through this endpoint, never
+    call `supabase.from('analyses').update({ deleted_at })` directly.
 
 ## Next action
 
@@ -360,9 +400,10 @@ into `planning/*` and `docs/architecture.md`. Immediate:
    (no Critical/High). Pending Ian's on-phone gate test and the PR merge.
 6. **Start Phase 2 — Capture (M2)** once the M1 PR merges: `lib/frames.ts` (extraction +
    downscale; **no Storage upload** — that moved server-side under #88, see Known Issue #16) and
-   the capture/pick screens, per `docs/mvp-build-prompt.md`'s Phase 2. Also due at/around M2: the
-   SecureStore session-storage move (#13). Neither #10 (runner's note, resolved) nor #12
-   (CAPTCHA) nor #14 (Phase 4 contract notes) block M2 — #12 blocks M4 going live, #14 is scoped
+   the capture/pick screens, per `docs/mvp-build-prompt.md`'s Phase 2. **The SecureStore
+   session-storage move (#13) is done** (2026-07-12, issue #38 — see Known Issue #13 above).
+   Neither #10 (runner's note, resolved) nor #12 (CAPTCHA) nor #14 (Phase 4 contract notes) block
+   M2 — #12 blocks M4 going live, #14 is scoped
    to the M4 build itself. **#16's migration is applied and verified live as of 2026-07-12** —
    M2/M4 code should be written straight against the new (`no mediaPaths`, server-side upload)
    contract; there is no old contract left to accidentally target.
