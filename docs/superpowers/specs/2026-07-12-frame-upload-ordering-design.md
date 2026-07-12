@@ -34,14 +34,30 @@ frame twice.
 
 ## The invariant
 
-Everything below reduces to one rule, checkable by inspection:
+Everything below reduces to one rule, checkable by inspection, and it has to hold in **both**
+directions:
 
-> **No object exists in the media bucket unless an `analyses` row already points at it.**
+> **No object exists in the media bucket unless an `analyses` row already points at it —
+> and no row can be destroyed while its objects survive.**
 
-The upload moves server-side, into the edge function, and happens *after* `reserve_analysis`
-has already minted the row. The circular dependency dissolves — by the time anything is
-written, `analysis_id` exists. The orphan becomes structurally impossible rather than swept up
-after the fact.
+The forward direction is what #88 is about: the upload moves server-side, into the edge
+function, and happens *after* `reserve_analysis` has already minted the row. The circular
+dependency dissolves — by the time anything is written, `analysis_id` exists — and the orphan
+becomes structurally impossible rather than swept up after the fact.
+
+The reverse direction is a hazard this change would otherwise *create*. `analyses` currently
+carries a client DELETE policy (`20260711150200_analyses.sql:71`), described in
+`docs/architecture.md:550` as a deliberate fallback path. Once the client loses its storage
+DELETE (§2), a client-side row delete would strand that row's frames with no row pointing at
+them and no client-side means of removing them — reintroducing #88's own bug from the other
+end, and making #3 strictly worse. So the `analyses` DELETE policy is dropped in the same
+migration: deletion becomes the exclusive job of the `DELETE /analysis/:id` edge function
+(#57), which removes the row and prefix-purges the objects in one place.
+
+Nothing regresses today — no client code deletes an analysis (the only client reference to the
+table is a quota-display `SELECT` at `app/(tabs)/index.tsx:82`) and the M6 delete UI does not
+exist. But **#57 is now a hard prerequisite for that UI**, and for any user-facing delete at
+all.
 
 ## Alternatives rejected
 
@@ -79,9 +95,9 @@ must be re-applied to the *new* signatures (grants do not follow a signature cha
 `analyses.media_paths` already defaults to `'{}'` and is `not null`, so a `reserved` row simply
 has no paths yet. No table change is needed.
 
-### 2. Storage policies
+### 2. RLS policies
 
-On `storage.objects` for bucket `media` (migration `20260711150500_media_storage_bucket.sql`):
+On `storage.objects` for bucket `media` (from `20260711150500_media_storage_bucket.sql`):
 
 | Policy | Fate | Why |
 |---|---|---|
@@ -89,6 +105,14 @@ On `storage.objects` for bucket `media` (migration `20260711150500_media_storage
 | INSERT (own prefix) | **drop** | The server uploads with service-role, which bypasses RLS. Removing this closes #7 — a bucket-fill by an authenticated client stops being *possible*, rather than being budgeted against. |
 | DELETE (own prefix) | **drop** | Purge belongs to the `DELETE /analysis/:id` (#57) and delete-account (#58) edge functions, both service-role. A client DELETE policy buys nothing and lets a client purge objects out from under a live row. |
 | UPDATE | unchanged (none) | Frames remain write-once. |
+
+On `public.analyses` (from `20260711150200_analyses.sql`):
+
+| Policy | Fate | Why |
+|---|---|---|
+| SELECT (own) | **keep** | Quota display and Past Analyses read it. |
+| DELETE (own) | **drop** | See "The invariant" above — with the client's storage DELETE gone, a client-side row delete would permanently strand that row's frames. Deletion moves to #57's edge function. |
+| INSERT / UPDATE | unchanged (none) | Rows are written only by the RPCs. |
 
 ### 3. Deletion authority — the rule that ripples into #57, #58 and #47
 
@@ -153,13 +177,14 @@ constraint.
 
 This change lands the **contract**, not the feature. In scope:
 
-1. One new migration: the two RPC signature changes + the two dropped storage policies.
+1. One new migration: the two RPC signature changes + the three dropped policies (storage
+   INSERT, storage DELETE, `analyses` DELETE).
 2. Doc updates that encode the decision: `docs/architecture.md` (the analyze-form flow, the
-   media-pipeline section, the API table, the RPC descriptions), `CLAUDE.md` (the client no
-   longer writes to the bucket), `docs/change_log.md`.
+   media-pipeline section, the API table, the RPC descriptions, the RLS paragraph), `CLAUDE.md`
+   (the client no longer writes to the bucket), `docs/change_log.md`.
 3. Issue updates so the blocked work is built against the right contract: close #8 and #7,
    re-scope or close #35, add the prefix-delete rule to #3/#57/#58, add prefix-purge to #47,
-   unblock #34/#44.
+   record that #57 is now a hard prerequisite for any user-facing delete, unblock #34/#44.
 
 Explicitly **out of scope**: building `analyze-form` itself (#44), `lib/frames.ts` (#34), and
 the delete/purge edge functions (#57, #58). The whole point is to fix the contract *before*
@@ -177,6 +202,8 @@ database, via the Supabase MCP:
   `service_role` only — not to `public`, `anon` or `authenticated`.
 - `storage.objects` has exactly one policy for bucket `media` (SELECT); the INSERT and DELETE
   policies are gone.
+- `public.analyses` has exactly one policy (SELECT); the DELETE policy is gone, and RLS is still
+  enabled on the table.
 - A `settle_analysis` call with a path outside `{user_id}/{analysis_id}/` returns
   `invalid_media_path` and leaves `media_paths` untouched.
 - `get_advisors` reports no new security findings.
