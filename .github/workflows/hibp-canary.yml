@@ -61,15 +61,23 @@ jobs:
           echo "result=fail" >> "$GITHUB_OUTPUT"
           exit 0
 
-      # Idempotent: `--force` makes this a no-op when the label already exists, so the workflow
-      # is self-contained and does not depend on a label having been created by hand.
-      - name: Ensure the canary label exists
+      # Idempotent: `--force` makes this a no-op when a label already exists, so the workflow
+      # is self-contained and does not depend on a label having been created by hand. Both
+      # labels are ensured here because `gh issue create --label <name>` below fails (and,
+      # sitting in an `else` under `bash -e`, aborts the step) if a named label is absent.
+      - name: Ensure required labels exist
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh label create hibp-canary \
             --color B60205 \
             --description "Raised automatically by the HIBP live-endpoint canary" \
+            --force
+
+          # Matches this repo's existing "security" label (color d93f0b, no description) so
+          # --force is a true no-op rather than a silent recolour.
+          gh label create security \
+            --color d93f0b \
             --force
 
       - name: Open or update the alarm issue
