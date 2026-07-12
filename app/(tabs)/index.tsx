@@ -114,7 +114,7 @@ export default function HomeScreen() {
           of clipping (design brief §7: layouts reflow, never clip). */}
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
-          <Text style={styles.header}>Home</Text>
+          <Text style={styles.header}>{Copy.home.title}</Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={Copy.settings.signOut.cta}
@@ -195,7 +195,7 @@ function describeReadyQuota(quota: ReadyQuota): string {
   // `quota-status` wiring, not yet built. This branch is unreachable today (subscriptions
   // can only hold 'pro'/'elite' once that RPC exists), but a plain tier-name fallback beats
   // either crashing or fabricating a free-tier caption for a paid user.
-  const tierName = quota.tier === 'pro' ? 'Pro' : 'Elite';
+  const tierName = quota.tier === 'pro' ? Copy.home.quota.tier.pro : Copy.home.quota.tier.elite;
   return `${tierName} plan`;
 }
 
@@ -275,10 +275,14 @@ function createStyles(colors: ThemeColors) {
     pressed: {
       opacity: Opacity.pressed,
     },
+    // Not Accent — that's the primary CTA's color and only the primary CTA's (theme.ts). This
+    // is a small underlined text action; `text.primary` + underline reads as the more
+    // prominent of this screen's two links, next to `signOutText` below at `text.secondary` +
+    // underline, without spending the accent on it (issue #21).
     retryText: {
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.sm,
-      color: Accent.value,
+      color: colors.text.primary,
       textDecorationLine: 'underline',
     },
     primaryButton: {

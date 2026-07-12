@@ -7,6 +7,54 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Repo audit, second pass: the six actionable Low-severity issues (closes #9, #21, #24, #25,
+  #29, #30).** All six needed a design decision, which is why they were not taken in the first
+  pass; each decision below is derived from `docs/design/frontend-design-brief.md` §2/§4.1 rather
+  than invented. The two remaining Low issues (#60 Elite comparison, #61 motion) are blocked on
+  M6/M4 screens that do not exist yet and were left open.
+  - **A real semantic error token (#24).** `constants/theme.ts` gains `Semantic.error` (light
+    `#C23B52` / dark `#D47383`) — a cool crimson (hue ~350°) deliberately ~335° away from
+    `Score.low`'s clay red-orange (hue ~15°), so a **system error and a low pillar score can
+    never read as the same thing** on M6's Result screen. Both values clear WCAG AA as text
+    (4.5:1) against `background`, `surface.base` **and** `surface.raised` in both themes — worst
+    pair 4.61:1 (light/bg) and 4.70:1 (dark/surface.raised, the binding constraint in dark mode).
+    Proven, not asserted: 8 new assertions in `constants/__tests__/theme-contrast.test.ts`,
+    including an inequality lock against `Score.low`. `sign-in.tsx`'s error text now uses it.
+    `success`/`warning` were deliberately **not** added — no consumer exists, and an unproven
+    token is exactly what this file's discipline forbids.
+  - **The accent is single-use again (#21).** `constants/theme.ts` reserves `Accent.value` for
+    "the primary CTA and *only* the primary CTA"; it was appearing 2–3 times at once. Home's
+    Retry link → `text.primary` + underline (it keeps the underline, which is what marks it as an
+    action). The tab bar's active tint → `text.primary`, and `tabBarInactiveTintColor` is now set
+    to `text.secondary` instead of falling back to React Navigation's stock gray. `Accent` now
+    appears exactly once per screen: the primary CTA fill. (The full nav-theme rework is #12 and
+    was left alone.)
+  - **One raised element per screen (#25).** `surface.raised` is defined as "the one raised
+    element per screen" and sign-in was giving it to **both** secondary buttons. Google keeps it
+    (brief §4.1 lists it first, and it is the lower-friction path); "Continue with email" drops to
+    `surface.base`, keeping its `hairline` border. **No accent primary button was introduced** —
+    which button should be primary is #20, it is entangled with the not-yet-installed Sign in with
+    Apple button, and it stays open.
+  - **Four hardcoded strings routed through the copy deck (#30).** `Copy.auth.wordmark`,
+    `Copy.home.title` (shared by the heading and the tab label — two independent `'Home'` literals
+    before), and `Copy.home.quota.tier.pro`/`.elite`. Two of these have **no deck entry** and are
+    backfilled with the gap recorded in-place: whether Home should carry a "Home" heading above a
+    "Home" tab at all, and whether the wordmark should become the real mark asset (which now
+    exists at `assets/source/mark-*.svg`), are open design questions this change deliberately does
+    not answer.
+  - **One password-length constant, and the rule shown before you break it (#9).** New
+    `constants/auth.ts` exports `PASSWORD_MIN_LENGTH = 8`; the sign-up pre-check and **both** copy
+    strings now template off it, killing the triplicated literal. It still **cannot** bind
+    `supabase/config.toml`'s `minimum_password_length`, which remains the sole authority — that
+    constraint is now stated at the constant itself, not scattered across three files. Sign-up mode
+    also shows the rule as helper text under the password field (`Copy.auth.password.hint`), wired
+    to the field via `accessibilityHint` so a screen reader gets it too.
+  - **Reduced motion is wired (#29).** New `hooks/use-reduced-motion.ts` reads
+    `AccessibilityInfo.isReduceMotionEnabled()` and subscribes to `reduceMotionChanged`. It gates
+    the one animation that exists today — expo-router's default Stack transition in
+    `app/_layout.tsx`. **No new motion was added**: `docs/design/motion-consult.md` is binding, and
+    this is the mechanism #61 must plug every future animation into, built before there is anything
+    to retrofit.
 - **Repo audit: seven small, self-contained M1 bugs fixed in one pass (closes #13, #14, #19,
   #22, #23, #31, #33).** Each had a prescribed, mechanical fix in its issue and needed no design
   decision; everything larger or ambiguous found in the same read-through was left as an issue

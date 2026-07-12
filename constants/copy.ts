@@ -11,8 +11,16 @@
  * exists for it.
  */
 
+import { PASSWORD_MIN_LENGTH } from '@/constants/auth';
+
 export const Copy = {
   auth: {
+    // Placeholder for the real mark asset (`assets/source/mark-*.svg`, not wired in yet) —
+    // rendered as plain `<Text>` in app/(auth)/sign-in.tsx. The copy deck (§Screen 1) requires
+    // `valueProp` below to never restate the app name because "the logo already carries it";
+    // that's only true once this becomes the actual mark. Swapping this string for the real
+    // asset is future work (issue #30 only routes the existing string through the deck).
+    wordmark: 'Pace AnalysisAI',
     valueProp:
       'Submit a photo or video of your run and get clear, specific feedback on your form.',
     cta: {
@@ -24,6 +32,11 @@ export const Copy = {
     },
     password: {
       placeholder: 'Password',
+      // Shown under the password field, sign-up mode only (app/(auth)/sign-in.tsx) — the rule
+      // stated proactively instead of only after the user fails it (issue #9). Templated off
+      // the same `PASSWORD_MIN_LENGTH` constant as `error.passwordTooShort` below, so the two
+      // strings can't drift from each other.
+      hint: `At least ${PASSWORD_MIN_LENGTH} characters.`,
     },
     signIn: {
       submit: 'Sign in',
@@ -42,14 +55,22 @@ export const Copy = {
       generic: "Sign-in didn't go through. Try again.",
       passwordBreached:
         'That password has shown up in a data breach before. Pick a different one to keep your account secure.',
-      // The literal "8" here must match `minimum_password_length` in supabase/config.toml —
-      // that value is the only authority on the actual rule (see app/(auth)/sign-in.tsx's
-      // client-side pre-check and `mapAuthError`, both of which mirror it). Raising the config
-      // value without updating this string would make the copy lie to users.
-      passwordTooShort: 'Password must be at least 8 characters.',
+      // Templated off `PASSWORD_MIN_LENGTH` (constants/auth.ts) rather than a hardcoded "8" —
+      // that constant is itself just a client-side echo, not the authority. The real rule is
+      // `minimum_password_length` in supabase/config.toml; if that value ever changes,
+      // PASSWORD_MIN_LENGTH must change with it in the same commit, or this string (and the
+      // sign-up pre-check + `password.hint` above, both of which import the same constant)
+      // will silently drift from what the server actually enforces.
+      passwordTooShort: `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`,
     },
   },
   home: {
+    // No `home.title` key exists in the copy deck — §Screen 2 defines no title key for the
+    // "Home" heading. Backfilled here (issue #30) so the heading in app/(tabs)/index.tsx and
+    // the tab label in app/(tabs)/_layout.tsx share one string instead of two independent
+    // "Home" literals. Whether Home should carry a redundant "Home" heading above a "Home" tab
+    // label at all is a separate open design question, not resolved by this change.
+    title: 'Home',
     cta: {
       analyze: 'Analyze my form',
     },
@@ -69,6 +90,16 @@ export const Copy = {
         // narrower case where the very first fetch fails and there is nothing to show yet.
         retry: 'Retry',
         failed: "Couldn't load your plan status.",
+      },
+      // Not a deck key — the deck's real tier labels are the shared `tier.pro.name` /
+      // `tier.elite.name` (§1), but this screen is the only current consumer of a tier name at
+      // all (`describeReadyQuota` in app/(tabs)/index.tsx), so issue #30 scopes the fix to
+      // routing that one call site's hardcoded 'Pro'/'Elite' through the deck rather than
+      // threading the shared namespace through a screen that doesn't otherwise need it. Revisit
+      // if/when a second screen needs a tier label.
+      tier: {
+        pro: 'Pro',
+        elite: 'Elite',
       },
     },
     empty: {
