@@ -32,6 +32,13 @@
  * Without that, every outbound request URL (which contains the 5-char prefix plus the
  * `Add-Padding` response) becomes a durable, identity-linked 20-bit fingerprint of the user's
  * password, sitting in crash-report breadcrumbs tied to their account.
+ *
+ * This function fails open and never logs, which makes it silently unobservable in production
+ * (issue #74). Its live-endpoint health is therefore watched from outside, by
+ * `lib/__tests__/hibp.canary.test.ts` on a daily cron (`.github/workflows/hibp-canary.yml`):
+ * that canary runs THIS function against the real range API and files an issue when it rots.
+ * If you change this file's parsing, response handling, or the range-API URL, the canary is
+ * what tells you whether it still works against the real thing.
  */
 import { CryptoDigestAlgorithm, digestStringAsync } from 'expo-crypto';
 

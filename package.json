@@ -12,7 +12,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "test:canary": "jest --config jest.canary.config.js"
   },
   "dependencies": {
     "@expo-google-fonts/archivo": "^0.4.2",
