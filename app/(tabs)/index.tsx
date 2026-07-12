@@ -1,5 +1,5 @@
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -31,6 +31,13 @@ type QuotaState =
   | { status: 'error'; lastKnown: ReadyQuota | null }
   | ({ status: 'ready' } & ReadyQuota);
 
+/** One of these is minted per focus (see the `useFocusEffect` below) and threaded into every
+ * `fetchQuota` call started while it's current. Its cleanup flips `active` to false the moment
+ * that focus ends, so a call that started under an older focus — or after the screen unmounted
+ * entirely (e.g. mid-fetch sign-out) — can tell it's stale and skip `setQuota` instead of
+ * overwriting a newer, correct result or firing on an unmounted component. */
+type ActiveFlag = { active: boolean };
+
 /** Pulls the last successful quota reading (if any) out of whatever state we're currently in,
  * so a fetch failure can keep showing it alongside the stale caption instead of just replacing
  * it — see the `error` branch's render below. */
@@ -47,8 +54,11 @@ export default function HomeScreen() {
   const { session } = useSession();
   const userId = session?.user.id;
   const [quota, setQuota] = useState<QuotaState>({ status: 'loading' });
+  // Holds whichever ActiveFlag the most recent focus minted, so the Retry button — which calls
+  // fetchQuota directly, outside useFocusEffect — can pass a flag too instead of racing unguarded.
+  const activeFlagRef = useRef<ActiveFlag>({ active: false });
 
-  const fetchQuota = useCallback(async () => {
+  const fetchQuota = useCallback(async (active: ActiveFlag) => {
     if (!userId) return;
 
     try {
@@ -76,10 +86,12 @@ export default function HomeScreen() {
         ]);
 
       if (subscriptionError || countError) {
+        if (!active.active) return;
         setQuota((current) => ({ status: 'error', lastKnown: lastKnownFrom(current) }));
         return;
       }
 
+      if (!active.active) return;
       const tier: SubscriptionTier = subscription?.tier ?? 'free';
       setQuota({
         status: 'ready',
@@ -87,6 +99,7 @@ export default function HomeScreen() {
         hasUsedFreeAnalysis: tier === 'free' && (count ?? 0) >= 1,
       });
     } catch {
+      if (!active.active) return;
       setQuota((current) => ({ status: 'error', lastKnown: lastKnownFrom(current) }));
     }
   }, [userId]);
@@ -95,16 +108,34 @@ export default function HomeScreen() {
   // (tabs) once signed in), so this both loads the quota on first mount and refetches on every
   // later focus — a transient fetch failure self-heals just by revisiting the tab instead of
   // sticking until the app restarts. Also wired to the error state's Retry action below.
+  //
+  // Nothing sequences or cancels calls across focuses/Retry taps, so a slow, older call can
+  // still resolve after a newer one. The ActiveFlag minted here (see its type doc above) is
+  // what keeps that from corrupting state: it's live only for this focus, flips off the instant
+  // the screen blurs or unmounts, and every fetchQuota call — this one and Retry's — checks its
+  // own flag before ever calling setQuota.
   useFocusEffect(
     useCallback(() => {
-      fetchQuota();
+      const active: ActiveFlag = { active: true };
+      activeFlagRef.current = active;
+      fetchQuota(active);
+      return () => {
+        active.active = false;
+      };
     }, [fetchQuota])
   );
 
   function handleSignOut() {
     // onAuthStateChange (lib/session-provider.tsx) flips `session` to null, and the
-    // root layout's Stack.Protected guard routes back to (auth) automatically.
-    supabase.auth.signOut();
+    // root layout's Stack.Protected guard routes back to (auth) automatically — that happens
+    // even if the network call below fails, because auth-js clears the local session either way.
+    // The `{ error }` this returns is intentionally discarded, not just forgotten: on a failed
+    // *global* revoke the local sign-out still succeeds, so the user isn't stuck, but the
+    // server-side refresh tokens survive and nobody is told. Surfacing that failure needs
+    // copy-deck text that doesn't exist yet — tracked separately by issue #27, which this does
+    // NOT close. `void` + `.catch` only makes the discard explicit and keeps the rejection from
+    // becoming an unhandled promise rejection.
+    void supabase.auth.signOut().catch(() => {});
   }
 
   return (
@@ -155,7 +186,7 @@ export default function HomeScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={Copy.home.quota.error.retry}
                 onPress={() => {
-                  fetchQuota();
+                  fetchQuota(activeFlagRef.current);
                 }}
                 style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
                 <Text style={styles.retryText}>{Copy.home.quota.error.retry}</Text>
