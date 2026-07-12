@@ -24,11 +24,19 @@ permissions:
   contents: read
   issues: write
 
+# Hoisted so the create, lookup, and close paths below cannot drift apart on the title string
+# they all key off of.
+env:
+  CANARY_TITLE: "HIBP canary is red — the leaked-password check has silently stopped working"
+
 jobs:
   canary:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -61,10 +69,15 @@ jobs:
           echo "result=fail" >> "$GITHUB_OUTPUT"
           exit 0
 
-      # Idempotent: `--force` makes this a no-op when a label already exists, so the workflow
-      # is self-contained and does not depend on a label having been created by hand. Both
-      # labels are ensured here because `gh issue create --label <name>` below fails (and,
-      # sitting in an `else` under `bash -e`, aborts the step) if a named label is absent.
+      # `hibp-canary` is a label this workflow owns outright, so `--force` (idempotent
+      # recreate/update) is correct there: the workflow is self-contained and does not depend
+      # on the label having been created by hand.
+      #
+      # `security` is different: it's a pre-existing, human-owned repo label, so we must NOT
+      # force-overwrite its colour/description on every run. But `gh issue create --label
+      # security` below fails (and, sitting in an `else` under `bash -e`, aborts the step) if
+      # the label is absent -- so it still needs to be guaranteed to exist. Create it only when
+      # missing; a genuine creation failure still fails the step.
       - name: Ensure required labels exist
         env:
           GH_TOKEN: ${{ github.token }}
@@ -74,11 +87,9 @@ jobs:
             --description "Raised automatically by the HIBP live-endpoint canary" \
             --force
 
-          # Matches this repo's existing "security" label (color d93f0b, no description) so
-          # --force is a true no-op rather than a silent recolour.
-          gh label create security \
-            --color d93f0b \
-            --force
+          if ! gh label list --json name --jq '.[].name' | grep -qx 'security'; then
+            gh label create security --color d93f0b --description "Security-relevant work"
+          fi
 
       - name: Open or update the alarm issue
         if: steps.canary.outputs.result == 'fail'
@@ -86,7 +97,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          existing="$(gh issue list --label hibp-canary --state open --limit 1 --json number --jq '.[0].number // empty')"
+          # Scope by exact title as well as the label: the label alone can be applied by anyone
+          # with triage permission to an unrelated open issue, which would silently downgrade a
+          # real failure to a comment on that issue instead of a visible new alarm.
+          existing="$(gh issue list --label hibp-canary --state open --limit 20 --json number,title \
+            | jq -r --arg t "${CANARY_TITLE}" '[.[] | select(.title == $t)][0].number // empty')"
 
           body="$(cat <<EOF
           The HIBP live-endpoint canary failed **3 consecutive attempts**, so this is sustained
@@ -114,7 +129,7 @@ jobs:
             gh issue comment "${existing}" --body "Still failing as of ${RUN_URL}"
           else
             gh issue create \
-              --title "HIBP canary is red — the leaked-password check has silently stopped working" \
+              --title "${CANARY_TITLE}" \
               --label hibp-canary \
               --label security \
               --body "${body}"
@@ -128,7 +143,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          existing="$(gh issue list --label hibp-canary --state open --limit 1 --json number --jq '.[0].number // empty')"
+          # Same exact-title scoping as the open/update step above, so recovery can only ever
+          # close the canary's own issue -- never an unrelated issue someone else labelled.
+          existing="$(gh issue list --label hibp-canary --state open --limit 20 --json number,title \
+            | jq -r --arg t "${CANARY_TITLE}" '[.[] | select(.title == $t)][0].number // empty')"
           if [ -n "${existing}" ]; then
             gh issue close "${existing}" \
               --comment "Canary is green again as of ${RUN_URL} — the HIBP check is working. Closing automatically."
