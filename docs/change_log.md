@@ -7,6 +7,38 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Session storage moved off plaintext AsyncStorage to a SecureStore-backed adapter (closes
+  #38, `docs/status.md` Known Issue #13).** `lib/supabase.ts` was passing `storage: AsyncStorage`
+  straight to `createClient` — the session, including the refresh token, sat unencrypted on
+  disk. Harmless while nothing sensitive sat behind a session (M1); no longer true once M2 gates
+  a private bucket of body-image media on it. New `lib/secure-storage.ts` implements Supabase's
+  documented "LargeSecureStore" pattern: `expo-secure-store` (Keychain on iOS, Keystore on
+  Android) enforces roughly a 2048-byte ceiling per value, far too small for a full session
+  (JWT + refresh token + user object), so SecureStore instead holds a fresh random AES-256 key
+  per write (`aes-js`, CTR mode; 64 hex chars, constant size regardless of session size) and
+  AsyncStorage holds the AES-encrypted, size-unbounded session blob. Proven under the 2048-byte
+  limit for an oversized (>2KB) session fixture, not just a small demo one — that's the failure
+  mode a naive `storage: SecureStore` swap hits silently.
+  - **Migration for the app's 2 existing real accounts:** `getItem` detects a legacy plaintext
+    session left over from the old adapter (its leading `{`, since every ciphertext this class
+    writes is pure hex and can never start with `{`) and transparently re-encrypts it in place
+    instead of returning null — which would read to supabase-js as "no session" and silently
+    sign the user out with no explanation on their first launch after this update (the same bug
+    class as issue #5). If the re-encrypt write itself fails, the legacy plaintext value is still
+    returned so the session isn't lost over a storage hiccup.
+  - **Web fallback:** `expo-secure-store` has no web implementation (confirmed against the
+    installed package — `ExpoSecureStore.web.ts` is an empty module) and `npm run web` is a
+    supported dev command in this project, so `createSecureSessionStorage` falls back to plain
+    AsyncStorage on `Platform.OS === 'web'`. Not a new weakness introduced for web specifically —
+    browsers have no Keychain/Keystore equivalent to move to, and this project's real target is
+    the mobile app.
+  - Added dependencies: `expo-secure-store` (`npx expo install`, SDK 54-compatible) and `aes-js`
+    + `@types/aes-js` (pure JS, no native module, safe to run for real under Jest).
+  - `lib/__tests__/secure-storage.test.ts`: 16 cases covering the round trip, the oversized-
+    session/2048-byte requirement, the full migration path (including the failed-migration-write
+    fallback and a "malformed JSON that happens to start with `{`" guard), corrupted-ciphertext
+    fail-closed behavior, and the web/native platform split. Verified load-bearing by temporarily
+    deleting the migration branch and confirming 4 of the 16 tests fail exactly as expected.
 - **Edge-function build/test contract closed (closes #90).** Three previously-unowned mechanics
   that #41/#43/#44/#49/#59 all silently assumed, found by the full-repo audit the same day:
   - **No runner could execute edge-function code.** Added `supabase/functions/deno.json`

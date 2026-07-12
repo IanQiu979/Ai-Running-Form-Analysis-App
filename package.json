@@ -29,6 +29,7 @@
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.8",
     "@supabase/supabase-js": "^2.110.2",
+    "aes-js": "^3.1.2",
     "expo": "~54.0.34",
     "expo-auth-session": "~7.0.11",
     "expo-camera": "~17.0.10",
@@ -42,6 +43,7 @@
     "expo-image-picker": "~17.0.11",
     "expo-linking": "~8.0.12",
     "expo-router": "~6.0.23",
+    "expo-secure-store": "~15.0.8",
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
     "expo-symbols": "~1.0.8",
@@ -61,6 +63,7 @@
   },
   "devDependencies": {
     "@testing-library/react-native": "14.0.1",
+    "@types/aes-js": "^3.1.4",
     "@types/jest": "^29.5.14",
     "@types/react": "~19.1.0",
     "eslint": "^9.25.0",

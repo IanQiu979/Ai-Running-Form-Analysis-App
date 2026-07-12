@@ -167,8 +167,16 @@ lib/
   so a signed-out user's navigator has no `(tabs)` route to go to at all (and vice versa).
   `onAuthStateChange` flipping `session` in `SessionProvider` is what moves the user between
   them; no screen calls `router.replace()` after sign-in or sign-out.
-- Session storage is **AsyncStorage today, plaintext** — tracked as a known issue to move to a
-  SecureStore-backed adapter at M2 (`docs/status.md` Known Issue #13).
+- **Session storage is SecureStore-backed (issue #38, closes `docs/status.md` Known Issue #13).**
+  `lib/secure-storage.ts`'s `LargeSecureStore` implements the "LargeSecureStore" pattern:
+  SecureStore holds a fresh random AES-256 key per write (64 hex chars, constant size — proven
+  under the 2048-byte SecureStore value limit regardless of session size), AsyncStorage holds the
+  AES-CTR-encrypted session blob. `getItem` transparently migrates any legacy plaintext session
+  still sitting in AsyncStorage from before this change (detected by its leading `{`, since every
+  ciphertext this class writes is pure hex) instead of returning null and forcing a silent
+  sign-out. On web (`Platform.OS === 'web'`), `createSecureSessionStorage` falls back to plain
+  AsyncStorage — `expo-secure-store` has no web implementation and `npm run web` must not crash;
+  browsers have no Keychain/Keystore equivalent to move to regardless.
 
 ## Current — `knowledge/` (done 2026-07-10)
 

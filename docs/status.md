@@ -192,13 +192,17 @@ milestone "done" criteria.
     farmable accounts). CAPTCHA (`auth.captcha`, hCaptcha or Turnstile) is the only real lever on
     this plan — needs Ian to create provider keys; an account-creation step, not something
     buildable from the repo. **Blocks M4 going live, not the M4 build itself.**
-13. **NEW — session storage is plaintext AsyncStorage today (MEDIUM, audit finding).**
-    `lib/supabase.ts` stores the session (including the refresh token) via AsyncStorage, which
-    is unencrypted on-device. Low urgency for M1 (no sensitive app data sits behind the session
-    yet), but M2 starts writing user media behind a signed-in session. **Move to a
-    SecureStore-backed adapter at M2** (the "LargeSecureStore" pattern: SecureStore holds the
-    encryption key, AsyncStorage holds the encrypted blob — SecureStore alone has no room for a
-    full session payload).
+13. ~~**Session storage is plaintext AsyncStorage today**~~ **RESOLVED 2026-07-12 (issue #38).**
+    `lib/supabase.ts` now passes `storage: secureSessionStorage` (`lib/secure-storage.ts`), the
+    "LargeSecureStore" pattern: a fresh random AES-256 key per write lives in SecureStore
+    (Keychain/Keystore-backed, 64 hex chars — provably under the 2048-byte SecureStore value
+    limit regardless of session size), and the AES-CTR-encrypted session blob lives in
+    AsyncStorage. The app's 2 existing real accounts are migrated transparently on next launch
+    (legacy plaintext JSON, detected by its leading `{`, is read once then re-encrypted) rather
+    than silently signed out. Web (`npm run web`) falls back to plain AsyncStorage —
+    `expo-secure-store` has no web implementation. Covered by `lib/__tests__/secure-storage.test.ts`
+    (16 cases: round trip, the oversized-session/2048-byte case, the migration path incl. a
+    failed-migration-write fallback, and the web/native platform split).
 14. **NEW — Phase 4 (`analyze-form`) contract notes, carried forward from the M1 review.** Not
     code changes today; binding requirements for whoever builds M4:
     - `analyze-form` MUST derive `p_user_id` for the reserve/settle/release RPCs from the
@@ -360,9 +364,10 @@ into `planning/*` and `docs/architecture.md`. Immediate:
    (no Critical/High). Pending Ian's on-phone gate test and the PR merge.
 6. **Start Phase 2 — Capture (M2)** once the M1 PR merges: `lib/frames.ts` (extraction +
    downscale; **no Storage upload** — that moved server-side under #88, see Known Issue #16) and
-   the capture/pick screens, per `docs/mvp-build-prompt.md`'s Phase 2. Also due at/around M2: the
-   SecureStore session-storage move (#13). Neither #10 (runner's note, resolved) nor #12
-   (CAPTCHA) nor #14 (Phase 4 contract notes) block M2 — #12 blocks M4 going live, #14 is scoped
+   the capture/pick screens, per `docs/mvp-build-prompt.md`'s Phase 2. **The SecureStore
+   session-storage move (#13) is done** (2026-07-12, issue #38 — see Known Issue #13 above).
+   Neither #10 (runner's note, resolved) nor #12 (CAPTCHA) nor #14 (Phase 4 contract notes) block
+   M2 — #12 blocks M4 going live, #14 is scoped
    to the M4 build itself. **#16's migration is applied and verified live as of 2026-07-12** —
    M2/M4 code should be written straight against the new (`no mediaPaths`, server-side upload)
    contract; there is no old contract left to accidentally target.
