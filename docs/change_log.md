@@ -5,6 +5,50 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-13
+
+- **M4: the `analyze-form` edge function is built (issues #44 + #45)** — the core of the product.
+  A side-on clip now returns an honest, certified, well-parsed PACE result, or an honest failure
+  that costs the user nothing. Not deployed: the code is written and fully tested; `supabase
+  functions deploy` and `supabase secrets set ANTHROPIC_API_KEY` remain Ian's to run.
+  - **Added** `supabase/functions/analyze-form/{index.ts,flow.ts,deps.ts}` — HTTP/auth glue, the
+    pure orchestration, and the Deno/Supabase/Anthropic wiring, the same three-way split
+    `analysis/` (#57) and `quota-status/` (#50) already use. Plus
+    `supabase/functions/_shared/analyze-form-validation.ts` (#45) — structural validation, the
+    honest-partial salvage, and the `release_reason` classifier.
+  - **84 new Deno tests** (`analyze-form/__tests__/flow.deno.test.ts`,
+    `_shared/__tests__/analyze-form-validation.deno.test.ts`). Zero Anthropic spend: the model is
+    a fake queue. One suite per binding contract rule, each written against the production hazard
+    it exists to prevent.
+  - **#45, never fabricate a score**: validation is structural, never content. A pillar the model
+    did not return, or returned unreadably, comes back `score: null` / `band: null` and no
+    invented `notAssessedReason` — never Echo V1's 75 + "No feedback available". Fail → retry
+    once → ≥2 pillars parsed (and ≥1 actually scored) → `settle_analysis(is_fallback = true)`;
+    otherwise a clean failure and the quota slot is refunded. A photo's two honestly-null pillars
+    still validate as a FULL success, not a fallback.
+  - **`release_reason` is classified, not guessed** (the `20260712220000` taxonomy): only a pure
+    content failure across every attempt is `'validation_failed'` (the one farming signal). A
+    truncation, a refusal, or a dead call is `'model_error'`; a timeout is `'provider_timeout'`;
+    our own bug is `'internal_error'` — none of which tick a user's anti-farming counter for
+    something we did.
+  - **`release_analysis` and `recordAiCall` have exactly one call site each, both in a `finally`.**
+    The body of the flow never releases and never records; it only sets the intent. A branch
+    cannot forget an obligation it does not perform, and an unexpected throw takes the same path.
+  - **The retry is a second billed call and gets its own `gateAiCall()`**, so the daily cap and
+    the circuit breaker both see it. Each gated call is settled with *its own* outcome: an attempt
+    that failed and was rescued by a retry still settles as the failure it was, or the breaker
+    would never see a model that has stopped calling tools correctly.
+  - **Model config, verified against the live Anthropic docs (not recalled)**: `claude-sonnet-5`,
+    `thinking: {type: 'adaptive'}`, `output_config: {effort: 'medium'}`, `max_tokens` 4–8k from
+    `MAX_OUTPUT_TOKENS_BY_TIER`. `stop_reason: 'max_tokens'` is treated as truncation and is never
+    usable. **`tool_choice` stays `auto`, NOT forced** — the live docs state, with no platform
+    scoping, that forced tool use errors when thinking is active, so forcing it would 400 on 100%
+    of analyses. See `docs/architecture.md`'s new "Current — `analyze-form`" section.
+  - **Fixed while self-reviewing**: a gate denial was forwarding `gate_ai_call`'s `detail` to the
+    client, which on `daily_cap` carries `spent_usd`/`cap_usd` — any authenticated user could read
+    our AI spend and our ceiling by tripping the cap. The client now gets `{ error, code }` only;
+    the detail is logged server-side.
+
 ## 2026-07-12
 
 - **M2 capture screens built (issue #36)** — design-brief screens 3-5: source picker, in-app

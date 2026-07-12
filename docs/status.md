@@ -399,6 +399,42 @@ milestone "done" criteria.
     that worktree — nothing enforces that whoever builds #56 picks the same name. Whoever builds
     #56 must pick one and, if it's not `result/[id]`, update `app/analyzing.tsx`'s navigation call
     in the same change.
+21. **NEW — `analyze-form` is BUILT but NOT DEPLOYED, and forced tool use turned out to be
+    impossible (issues #44 + #45, 2026-07-13).** The edge function exists, all four binding contract
+    rules from Known Issue #14 are discharged in code and locked by tests, and #91's gate/record
+    contract (Known Issue #17) is honoured including a **separate gate for the retry**. See
+    `docs/architecture.md`'s "Current — `analyze-form` edge function" section. What remains:
+    - **Two deploy steps only Ian can run**, both deliberately not done from the worktree:
+      `supabase functions deploy analyze-form` and `supabase secrets set ANTHROPIC_API_KEY=…`.
+      Until both land, the function does not exist in production and `lib/analyze-form.ts` is still
+      bound to its dev mock (#80's seam — swapping that one binding is the client half, and is not
+      part of #44).
+    - **The `analyze-form` API contract is satisfied exactly as `lib/analyze-form.ts` documents it**
+      — request `{ mediaType, frames: string[], timestamps: number[], idempotencyKey }`, 200
+      `{ result, analysisId, isFallback }`, every non-2xx `{ error, code }`. No divergence.
+    - **Forced tool use is NOT possible alongside thinking, and this is now settled.** The live
+      Anthropic docs state it universally, with no platform scoping — the "maybe it's Bedrock-only"
+      hope recorded in `analyze-form-prompt.ts` (#41) and in `docs/architecture.md`'s step 8 is
+      **wrong**, and acting on it would have produced a **400 on 100% of analyses**. `tool_choice`
+      stays `auto`; `strict: true` + the prompt + #45's retry-then-fallback carry the load instead.
+      If a hard guarantee is ever wanted, the supported route is `output_config.format` (structured
+      outputs), which is a change to #41's file, not to `tool_choice`. **Whoever owns #41 or #42
+      should delete the Bedrock speculation from that file's header** — it is now known-false and
+      left in place only because #44 does not own that file.
+    - **Consent-withdrawal vs. idempotent replay — DECIDED: refuse.** Known Issue #14 left this
+      open ("do not silently pick one"). The consent check runs before idempotency, so a replay of
+      an already-settled key by a user who has since withdrawn consent is **refused (403)**, not
+      served from cache. Rationale: continuing to serve health inferences after a withdrawal is the
+      riskier read, and it agrees with what the delete/purge path (#57) does to such a row anyway.
+      GDPR Art. 7(3) makes the already-completed processing lawful either way, so nothing is lost by
+      refusing. The user's own past analyses remain readable via their normal RLS `select` — this
+      only refuses to re-run or re-serve through the analysis endpoint.
+    - **Left open, on purpose**: a model response that *validly* reports all four pillars as
+      not-assessed is delivered as a real result (`isFallback: false`) and therefore burns a quota
+      slot — the model honestly said "I can't read this, here's the shot that would fix it", which
+      is genuinely useful, but on Free that is their one lifetime analysis. Not changed here because
+      it would alter what "a valid result" means, which is a product call. (The *fallback* path does
+      guard against this: a salvage with no pillar actually scored is a clean failure, refunded.)
 
 ## Next action
 
