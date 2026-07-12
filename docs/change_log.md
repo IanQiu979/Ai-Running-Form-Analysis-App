@@ -560,6 +560,56 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   - `CLAUDE.md`, `docs/status.md` (M4 milestone row, Known Issues #16/#17, new Known Issue #18),
     and `docs/architecture.md` (DB schema, RLS, and AI-guardrail sections) updated to describe
     this as live rather than pending.
+- **Built `DELETE /functions/v1/analysis/:id` (issue #57), closing issue #3** (deleting an
+  analysis orphaned its Storage frames forever — a privacy defect, not a storage-cost one).
+  Written and tested only, on `fix/57` — **not deployed and no migration applied**; see
+  `docs/status.md` for exactly what remains before this is live.
+  - **Files**: `supabase/functions/_shared/delete-analysis.ts` (pure, injectable orchestration:
+    ownership check, prefix purge with pagination + recursion + a post-remove verification
+    re-list, HTTP-status/body mapping — fully Deno-tested), `supabase/functions/_shared/
+    delete-analysis-client.ts` (the real service-role Supabase/Storage client, untested, same
+    split as `ai-guard.ts`/`ai-guard-client.ts`), `supabase/functions/analysis/index.ts` (the
+    thin `Deno.serve` entrypoint: method/id validation, JWT verification via
+    `auth.getUser()`, wiring), and 19 new Deno tests in
+    `supabase/functions/_shared/__tests__/delete-analysis.deno.test.ts`.
+  - **No schema change was needed.** Verified live via the Supabase MCP before writing any code:
+    `service_role` holds unrestricted table-level grants on both `public.analyses` and
+    `storage.objects` (bypasses RLS entirely), so the function reads/writes the row and lists/
+    removes Storage objects directly — no new RPC, no migration, and (per this issue's hard
+    constraint) `reserve_analysis`/`settle_analysis`/`release_analysis` were never touched.
+  - **Ordering: purge Storage first, mark the row deleted second — never the reverse.** If the
+    row were marked deleted first and the purge then failed, the analysis would vanish from the
+    user's view while its frames (images of a person's body) kept existing in the bucket — the
+    exact failure issue #3 exists to close, reached through this function instead of a raw
+    client DELETE. Purging first means any failure leaves the row exactly as it was and returns
+    `purge_failed` (503, safe to retry) instead of a false "deleted".
+  - **The purge is idempotent by construction and always attempted, regardless of the row's
+    current `deleted_at`.** This closes two problems with one property: a retried DELETE call
+    converges instead of erroring (re-listing an empty prefix is a cheap no-op), and — more
+    importantly — `public.analyses` still carries a client-facing soft-delete UPDATE policy
+    (issue #2) that a caller can hit directly, bypassing this endpoint and leaving frames
+    orphaned. Because this function never gates the purge on `deleted_at`, if the client's UI
+    ever does route that same analysis's delete through this endpoint, the orphaned frames get
+    purged anyway. **This narrows but does not fully close that gap** — nothing can force a
+    client to call this endpoint at all; a scheduled reconciliation job or an async
+    trigger-driven purge would close it completely and is a good candidate for a follow-up
+    issue, not attempted here (out of scope, and #2's migration is settled).
+  - **Purge-then-verify, not purge-and-trust.** After `remove()` reports no error, the code
+    re-lists the same prefix and refuses to mark the row deleted if anything is still there —
+    proven by a test that makes `remove()` silently drop one path with no reported error.
+  - **Authorization is explicit code, not RLS**: `findById` has no ownership filter (the real
+    client bypasses RLS by design, same as every other service-role path in this codebase);
+    `row.user_id !== callerUserId` is checked in `deleteAnalysis()` itself and proven by a test
+    asserting Storage is never even listed for someone else's analysis id. The Storage prefix is
+    also always rooted at the *caller's own* id, never the row's, so a wrong/foreign id can only
+    ever probe an empty prefix under the caller's own namespace.
+  - **Recursion and pagination**: proven against the exact "nested-prefix trap"
+    `docs/privacy-checklist-m7.md` names (a flat, non-recursive list "removes nothing, and
+    orphans every frame — while reporting success") with a test asserting a nested folder under
+    the prefix is still purged, plus a pagination test across multiple `list()` pages.
+  - **Verification run**: `npm run typecheck && npm run lint && npm test` clean — `tsc --noEmit`,
+    `deno check` (12 files, including the 2 new source files + new test file), `expo lint`, 207
+    Jest tests (unchanged), and 29 Deno tests (19 new + the pre-existing 10) all pass.
 
 ## 2026-07-11
 
