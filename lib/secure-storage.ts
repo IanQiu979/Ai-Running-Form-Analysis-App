@@ -1,6 +1,7 @@
 /**
  * Session storage adapter for supabase-js — the "LargeSecureStore" pattern (issue #38,
- * `docs/status.md` Known Issue #13).
+ * `docs/status.md` Known Issue #13; torn-write hardening is a same-branch follow-up requested
+ * in review, see "STABLE KEY, PER-WRITE IV" below).
  *
  * PROBLEM THIS REPLACES: `lib/supabase.ts` used to pass `storage: AsyncStorage` straight to
  * `createClient`. AsyncStorage is plaintext on disk — a stolen, rooted, or jailbroken phone
@@ -26,10 +27,29 @@
  * satisfies the 2048-byte limit for *any* session size, not just typical ones — proven in
  * `lib/__tests__/secure-storage.test.ts`'s oversized-session case.
  *
- * A fresh random key is generated on every `setItem` (never reused across writes), which is
- * also what keeps AES-CTR mode safe here without tracking a nonce/counter across calls: CTR
- * only breaks down when the same key+counter pair encrypts two different messages, and a
- * brand-new random key each call means that pair is never repeated.
+ * STABLE KEY, PER-WRITE IV (torn-write hardening): the key and the ciphertext live in two
+ * separate stores (SecureStore, AsyncStorage) that cannot be written atomically as a pair.
+ * Supabase's own documented recipe generates a FRESH key on every write, which means every
+ * single `setItem` is a two-store transaction — and a `setItem` that is interrupted between
+ * the two writes (app killed, device out of storage, the write throws) leaves either a new key
+ * paired with an old blob, or an old key paired with a new blob. AES-CTR does not error on a
+ * wrong key/IV — it produces well-formed-looking garbage — so the next `getItem` would silently
+ * "succeed" with nonsense, and the session is gone with no explanation (the same bug class as
+ * issue #5: a real failure laundered into "no session").
+ *
+ * This class instead generates the AES-256 key exactly ONCE per storage key (`_getOrCreateKey`,
+ * below) and reads it back on every subsequent read/write. After that first write there is no
+ * longer a key/blob *pair* to tear — SecureStore is never written to again for that key, and
+ * every later `setItem` touches only AsyncStorage (a single store, so nothing to interleave a
+ * torn write across). CTR mode stays safe with a stable key because a fresh random 16-byte IV
+ * (the AES block size — independent of the AES-256 key length) is generated on every write and
+ * prepended to the ciphertext it belongs to, so the keystream is never reused even though the
+ * key doesn't change; this is the whole reason the "fresh key every write" trick was needed in
+ * the first place, and a per-write IV removes that need. See `getItem`'s doc comment for
+ * exactly what surviving window this narrows the torn-write problem to (it is not fully
+ * eliminated — the very first write for a storage key still touches two stores), why that
+ * residual window is benign, and what happens when a stored blob turns out to be undecryptable
+ * anyway (corrupted, torn, or genuinely tampered).
  */
 import type { SupportedStorage } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -42,32 +62,133 @@ import { Platform } from 'react-native';
  * per-value limit no matter how large the session payload this key protects grows to. */
 const AES_KEY_BYTES = 32;
 
+/** AES block size — always 16 bytes regardless of key length (AES-128/192/256 all use it),
+ * and CTR mode's counter/IV is exactly this size. Hex-encoded, this is a fixed 32-char prefix
+ * on every ciphertext this class writes, letting `_decrypt` split it back out deterministically
+ * without needing a delimiter. */
+const IV_BYTES = 16;
+const IV_HEX_LENGTH = IV_BYTES * 2;
+
+type SessionRestoreFailureListener = (storageKey: string) => void;
+
+let sessionRestoreFailureListeners: SessionRestoreFailureListener[] = [];
+
+/**
+ * Subscribe to be told when `LargeSecureStore` had to discard a stored session instead of
+ * restoring it — decrypted-but-not-valid-JSON, a decrypt that threw outright, or no SecureStore
+ * key on file for an AsyncStorage blob that exists. `getItem`'s return type (`string | null`,
+ * `SupportedStorage`'s contract) has no room to carry a reason; this is the side channel that
+ * lets the app layer distinguish "we genuinely have no session" from "we HAD one and it could
+ * not be restored," so it can say something honest instead of landing the user on sign-in with
+ * no explanation. `lib/session-provider.tsx` is the consumer — same principle as issue #5's
+ * `deepLinkAuthError` there, deliberately named differently so the two additions merge cleanly.
+ * Returns an unsubscribe function.
+ */
+export function onSessionRestoreFailure(listener: SessionRestoreFailureListener): () => void {
+  sessionRestoreFailureListeners.push(listener);
+  return () => {
+    sessionRestoreFailureListeners = sessionRestoreFailureListeners.filter((l) => l !== listener);
+  };
+}
+
+function notifySessionRestoreFailure(storageKey: string): void {
+  for (const listener of sessionRestoreFailureListeners) {
+    listener(storageKey);
+  }
+}
+
 export class LargeSecureStore implements SupportedStorage {
-  private async _encrypt(key: string, value: string): Promise<string> {
-    const encryptionKey = getRandomBytes(AES_KEY_BYTES);
-    const cipher = new aesjs.ModeOfOperation.ctr(encryptionKey, new aesjs.Counter(1));
-    const encryptedBytes = cipher.encrypt(aesjs.utils.utf8.toBytes(value));
+  /**
+   * Serializes "read the AES key, or create it if this is the first write" per storage key.
+   * Without this, two `setItem` calls racing on the very first write for the same key (e.g. two
+   * auth events firing close together before anything has ever been persisted) could each find
+   * no key in SecureStore, each generate a DIFFERENT random key, and each write it — the last
+   * `SecureStore.setItemAsync` to land wins, silently orphaning whichever blob was encrypted
+   * under the other key. A per-key promise chain (not a real OS-level lock) is sufficient
+   * because the actual hazard is concurrent `await`s interleaving within this one running JS
+   * process — the only place `setItem` calls for the same key can genuinely race. It does not
+   * and cannot protect against two independent OS processes; that is not a real scenario for a
+   * single-instance mobile app (a killed process cannot race anything — a relaunch runs after
+   * it, not alongside it).
+   */
+  private keyCreationLocks = new Map<string, Promise<unknown>>();
 
-    // The only thing that ever reaches SecureStore: a fixed 64-hex-char key, regardless of
-    // how large `value` (the session JSON) is.
-    await SecureStore.setItemAsync(key, aesjs.utils.hex.fromBytes(encryptionKey));
-
-    return aesjs.utils.hex.fromBytes(encryptedBytes);
+  private async _runExclusive<T>(lockKey: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.keyCreationLocks.get(lockKey) ?? Promise.resolve();
+    const run = previous.then(fn, fn);
+    // A "safe" tail that always resolves (never rejects) so one failed call doesn't wedge every
+    // later call queued behind it — only `run` itself, returned below, carries the real outcome.
+    this.keyCreationLocks.set(
+      lockKey,
+      run.catch(() => undefined)
+    );
+    return run;
   }
 
+  private async _getOrCreateKey(key: string): Promise<Uint8Array> {
+    return this._runExclusive(key, async () => {
+      const existingHex = await SecureStore.getItemAsync(key);
+      if (existingHex) {
+        return aesjs.utils.hex.toBytes(existingHex);
+      }
+
+      const newKey = getRandomBytes(AES_KEY_BYTES);
+      await SecureStore.setItemAsync(key, aesjs.utils.hex.fromBytes(newKey));
+      return newKey;
+    });
+  }
+
+  private async _encrypt(key: string, value: string): Promise<string> {
+    const encryptionKey = await this._getOrCreateKey(key);
+    const iv = getRandomBytes(IV_BYTES);
+    const cipher = new aesjs.ModeOfOperation.ctr(encryptionKey, new aesjs.Counter(iv));
+    const encryptedBytes = cipher.encrypt(aesjs.utils.utf8.toBytes(value));
+
+    // IV travels with the ciphertext it belongs to — this, not a fresh key every write, is what
+    // keeps CTR mode safe now that the key is stable (see class doc). Fixed 32-char hex prefix.
+    return aesjs.utils.hex.fromBytes(iv) + aesjs.utils.hex.fromBytes(encryptedBytes);
+  }
+
+  /**
+   * Returns the decrypted plaintext, or `null` specifically when there is no SecureStore key on
+   * file to decrypt with (see `getItem` for what that means now that the key is stable, not
+   * per-write). Throws for anything else that makes the ciphertext unreadable — too short to
+   * contain an IV, or a key/IV of the wrong byte length once hex-decoded (`aes-js`'s `Counter`
+   * and `AES` constructors both validate size and throw). Deliberately does NOT attempt to
+   * validate that the decrypted bytes are a real session — a decrypt that "succeeds" with wrong
+   * key/IV material produces well-formed-looking garbage, not an exception, so that check
+   * belongs in the caller (`getItem`), which knows what a valid result should look like
+   * (parseable JSON) and this method does not.
+   */
   private async _decrypt(key: string, value: string): Promise<string | null> {
     const encryptionKeyHex = await SecureStore.getItemAsync(key);
     if (!encryptionKeyHex) {
       return null;
     }
 
+    if (value.length < IV_HEX_LENGTH) {
+      throw new Error('Stored value is too short to contain an IV');
+    }
+
+    const ivHex = value.slice(0, IV_HEX_LENGTH);
+    const cipherHex = value.slice(IV_HEX_LENGTH);
     const cipher = new aesjs.ModeOfOperation.ctr(
       aesjs.utils.hex.toBytes(encryptionKeyHex),
-      new aesjs.Counter(1)
+      new aesjs.Counter(aesjs.utils.hex.toBytes(ivHex))
     );
-    const decryptedBytes = cipher.decrypt(aesjs.utils.hex.toBytes(value));
+    const decryptedBytes = cipher.decrypt(aesjs.utils.hex.toBytes(cipherHex));
 
     return aesjs.utils.utf8.fromBytes(decryptedBytes);
+  }
+
+  /** Deletes whatever is stored under `key` in both stores and tells any subscriber
+   * (`onSessionRestoreFailure`) that a stored session was discarded as unreadable — as opposed
+   * to `removeItem`, which is a normal, intentional removal (e.g. sign-out) and does not
+   * notify. `Promise.allSettled` so a failure removing one of the two doesn't stop the other,
+   * and doesn't throw a second exception out of what is already an error-recovery path. */
+  private async _clearCorrupted(key: string): Promise<void> {
+    await Promise.allSettled([AsyncStorage.removeItem(key), SecureStore.deleteItemAsync(key)]);
+    notifySessionRestoreFailure(key);
   }
 
   async getItem(key: string): Promise<string | null> {
@@ -103,13 +224,39 @@ export class LargeSecureStore implements SupportedStorage {
     }
 
     try {
-      return await this._decrypt(key, raw);
+      const decrypted = await this._decrypt(key, raw);
+
+      if (decrypted === null) {
+        // AsyncStorage has a blob, but SecureStore has no key for it. With a STABLE key
+        // (this class no longer rotates it per write), a torn write cannot produce this state
+        // on its own: `setItem` always creates the key BEFORE it ever writes a blob, so a
+        // process killed between the two leaves no blob at all, not a blob with no key — the
+        // ordinary and correctly-handled "nothing was ever persisted" case above. The only
+        // ways to reach this branch are the key being removed independently of the blob (a
+        // sign-out's `removeItem` racing a concurrent read — narrow, and no worse than the
+        // sign-out already correctly landing the user on sign-in with nothing to restore) or
+        // the SecureStore entry being cleared by something outside this app (OS keychain
+        // reset, manual tampering). Neither is "there was never a session"; treat it as
+        // unreadable, not silently absent.
+        throw new Error('No SecureStore key on file for a stored ciphertext blob');
+      }
+
+      // A decrypt that does not throw is NOT proof the plaintext is real. This is the crux of
+      // the torn-write hazard: AES-CTR run with a mismatched key/IV (the residual torn-write
+      // window above, or any other bit-level corruption) produces well-formed-looking garbage
+      // bytes, not an error. A Supabase session is always a JSON object, so this is the actual
+      // validity check — without it, garbage would sail through to supabase-js looking like a
+      // real (broken) session instead of being caught here.
+      JSON.parse(decrypted);
+      return decrypted;
     } catch {
-      // Ciphertext that will not decrypt — corrupted, or its SecureStore key vanished
-      // independently of the AsyncStorage blob (e.g. app data partially cleared). This is
-      // genuinely unrecoverable, not a case of dropping a good session: returning null here
-      // is a legitimate sign-out, and `SessionProvider` (lib/session-provider.tsx) already
-      // treats a null session as "show sign-in", not a crash.
+      // Deliberately NOT "return null" and stop there (see module doc): that would present a
+      // real, previously-good session that failed to restore as indistinguishable from a user
+      // who was simply never signed in — the exact bug class issue #5 fixed for the OAuth
+      // redirect path. Clear the broken pairing so it can't linger and keep failing the same
+      // way forever, and tell any subscriber so the app layer can say something honest instead
+      // of silently landing the user on sign-in with no explanation.
+      await this._clearCorrupted(key);
       return null;
     }
   }
@@ -119,6 +266,8 @@ export class LargeSecureStore implements SupportedStorage {
     await AsyncStorage.setItem(key, encrypted);
   }
 
+  /** Intentional removal (sign-out, account deletion) — does not notify
+   * `onSessionRestoreFailure`; there is nothing to explain to the user here; they asked for it. */
   async removeItem(key: string): Promise<void> {
     await AsyncStorage.removeItem(key);
     await SecureStore.deleteItemAsync(key);

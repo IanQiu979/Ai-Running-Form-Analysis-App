@@ -39,6 +39,72 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     fallback and a "malformed JSON that happens to start with `{`" guard), corrupted-ciphertext
     fail-closed behavior, and the web/native platform split. Verified load-bearing by temporarily
     deleting the migration branch and confirming 4 of the 16 tests fail exactly as expected.
+- **Torn-write hardening for the SecureStore session adapter, same-branch review follow-up
+  (still #38).** The AES key (SecureStore) and the ciphertext (AsyncStorage) live in two stores
+  that cannot be written atomically as a pair. The initial #38 implementation above followed
+  Supabase's documented recipe literally — a fresh random key on every `setItem` — which means
+  every write was a two-store transaction: a `setItem` interrupted mid-way (app killed, device
+  out of storage) could leave a new key paired with an old blob, or an old key paired with a new
+  blob. AES-CTR does not error on that mismatch; it produces well-formed-looking garbage. The
+  next `getItem` would have decrypted "successfully" into nonsense, and — with no check beyond
+  "did decrypt throw" — handed it to supabase-js as if it were a real session, or (if the key
+  itself was missing) simply returned null, which supabase-js reads as "no session" — a real,
+  previously-good session silently laundered into an unexplained sign-out. That is the same bug
+  class issue #5 fixed for the OAuth redirect path, and this review round exists specifically so
+  it isn't fixed in one place and shipped broken in another.
+  - **Stable key, per-write IV.** `lib/secure-storage.ts`'s `_getOrCreateKey` now creates the
+    AES-256 key once per storage key and reads it back on every later call instead of
+    regenerating it. After the first successful write there is no longer a key/blob *pair* to
+    tear — SecureStore is never written again for that key, and every later `setItem` touches
+    only AsyncStorage. CTR-mode safety, which the "fresh key every write" trick existed to
+    provide, now comes from a fresh random 16-byte IV generated on every write and prepended to
+    the ciphertext it belongs to (a fixed 32-hex-char prefix `_decrypt` splits back out).
+  - **Residual window, narrowed not eliminated:** the very first write for a storage key still
+    touches two stores (key, then blob), so a process kill strictly between those two writes
+    still leaves a torn state — but since no blob was ever fully written in that case, the next
+    `getItem` sees "nothing to restore," which is honest (no session had actually been
+    established yet), not a previously-good session vanishing.
+  - **Closed the first-write race.** Two `setItem` calls racing on the very first write for the
+    same key (e.g. two auth events firing close together) could previously each find no key,
+    each mint a different one, and clobber each other. `_getOrCreateKey` now serializes that
+    step per storage key via an in-process async lock (a promise chain, not an OS-level lock —
+    sufficient because the only real hazard is concurrent `await`s within this one running JS
+    process, not two independent OS processes, which cannot race a single-instance mobile app).
+  - **A decrypt that doesn't throw is not proof it's real.** `getItem` no longer trusts `_decrypt`
+    just because it didn't throw — a wrong key/IV pairing (the residual torn-write window, or any
+    bit-level corruption) decrypts "successfully" into garbage bytes. A Supabase session is
+    always a JSON object, so `getItem` now runs `JSON.parse` on the result as the actual validity
+    check before trusting it.
+  - **Undecryptable state is cleared and reported, not silently absorbed.** On any unrecoverable
+    blob (missing key, truncated/torn ciphertext, wrong-key-length exception, or a decrypt that
+    fails the JSON check), `getItem` now clears both the AsyncStorage entry and the SecureStore
+    key (so it can't keep failing the same way forever) and calls a new
+    `onSessionRestoreFailure(key)` subscription hook — `getItem`'s `string | null` return type
+    has no room to carry a reason, so this is the side channel. `lib/session-provider.tsx`
+    subscribes to it (registered in the same effect as, and before, the `getSession()` call it
+    needs to catch) and exposes `corruptedSessionError` / `clearCorruptedSessionError`, named
+    distinctly from issue #5's `deepLinkAuthError` / `clearDeepLinkAuthError` on the same
+    context so the two additions merge cleanly. `app/(auth)/sign-in.tsx` now reads it via
+    `useSession()` with `displayedError = errorMessage ?? corruptedSessionError`, the same
+    precedence pattern issue #5 established for its own deep-link error. **Copy: no
+    purpose-written string exists for "we couldn't restore your saved sign-in."** Checked
+    `docs/design/copy-deck.md` and issue #5's additions to `lib/auth-errors.ts` /
+    `constants/copy.ts` (`signInCancelled`, `signInExpired`) first, per instruction not to invent
+    copy — neither fits (both are scoped to the OAuth PKCE flow, not a decayed at-rest session).
+    Reused `Copy.auth.error.generic` ("Sign-in didn't go through. Try again.") instead, per the
+    copy deck's own stated policy for `generic`: fall back to it for "any other auth failure"
+    without a specific string rather than inventing one. A precise string is left as future
+    `ux-copywriter` work.
+  - `lib/__tests__/secure-storage.test.ts` grew from 16 to 21 cases: the stable-key/reused-key
+    behavior with a per-write IV-uniqueness assertion, the concurrent-first-write lock (asserts
+    exactly one SecureStore key is ever created across two racing writes), and four new
+    corrupted/torn-state cases — a blob with no matching key, a truncated/too-short blob, a
+    SecureStore key of the wrong byte length (exercises the exception path), and — the core case
+    review asked for — a decrypt that succeeds under a wrong-but-validly-shaped key and must
+    still be caught by the JSON-validity check, not returned as if real. Verified load-bearing by
+    two separate mutations: removing the `JSON.parse` validity check (failed exactly the
+    "decrypt succeeds under the wrong key" test) and removing the per-key lock (failed exactly
+    the concurrency test, with `SecureStore.setItemAsync` called twice instead of once).
 - **Edge-function build/test contract closed (closes #90).** Three previously-unowned mechanics
   that #41/#43/#44/#49/#59 all silently assumed, found by the full-repo audit the same day:
   - **No runner could execute edge-function code.** Added `supabase/functions/deno.json`

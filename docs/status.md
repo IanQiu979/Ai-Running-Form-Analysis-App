@@ -194,15 +194,33 @@ milestone "done" criteria.
     buildable from the repo. **Blocks M4 going live, not the M4 build itself.**
 13. ~~**Session storage is plaintext AsyncStorage today**~~ **RESOLVED 2026-07-12 (issue #38).**
     `lib/supabase.ts` now passes `storage: secureSessionStorage` (`lib/secure-storage.ts`), the
-    "LargeSecureStore" pattern: a fresh random AES-256 key per write lives in SecureStore
-    (Keychain/Keystore-backed, 64 hex chars — provably under the 2048-byte SecureStore value
-    limit regardless of session size), and the AES-CTR-encrypted session blob lives in
-    AsyncStorage. The app's 2 existing real accounts are migrated transparently on next launch
-    (legacy plaintext JSON, detected by its leading `{`, is read once then re-encrypted) rather
-    than silently signed out. Web (`npm run web`) falls back to plain AsyncStorage —
-    `expo-secure-store` has no web implementation. Covered by `lib/__tests__/secure-storage.test.ts`
-    (16 cases: round trip, the oversized-session/2048-byte case, the migration path incl. a
-    failed-migration-write fallback, and the web/native platform split).
+    "LargeSecureStore" pattern: an AES-256 key lives in SecureStore (Keychain/Keystore-backed,
+    64 hex chars — provably under the 2048-byte SecureStore value limit regardless of session
+    size), and the AES-CTR-encrypted session blob lives in AsyncStorage. **Hardened on the same
+    branch after review**: the key is created once and reused (not regenerated per write) —
+    SecureStore and AsyncStorage can't be written atomically as a pair, so a fresh-key-per-write
+    design left every `setItem` a two-store transaction a torn write (app killed mid-write, disk
+    full) could interrupt, pairing a new key with an old blob or vice versa; AES-CTR does not
+    error on that mismatch, it produces well-formed-looking garbage. With the key stable, a torn
+    write is only possible on the very first write for a storage key (after that, every write
+    touches only AsyncStorage); CTR safety instead comes from a fresh random IV per write
+    (prepended to its ciphertext) plus a per-key async lock so two concurrent first-writes can't
+    mint two different keys. `getItem` also stopped trusting a decrypt just because it didn't
+    throw — a `JSON.parse` validity check catches the wrong-key/IV "successful" garbage decrypt
+    — and on any unrecoverable blob, clears the broken key+blob pair and calls
+    `onSessionRestoreFailure` so `lib/session-provider.tsx` surfaces `corruptedSessionError` (the
+    sign-in screen shows it via `Copy.auth.error.generic`, reused rather than inventing new copy
+    — see `lib/secure-storage.ts`'s module doc) instead of the failure reading as an unexplained
+    silent sign-out, the same bug class issue #5 fixed for the OAuth redirect path. The app's 2
+    existing real accounts are still migrated transparently on next launch (legacy plaintext
+    JSON, detected by its leading `{`, is read once then re-encrypted) rather than silently
+    signed out. Web (`npm run web`) falls back to plain AsyncStorage — `expo-secure-store` has no
+    web implementation. Covered by `lib/__tests__/secure-storage.test.ts` (21 cases: round trip,
+    the stable-key/per-write-IV behavior and its concurrency lock, the oversized-session/
+    2048-byte case, the migration path incl. a failed-migration-write fallback, four
+    corrupted/torn-state cases incl. a decrypt that "succeeds" under the wrong key, and the
+    web/native platform split) plus `app/(auth)/sign-in.tsx` now rendering
+    `corruptedSessionError` alongside its existing `errorMessage`.
 14. **NEW — Phase 4 (`analyze-form`) contract notes, carried forward from the M1 review.** Not
     code changes today; binding requirements for whoever builds M4:
     - `analyze-form` MUST derive `p_user_id` for the reserve/settle/release RPCs from the

@@ -1,8 +1,8 @@
 /**
  * Regression locks for `lib/secure-storage.ts` (issue #38, `docs/status.md` Known Issue #13).
  *
- * This is a security fix, so "compiles and does a happy-path round trip" is not enough — the
- * two things a naive swap gets wrong are exactly what this suite pins down:
+ * This is a security fix, so "compiles and does a happy-path round trip" is not enough — three
+ * things a naive implementation gets wrong are exactly what this suite pins down:
  *
  *   1. SecureStore's ~2048-byte per-value limit (case group "oversized session"). A session
  *      adapter that just proxies `storage: SecureStore` works for a tiny fixture and silently
@@ -17,6 +17,18 @@
  *      SecureStore key exists yet), which supabase-js reads as "no session" — a silent,
  *      unexplained sign-out on the very first launch after this update. That is the same bug
  *      class as issue #5, and it's the case this suite treats as load-bearing, not incidental.
+ *   3. Torn writes (case group "stable key, per-write IV" and "corrupted/torn state"). The AES
+ *      key (SecureStore) and the ciphertext (AsyncStorage) live in two stores that cannot be
+ *      written atomically. An adapter that regenerates the key on every write turns every
+ *      `setItem` into a two-store transaction that can be interrupted mid-way — leaving a new
+ *      key paired with an old blob, or vice versa — and AES-CTR does NOT error on a wrong
+ *      key/IV pairing, it produces well-formed-looking garbage. The load-bearing assertions
+ *      here are: (a) the key is created once and reused, so there is no key/blob pair left to
+ *      tear after the first write; (b) a decrypt that "succeeds" under the wrong key/IV is
+ *      still caught (via a JSON-validity check, not just exception handling) and never handed
+ *      to supabase-js as if it were real; (c) when that happens, the broken state is cleared
+ *      and reported via `onSessionRestoreFailure`, not silently presented as "no session" —
+ *      the same bug class issue #5 fixed for the OAuth redirect path.
  *
  * `aes-js` runs for real here (it's pure JS, no native module) — only `expo-secure-store` and
  * `expo-crypto` are mocked, both because they wrap native modules Jest has no device for.
@@ -24,7 +36,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
-import { createSecureSessionStorage, LargeSecureStore } from '../secure-storage';
+import {
+  createSecureSessionStorage,
+  LargeSecureStore,
+  onSessionRestoreFailure,
+} from '../secure-storage';
 
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(),
@@ -32,9 +48,9 @@ jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(),
 }));
 
-// Deterministic but non-repeating: a fresh "random" key on every call, matching the real
-// contract this class relies on (see lib/secure-storage.ts's module doc: a brand-new key per
-// `setItem` is what keeps AES-CTR mode safe here without tracking a nonce across calls).
+// Deterministic but non-repeating: a different "random" value on every call. Exercised by both
+// the (now one-time) AES key generation and the per-write IV generation — see the module doc
+// in lib/secure-storage.ts for why the IV, not the key, is what has to vary per write now.
 jest.mock('expo-crypto', () => {
   let calls = 0;
   return {
@@ -114,18 +130,55 @@ describe('LargeSecureStore — basic round trip', () => {
     expect(mockDeleteItemAsync).toHaveBeenCalledWith(KEY);
     expect(await store.getItem(KEY)).toBeNull();
   });
+});
 
-  it('generates a fresh SecureStore key on every setItem, not a reused one', async () => {
+describe('LargeSecureStore — stable key, per-write IV (torn-write hardening)', () => {
+  it('creates the SecureStore key once and reuses it on later writes, varying only the IV', async () => {
     const store = new LargeSecureStore();
+
     await store.setItem(KEY, JSON.stringify({ access_token: 'first' }));
-    const firstKey = secureStoreState.get(KEY);
+    expect(mockSetItemAsync).toHaveBeenCalledTimes(1); // the one-time key creation
+    const keyAfterFirstWrite = secureStoreState.get(KEY);
+    const firstCiphertext = await AsyncStorage.getItem(KEY);
 
     await store.setItem(KEY, JSON.stringify({ access_token: 'second' }));
-    const secondKey = secureStoreState.get(KEY);
+    // Still exactly once — the second write only READ the key, it did not recreate it. This is
+    // the core of the fix: after the first write there is no further SecureStore write for this
+    // key, so there is no longer a key/blob pair that a torn write could tear apart.
+    expect(mockSetItemAsync).toHaveBeenCalledTimes(1);
+    expect(secureStoreState.get(KEY)).toBe(keyAfterFirstWrite);
 
-    expect(firstKey).not.toBe(secondKey);
-    // And the second write still decrypts correctly under its own new key.
+    const secondCiphertext = await AsyncStorage.getItem(KEY);
+    // Same key, but the leading 32 hex chars (the IV) must differ between writes — reusing a
+    // key with a reused IV is exactly the CTR-mode keystream-reuse hazard a fresh key every
+    // write used to paper over.
+    const firstIv = (firstCiphertext as string).slice(0, 32);
+    const secondIv = (secondCiphertext as string).slice(0, 32);
+    expect(firstIv).not.toBe(secondIv);
+
     expect(await store.getItem(KEY)).toBe(JSON.stringify({ access_token: 'second' }));
+  });
+
+  it('serializes concurrent first-writes for the same key so only one AES key is ever created', async () => {
+    // The exact race named in review: two setItem calls, both starting before either has found
+    // an existing key, must not each generate and store a DIFFERENT key — only one of them
+    // should win the key creation, and the other must read that same key back rather than
+    // clobbering it with its own.
+    const store = new LargeSecureStore();
+    const sessionA = JSON.stringify({ access_token: 'first-writer' });
+    const sessionB = JSON.stringify({ access_token: 'second-writer' });
+
+    await Promise.all([store.setItem(KEY, sessionA), store.setItem(KEY, sessionB)]);
+
+    // Only one key was ever created in SecureStore, no matter which setItem's blob "won" the
+    // final AsyncStorage write.
+    expect(mockSetItemAsync).toHaveBeenCalledTimes(1);
+
+    // And whichever blob ended up stored, it decrypts correctly under that one key — neither
+    // writer's blob was orphaned by a different, clobbering key (which would show up here as a
+    // failed decrypt/JSON-parse instead of one of the two real values).
+    const finalValue = await store.getItem(KEY);
+    expect([sessionA, sessionB]).toContain(finalValue);
   });
 });
 
@@ -169,6 +222,7 @@ describe('LargeSecureStore — the 2048-byte SecureStore limit (issue #38 core r
 
     await store.setItem(KEY, OVERSIZED_SESSION);
 
+    // The stored blob is now `<32-char IV><ciphertext>`, still unbounded in AsyncStorage.
     const ciphertext = await AsyncStorage.getItem(KEY);
     expect(ciphertext).not.toBeNull();
     expect(ciphertext).not.toBe(OVERSIZED_SESSION);
@@ -243,17 +297,109 @@ describe('LargeSecureStore — legacy plaintext migration (issue #38 migration r
   });
 });
 
-describe('LargeSecureStore — unreadable ciphertext fails closed, not open', () => {
-  it('returns null (a legitimate sign-out) instead of throwing when the SecureStore key is corrupt', async () => {
-    // A SecureStore entry exists for this key (so this is NOT the "never written" branch)
-    // but it decodes to the wrong AES key length — simulates corrupted/tampered stored state.
+describe('LargeSecureStore — torn/corrupted state fails closed AND is reported, not silently absorbed', () => {
+  it('a blob with no matching SecureStore key is treated as corrupted, cleared, and reported (not "no session")', async () => {
+    // With a stable key, a torn `setItem` cannot itself produce "blob present, key absent" —
+    // the key is always written before the blob (see class doc in lib/secure-storage.ts). This
+    // state can still arise if the SecureStore entry is removed independently of the blob (a
+    // narrow removeItem/read race, or the OS keychain being reset out from under the app) —
+    // constructed directly here to prove the defensive handling regardless of how it's reached.
+    await AsyncStorage.setItem(KEY, `${'ab'.repeat(16)}${'cd'.repeat(20)}`); // IV+ciphertext-shaped hex
+
+    const onFailure = jest.fn();
+    const unsubscribe = onSessionRestoreFailure(onFailure);
+    try {
+      const store = new LargeSecureStore();
+      const result = await store.getItem(KEY);
+
+      expect(result).toBeNull();
+      expect(onFailure).toHaveBeenCalledWith(KEY);
+      expect(await AsyncStorage.getItem(KEY)).toBeNull(); // cleared, doesn't loop forever
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('a torn/truncated blob shorter than one IV is treated as corrupted, cleared, and reported', async () => {
+    secureStoreState.set(KEY, '11'.repeat(32)); // a validly-shaped 32-byte key IS present
+    await AsyncStorage.setItem(KEY, 'ab12'); // but the blob is far too short to hold a 16-byte IV
+
+    const onFailure = jest.fn();
+    const unsubscribe = onSessionRestoreFailure(onFailure);
+    try {
+      const store = new LargeSecureStore();
+      const result = await store.getItem(KEY);
+
+      expect(result).toBeNull();
+      expect(onFailure).toHaveBeenCalledWith(KEY);
+      expect(await AsyncStorage.getItem(KEY)).toBeNull();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('a SecureStore key of the wrong byte length throws inside decrypt and is treated as corrupted', async () => {
+    // A validly-shaped ciphertext blob (IV + some ciphertext), but the "key" decodes to the
+    // wrong length for AES — aes-js's own Counter/AES constructors throw on this, exercising
+    // getItem's try/catch path specifically (as opposed to the JSON-validity path below).
     secureStoreState.set(KEY, '1234'); // 2 bytes, not a valid 16/24/32-byte AES key
-    await AsyncStorage.setItem(KEY, 'aabbccdd'); // some hex-shaped ciphertext
+    await AsyncStorage.setItem(KEY, `${'ab'.repeat(16)}${'cd'.repeat(20)}`);
 
+    const onFailure = jest.fn();
+    const unsubscribe = onSessionRestoreFailure(onFailure);
+    try {
+      const store = new LargeSecureStore();
+      const result = await store.getItem(KEY);
+
+      expect(result).toBeNull();
+      expect(onFailure).toHaveBeenCalledWith(KEY);
+      expect(await AsyncStorage.getItem(KEY)).toBeNull();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('THE CORE HAZARD: a decrypt that succeeds under the wrong key produces garbage, not an exception — and must still be caught', async () => {
+    // This is exactly what review flagged: AES-CTR does not error on a mismatched key/IV pair,
+    // it silently produces well-formed-looking garbage bytes. Write a real session, then swap
+    // in a DIFFERENT but still validly-shaped (32-byte) key — simulating the residual
+    // torn-write/corruption window — and prove the garbage plaintext this produces is neither
+    // returned as if it were real NOR silently swallowed as "no session".
     const store = new LargeSecureStore();
-    const result = await store.getItem(KEY);
+    const session = JSON.stringify({ access_token: 'a-real-session', refresh_token: 'r' });
+    await store.setItem(KEY, session);
 
-    expect(result).toBeNull();
+    const wrongButValidLengthKey = '42'.repeat(32); // 32 bytes, decodes fine, but is NOT the real key
+    secureStoreState.set(KEY, wrongButValidLengthKey);
+
+    const onFailure = jest.fn();
+    const unsubscribe = onSessionRestoreFailure(onFailure);
+    try {
+      const result = await store.getItem(KEY);
+
+      // Must not be the real session (that would mean the garbage-check didn't run) and must
+      // not be some OTHER non-null garbage string either (that would mean it decrypted "ok"
+      // and was handed back as if it were real) — null is the only acceptable outcome, paired
+      // with the failure actually being reported below.
+      expect(result).toBeNull();
+      expect(onFailure).toHaveBeenCalledWith(KEY);
+      expect(await AsyncStorage.getItem(KEY)).toBeNull();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('onSessionRestoreFailure unsubscribe actually stops further notifications', async () => {
+    const onFailure = jest.fn();
+    const unsubscribe = onSessionRestoreFailure(onFailure);
+    unsubscribe();
+
+    secureStoreState.set(KEY, '1234'); // forces the corrupted path
+    await AsyncStorage.setItem(KEY, `${'ab'.repeat(16)}${'cd'.repeat(20)}`);
+    const store = new LargeSecureStore();
+    await store.getItem(KEY);
+
+    expect(onFailure).not.toHaveBeenCalled();
   });
 });
 

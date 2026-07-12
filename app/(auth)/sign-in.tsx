@@ -31,6 +31,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { signInWithGoogle } from '@/lib/auth';
 import { mapAuthError } from '@/lib/auth-errors';
 import { checkPasswordBreached } from '@/lib/hibp';
+import { useSession } from '@/lib/session-provider';
 import { supabase } from '@/lib/supabase';
 
 type Mode = 'signIn' | 'signUp';
@@ -53,13 +54,26 @@ export default function SignInScreen() {
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const isBusy = pendingAction !== null;
 
+  // `corruptedSessionError` (lib/session-provider.tsx) carries a failure from OUTSIDE this
+  // screen's own try/catch entirely: `getSession()`'s initial storage read, which can run
+  // before this screen even mounts (app/_layout.tsx's Stack.Protected only routes here once
+  // `isLoading` flips false). Local `errorMessage` wins if both happen to be set, matching the
+  // same precedence issue #5 established for `deepLinkAuthError` on this same screen.
+  const { corruptedSessionError, clearCorruptedSessionError } = useSession();
+  const displayedError = errorMessage ?? corruptedSessionError;
+
+  function clearErrors() {
+    setErrorMessage(null);
+    clearCorruptedSessionError();
+  }
+
   function toggleMode() {
     setMode((current) => (current === 'signIn' ? 'signUp' : 'signIn'));
-    setErrorMessage(null);
+    clearErrors();
   }
 
   async function handleGoogleSignIn() {
-    setErrorMessage(null);
+    clearErrors();
     setPendingAction('google');
     try {
       // null = the user cancelled/dismissed the browser sheet — not an error, so no message.
@@ -78,7 +92,7 @@ export default function SignInScreen() {
       return;
     }
 
-    setErrorMessage(null);
+    clearErrors();
     setPendingAction('email');
     try {
       if (mode === 'signUp') {
@@ -260,9 +274,9 @@ export default function SignInScreen() {
               </View>
             )}
 
-            {errorMessage !== null && (
+            {displayedError !== null && (
               <Text style={styles.errorText} accessibilityLiveRegion="polite">
-                {errorMessage}
+                {displayedError}
               </Text>
             )}
           </View>
