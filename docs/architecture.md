@@ -48,7 +48,11 @@ lib/
   auth.ts
   session-provider.tsx
   crypto-polyfill.ts
-  hibp.ts                 # client-side leaked-password check (issue #70) — see "Current —
+  hibp.ts                 # client-side UX pre-check + defense-in-depth (issue #70) — server-side
+                          # HIBP is now the enforcement point, see "Current — Supabase config"
+                          # below
+  auth-errors.ts           # mapAuthError, extracted from sign-in.tsx (issue #70) — maps the
+                          # server's typed leaked-password rejection to copy; see "Current —
                           # Supabase config" below
   consent.ts               # fail-closed read/write of the consent record (issue #68) — see
                           # "Current — consent record & disclaimer" below
@@ -94,8 +98,16 @@ lib/
   hibp.ts                 # current (issue #70) — client-side HaveIBeenPwned leaked-password
                           # check via HIBP's keyless range API (only a 5-char hash prefix ever
                           # leaves the device); runs in sign-in.tsx's sign-up branch only, before
-                          # signUp. Mitigates, not a replacement for, the still-Pro-gated
-                          # server-side setting — see "Current — Supabase config" below.
+                          # signUp. NOT the enforcement point since 2026-07-12 — server-side HIBP
+                          # is now enabled and is the authority. Kept deliberately (Ian's call) as
+                          # a fast UX pre-check plus defense-in-depth; still bypassable and fails
+                          # open, same as before — see "Current — Supabase config" below.
+  auth-errors.ts           # current (issue #70) — `mapAuthError`, extracted from sign-in.tsx so
+                          # this security-relevant mapping gets unit-test coverage (screens
+                          # aren't unit-tested by convention). Maps the server's typed
+                          # `AuthWeakPasswordError` to `Copy.auth.error.passwordBreached` /
+                          # `.passwordTooShort` — see "Current — Supabase config" below for the
+                          # `reasons` accumulation subtlety this depends on.
   consent.ts               # current (issue #68) — hasConsented/grantConsent/withdrawConsent
                           # against public.consents; fails closed (throws) on any query error
                           # rather than defaulting either way — see "Current — consent record &
@@ -287,6 +299,18 @@ required on every PR would make unrelated PRs flaky against a third party's upti
   back at an unobservable control). Only sustained failure across all 3 attempts opens or
   updates a labelled `hibp-canary` + `security` GitHub issue; recovery auto-closes it. See the
   design rationale in `docs/superpowers/specs/2026-07-12-hibp-canary-design.md`.
+- **Also asserts the server-side setting, not just the client-side check (added 2026-07-12, issue
+  #70).** A second, read-only step GETs the hosted project's auth config via the Management API
+  and asserts `password_hibp_enabled === true`, filing a distinct `security`-labelled issue
+  (self-healing on recovery, same as the canary above) if it ever reverts. It deliberately does
+  **not** probe by attempting a real signup with a known-breached password — in the exact
+  scenario it exists to catch (protection off), that probe would succeed and create a real
+  account on the production project. Rationale: the setting is Pro-plan-gated, so a billing lapse
+  or a stray Dashboard toggle silently disables it, and `lib/hibp.ts` fails open, so it would not
+  catch that on its own — nothing else in the repo can even observe this setting, since the
+  Supabase CLI has no `config.toml` key for it. **This step needs a `SUPABASE_ACCESS_TOKEN` repo
+  secret, which does not exist yet** — until it's added, the step deliberately fails the job
+  rather than passing green, so an unarmed monitor can't be mistaken for real coverage.
 - **Collects no user data**: the only two strings ever hashed are the public test vector
   `password` and a fresh random UUID, run from a GitHub runner, not a user's device. It adds no
   SDK to the app bundle, so it does not change any App Store privacy-label answer (see
@@ -392,9 +416,9 @@ the original video (see "Media pipeline" below).
    never going to be called for this request either.
 6. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames with their actual
    sampled timestamps (Android snaps to keyframes, so the actual timestamps are recorded rather
-   than assumed to be evenly spaced); those same frames were already uploaded direct-to-bucket,
-   and their storage paths ride in the request alongside the base64 frame data. Frame count per
-   tier: Free 1 / Pro 5 / Elite 8.
+   than assumed to be evenly spaced). The frames ride in the request body as base64 and are
+   **not** uploaded by the client — the server writes them to the bucket itself, after the model
+   call (#88). Frame count per tier: Free 1 / Pro 5 / Elite 8.
 7. **Build the grounded prompt**: system message = the certified PACE knowledge (framework +
    injury flags + drills, bundled with the function, not fetched per call), then the image
    block(s) plus their timestamps, then the PACE scoring instruction. Detail scales with tier
@@ -415,19 +439,35 @@ the original video (see "Media pipeline" below).
    errored) and the real token usage from the response — this is what feeds `actual_usd` and the
    circuit breaker; skipping it on any exit path leaves that call's reservation stuck as
    `'pending'` until `pending_timeout_seconds` ages it out on its own.
-10. **Settle** — mark the reservation delivered, persist the result to `analyses`
-    (`result` JSONB, `media_paths`, `tier_at_run`, `frame_count`, `is_fallback`), return
-    `{ result, analysisId, isFallback }`.
+10. **Upload, then settle** — on a success or honest-partial, the function uploads the frames
+    itself (service-role) to `{user_id}/{analysis_id}/frame-{NN}.jpg` — the row already exists, so
+    no object can ever be orphaned — then marks the reservation delivered, persisting the result
+    to `analyses` (`result` JSONB, `media_paths`, `tier_at_run`, `frame_count`, `is_fallback`) and
+    returning `{ result, analysisId, isFallback }`. A frame that fails to upload does **not** fail
+    the request: settle records only the paths that landed, so `media_paths` never names an object
+    that doesn't exist. On a release path nothing is uploaded at all.
 
 ## Planned — media pipeline
 
 Frames only, decided over "upload the media" (self-contradictory as originally specced — the
 function was told to upload media it never receives).
 
-- The client extracts and downscales the analyzed frames, then uploads **only those frames**
-  direct-to-bucket via supabase-js Storage, under `{user_id}/{analysis_id}/…`, with
-  owner-scoped `storage.objects` RLS (insert/select/delete where the path's first segment =
-  `auth.uid()`).
+- The client extracts and downscales the analyzed frames and sends them **in the request body as
+  base64**. It does not upload them — the `analyze-form` function writes them to the private
+  bucket with the service-role key, under `{user_id}/{analysis_id}/frame-{NN}.jpg`, and only
+  after the model call has succeeded (#88 — the old ordering was circular: the client would have
+  had to name `{user_id}/{analysis_id}/` before the `analysis_id` that path needs existed).
+  Frames were previously specced to be uploaded twice (once direct-to-bucket, once in the body);
+  now they cross the wire once.
+- `storage.objects` RLS is **select-own only**: the client can read its own frames to mint signed
+  URLs, and can no longer insert or delete. `analyses` is likewise select-own only — deleting an
+  analysis is the job of `DELETE /functions/v1/analysis/:id` (#57), which removes the row and
+  purges the storage prefix together.
+- **Purge deletes by prefix** `{user_id}/{analysis_id}/`, never by iterating `media_paths`.
+  Reachability comes from the row existing, not from `media_paths` being populated — a crash
+  between the upload and the settle leaves objects under a prefix whose row is still `reserved`
+  with an empty `media_paths`. `media_paths` is the frame-strip display list, not the deletion
+  authority. #47/#57/#58 all inherit this rule.
 - **The original full-resolution video is never uploaded or stored** — it stays on the device.
   This keeps the free-plan 1GB bucket viable (a few hundred KB per analysis instead of
   60–130MB) and needs no video player (`expo-video` is not installed).
@@ -438,8 +478,12 @@ function was told to upload media it never receives).
   body ≤5MB, enforced client-side and re-checked server-side.
 - **Backgrounding recovery**: the server persists the result and settles quota even if the
   client is suspended before it receives the response — the next launch surfaces "Your analysis
-  finished — see Past Analyses," so no one reports a stolen credit. Frame upload uses the
-  resumable/TUS path for anything large enough to want progress.
+  finished — see Past Analyses," so no one reports a stolen credit.
+
+**As of 2026-07-12, this section describes the target contract, not yet the live one** — the
+migration that makes it true (`20260712123606_frame_upload_ordering.sql`) is written but not yet
+applied to the live project; see "Current — DB schema" below and `docs/status.md` Known Issue
+#16.
 
 **Elite comparison** (decided, kept minimal): a client-side view of two already-stored
 `analyses` rows side by side with per-pillar score deltas. It reads two rows the user already
@@ -462,7 +506,7 @@ RLS.
 
 | Method / Route | Auth | Body | Returns | Notes |
 |---|---|---|---|---|
-| `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], mediaPaths: string[], idempotencyKey }` | `{ result, analysisId, isFallback }` or `402` over-quota / `403` anon | Core call. `mediaPaths` are the direct-to-bucket paths of the same frames being analyzed — nothing large rides the JSON body. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. |
+| `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | `{ result, analysisId, isFallback }` or `402` over-quota / `403` anon | Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. |
 | `POST /functions/v1/purchase-tier` | JWT | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` | Same contract as V2.2; v2 swaps `source` to receipt verification. |
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, periodEnd }` | Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). Computed from `count(analyses)`, never a client counter. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true }` | User-initiated delete: removes the `analyses` row **and** its frame objects atomically, so they can't get out of sync. |
@@ -477,14 +521,34 @@ Direct Supabase-client reads (RLS-guarded, `user_id = auth.uid()`): list own `an
 own `subscriptions`; read own frames from the private bucket via short-TTL signed URLs. Inserts
 into `analyses` happen only inside `analyze-form`.
 
+## Pending — frame-upload ordering fix (#88), migration written but NOT applied
+
+`supabase/migrations/20260712123606_frame_upload_ordering.sql` exists in the repo and changes
+`reserve_analysis`/`settle_analysis`'s signatures and three RLS policies (see below), but **it
+has not been applied to the live project**. There is no non-production Supabase environment
+(#92), so applying it goes straight to prod; the worktree this was authored in was explicitly
+scoped to write the migration file only. The "Current — DB schema" section below still describes
+what is actually live today (the pre-#88 contract) — do not treat the "Planned" sections above,
+which already describe the post-#88 contract, as deployed until this migration is applied and
+verified (`docs/superpowers/plans/2026-07-12-frame-upload-ordering.md` Task 2 has the exact
+queries).
+
+**Also overlaps issue #2** (free quota resettable via client `DELETE` on `analyses`), being
+worked concurrently in a sibling worktree. Both want the `analyses` DELETE policy gone; #2 may
+additionally rewrite `reserve_analysis`'s quota-counting query, which this migration's
+`create or replace function public.reserve_analysis(...)` would silently overwrite if applied
+after #2's without merging the two function bodies by hand first. See the migration file's own
+header comment and `docs/status.md` Known Issue #16 for the full note.
+
 ## Current — DB schema (LIVE, applied 2026-07-11 – 2026-07-12)
 
-The live Supabase project (`v2.3Analysis`) has **8 migrations applied** (`supabase db push`,
+The live Supabase project (`v2.3Analysis`) has **9 migrations applied** (`supabase db push`,
 security advisors clean) — this is the as-built schema, not the draft in `planning/03` (which
 drifted on a few points, noted inline below; `planning/03` and `planning/02` should be treated
 as the design intent, this section as ground truth for what's actually deployed). The first 7
-landed with M1 on 2026-07-11; the 8th, `consents` (issue #68), landed 2026-07-12 — see "Current —
-consent record & disclaimer" above.
+landed with M1 on 2026-07-11; the 8th and 9th, `consents` and `consents_grant_hardening` (issue
+#68), landed 2026-07-12 — see "Current — consent record & disclaimer" above. **A 10th migration
+(#88) is written but not yet applied — see "Pending" just above.**
 
 ```sql
 -- public.profiles: one row per auth.users row, auto-created by an AFTER INSERT trigger
@@ -538,6 +602,10 @@ consents       (id uuid pk default gen_random_uuid(),
 sole enforcement point.** All three are `SECURITY DEFINER`, `EXECUTE` revoked from
 `public`/`anon`/`authenticated` and granted only to `service_role` — so only a future edge
 function calling with the service-role key can invoke them, never the client directly.
+**Signatures below are what's live today; #88's migration (written, not yet applied — see
+"Pending" above) changes `reserve_analysis` to 4 args (drops `p_media_paths`) and
+`settle_analysis` to 5 (gains it, with a `{p_user_id}/{p_analysis_id}/` namespace guard) once
+applied.**
 
 - **`reserve_analysis(p_user_id, p_idempotency_key, p_media_type, p_frame_count, p_media_paths)`**
   — the sole write path for new `analyses` rows. Serializes concurrent calls for one user via
@@ -581,6 +649,10 @@ preferred so the row and its Storage objects can't get out of sync) — no clien
 since rows are written only by the RPCs above. `consents` is select-own and **insert-own only** —
 deliberately **no UPDATE and no DELETE policy for anyone**, which is what makes the log
 append-only (RLS default-denies whatever it has no policy for).
+**The `analyses` delete-own policy above is what #88's migration drops** (a client-side row
+delete would strand that row's frames now that the client's storage `DELETE` is also going away
+— see "Pending" above); it also happens to be the exact policy issue #2 needs gone, for a
+different reason (deleting a row currently resets the free-tier lifetime quota count).
 
 **Media privacy, as deployed**: the private `media` bucket (5MB/object cap, `image/jpeg` only)
 has owner-scoped `storage.objects` RLS for insert/select/delete — first path segment must equal
@@ -588,6 +660,9 @@ has owner-scoped `storage.objects` RLS for insert/select/delete — first path s
 deleted, never edited in place). Photos/videos of people are sensitive; only the analyzed
 frames (never the original video) are ever uploaded. No public URLs — access is via signed URLs
 or authenticated reads only.
+**#88's migration drops the insert and delete policies here too** (server uploads with
+service-role, which bypasses RLS; purge belongs to #57/#58) — once applied, this bucket is
+select-own only from the client's side.
 
 ## Current — AI spend guardrails substrate (issue #91, 2026-07-12)
 
@@ -764,16 +839,36 @@ to own).
 - **Dashboard-only, never pushed from this file**: which providers are enabled (`google` +
   `email` on; `apple` and `anonymous_users` off — set directly in the dashboard, `docs/status.md`
   Known Issue #3), the Google OAuth client ID/secret, and any future Apple Services ID/key.
-- **Server-side HaveIBeenPwned leaked-password rejection: documented in `config.toml` but still
-  NOT applied** — attempted live via the same PATCH mechanism during the M1 security audit and
-  rejected with HTTP 402 ("available on Pro Plans and up"); this project is below that tier, so
-  it's recorded as deferred rather than silently dropped. **Mitigated, not replaced, by a
-  client-side check added for issue #70**: `lib/hibp.ts`'s `checkPasswordBreached` reimplements
-  the same HIBP data via the free, keyless Pwned Passwords range API, called from
-  `(auth)/sign-in.tsx`'s sign-up branch before `supabase.auth.signUp`. It is not equivalent — the
-  client-side check is bypassable (a caller can talk to the Supabase Auth API directly and skip
-  it), so it protects real users without closing the underlying gap and issue #70 stays open. If
-  this project ever moves to Pro, turn the server-side setting on and delete `lib/hibp.ts`.
+- **Server-side HaveIBeenPwned leaked-password rejection: ENABLED and is the authority (issue
+  #70, closed 2026-07-12).** Attempting to enable it during the M1 security audit
+  (2026-07-11) returned HTTP 402 ("available on Pro Plans and up") because the org
+  (`Echo_Running_Final`) was on the Free plan. The org has since moved to **Pro**, which removed
+  the gate: `password_hibp_enabled = true` was set via the same scoped Management API PATCH
+  (`/v1/projects/vputdomdlknvthnzritt/config/auth`, HTTP 200) and verified live — a breached
+  password now hard-fails `signUp` with HTTP 422, `error_code: 'weak_password'`,
+  `reasons: ['pwned']`; a strong password still succeeds. The `auth_leaked_password_protection`
+  security-advisor lint is gone, and **the project's security advisor list is now completely
+  empty (zero findings)**.
+  - **`lib/hibp.ts` is deliberately KEPT (Ian's call), not deleted, now that the server enforces
+    the real rule.** Its role changed: it is no longer the enforcement point, only (1) a fast,
+    inline pre-check that gives instant feedback before the `signUp` round-trip, and (2)
+    defense-in-depth if `password_hibp_enabled` is ever flipped off again (a billing lapse or a
+    Dashboard toggle — the setting is Pro-plan-gated, so a downgrade silently disables it). It is
+    unchanged from before: still client-side, still bypassable (a caller can talk to the
+    Supabase Auth API directly and skip it), and still fails open on a HIBP timeout/outage — none
+    of that is a coverage gap anymore, because the server backstops it.
+  - **New `lib/auth-errors.ts`** — `mapAuthError`, extracted out of `(auth)/sign-in.tsx`'s catch
+    block purely so this mapping gets real unit-test coverage (`lib/__tests__/auth-errors.test.ts`,
+    8 tests, mutation-verified). It takes the raw caught `unknown`, not a message string, because
+    telling the server's breach rejection apart from a plain too-short password needs
+    supabase-js's typed `AuthWeakPasswordError.reasons` array — both throw the identical error
+    class. **A GoTrue subtlety this depends on**: `reasons` accumulates rather than tagging one
+    cause, so a password that is both too short and breached returns
+    `['length', 'pwned']` (verified live with `"abc123"`). `mapAuthError` checks `length` before
+    `pwned` so the more actionable message wins — a user is never told only "breached" and left
+    never learning the 8-character rule.
+  - **The daily canary now also watches the server-side setting, not just the client-side
+    check** — see "Current — CI" below.
 - **A discovery, not a config change**: the hosted Management API has **no field for a
   sign-in/sign-up rate limit** — `[auth.rate_limit].sign_in_sign_ups` in `config.toml` is a
   CLI/self-hosted-`supabase start`-only setting with no hosted equivalent; a PATCH attempt was

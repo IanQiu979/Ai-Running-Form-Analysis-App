@@ -54,6 +54,93 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     closed by `AGENTS.md`'s mandatory `security-auditor` review of the hot list, not by this
     migration. Also still open, and not something buildable from this repo: the hard spend
     ceiling in the Anthropic Console (Known Issue #16).
+- **Issue #70 is genuinely fixed, not just mitigated: server-side HaveIBeenPwned leaked-password
+  rejection is now enabled and is the authority.** The blocker was the org (`Echo_Running_Final`)
+  sitting on the Free plan — enabling `password_hibp_enabled` returned HTTP 402 during the M1
+  security audit (2026-07-11). The org is now on the **Pro plan**, which removed the gate.
+  - Set `password_hibp_enabled = true` on the hosted project (`vputdomdlknvthnzritt`) via a
+    Management API PATCH to `/v1/projects/{ref}/config/auth`. Returned HTTP 200.
+  - **Verified live**: a breached password now hard-fails at `signUp` with HTTP 422,
+    `error_code: 'weak_password'`, `reasons: ['pwned']`; a strong password still succeeds. The
+    `auth_leaked_password_protection` security-advisor lint is gone — **the project's security
+    advisor list is now completely empty (zero findings)**.
+  - **`lib/hibp.ts` is deliberately KEPT (Ian's call)**, but its role changes: it is no longer
+    the enforcement point, the server is. It stays as (1) a fast inline pre-check for UX —
+    instant feedback before the `signUp` round-trip — and (2) defense-in-depth if
+    `password_hibp_enabled` is ever flipped off again. It remains client-side, bypassable, and
+    fails open on a HIBP timeout/outage, same as before; that is no longer a coverage gap, since
+    the server backstops it.
+  - New `lib/auth-errors.ts` — `mapAuthError` extracted out of `app/(auth)/sign-in.tsx`'s catch
+    block so this security-relevant mapping gets real unit-test coverage (screens aren't
+    unit-tested by convention). It takes the raw caught `unknown`, not just a message string,
+    because the new branch needs supabase-js's typed `AuthWeakPasswordError.reasons` array to
+    tell a server-side breach rejection apart from a plain too-short password — both throw the
+    same error class. Covered by new `lib/__tests__/auth-errors.test.ts` (8 tests,
+    mutation-verified).
+  - **A GoTrue subtlety worth recording**: `reasons` is a set, not a tag — it accumulates, so a
+    password that is both too short and breached returns `['length', 'pwned']` (verified live
+    with `"abc123"`). `mapAuthError` therefore checks `length` before `pwned`: the more
+    actionable message wins, so a user isn't told only "breached" and left never learning the
+    8-character rule.
+  - `.github/workflows/hibp-canary.yml` gained a second, read-only assertion that
+    `password_hibp_enabled` is still `true` on every daily run, filing a distinct
+    `security`-labelled issue if it ever reverts (self-healing on recovery, same as the
+    existing canary). Rationale: the control is Pro-plan-gated, so a billing lapse or a
+    Dashboard toggle could silently disable it, and `lib/hibp.ts` fails open, so it would NOT
+    catch that on its own. **This assertion needs a `SUPABASE_ACCESS_TOKEN` repo secret, which
+    does not exist yet** — until Ian adds it, the step fails loudly (rather than passing green)
+    so an unarmed monitor can't be mistaken for coverage.
+  - `docs/status.md`, `docs/architecture.md`, and `docs/blocked-on-apple.md` updated: #70 moves
+    from "mitigated, blocked on Supabase Pro" to resolved; the Known Issue about the client-side
+    check being the only line of defense is rewritten to reflect that the server now backstops
+    it.
+  - Verification: `npm run typecheck && npm run lint && npm test` all clean (116 tests).
+- **Frame uploads move server-side, after the model call — contract settled, migration written
+  but NOT applied to the live project (issue #88).** The old contract was both unbuildable and
+  leaking: `reserve_analysis` minted the analysis id server-side yet took `p_media_paths` as an
+  input, so the client had to name `{user_id}/{analysis_id}/` before that id existed — and every
+  rejection branch (402 over-quota, frame cap, anti-farming) returned *before* the insert, so a
+  Free user who had spent their one lifetime analysis uploaded frames, got a 402, and left
+  images of their body in the bucket with no row pointing at them, undeletable forever.
+  - **Changed** `reserve_analysis` to drop `p_media_paths` (now 4 args) and `settle_analysis` to
+    take it (now 5 args), guarded so every path must sit under `{p_user_id}/{p_analysis_id}/` —
+    which is what permanently closes #8. Old signatures are `drop function`'d, not merely
+    replaced, so no overload keeps the old contract callable.
+  - **Removes** the client's `INSERT` and `DELETE` policies on `storage.objects` — the server
+    uploads with the service-role key, so a bucket-fill by an authenticated client (#7) stops
+    being *possible* rather than being budgeted against.
+  - **Removes** the client's `DELETE` policy on `analyses`. With the storage `DELETE` gone, a
+    client-side row delete would have stranded that row's frames — #88's own bug from the other
+    end. Deletion becomes exclusively #57's edge function, which makes **#57 a hard prerequisite
+    for any user-facing delete**. Nothing regressed today: no client code deletes an analysis and
+    the M6 delete UI does not exist. This is also the exact policy issue #2 needs gone (deleting
+    a row currently resets the free-tier lifetime quota count) — see the overlap note below.
+  - **Establishes** that purge deletes by the `{user_id}/{analysis_id}/` **prefix**, never by
+    iterating `media_paths` — reachability comes from the row existing, not from `media_paths`
+    being populated. #47/#57/#58 inherit this.
+  - **Net effect for the client, once applied:** frames cross the wire **once** (base64 in the
+    body) instead of twice (bucket + body), and `lib/frames.ts` (#34) never touches Storage.
+  - **NOT applied to the live `v2.3Analysis` project.** There is no non-production Supabase
+    environment (#92), so applying goes straight to prod, and this work was explicitly scoped to
+    write the migration file only (`supabase/migrations/20260712123606_frame_upload_ordering.sql`)
+    — read-only MCP queries confirmed the live schema matches the repo's other 9 migrations
+    exactly, with no drift, before this file was authored. Applying it and running the live
+    verification queries (`docs/superpowers/plans/2026-07-12-frame-upload-ordering.md` Task 2) is
+    the required next step before #34/#44 are built.
+  - **Overlaps issue #2**, worked concurrently in a sibling worktree: both fixes drop the same
+    `analyses` DELETE policy (compatible), but #2 may also rewrite `reserve_analysis`'s
+    quota-counting query inside the function body, and this migration's `create or replace
+    function public.reserve_analysis(...)` is a full body replacement — whichever migration
+    applies last silently wins in full. The two `reserve_analysis` bodies need manual merging
+    before either is applied to the live project, not a sequential apply of both files.
+  - Added `supabase/__tests__/frame-upload-ordering.test.ts` — a structural regression lock
+    against the migration file's text (no pgTAP harness exists in this repo, and the migration
+    can't be verified live yet — see above).
+  - Docs updated to describe the settled (not-yet-live) contract: `docs/architecture.md` (new
+    "Pending" section, the analyze-form flow, the media-pipeline section, the API table row, the
+    RPC/RLS/media-privacy paragraphs annotated as pending), `CLAUDE.md` (the media bullet),
+    `docs/status.md` (new Known Issue #16, a note on #14's contract list, the M2 next-action
+    item).
 - **HIBP fail-open is now observable (refs #74).** `lib/hibp.ts` fails open and deliberately
   never logs, which made the leaked-password check silently unobservable: if HIBP's endpoint
   rotted, every sign-up would pass the check forever with nothing to show for it.

@@ -240,19 +240,33 @@ minimum_password_length = 8
 #
 # Left as-is (2026-07-11 audit follow-up explicitly scoped this out) — unchanged.
 password_requirements = ""
-# HaveIBeenPwned.org leaked-password rejection. NOT enabled, and NOT settable on this project's
-# current plan: attempted live via the same PATCH mechanism on 2026-07-11 and the Management API
-# rejected the whole request with HTTP 402 — "Configuring leaked password protection via
-# HaveIBeenPwned.org is available on Pro Plans and up." This project is below that tier. Revisit
-# once the project is on a Pro Plan or higher; there is no config.toml key for this to mirror
-# because the change was never applied (nothing to mirror yet).
+# HaveIBeenPwned.org leaked-password rejection: ENABLED on the hosted project since 2026-07-12
+# (issue #70). The org moved to the Pro plan, which is what had been blocking it — the same PATCH
+# returned HTTP 402 ("available on Pro Plans and up") on 2026-07-11 while the org was on Free.
+# Applied as `password_hibp_enabled = true` via the Management API
+# (PATCH /v1/projects/vputdomdlknvthnzritt/config/auth); verified live — a breached password is
+# rejected with HTTP 422, `error_code: weak_password`, `reasons: ["pwned"]`, and the
+# `auth_leaked_password_protection` security-advisor lint is gone.
 #
-# Mitigated client-side in the meantime (issue #70): `lib/hibp.ts` reimplements the same check
-# against HIBP's free, keyless Pwned Passwords range API and hard-blocks sign-up on a breached
-# password before `supabase.auth.signUp` is ever called. It is not equivalent to this
-# server-side setting — it's bypassable by anyone calling the Supabase Auth API directly — so
-# issue #70 stays open. If/when this project moves to Pro, turn this setting on for real
-# server-side enforcement and delete `lib/hibp.ts`.
+# THIS LINE IS A COMMENT, NOT THE SETTING. The Supabase CLI has no config.toml key for leaked-
+# password protection, so this file CANNOT declare it — the hosted state is the only place it
+# exists. Two things follow, and they are the reason this comment is this long:
+#   1. It is Pro-plan-gated. A billing lapse, a downgrade back to Free, or a Dashboard toggle
+#      silently reverts the single control that now enforces this rule.
+#   2. `lib/hibp.ts` FAILS OPEN by design (issue #74), so it will not catch that revert.
+# `.github/workflows/hibp-canary.yml` therefore asserts `password_hibp_enabled === true` on the
+# live project daily and files an issue if it ever flips back. Do not delete that assertion; it is
+# the only thing standing between a plan downgrade and a security control disappearing in silence.
+# NOTE: that assertion needs a `SUPABASE_ACCESS_TOKEN` repo secret (a Supabase personal access
+# token) to run. Until that secret exists the step fails loudly rather than passing green, so an
+# unarmed monitor can't be mistaken for a green one.
+#
+# `lib/hibp.ts` is deliberately KEPT now that the server enforces the real rule (Ian's call,
+# 2026-07-12) — it gives instant inline feedback before the `signUp` round-trip, which a
+# server-only path cannot. It is a pre-check for UX, NOT the authority: it is bypassable by anyone
+# calling the Supabase Auth API directly, and it fails open. The server rejection above is what
+# actually guarantees no account is created with a breached password; `lib/auth-errors.ts` maps it
+# to `Copy.auth.error.passwordBreached`.
 
 # Configure passkey sign-ins.
 # [auth.passkey]
