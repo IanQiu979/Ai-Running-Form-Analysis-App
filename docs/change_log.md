@@ -7,6 +7,46 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **M2 capture screens built (issue #36)** — design-brief screens 3-5: source picker, in-app
+  muted record, and frame extraction, gated on M2's own requirement ("both sources hand a valid,
+  budget-compliant frame set to the analysis step on iOS").
+  - **Added** `app/capture/_layout.tsx`, `index.tsx` (Source picker), `record.tsx` (Capture), and
+    `extracting.tsx` (Extracting), plus `components/framing-guide.tsx` (the faint side-on
+    running-stance figure + level line, built from plain `View`s — no new dependency).
+    Registered as a third `Stack.Screen` inside `app/_layout.tsx`'s existing signed-in
+    `Stack.Protected` block (`app/_layout.tsx`'s only change).
+  - **Muted recording, unregressed**: `expo-camera`'s `CameraView` uses `mode="video"` + `mute`;
+    `app.json`'s `microphonePermission: false` / `recordAudioAndroid: false` (both plugins,
+    already correct from M1) are untouched.
+  - **Permission states are real, not raw alerts**: camera and photo-library each get a soft-ask
+    (rationale before the OS prompt), a denied panel (real copy, a "the other path" secondary
+    action, and a CTA that requests again or opens Settings depending on `canAskAgain` — new
+    `lib/permission-state.ts`, tested), covering the "camera denied / library denied /
+    permanently denied" states the issue named explicitly.
+  - **`lib/frames.ts`'s `FrameBudgetExceededError` surfaces honestly** on Extracting
+    (`upload.error.budgetExceeded`, no Retry — the same input would fail again), distinct from a
+    generic extraction failure (`upload.error.extractionFailed`, Retry + Back) and from a
+    pre-flight cap violation caught before extraction even starts (new `lib/media-caps.ts`:
+    `MAX_CLIP_DURATION_MS` 15s / `MAX_PRE_COMPRESS_BYTES` 50MB, per `docs/mvp-build-prompt.md`
+    gate #5).
+  - **The Art. 9 consent gate** (`components/consent-gate.tsx`, issue #68) is now hosted — on the
+    Source picker, intercepting the tap on either card, per the copy deck's own placement
+    ("gates the Source Picker -> Capture/Upload handoff").
+  - **New tested `lib/` modules**: `media-caps.ts`, `media-file-size.ts` (SDK 54's `expo-file-
+    system` `File.size`), `permission-state.ts`, `parse-capture-params.ts` (route-param ->
+    `PaceMediaInput` parsing). 27 new Jest tests, all passing; `npm run typecheck && npm run lint
+    && npm test` clean; `npx expo export` verified a clean Metro bundle on both iOS and Android.
+  - **New copy** in `constants/copy.ts` (`sourcePicker.*`, `capture.*`, `upload.*`), lifted
+    verbatim from `docs/design/copy-deck.md` where a key existed; a handful of genuinely new keys
+    (a library clip over the caps, a local extraction failure, the honest no-next-screen-yet
+    stopping point since `analyze-form`/M4 doesn't exist) are marked "NEW key" in both
+    `constants/copy.ts` and the deck, mirroring issue #68's precedent.
+  - **Known gaps flagged, not silently fixed**: Home's CTA (`app/(tabs)/index.tsx`) is not wired
+    to `/capture` — a different screen with its own in-flight M5/M7 work, out of this issue's
+    scope. Issue #35 (direct-to-bucket upload) is superseded by #88's live no-client-upload
+    contract and should not be built as originally scoped. `lib/frames.ts`'s own test coverage
+    (#37) and frame-timestamp accuracy (#112) are separate, still-open issues.
+  - Full detail: `docs/architecture.md`'s "Current — capture screens (issue #36)" section.
 - **Client-side soft-delete bypass around #57's delete endpoint closed (found by #57's agent,
   fixed alongside #6, migration written, not yet applied to the live project).** #2's soft-delete
   `UPDATE(deleted_at)` grant + policy on `public.analyses` was the intended client delete path

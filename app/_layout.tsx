@@ -84,6 +84,10 @@ function RootLayoutNav() {
             router.replace() call anywhere in sign-in.tsx or the sign-out handler. */}
         <Stack.Protected guard={!!session}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          {/* The capture flow (design brief screens 3-5, issue #36) — registered here rather
+              than nested under (tabs) because it's a full-screen record/pick flow, not a tab.
+              Session-gated the same as (tabs): no anonymous capture. */}
+          <Stack.Screen name="capture" options={{ headerShown: false }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />

@@ -80,25 +80,32 @@ supabase/
 ```
 
 The template's `(tabs)/explore.tsx` and `modal.tsx` are deleted, not left as dead scaffolding.
-Still absent: `supabase/functions/analyze-form` and `purchase-tier`/`quota-status`, `lib/
-frames.ts`, `lib/subscription.ts`, and every route beyond sign-in + empty Home (capture, result,
-paywall, settings, history). **One edge function now exists**: `supabase/functions/analysis/
-index.ts` (issue #57, 2026-07-12) — `DELETE /functions/v1/analysis/:id`, the first
-`Deno.serve` entrypoint in the repo. Written and Deno-tested on `fix/57` only; **not deployed**,
-no migration applied. See "Current — `DELETE /functions/v1/analysis/:id` (issue #57)" below.
-`supabase/functions/_shared/pace.ts` now exists (#43; moved here from `lib/pace.ts` by #90,
-2026-07-12, which settled the Deno bundling mechanism) — the shared PACE types, result shape,
-and structural validator, imported by the app (via the new `@shared/*` tsconfig alias) and,
-once it exists, the edge functions.
+Still absent: `supabase/functions/analyze-form` and `purchase-tier`/`quota-status`,
+`lib/subscription.ts`, and the result/paywall/settings/history routes. **One edge function now
+exists**: `supabase/functions/analysis/index.ts` (issue #57, 2026-07-12) — `DELETE
+/functions/v1/analysis/:id`, the first `Deno.serve` entrypoint in the repo. Written and
+Deno-tested on `fix/57` only; **not deployed**, no migration applied. See "Current — `DELETE
+/functions/v1/analysis/:id` (issue #57)" below. `supabase/functions/_shared/pace.ts` now exists
+(#43; moved here from `lib/pace.ts` by #90, 2026-07-12, which settled the Deno bundling
+mechanism) — the shared PACE types, result shape, and structural validator, imported by the app
+(via the new `@shared/*` tsconfig alias) and, once it exists, the edge functions.
+
+**Correction, issue #36 (2026-07-12):** the paragraph above previously listed `lib/frames.ts` as
+absent — stale since issue #34 (merged before #36 started), which is when it actually landed.
+`lib/frames.ts` and its route consumers are both current now; see "Current — capture screens
+(issue #36)" below.
 
 ## Route tree — current (M1) vs planned
 
 ```
 app/
   (auth)/sign-in         # current — sign-up folds into the same screen, no separate route
-  (tabs)/index           # current — Home / Analyze (pick source is still a disabled stub)
+  (tabs)/index           # current — Home / Analyze (pick source is still a disabled stub —
+                          # Home's own CTA wiring into capture/ is a follow-up issue #36 does
+                          # not close, see "Current — capture screens" below)
   (tabs)/history         # planned — past analyses (M6)
-  capture/                # planned — record or pick, framing guide (stack) (M2)
+  capture/                # current (issue #36) — source picker, in-app record, frame
+                          # extraction; see "Current — capture screens (issue #36)" below
   result/[id]             # planned — analysis result view (M4/M6)
   paywall, settings       # planned (M5)
 ```
@@ -129,10 +136,28 @@ lib/
                           # rather than defaulting either way — see "Current — consent record &
                           # disclaimer" below. `analyze-form` (M4) must run the equivalent check
                           # server-side; the client call here is not the enforcement point.
-  frames.ts               # planned (M2) — extract and downscale N frames from a video
+  frames.ts               # current (issue #34) — extract and downscale N frames from a video
                           # (client-side). It does NOT upload: since #88, frames ride in the
                           # analyze-form request body as base64 and the edge function writes
                           # them to the bucket itself, after the model call.
+  media-caps.ts            # current (issue #36) — MAX_CLIP_DURATION_MS (15s) /
+                          # MAX_PRE_COMPRESS_BYTES (50MB) and checkMediaCaps(), the UX guardrails
+                          # `docs/mvp-build-prompt.md` gate #5 asked for; distinct from
+                          # PACE_MAX_REQUEST_BODY_BYTES above (that caps the post-extraction
+                          # payload; this caps the source file before extraction runs at all).
+  media-file-size.ts       # current (issue #36) — best-effort local file size via the SDK 54
+                          # `expo-file-system` `File` class; feeds checkMediaCaps for a library
+                          # pick (fileSize isn't always reported by the picker) and for
+                          # app/capture/extracting.tsx's pre-flight re-check.
+  permission-state.ts      # current (issue #36) — classifyPermission (checking/undetermined/
+                          # denied/granted) and permissionRecoveryAction (request vs. Settings,
+                          # via canAskAgain), shared by app/capture/index.tsx (photo library) and
+                          # app/capture/record.tsx (camera) so both derive permission UI state
+                          # from one tested function instead of two hand-rolled ones.
+  parse-capture-params.ts  # current (issue #36) — parses app/capture/extracting.tsx's route
+                          # params back into frames.ts's PaceMediaInput; malformed params (a
+                          # missing uri, a non-numeric durationMs) become the same generic
+                          # extraction-failed state as any other extraction error, never a crash.
   # pace.ts is NOT here — moved to supabase/functions/_shared/pace.ts by issue #90 (2026-07-12),
   # the single source of truth for the app + edge function (no copy/codegen/symlink). The app
   # imports it via the `@shared/*` tsconfig alias (`@shared/pace`). See "Current — Deno
@@ -503,6 +528,90 @@ M4/M5 own where they get hosted, and the three #68 checkboxes stay unticked unti
 wording differs (it adds a "never run through sharp or worsening pain" sentence, among other
 changes). The shipped string, `result.disclaimer.footer`, is sourced from `knowledge/
 pace_framework.md` via `docs/design/copy-deck.md`, verbatim — not from `injury_flags.md`.
+
+## Current — capture screens (issue #36, done 2026-07-12)
+
+Design-brief screens 3-5: source picker, in-app record, and frame extraction. Built against
+`lib/frames.ts` (#34, already merged) and the live #88 contract — no upload code anywhere in
+this flow, since the client has no Storage write path.
+
+```
+app/capture/
+  _layout.tsx   # nested Stack (index/record/extracting), headerShown: false — same mechanism as
+                # (auth)/_layout.tsx and (tabs)/_layout.tsx. Registered as a third Stack.Screen
+                # inside app/_layout.tsx's existing `guard={!!session}` Stack.Protected block,
+                # sibling to (tabs) rather than nested under it (it's a full-screen record/pick
+                # flow, not a tab) — the only route-tree edit this issue made.
+  index.tsx     # Source picker (screen 3): Upload/Record cards, the photo-library permission
+                # dance (soft-ask -> OS prompt -> denied, sourcePicker.permission.library.*), and
+                # the Art. 9 consent gate (components/consent-gate.tsx, issue #68) — the copy
+                # deck names this screen as where it "gates the Source Picker -> Capture/Upload
+                # handoff", and this is the first host that ticks that box (M4/M5 were the other
+                # two named candidates; still open there).
+  record.tsx    # Capture (screen 4): expo-camera's CameraView, mode="video" + mute (audio is
+                # never captured — app.json's expo-camera/expo-image-picker plugins already had
+                # microphonePermission: false and recordAudioAndroid: false from M1; unchanged),
+                # the side-on framing-guide overlay (components/framing-guide.tsx), and the
+                # camera permission dance (capture.permission.camera.*). recordAsync's own
+                # maxDuration (MAX_CLIP_DURATION_MS/1000) makes the 15s clip cap physically
+                # unreachable to exceed by recording; recordAsync resolves with only `{ uri }` —
+                # no duration — so this screen measures wall-clock elapsed time itself, which
+                # both drives the live "{elapsed}s / 15s" counter and becomes the clip's
+                # `durationMs` handed to Extracting.
+  extracting.tsx # Extracting (screen 5, "Uploading / Extracting" in the deck): runs
+                # lib/frames.ts's extractFrames with real onProgress-driven counts
+                # (upload.step.extracting) against whatever the other two screens handed off via
+                # router.push params. Tier is hardcoded to 'free' for frame-count purposes (a
+                # comment at the call site explains why: lib/subscription.ts is M5, "Not
+                # started", and frame count is display-only regardless per CLAUDE.md — Free's
+                # cap, the smallest, is the only one this screen can pick without guessing at
+                # something it has no way to confirm). Surfaces `FrameBudgetExceededError`
+                # (`upload.error.budgetExceeded`, no Retry — the same input would fail again) and
+                # a generic extraction failure (`upload.error.extractionFailed`, Retry + Back)
+                # as distinct, real states, not a raw alert. On success: `upload.ready.*` (NEW
+                # copy — see below) and "Done" back to Home.
+```
+
+**Where the frame set goes: nowhere yet, honestly.** `analyze-form` (M4, issue #44) and the
+Analyzing wait screen it needs (issue #80) don't exist. The M2 gate this issue closes is "both
+sources hand a valid, budget-compliant frame set to the analysis step on iOS" — this is
+extraction's boundary, not the handoff itself. `extracting.tsx`'s success state is a genuine
+stopping point (`upload.ready.*`, honest copy, not a placeholder implying more exists), not a
+fake next screen invented to paper over the gap. M4 replaces that one branch; the extraction,
+progress, and error handling above it should not need to change.
+
+**Copy**: `constants/copy.ts` gained `sourcePicker.*`, `capture.*`, and `upload.*` (the last
+reusing the deck's Screen 5 key prefix even though the screen only implements the
+extraction half — see the #36 update note in `docs/design/copy-deck.md`'s Screen 5 section for
+why `upload.step.uploading`/`upload.error.*`/`upload.offline.*` are specced but not built). Most
+strings are lifted verbatim by key; a handful are genuinely new (`sourcePicker.error.*`,
+`upload.error.budgetExceeded.*`, `upload.error.extractionFailed.*`, `upload.ready.*`) because the
+scenarios they cover — a library-picked clip over the cap, a local extraction failure, the
+no-next-screen-yet stopping point — were never specced. Each is marked "NEW key" at both its
+`constants/copy.ts` definition and its mirrored row in `docs/design/copy-deck.md`, the same
+convention issue #68 established for `consent.upload.checkbox`/`error.record`.
+
+**Known gap this issue does not close**: Home's CTA (`app/(tabs)/index.tsx`) is still the M1
+disabled stub — it does not navigate into `/capture`. Deliberately not touched here: it's a
+different screen with its own in-flight M5/M7 work (issue #54's quota wiring, issue #15's
+"disabled CTA with no explanation" bug), and this issue's scope is the capture/library screens
+themselves, not cross-screen wiring into them. The capture flow is reachable today only via
+direct navigation (`router.push('/capture')`, or during development, typing the route). Whoever
+wires Home's CTA should route to `/capture`, not re-derive this flow.
+
+**Framing guide**: `components/framing-guide.tsx` draws a faint running-stance figure (head,
+torso, four limbs) plus a ground/level reference line from plain `View`s — no
+`react-native-svg` (not installed) and no new illustration-library dependency, matching
+`pace_framework.md`'s side-on/full-body/level/~10m/good-light requirement from brief §4.4. Purely
+decorative: hidden from the accessibility tree (`accessibilityElementsHidden` +
+`importantForAccessibility="no-hide-descendants"`) — the a11y-visible guidance is the sibling
+`capture.overlay.tip` text.
+
+**Tests**: screens are not unit-tested by convention (CLAUDE.md); the new `lib/` logic is —
+`media-caps.test.ts`, `media-file-size.test.ts`, `permission-state.test.ts`, and
+`parse-capture-params.test.ts`. `lib/frames.ts` itself already had `frames.test.ts` from #34;
+issue #37 (open) covers extending that suite further (timestamp spacing, per-tier caps, size
+budget), not this issue.
 
 ## Planned — `analyze-form` edge function flow
 
