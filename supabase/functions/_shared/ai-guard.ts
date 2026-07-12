@@ -1,0 +1,185 @@
+/**
+ * The AI spend gate's client-facing interface (issue #91). `supabase/functions/analyze-form`
+ * (#44, not built here) is REQUIRED to call `gateAiCall()` before every Anthropic request and
+ * `recordAiCall()` on every exit path after a successful gate — see the "call ordering" note at
+ * the top of `supabase/migrations/20260712210100_ai_spend_guardrail_functions.sql` for exactly
+ * where in the request lifecycle this belongs (before `reserve_analysis`, not after) and why.
+ *
+ * Deliberately free of any `npm:`/Deno-only import so this orchestration logic — not just the
+ * pure math in `ai-pricing.ts` — is unit-testable under Jest with a mocked `RpcClient`. The
+ * actual Deno-side Supabase client construction (reads `SUPABASE_URL` / `SUPABASE_SECRET_KEYS`
+ * from `Deno.env`) lives in `ai-guard-client.ts`, imported only by the eventual edge function,
+ * never by this file or its tests.
+ *
+ * There is no exported way to get a `call_id` other than through `gateAiCall()`, and
+ * `recordAiCall()` requires one — so using the ledger at all runs through the gate by
+ * construction. That is real, but partial, protection: nothing here can stop `analyze-form`'s
+ * own code from calling the Anthropic API directly and never touching this module at all. See
+ * the migration header for the full, honest scoping of what "physically cannot" means here.
+ */
+
+export type GateDenyReason =
+  | 'killed'
+  | 'breaker_open'
+  | 'daily_cap'
+  | 'unknown_model'
+  | 'invalid_estimate';
+
+export type GateResult =
+  | { allowed: true; callId: string; estimatedUsd: number }
+  | { allowed: false; reason: GateDenyReason; detail?: Record<string, unknown> };
+
+export type RecordCallStatus = 'success' | 'model_error' | 'validation_failed' | 'fallback' | 'cancelled';
+
+export interface RecordCallUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
+}
+
+export interface RecordResult {
+  ok: boolean;
+  alreadySettled: boolean;
+  status?: string;
+  actualUsd?: number;
+  reason?: string;
+}
+
+/**
+ * Minimal shape of a Supabase client's `.rpc()` — matches `@supabase/supabase-js`'s own return
+ * shape closely enough that a real client satisfies this with no adapter, while this file stays
+ * free of an import from that package.
+ */
+export interface RpcClient {
+  rpc(
+    fn: string,
+    args: Record<string, unknown>
+  ): Promise<{ data: unknown; error: { message: string } | null }>;
+}
+
+export interface GateAiCallParams {
+  userId: string;
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
+  model?: string;
+  analysisId?: string | null;
+}
+
+/**
+ * Reserves budget headroom for one Anthropic call. Denies — without ever reserving anything —
+ * if the kill switch is off, the circuit breaker is open, or the daily cap would be exceeded.
+ * A deny is always a normal, typed return value, never an exception, so a missed `catch` can't
+ * accidentally let a call through; only a genuine transport/DB error throws.
+ */
+export async function gateAiCall(client: RpcClient, params: GateAiCallParams): Promise<GateResult> {
+  const { data, error } = await client.rpc('gate_ai_call', {
+    p_user_id: params.userId,
+    p_estimated_input_tokens: params.estimatedInputTokens,
+    p_estimated_output_tokens: params.estimatedOutputTokens,
+    p_model: params.model ?? 'claude-sonnet-5',
+    p_analysis_id: params.analysisId ?? null,
+  });
+
+  if (error) {
+    throw new Error(`gate_ai_call failed: ${error.message}`);
+  }
+
+  const result = data as {
+    allowed: boolean;
+    call_id?: string;
+    estimated_usd?: number;
+    reason?: GateDenyReason;
+    [key: string]: unknown;
+  };
+
+  if (result.allowed) {
+    return {
+      allowed: true,
+      callId: result.call_id as string,
+      estimatedUsd: result.estimated_usd as number,
+    };
+  }
+
+  const { allowed: _allowed, reason, call_id: _callId, estimated_usd: _estimatedUsd, ...detail } = result;
+  return { allowed: false, reason: reason as GateDenyReason, detail };
+}
+
+export interface RecordAiCallParams {
+  callId: string;
+  status: RecordCallStatus;
+  usage?: RecordCallUsage;
+  analysisId?: string | null;
+}
+
+/**
+ * Settles a call reserved by `gateAiCall()`. Idempotent — a second call for the same `callId`
+ * (a retried invocation) is a safe no-op, reported via `alreadySettled: true`, never an error.
+ *
+ * Call this on EVERY exit path after a successful gate, including a `'cancelled'` settle when
+ * the call turns out never to be needed (an idempotent replay of an already-delivered analysis,
+ * or a genuine quota denial arriving after the gate already passed — see the migration header).
+ * An unsettled `'pending'` row silently eats daily-cap headroom until `pending_timeout_seconds`
+ * ages it out on its own; there is no other cleanup path, so treat this like a `finally`.
+ */
+export async function recordAiCall(client: RpcClient, params: RecordAiCallParams): Promise<RecordResult> {
+  const usage = params.usage ?? {};
+  const { data, error } = await client.rpc('record_ai_call', {
+    p_call_id: params.callId,
+    p_status: params.status,
+    p_input_tokens: usage.inputTokens ?? null,
+    p_output_tokens: usage.outputTokens ?? null,
+    p_cache_creation_input_tokens: usage.cacheCreationInputTokens ?? null,
+    p_cache_read_input_tokens: usage.cacheReadInputTokens ?? null,
+    p_analysis_id: params.analysisId ?? null,
+  });
+
+  if (error) {
+    throw new Error(`record_ai_call failed: ${error.message}`);
+  }
+
+  const result = data as {
+    ok: boolean;
+    already_settled?: boolean;
+    status?: string;
+    actual_usd?: number;
+    reason?: string;
+  };
+
+  return {
+    ok: result.ok,
+    alreadySettled: Boolean(result.already_settled),
+    status: result.status,
+    actualUsd: result.actual_usd,
+    reason: result.reason,
+  };
+}
+
+/**
+ * Deny -> HTTP mapping (design spec: "all three denials are 503, not a 4xx — it is our brake,
+ * not the user's fault"). Extended here to `unknown_model`/`invalid_estimate` for the same
+ * reason: both are guardrail/operator-config problems, never something the calling user did
+ * wrong.
+ */
+export function httpStatusForGateDeny(_reason: GateDenyReason): number {
+  return 503;
+}
+
+/**
+ * Structured `{ error, code }` body matching `docs/architecture.md`'s error contract ("every
+ * non-2xx response body is structured `{ error, code }`"). The message is a deliberately generic
+ * placeholder — final user-facing copy belongs in `constants/copy.ts` / `docs/design/copy-deck.md`
+ * per this project's convention, not hardcoded in a shared server module; #44 should route
+ * `code` through the copy deck rather than surface `error` verbatim if a nicer string exists by
+ * then.
+ */
+export function gateDenyResponseBody(
+  reason: GateDenyReason,
+  detail?: Record<string, unknown>
+): { error: string; code: GateDenyReason; detail?: Record<string, unknown> } {
+  return {
+    error: 'Analysis is temporarily unavailable. Please try again shortly.',
+    code: reason,
+    detail,
+  };
+}

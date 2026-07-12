@@ -13,5 +13,16 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    // supabase/functions runs on Deno, not Node: it resolves `npm:`/`jsr:` specifiers and the
+    // global `Deno` namespace, neither of which this Expo/RN tsconfig (or `npm run typecheck`)
+    // understands. Excluding it here is what keeps `tsc --noEmit` clean once Deno-only files
+    // exist under it (added 2026-07-12, issue #91's ai-guard-client.ts) — Jest still discovers
+    // and runs *.test.ts under supabase/functions/_shared/__tests__ regardless, since Jest's
+    // module resolution is independent of this file. #44 should add its own Deno-side check
+    // (`deno check supabase/functions/**/*.ts`) since this exclude deliberately isn't that.
+    "supabase/functions/**"
   ]
 }

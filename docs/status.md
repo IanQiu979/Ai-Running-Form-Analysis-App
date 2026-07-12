@@ -12,7 +12,7 @@ milestone "done" criteria.
 | M1 — Foundation (sign-up creates an account → empty Home) | **Done 2026-07-11** — security audit (no Critical/High) + code review (5 findings fixed), gate passed with Ian's on-phone sign-up test; merged via PR from `feat/m1-spine` |
 | M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Not started |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files exist; Elasticity pending Ian's certification |
-| M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started |
+| M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12, written but not yet applied to the live project (blocked on issue #92). See Known Issue #16. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
 | M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
@@ -79,6 +79,18 @@ milestone "done" criteria.
   `password_hibp_enabled` stays `true` — currently **unarmed pending a `SUPABASE_ACCESS_TOKEN`
   repo secret**, so it fails loudly rather than silently passing. See `docs/architecture.md`'s
   "Current — Supabase config" section and `docs/blocked-on-apple.md`'s resolved-issues table.
+- **AI spend guardrails substrate landed 2026-07-12 (issue #91)** — the kill switch, global
+  daily $ cap, circuit breaker, and per-call token/cost ledger `analyze-form` (#44) will be
+  forced through, built *before* #44 exists on purpose (see the design spec,
+  `docs/superpowers/specs/2026-07-12-ai-spend-guardrails-design.md`). Two migrations
+  (`ai_ops_config` / `ai_model_pricing` / `ai_call_log` tables + `gate_ai_call` /
+  `record_ai_call` / `ai_breaker_state` / `ai_spend_today` RPCs, all `service_role`-only) and a
+  Jest-tested TypeScript interface (`supabase/functions/_shared/ai-pricing.ts`, `ai-guard.ts`,
+  `ai-guard-client.ts`). **Written, not yet applied to the live project** — this repo has no
+  non-production Supabase environment (issue #92), so the migrations wait for either that or
+  Ian applying them directly. Full detail: `docs/architecture.md`'s "Current — AI spend
+  guardrails substrate" section. **Still open, and not something this work could do from the
+  repo: the hard spend ceiling in the Anthropic Console** — see Known Issue #17.
 - Full dated history: [`docs/change_log.md`](change_log.md).
 
 ## Known issues
@@ -246,20 +258,45 @@ milestone "done" criteria.
       needs someone with authority over the live project to apply it (`supabase db push` or the
       `apply_migration` MCP tool) and then run the live-verification queries in
       `docs/superpowers/plans/2026-07-12-frame-upload-ordering.md`'s Task 2.
-    - **Overlaps issue #2** (free quota resettable via client `DELETE` on `analyses`), worked
-      concurrently in a sibling worktree. Both fixes want the client `DELETE` policy on
-      `public.analyses` gone, for independent reasons — no conflict there. But #2 may also need to
-      change `reserve_analysis`'s *counting* logic (e.g. a soft-delete filter or a ledger read),
-      and this migration's `reserve_analysis` body is a full `create or replace` (only trimmed to
-      drop `p_media_paths`, counting logic otherwise unchanged from today's live version).
-      **Whichever of the two migrations applies last will silently overwrite the other's function
-      body in full** unless someone manually merges the two `reserve_analysis` definitions into
-      one before either is applied. Do not apply both files back to back without doing that merge.
+    - **Overlapped issue #2 — RESOLVED, no manual merge needed.** #2 shipped as
+      `20260712040000_analyses_quota_soft_delete.sql` (soft-delete + redact), which deliberately
+      does **not** touch `reserve_analysis` — quota still counts live rows by `status`, and a
+      soft-deleted row keeps counting. So there is no competing `create or replace` of that
+      function and no risk of one migration silently overwriting the other's body. (An
+      append-only-ledger alternative for #2 *would* have rewritten `reserve_analysis` and
+      collided head-on here; it was rejected for exactly that reason.) Both fixes independently
+      drop the client `DELETE` policy on `public.analyses`, and both use `drop policy if exists`,
+      so whichever applies second is a safe no-op. Apply in timestamp order and nothing special
+      is required.
     - Closes #8 (namespace guard in `settle_analysis`) and #7 (client loses storage `INSERT`
       entirely) once applied. Re-scopes #35 (no direct-to-bucket upload left to build). Adds a
       requirement to #47 (the stale-`reserved` sweep must also purge the storage prefix, not just
       flip the row's status) and to #57 (now a hard prerequisite for any user-facing delete, since
       the client's row `DELETE` is also gone).
+17. **NEW — AI spend guardrail contract for #44, and one manual step still open (issue #91,
+    2026-07-12).** The substrate ("Done so far" above) is written; two things are not:
+    - **The migrations are not applied to the live project.** `supabase db push` (or Ian applying
+      them directly) is a prerequisite for #44, since `analyze-form` cannot call
+      `gate_ai_call`/`record_ai_call` if they don't exist yet. Blocked on issue #92 (no
+      non-production Supabase environment) for who gets to run that command safely.
+    - **`analyze-form` (#44) MUST call `gateAiCall()` before every Anthropic request and
+      `recordAiCall()` on every exit path after**, per the call-ordering contract in
+      `docs/architecture.md`'s "Current — AI spend guardrails substrate" section (gate runs
+      *before* idempotency/`reserve_analysis`, not after — mirrors why Known Issue #14's
+      `release_analysis` requirement is a `finally`, not a happy-path-only call). This is
+      DB-enforced against the client (the RPCs are `service_role`-only) but NOT DB-enforced
+      against `analyze-form`'s own code skipping it — that gap is closed by `AGENTS.md`'s
+      mandatory `security-auditor` review for anything on the hot list, which `analyze-form`
+      explicitly is. Verify this specific contract at that review, not just generic security
+      hygiene.
+    - **Still open, and it is the one thing here that genuinely can't be done from this repo:
+      set a hard spend ceiling in the Anthropic Console.** It's free configuration and the only
+      backstop that survives a bug in the gate itself, a Supabase outage, or a leaked
+      `ANTHROPIC_API_KEY` — everything else in issue #91 is defense-in-depth *behind* it, not a
+      replacement for it. Needs Ian's Anthropic Console access.
+    - Out of scope for #91, unaffected by it: a monthly cap (the Anthropic Console limit above
+      already is one — a second one here would be duplicated state that can drift) and CAPTCHA/
+      signup rate limiting (Known Issue #12, still blocked on Ian).
 
 ## Next action
 
