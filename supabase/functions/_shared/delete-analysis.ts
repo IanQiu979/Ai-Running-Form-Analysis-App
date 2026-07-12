@@ -152,8 +152,15 @@ export async function deleteAnalysis(
  * that silently drops some paths (rather than surfacing an error) is exactly what the
  * verification pass is for: this function only returns normally when a follow-up list against
  * the same prefix comes back empty, not merely when `remove()` reported no error.
+ *
+ * Exported (issue #58) so `delete-account.ts` can run the identical recursive, paginated,
+ * verified purge over the whole-account prefix `{user_id}/` — one level shallower than this
+ * function's usual `{user_id}/{analysis_id}/`, which is precisely what its recursion already
+ * handles. The object-deletion logic exists exactly once, in this file, and both delete paths
+ * call it: the nested-prefix trap can therefore only ever be fixed (or broken) in one place.
+ * Throws on any failure — callers must treat a throw as "nothing may be deleted downstream."
  */
-async function purgePrefix(storage: StorageBucket, prefix: string, pageSize: number): Promise<number> {
+export async function purgePrefix(storage: StorageBucket, prefix: string, pageSize: number): Promise<number> {
   const filePaths: string[] = [];
   await collectFiles(storage, prefix, filePaths, 0, pageSize);
 

@@ -78,6 +78,74 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   caller-suppliable period anchor, unreachable today but one careless edit from reopening the exact
   re-anchoring exploit the function exists to prevent). 9 new tests (37 total), including
   mutation-verified migration-text invariants for all three fixes.
+- **`POST /functions/v1/delete-account` built (issue #58)** — in-app account deletion, the App
+  Store submission blocker (Guideline 5.1.1(v)) and the hard gate on publishing the privacy policy
+  at all (Known Issue #15). **Written and Deno-tested; NOT deployed** — deployment is Ian's.
+  - **Added** `supabase/functions/delete-account/index.ts` (HTTP + JWT glue),
+    `supabase/functions/_shared/delete-account.ts` (all decision logic, no Deno/`npm:` import), and
+    `supabase/functions/_shared/delete-account-client.ts` (the service-role client factory) — the
+    same three-way split `analysis/index.ts` (#57) uses, for the same reason.
+  - **Delete order is the design: storage objects → rows → auth user.** Deleting the auth user
+    first cascades every row away, and `storage.objects` has no FK to `auth.users` — so every
+    frame would survive, un-enumerable and un-ownable, on the one code path whose whole purpose is
+    to leave nothing behind. A test asserts the observed call order.
+  - **Reuses #57's purge rather than re-implementing it.** `purgePrefix()` in
+    `_shared/delete-analysis.ts` is now exported (a strictly additive change — that file's logic is
+    otherwise untouched) and swept over `{user_id}/` instead of `{user_id}/{analysis_id}/`. It
+    already recurses, paginates, and re-lists to verify the prefix is actually empty. The
+    nested-prefix trap — a flat `list(user_id)` returns pseudo-directories and removes **nothing**
+    while reporting success, which is V1's `delete-user` bug — now has exactly one place it can be
+    wrong. Verified by mutation: deleting the recursion makes the zero-orphans test fail.
+  - **Purge by prefix, never by `media_paths` or by walking rows** — so it also sweeps frames left
+    by rows soft-deleted through #2's client UPDATE policy (**Known Issue #19**) and by
+    `analyze-form` runs that crashed before `settle_analysis`. Neither is enumerable from the rows.
+  - **The purge is blocking, not best-effort**: a Storage failure deletes nothing at all (no rows,
+    no auth user) and returns a retryable `503`. Echo V1's pattern could delete the auth user while
+    a failed `remove()` left frames un-ownable; that is now unreachable by construction. A **second
+    sweep after the auth delete** closes the concurrent-upload race, and reports `orphans_remaining`
+    (a `500`, logged at error level with the prefix) if it cannot.
+  - **The consent trail is purged — explicitly, in code, not by inheriting the FK cascade.** The
+    `consents` migration demanded a conscious purge-vs-retain-for-defence choice; the choice is
+    purge, because a consent row keyed only on a `user_id` we can no longer map to a person is not
+    "necessary for the defence of legal claims" (Art. 17(3)(e)) — it cannot defend anything — and
+    making it usable would mean retaining a re-identifiable token of someone who asked to be
+    forgotten. Full reasoning in `_shared/delete-account.ts`'s header and `docs/architecture.md`.
+    `public.ai_call_log` still survives with its FKs nulled, as designed.
+  - **20 Deno tests** (`_shared/__tests__/delete-account.deno.test.ts`) asserting from the
+    **Storage side**, not the row side: zero orphaned objects after a full delete (issue #59's core
+    assertion), nested-prefix recursion, pagination, the delete order, a mid-purge failure leaving
+    the auth user alive, the consent-trail decision, cross-user isolation, retry convergence, and
+    the boundary logs.
+
+- **`delete-account`'s response contract fixed, on the same PR (#121), after security/code
+  review.** CORRECTS the entry directly above: `orphans_remaining` no longer returns a `500` with
+  a body carrying both `deleted: true` and `error`/`code`. Two problems with the original shape:
+  it violated `docs/architecture.md`'s own contract that every non-2xx body is a clean
+  `{ error, code }` (this body was neither shape, it was both), and it was unconsumable by any
+  correct client — by the time `orphans_remaining` fires, storage, every row, AND the `auth.users`
+  record are ALL already deleted, so a client reporting "still active, please retry" off a non-2xx
+  would be false on every clause (the account is not active; retrying can only `401`; the user
+  would sit on a dead access token indefinitely).
+  - **New matrix** (also in `docs/architecture.md`'s "Current — `POST /functions/v1/delete-account`"
+    section): `deleted` and `orphans_remaining` are both `200` — `orphans_remaining` adds
+    `orphansRemaining: true` to the success body, with no retry affordance, because there is
+    nothing left to retry. `purge_failed`/`rows_failed`/`auth_delete_failed` stay `503` with a
+    clean `{ error, code }` and nothing else. The ops alarm — the exact `{user_id}/` prefix a human
+    must go clean for `orphans_remaining` — now lives **only** in the existing error-level
+    structured log, since the HTTP response carries no user-actionable remedy.
+  - **`DeleteAccountErrorCode`** (`'purge_failed' | 'rows_failed' | 'auth_delete_failed'`) is now
+    exported as its own discriminated union from `_shared/delete-account.ts`, replacing a bare
+    `code: string`. The original bug survived because nothing forced a switch over `code` to be
+    exhaustive; a stringly-typed code let a client (or this file's own tests) silently ignore a
+    case.
+  - **5 new/rewritten Deno tests**, bringing the suite to 25: `orphans_remaining` is asserted as a
+    `200` with the success-plus-flag body, the full status/body matrix is asserted end to end, and
+    a new invariant test asserts — for every outcome — that no response body ever carries both
+    `deleted` and `error`/`code`.
+  - Known Issue #21 rewritten (not just appended) to state plainly that `delete-account` does not
+    work end to end until **both** this issue and #122 (the client's binding swap off its current
+    mock) ship — read alone, neither issue said that. Issues #124 (no re-authentication) and #125
+    (wall-clock bound, not checkpointed) filed separately and are explicitly out of scope here.
 
 ## 2026-07-12
 

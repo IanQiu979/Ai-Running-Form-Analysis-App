@@ -17,7 +17,7 @@ milestone "done" criteria.
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | **In progress** — the grounded prompt, tier verbosity dial, and structured-output contract landed 2026-07-12 (issue #41, `supabase/functions/_shared/analyze-form-prompt.ts`, 28 Deno tests, **no live model call made**), unblocking M4's #44/#45. The milestone's own gate — "prompt *provably* includes the framework text" — is proven statically today (the three certified files are asserted present **byte-for-byte** in the assembled prompt); proving the *output* references the PACE pillars still needs #42's live-call eval harness. Still open: **#39** (Ian certifies Elasticity + the pillar refinements — the prompt ships his name) and **#40** (the runner's-note guidance in `injury_flags.md`; #41 neutralises it at the prompt layer, but the certified file itself still says "if the note reports…", so #40 stays open for Ian's review). |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed — and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. **Hardened 2026-07-13 after a security audit (PR #123): the function is gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — see Known Issue #23, a release blocker.** See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. Every M5 screen (paywall, tier-aware CTAs) remains unbuilt. |
-| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. |
+| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **not deployed** — see Known Issue #21. |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
 
 ## Done so far
@@ -425,6 +425,55 @@ milestone "done" criteria.
     Known Issue #18 have); and the `pace_purchase_tier` SQL function's optional `p_as_of` parameter
     (a caller-suppliable period anchor, unreachable today but one careless edit away from being
     threaded through) was removed entirely rather than merely guarded (LOW finding).
+21. **NEW — `delete-account` does not work end to end yet: the edge function is built but NOT
+    deployed, AND the client is still on a mock pending #122's binding swap (issue #58,
+    2026-07-13; response-contract fixed post-review same date).** Read this plainly: shipping this
+    issue and shipping #122 are BOTH required before Guideline 5.1.1(v) is actually satisfied.
+    Neither issue alone says that; read together without this note they could be misread as "works
+    once deployed" — it will not, because until #122 lands, the Settings screen it builds is
+    calling a mock, not this function.
+    - **`POST /functions/v1/delete-account`**: written and Deno-tested on `feat/58-delete-account`
+      (25 tests: zero orphaned Storage objects, nested-prefix recursion, delete order, a mid-purge
+      failure leaving the auth user alive, the consent-trail decision, the full response
+      status/body matrix). Reuses #57's `purgePrefix()` — one implementation, two callers — and
+      sweeps the whole `{user_id}/` prefix, so it also cleans up the frames Known Issue #19
+      describes (rows soft-deleted through #2's client UPDATE policy never purge their own frames;
+      an account delete now does, because the sweep is by prefix and never consults a row).
+    - **Not deployed.** `supabase functions deploy delete-account` is Ian's to run. No migration is
+      needed: `service_role` already holds every grant this function uses, so it is a deploy, not a
+      schema change.
+    - **Response contract, fixed on PR #121 after security/code review** (both reviewers confirmed
+      the purge logic itself — ordering, prefix purge, `purgePrefix`'s export, no partial-failure
+      path that deletes the auth user — was sound; this was the one real finding). The original
+      `orphans_remaining` outcome (storage, rows, AND the auth user all already deleted, but a
+      concurrent-upload race left something the post-delete sweep couldn't clear) returned `500`
+      with a body carrying both `deleted: true` and `error`/`code` — off-contract (`architecture.md`
+      promises every non-2xx is a clean `{ error, code }`) and unconsumable (a client seeing a
+      non-2xx would tell an already-fully-deleted user "still active, please retry", which is false
+      on every clause, since retrying can only `401`). Fixed to the matrix now in
+      `docs/architecture.md`'s "Current — `POST /functions/v1/delete-account`" section:
+      `orphans_remaining` is now a `200` with `orphansRemaining: true` added to the success body,
+      and the three genuine failures (`purge_failed`/`rows_failed`/`auth_delete_failed`) are `503`
+      with a clean `{ error, code }` and nothing else. `DeleteAccountErrorCode` is now an exported
+      discriminated union, not a bare `string`, so #122's client can exhaustively switch on it. A
+      test asserts no response body, for any outcome, ever carries both `deleted` and `error`/`code`.
+    - **Issue #59's other half — still open.** The 25 tests here mock the Supabase client, so they
+      prove the *contract* (ordering, recursion, atomicity, idempotency, the response matrix). #59
+      also asks for the same properties against a real local Postgres **and** real Storage, because
+      the property under test is precisely that two different systems agree — a fake cannot fail
+      the way production fails. Not built; no local `supabase start` harness exists in this repo
+      yet.
+    - **The consent trail is purged, deliberately** (GDPR Art. 17(3)(e) reasoning in
+      `_shared/delete-account.ts`'s header and `docs/architecture.md`), which keeps
+      `docs/privacy-policy.md`'s "Deleting your account removes everything" literally true and
+      needs no policy amendment. **Revisit if EU/UK users are admitted** — see Known Issue #15's
+      note that the TestFlight beta currently excludes them.
+    - **Filed separately, deliberately out of scope for #58: issue #124** (no re-authentication —
+      a stolen access token can delete an account outright; the fix is a recent-login/AAL check,
+      not a body confirmation field an attacker would just send too) **and issue #125** (the sweep
+      is wall-clock-bound but not checkpointed — bounded per-batch by `REMOVE_BATCH_SIZE = 500`,
+      but an account with many hundreds of analyses still makes many hundreds of sequential `list()`
+      round trips in one invocation; fine at any plausible near-term volume, not fine indefinitely).
 
 ## Next action
 
