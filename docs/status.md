@@ -16,8 +16,8 @@ milestone "done" criteria.
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | **In progress** — the grounded prompt, tier verbosity dial, and structured-output contract landed 2026-07-12 (issue #41, `supabase/functions/_shared/analyze-form-prompt.ts`, 28 Deno tests, **no live model call made**), unblocking M4's #44/#45. The milestone's own gate — "prompt *provably* includes the framework text" — is proven statically today (the three certified files are asserted present **byte-for-byte** in the assembled prompt); proving the *output* references the PACE pillars still needs #42's live-call eval harness. Still open: **#39** (Ian certifies Elasticity + the pillar refinements — the prompt ships his name) and **#40** (the runner's-note guidance in `injury_flags.md`; #41 neutralises it at the prompt layer, but the certified file itself still says "if the note reports…", so #40 stays open for Ian's review). |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. |
-| M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed — and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. **Hardened 2026-07-13 after a security audit (PR #123): the function is gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — see Known Issue #23, a release blocker.** See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. Every M5 screen (paywall, tier-aware CTAs) remains unbuilt. |
-| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **not deployed** — see Known Issue #21. |
+| M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed — and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. **Hardened 2026-07-13 after a security audit (PR #123): the function is gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — see Known Issue #21, a release blocker.** See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. Every M5 screen (paywall, tier-aware CTAs) remains unbuilt. |
+| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **not deployed** — see Known Issue #22. |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
 
 ## Done so far
@@ -34,7 +34,7 @@ milestone "done" criteria.
   pass, after the original mock binding turned out to have no owner ever assigned to swap it for a
   real one. Two caveats, both tracked as Known Issues below: the edge function it calls (#58/#121)
   is **built but not yet merged or deployed** (#22), and the screen ships **uncertified copy**
-  needing review (#23). The privacy policy is deliberately **not linked** — it is still
+  needing review (#24). The privacy policy is deliberately **not linked** — it is still
   `DO NOT PUBLISH`.
 - Expo SDK 54 app scaffolded (expo-router template, TypeScript strict, `@/*` path alias ->
   `./*`; no `src/` in this project — code lives at the repo root in `app/`, `components/`,
@@ -413,7 +413,7 @@ milestone "done" criteria.
     that worktree — nothing enforces that whoever builds #56 picks the same name. Whoever builds
     #56 must pick one and, if it's not `result/[id]`, update `app/analyzing.tsx`'s navigation call
     in the same change.
-23. **NEW — RELEASE BLOCKER: `purchase-tier` (issue #51) must never be deployed without its
+21. **NEW — RELEASE BLOCKER: `purchase-tier` (issue #51) must never be deployed without its
     deployment gate switched on deliberately (security audit on PR #123, 2026-07-13).** Built and
     Deno-tested, **not deployed** (see the M5 row above) — but the audit found that once deployed
     to this project (open signup: `enable_signup = true`, `enable_confirmations = false`), it is a
@@ -439,7 +439,7 @@ milestone "done" criteria.
     Known Issue #18 have); and the `pace_purchase_tier` SQL function's optional `p_as_of` parameter
     (a caller-suppliable period anchor, unreachable today but one careless edit away from being
     threaded through) was removed entirely rather than merely guarded (LOW finding).
-21. **NEW — `delete-account` does not work end to end yet: the edge function is built but NOT
+22. **NEW — `delete-account` does not work end to end yet: the edge function is built but NOT
     deployed, AND the client is still on a mock pending #122's binding swap (issue #58,
     2026-07-13; response-contract fixed post-review same date).** Read this plainly: shipping this
     issue and shipping #122 are BOTH required before Guideline 5.1.1(v) is actually satisfied.
@@ -488,7 +488,7 @@ milestone "done" criteria.
       is wall-clock-bound but not checkpointed — bounded per-batch by `REMOVE_BATCH_SIZE = 500`,
       but an account with many hundreds of analyses still makes many hundreds of sequential `list()`
       round trips in one invocation; fine at any plausible near-term volume, not fine indefinitely).
-22. **NEW — `lib/delete-account.ts`'s client is real, but built against an unmerged, moving-target
+23. **NEW — `lib/delete-account.ts`'s client is real, but built against an unmerged, moving-target
     contract (issue #53, 2026-07-13; corrected the same day per a security audit on PR #122,
     finding F1).** The Settings screen's "Delete account and data" flow originally shipped bound to
     a dev mock with no owner assigned to ever swap it for a real client — #58/#121's own file list
@@ -506,17 +506,17 @@ milestone "done" criteria.
       — this PR is barred from touching anything under `supabase/functions/`, so it cannot import
       the real type. Whoever merges #121 should replace the mirror with a real `@shared/*` import
       and confirm the codes still match.
-23. **NEW — the Settings screen ships UNCERTIFIED copy (issue #53, 2026-07-13).** `constants/copy.ts`
+24. **NEW — the Settings screen ships UNCERTIFIED copy (issue #53, 2026-07-13).** `constants/copy.ts`
     gained a clearly-delimited block of strings that are **not in `docs/design/copy-deck.md`** and
     have not been through `ux-copywriter` or Ian: two distinct sign-out failure alerts (the string
     issue #27 explicitly said had to be written — a security audit, finding F3, found there are
-    genuinely two of them, not one — see Known Issue #22's sibling note in `lib/sign-out.ts`), the
+    genuinely two of them, not one — see Known Issue #23's sibling note in `lib/sign-out.ts`), the
     delete-account failure alert and its separate orphans-remaining success alert (finding F2), the
     consent-withdrawal confirmation, the "policy not published yet" line, and two screen-reader-only
     Retry labels. They were written to the deck's own rules (name the outcome, never claim a state
     that isn't true, no jargon) but they are drafts. Review them, then mirror the approved wording
     into copy-deck.md § Screen 11 the way #36's and #56's NEW keys were.
-21. **NEW — `analyze-form` is BUILT but NOT DEPLOYED (issues #44 + #45, 2026-07-13).** The edge
+25. **NEW — `analyze-form` is BUILT but NOT DEPLOYED (issues #44 + #45, 2026-07-13).** The edge
     function exists, all four binding contract
     rules from Known Issue #14 are discharged in code and locked by tests, and #91's gate/record
     contract (Known Issue #17) is honoured including a **separate gate for the retry**. See
