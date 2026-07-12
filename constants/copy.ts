@@ -34,7 +34,10 @@ export const Copy = {
       link: 'New here? Create an account',
     },
     error: {
-      invalidCredentials: "Email or password doesn't match. Try again or reset your password.",
+      // No "or reset your password" — there is no forgot-password link, reset screen, or
+      // resetPasswordForEmail call anywhere in the app (issue #18). Only re-add that clause
+      // in the same change that ships the route it points at.
+      invalidCredentials: "Email or password doesn't match. Try again.",
       emailInUse: 'An account already exists with this email. Sign in instead.',
       generic: "Sign-in didn't go through. Try again.",
       passwordBreached:

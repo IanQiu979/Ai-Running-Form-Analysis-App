@@ -7,6 +7,24 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Trimmed the sign-in error that promised a password reset the app doesn't have (closes #18).**
+  `auth.error.invalidCredentials` is now "Email or password doesn't match. Try again." — the
+  clause "or reset your password" is gone from both `docs/design/copy-deck.md` (Screen 1) and
+  `constants/copy.ts`. There is no forgot-password link, no reset screen, and no
+  `resetPasswordForEmail` call anywhere in the repo, and this is the error a returning user is
+  most likely to hit, so it was routing them at a capability that does not exist. Ian's call
+  (2026-07-12) was to trim the copy rather than build the flow; a real reset flow is an auth
+  feature (new screen + deep-link/redirect config) and would be filed separately.
+- **Closed #65 (M7: remaining empty/error/offline states) as not planned, no code changed.** It
+  was an umbrella whose two halves both belong elsewhere. Wiring the deck's states into screens
+  3–11 is blocked — those screens don't exist (M2–M6 not started) — and lifting a screen's copy
+  keys is part of building that screen, not a polish pass afterwards, so it belongs in each
+  milestone's own issue rather than a standing M7 one. Its actionable half (the M1 audit's
+  missing deck keys) was already covered by #30, #17, #9, and #18. The audit found gaps wider
+  than those issues recorded; they're now comments on #30 (a third hardcoded string,
+  `title: 'Home'` in `app/(tabs)/_layout.tsx`, plus hardcoded `'Pro'`/`'Elite'` in
+  `describeReadyQuota`) and #9 (the `8` is triplicated across `config.toml`, `sign-in.tsx`, and
+  the `copy.ts` string, and the rule is still invisible until the user fails).
 - **Merged the three open PRs to `main` and cleared the Apple-blocked work out of the tracker.**
   - Merged PR #73 (client-side HIBP check), PR #72 (privacy policy + labels + consent design),
     and PR #75 (EAS init + icon/splash) into `main`, resolving the conflicts between them. All
