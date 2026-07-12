@@ -95,6 +95,25 @@ milestone "done" criteria.
   "Current — AI spend guardrails substrate" section. **Still open, and not something this work
   could do from the repo: the hard spend ceiling in the Anthropic Console** — see Known Issue
   #17.
+- **Edge-function build/test contract closed 2026-07-12 (issue #90).** Three previously-unowned
+  gaps that #41/#43/#44/#49/#59 all silently assumed: (1) **a Deno runner** —
+  `supabase/functions/deno.json` + `npm run typecheck:edge` (`deno check`) / `npm run test:edge`
+  (`deno test`), folded into `npm run typecheck` / `npm test` so the CLAUDE.md gate now covers
+  edge code for the first time; `deno check` immediately caught and fixed a real, previously
+  invisible type bug in `ai-guard-client.ts` (issue #91)'s `rpc()` return type. (2) **`lib/pace.ts`
+  moved to `supabase/functions/_shared/pace.ts`**, the single source of truth for the app and the
+  edge function with no copy/codegen/symlink — the app imports it via a new `@shared/*` tsconfig
+  alias; `ScoreBand` is now an inline copy (Deno can't resolve `constants/theme.ts`), drift-locked
+  by a Jest test that fails if the two ever disagree. (3) **The three `knowledge/*.md` files are
+  now codegenned into `supabase/functions/_shared/knowledge.generated.ts`**
+  (`npm run generate:knowledge`), the single mechanism that gets them into the deploy bundle at
+  all (`supabase functions deploy` only bundles `supabase/functions/`). Every constant is wrapped
+  in `assertNonEmptyKnowledge()`, which throws at module load if a bundle is ever empty or
+  whitespace — verified live by deliberately emptying a constant and confirming `deno test` fails
+  loud. A `git diff --exit-code` drift check (`npm run verify:knowledge`, part of `test:edge`)
+  fails the build if `knowledge/*.md` is edited without regenerating — verified live the same way.
+  Full detail: `docs/architecture.md`'s "Current — Deno build/test contract, pace.ts location &
+  knowledge bundling" section.
 - Full dated history: [`docs/change_log.md`](change_log.md).
 
 ## Known issues

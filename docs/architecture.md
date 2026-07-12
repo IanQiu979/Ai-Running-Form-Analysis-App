@@ -60,10 +60,20 @@ supabase/
   config.toml              # local mirror of live auth config — see "Current — Supabase config"
   functions/.env.example   # committed placeholder; the real ANTHROPIC_API_KEY is in the
                           # gitignored functions/.env locally and in production secrets
+  functions/deno.json       # Deno runner config (2026-07-12, issue #90), scoped to
+                          # supabase/functions/ — wired as `npm run typecheck:edge` / `npm run
+                          # test:edge`; see "Current — Deno build/test contract..." below.
+  functions/deno.lock       # Deno's dependency lockfile (npm:@supabase/supabase-js's integrity
+                          # hashes) — committed, same role as package-lock.json.
   functions/_shared/       # ai-pricing.ts, ai-guard.ts, ai-guard-client.ts (2026-07-12, issue
                           # #91) — the AI spend gate `analyze-form` (#44) will be forced through;
-                          # see "Current — AI spend guardrails substrate" below. Still no
-                          # edge function itself (no Deno.serve entrypoint anywhere yet).
+                          # see "Current — AI spend guardrails substrate" below. Also (issue #90,
+                          # 2026-07-12): pace.ts (moved from lib/, the single source of truth for
+                          # the app + edge function) and knowledge-guard.ts +
+                          # knowledge.generated.ts (the certified knowledge/*.md files, bundled
+                          # so a deployed function can actually read them) — see "Current — Deno
+                          # build/test contract, pace.ts location & knowledge bundling" below.
+                          # Still no edge function itself (no Deno.serve entrypoint anywhere yet).
   migrations/               # 13 migrations, all applied live as of 2026-07-12 (see "Current —
                           # DB schema" below) — including #2 (quota soft-delete), #88
                           # (frame-upload ordering), and #91's guardrails
@@ -73,9 +83,10 @@ The template's `(tabs)/explore.tsx` and `modal.tsx` are deleted, not left as dea
 Still absent: `supabase/functions/analyze-form` (or any edge function entrypoint — `_shared/`
 has no `Deno.serve` in it), `lib/frames.ts`, `lib/subscription.ts`, and every
 route beyond sign-in + empty Home (capture, result, paywall, settings, history).
-`lib/pace.ts` now exists (#43, PR #102) — the shared PACE types, result shape, and structural
-validator, imported by the app and (once #90 settles the Deno bundling mechanism) the edge
-functions.
+`supabase/functions/_shared/pace.ts` now exists (#43; moved here from `lib/pace.ts` by #90,
+2026-07-12, which settled the Deno bundling mechanism) — the shared PACE types, result shape,
+and structural validator, imported by the app (via the new `@shared/*` tsconfig alias) and,
+once it exists, the edge functions.
 
 ## Route tree — current (M1) vs planned
 
@@ -119,8 +130,10 @@ lib/
                           # (client-side). It does NOT upload: since #88, frames ride in the
                           # analyze-form request body as base64 and the edge function writes
                           # them to the bucket itself, after the model call.
-  pace.ts                 # PACE pillar types, result shape, and structural validator, imported
-                          # by the app + (pending #90's Deno bundling) the edge functions (#43)
+  # pace.ts is NOT here — moved to supabase/functions/_shared/pace.ts by issue #90 (2026-07-12),
+  # the single source of truth for the app + edge function (no copy/codegen/symlink). The app
+  # imports it via the `@shared/*` tsconfig alias (`@shared/pace`). See "Current — Deno
+  # build/test contract, pace.ts location & knowledge bundling" below.
   subscription.ts         # planned (M5) — tier read + dummy purchase (adapted from Echo V1 /
                           # V2.2) — cosmetic only; tier/quota are never authoritative on the
                           # client (the live reserve_analysis RPC is already the sole
@@ -175,7 +188,95 @@ knowledge/
 
 These files are meant to be bundled into the `analyze-form` edge function and injected as
 system context, so every analysis is grounded in certified biomechanics rather than the model's
-general knowledge. Echo V1 stays frozen — copy from it, never into it.
+general knowledge. Echo V1 stays frozen — copy from it, never into it. **The bundling mechanism
+itself landed 2026-07-12, issue #90** — see the next section.
+
+## Current — Deno build/test contract, `pace.ts` location & knowledge bundling (issue #90, done 2026-07-12)
+
+Found by the full-repo audit the same day: three mechanics that #41/#43/#44/#49/#59 all silently
+assumed existed, but nothing owned. All three are closed now.
+
+**1. A Deno runner exists.** `jest-expo` (`jest.config.js`) is a React Native runner and cannot
+execute Deno edge-function code — until this issue there was no way to run or typecheck anything
+under `supabase/functions/` at all. `supabase/functions/deno.json` (scoped to that directory,
+`compilerOptions.strict: true`) plus two npm scripts:
+
+```
+npm run typecheck:edge   # deno check --config supabase/functions/deno.json supabase/functions
+npm run test:edge        # npm run verify:knowledge && deno test --config supabase/functions/deno.json --allow-read supabase/functions
+```
+
+— folded into the existing commands rather than left as a second gate someone has to remember:
+`npm run typecheck` is now `tsc --noEmit && npm run typecheck:edge`, and `npm run test` is now
+`jest && npm run test:edge`. CLAUDE.md's mandated `npm run typecheck && npm run lint && npm test`
+therefore covers edge code for the first time, with no change to the commands anyone actually
+types. Running `deno check` for the first time immediately caught a real, previously-invisible
+bug in `ai-guard-client.ts` (issue #91): `@supabase/supabase-js`'s `.rpc()` returns a
+`PostgrestFilterBuilder` — thenable, but not structurally a `Promise` (missing `catch`/`finally`/
+`Symbol.toStringTag`) — which didn't satisfy `RpcClient.rpc()`'s declared `Promise<...>` return
+type. Fixed by wrapping the call in an `async` function, which always returns a genuine `Promise`
+with no behavior change. `supabase/functions/deno.lock` (committed, same role as
+`package-lock.json`) pins `npm:@supabase/supabase-js@2.110.2`'s resolved dependency tree.
+
+**Jest/Deno split, decided deliberately.** The pre-existing `_shared/__tests__/ai-guard.test.ts`
+and `ai-pricing.test.ts` (issue #91) stay Jest-only: they use `jest.fn()` for RPC mocking, and
+their subjects (`ai-guard.ts`, `ai-pricing.ts`) are deliberately Deno-agnostic pure logic with no
+`npm:`/Deno-only syntax, so nothing is lost by not also running them under Deno. Both are listed
+in `deno.json`'s `exclude` so `deno check`/`deno test` don't choke on the undefined `jest`/
+`describe`/`it` globals. The moved `pace.test.ts` (see point 2) joins them for the same reason,
+plus one more: it imports `constants/theme.ts` to prove `pace.ts`'s `ScoreBand` hasn't drifted,
+and only Jest can resolve that module at all. New Deno-only tests (the knowledge-bundle suite,
+point 3) use a `.deno.test.ts` filename suffix, excluded from Jest via a new
+`testPathIgnorePatterns` entry in `jest.config.js` (`'<rootDir>/.*\\.deno\\.test\\.ts$'`,
+mirroring the pre-existing `*.canary.test.ts` exclusion) — Jest's default `testMatch` would
+otherwise pick up any `.ts` file inside `_shared/__tests__/` regardless of name, so filename,
+not directory, is what separates the two runners' territory within one shared test directory.
+
+**2. `lib/pace.ts` now satisfies both consumers — by moving, not copying.** It lives at
+`supabase/functions/_shared/pace.ts`: the single source of truth, with no copy, codegen, or
+symlink anywhere else, so drift is structurally impossible (`supabase functions deploy` only
+bundles `supabase/functions/`, so a `lib/`-resident copy could never have reached the deployed
+function regardless). The app imports it through a new tsconfig path alias, `@shared/*` →
+`./supabase/functions/_shared/*` (`tsconfig.json`); `jest-expo`'s preset derives its Jest
+`moduleNameMapper` from the same `tsconfig.json` `paths` automatically (`node_modules/jest-expo/
+src/preset/withTypescriptMapping.js`), so the alias resolves identically under Metro and Jest
+with zero extra config, the same mechanism that already makes the pre-existing `@/*` alias work
+in Jest. The one import `pace.ts` used to need — `import type { ScoreBand } from
+'../constants/theme'` — is gone: Deno resolves neither the `@/*` alias nor an extensionless
+specifier, and `theme.ts` pulls in `react-native` regardless of the `import type` erasure. In its
+place, `pace.ts` now declares its own `ScoreBand` union plus a runtime companion,
+`SCORE_BAND_VALUES` (added solely because a type has no runtime representation to diff against).
+The moved `supabase/functions/_shared/__tests__/pace.test.ts` gained a "ScoreBand parity" suite
+that imports `constants/theme.ts`'s real `ScoreBandOrder` and asserts the two arrays are exactly
+equal — verified to actually fail, not just pass vacuously, by temporarily adding a duplicate
+entry to `SCORE_BAND_VALUES` and confirming the test caught it before reverting.
+`npm run typecheck` (`tsc --noEmit`) still passes with `pace.ts` in its new location: `include`d
+app code imports it, which pulls it back into the TS program despite `tsconfig.json`'s
+`supabase/functions/**` exclude (`exclude` blocks *automatic* inclusion, not reachability via the
+import graph) — confirmed clean, and safe only because `pace.ts` has zero Deno-only syntax, which
+it's structurally guaranteed to keep (see its own header comment).
+
+**3. The knowledge files are bundled, and an empty bundle now fails loud.** The danger this half
+of the issue exists to close: a deploy that ships an empty knowledge string doesn't crash, it
+produces confident, fluent, ungrounded biomechanics advice — the one thing this product must
+never do. `scripts/generate-knowledge-bundle.js` (`npm run generate:knowledge`) reads the three
+`knowledge/*.md` files and codegens `supabase/functions/_shared/knowledge.generated.ts`
+(checked in — the deploy needs it, not just the source), exporting `PACE_FRAMEWORK_MD`,
+`INJURY_FLAGS_MD`, and `DRILLS_MD` as string constants via `JSON.stringify` (safe against any
+backtick/`${...}` content in the source markdown). Every constant is wrapped in
+`assertNonEmptyKnowledge()` (`supabase/functions/_shared/knowledge-guard.ts` — hand-written, not
+generated, so the codegen script only ever emits data, never logic), which throws the moment the
+module is loaded if any bundle is empty or whitespace-only. **Verified live, not just written**:
+deliberately emptied `DRILLS_MD`'s content and confirmed `deno test` failed immediately with an
+uncaught error at import time, before a single test assertion ran; reverted and confirmed clean.
+`npm run verify:knowledge` (part of `test:edge`, hence part of `npm test`) regenerates the bundle
+and runs `git diff --exit-code` against the checked-in file — **also verified live**: edited
+`knowledge/drills.md` without regenerating, confirmed the check failed with the exact diff;
+reverted, confirmed it passed. New Deno-only tests (`knowledge-guard.deno.test.ts`,
+`knowledge.deno.test.ts`) assert `assertNonEmptyKnowledge`'s throw behavior directly, and that
+each bundled constant is non-empty, contains an anchor heading from its source file, and matches
+the file on disk byte-for-byte (catching a codegen escaping bug that "contains an anchor string"
+alone would miss).
 
 ## Current — design layer (Phase 0.5, done 2026-07-11)
 

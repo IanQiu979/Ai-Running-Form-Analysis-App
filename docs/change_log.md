@@ -7,6 +7,58 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Edge-function build/test contract closed (closes #90).** Three previously-unowned mechanics
+  that #41/#43/#44/#49/#59 all silently assumed, found by the full-repo audit the same day:
+  - **No runner could execute edge-function code.** Added `supabase/functions/deno.json`
+    (scoped to that directory) and two npm scripts, `typecheck:edge` (`deno check`) and
+    `test:edge` (`deno test`), folded into `npm run typecheck` / `npm run test` respectively so
+    the CLAUDE.md-mandated `typecheck && lint && test` gate covers edge code for the first time.
+    Running `deno check` immediately surfaced a real, previously invisible type bug in
+    `ai-guard-client.ts` (issue #91) — `@supabase/supabase-js`'s `rpc()` returns a
+    `PostgrestFilterBuilder`, not a true `Promise`, which didn't structurally satisfy
+    `RpcClient.rpc()`'s declared return type; fixed by wrapping the call in an `async` function.
+    The pre-existing `_shared/__tests__/ai-guard.test.ts` / `ai-pricing.test.ts` stay Jest-only
+    (they use `jest.fn()` and their subjects are deliberately Deno-agnostic pure logic) and are
+    excluded from `deno check`/`deno test` via `deno.json`'s `exclude`; new Deno-only test files
+    use a `.deno.test.ts` suffix, excluded from Jest via a new `testPathIgnorePatterns` entry in
+    `jest.config.js` (mirroring the existing `*.canary.test.ts` exclusion) — the two runners
+    share the same `_shared/__tests__/` directory without either choking on the other's globals.
+  - **`lib/pace.ts` could not satisfy both the app and the edge function as specced.** Moved to
+    `supabase/functions/_shared/pace.ts` — the single source of truth, no copy/codegen/symlink,
+    structurally impossible to drift since there is only one file. The app imports it via a new
+    `@shared/*` tsconfig path alias (`@shared/*` → `./supabase/functions/_shared/*`); `jest-expo`
+    derives its Jest `moduleNameMapper` from the same `tsconfig.json` `paths`, so the alias
+    resolves identically under Metro and Jest with no extra config. The `import type { ScoreBand
+    } from '../constants/theme'` line is gone — Deno cannot resolve that extensionless,
+    non-aliased specifier, and `theme.ts` pulls in `react-native` regardless — replaced with an
+    inline `ScoreBand` union plus a runtime `SCORE_BAND_VALUES` companion. A new test in the
+    moved `supabase/functions/_shared/__tests__/pace.test.ts` (Jest-only, since only Jest can
+    resolve `constants/theme.ts`) asserts `SCORE_BAND_VALUES` matches `constants/theme.ts`'s
+    `ScoreBandOrder` exactly — verified to actually fail by temporarily desyncing the two and
+    confirming the test catches it. `npm run typecheck` (`tsc --noEmit`) still passes: `pace.ts`
+    is pulled back into the TS program via the import graph despite `tsconfig.json`'s
+    `supabase/functions/**` exclude, and has zero Deno-only syntax to break it.
+  - **The `knowledge/*.md` files had no bundling mechanism, and the failure mode was silent.**
+    `supabase functions deploy` only bundles `supabase/functions/` — the three certified files
+    live at the repo root and could never reach a deployed function. Added
+    `scripts/generate-knowledge-bundle.js` (`npm run generate:knowledge`), which codegens
+    `supabase/functions/_shared/knowledge.generated.ts` (checked in) exporting each file's exact
+    contents as a string constant, each wrapped in `assertNonEmptyKnowledge()`
+    (`supabase/functions/_shared/knowledge-guard.ts`, hand-written, not generated) — it throws at
+    module load if any bundle is empty or whitespace-only, so a deploy can never silently serve
+    confident, fluent, ungrounded biomechanics advice; verified live by deliberately emptying a
+    generated constant and confirming `deno test` fails loud the moment the module is imported,
+    before any handler code runs. `npm run verify:knowledge` (part of `test:edge`, hence part of
+    `npm test`) regenerates and runs `git diff --exit-code` against the checked-in file, so
+    editing a `knowledge/*.md` without regenerating fails the build — verified live the same way
+    (edited `knowledge/drills.md`, confirmed the check failed; reverted, confirmed it passed).
+    New Deno-only tests (`knowledge-guard.deno.test.ts`, `knowledge.deno.test.ts`) assert each
+    constant is non-empty, contains an anchor heading from its source `.md`, and matches the file
+    on disk byte-for-byte.
+
+  Full detail: `docs/architecture.md`'s "Current — Deno build/test contract, pace.ts location &
+  knowledge bundling" section; `docs/status.md`'s "Done so far" entry for the same date.
+
 - **AI spend guardrails substrate landed, ahead of `analyze-form` itself (closes #91).** #48
   established account creation on this project is currently unbounded (no signup rate limit,
   autoconfirm on, CAPTCHA blocked on Ian) and its own conclusion is that this blocks M4 *going

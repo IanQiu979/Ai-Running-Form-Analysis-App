@@ -1,5 +1,7 @@
 /**
- * Regression locks for `lib/pace.ts` (issue #43).
+ * Regression locks for `supabase/functions/_shared/pace.ts` (issue #43; moved here from
+ * `lib/pace.ts` by issue #90, which also inlined `ScoreBand` — see the "ScoreBand parity" suite
+ * at the end of this file).
  *
  * This is the shared type contract #44, #45, #46, #56, and #60 all build against, so the two
  * things this suite exists to protect are:
@@ -14,12 +16,24 @@
  * The numeric constants (case group 5) are locked against the exact values in
  * `docs/architecture.md` "Planned — media pipeline" and issue #45's decision table — a change to
  * either should be a deliberate, visible diff here, not a silent drift.
+ *
+ * JEST-ONLY, DELIBERATELY (issue #90): like the sibling `ai-guard.test.ts`/`ai-pricing.test.ts`
+ * in this same directory, `pace.ts` itself has zero Deno-only syntax and is checked by
+ * `deno check` (via `npm run typecheck:edge`) same as any other file under `supabase/functions/`.
+ * But THIS test file additionally imports `constants/theme.ts` (the "ScoreBand parity" suite) to
+ * prove `pace.ts`'s inlined `ScoreBand` union hasn't drifted from the real one — Deno cannot
+ * resolve `constants/theme.ts` at all (no `@/*` alias, and it pulls in `react-native`), so that
+ * comparison can only run under Jest, which is exactly why this file is listed in
+ * `supabase/functions/deno.json`'s `exclude`.
  */
+import { ScoreBandOrder } from '@/constants/theme';
+
 import {
   PACE_FRAME_CAP,
   PACE_MAX_REQUEST_BODY_BYTES,
   PACE_MIN_ASSESSED_PILLARS_FOR_PARTIAL,
   PACE_PILLARS,
+  SCORE_BAND_VALUES,
   type PaceAnalysisOutcome,
   type PaceDrill,
   type PaceInjuryFlag,
@@ -295,5 +309,25 @@ describe('shared constants', () => {
 
   it('PACE_PILLARS is the canonical P-A-C-E order', () => {
     expect(PACE_PILLARS).toEqual(['posture', 'armSwing', 'cadence', 'elasticity']);
+  });
+});
+
+describe('ScoreBand parity with constants/theme.ts (issue #90 drift guard)', () => {
+  // pace.ts cannot import constants/theme.ts — Deno resolves neither the `@/*` alias nor an
+  // extensionless specifier, and the real module pulls in `react-native` at runtime regardless.
+  // So pace.ts's `ScoreBand` (and its runtime companion `SCORE_BAND_VALUES`, added solely to make
+  // this assertion possible — a type has nothing to diff against at runtime) is now an INLINE
+  // COPY of constants/theme.ts's `ScoreBand`, not an import of it. Nothing else in the codebase
+  // keeps the two in sync — this test is the only thing standing between an edit to one and a
+  // silent, undetected divergence from the other.
+  it('SCORE_BAND_VALUES (pace.ts) has the exact same members, in the exact same order, as ScoreBandOrder (constants/theme.ts)', () => {
+    expect(SCORE_BAND_VALUES).toEqual(ScoreBandOrder);
+  });
+
+  // Guards against the degenerate case where both sides were accidentally emptied/stubbed and
+  // `toEqual([], [])` would pass vacuously.
+  it('is the real 4-band list on both sides, not an accidental empty match', () => {
+    expect(SCORE_BAND_VALUES.length).toBe(4);
+    expect(SCORE_BAND_VALUES).toEqual(['low', 'mid', 'good', 'strong']);
   });
 });

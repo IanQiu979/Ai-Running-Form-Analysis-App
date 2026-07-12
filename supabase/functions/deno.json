@@ -1,0 +1,12 @@
+{
+  "$schema": "https://deno.land/x/deno/cli/schemas/config-file.v1.json",
+  "compilerOptions": {
+    "strict": true
+  },
+
+  "exclude": [
+    "_shared/__tests__/ai-guard.test.ts",
+    "_shared/__tests__/ai-pricing.test.ts",
+    "_shared/__tests__/pace.test.ts"
+  ]
+}
