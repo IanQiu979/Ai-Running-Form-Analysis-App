@@ -26,6 +26,7 @@ import {
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
+import { PASSWORD_MIN_LENGTH } from '@/constants/validation';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { signInWithGoogle } from '@/lib/auth';
 import { checkPasswordBreached } from '@/lib/hibp';
@@ -98,18 +99,19 @@ export default function SignInScreen() {
     try {
       if (mode === 'signUp') {
         // UX pre-check only, run BEFORE the breach check below — not a business rule the
-        // client owns. `minimum_password_length = 8` in supabase/config.toml is the ONLY
-        // authority on this; if that value ever changes, this literal and
-        // Copy.auth.error.passwordTooShort must change with it or they'll silently drift.
-        // `mapAuthError`'s "password should be at least" branch stays as the server-side
-        // backstop regardless of what this pre-check does.
+        // client owns. `PASSWORD_MIN_LENGTH` (constants/validation.ts) mirrors
+        // `minimum_password_length` in supabase/config.toml, the ONLY authority on this; if
+        // that value ever changes, the constant (and Copy.auth.password.rule /
+        // Copy.auth.error.passwordTooShort, both templated off it) must change with it or
+        // they'll silently drift. `mapAuthError`'s "password should be at least" branch stays
+        // as the server-side backstop regardless of what this pre-check does.
         //
         // Why it has to run first: a password like "1234" is both too short AND breached.
         // Without this check, the breach check below would return first and the user would
         // only ever be told "breached" — never the real, fixable problem — so they'd pick
         // another short password and hit "breached" again, never learning the length rule.
         // It also saves a pointless HIBP round-trip on a password that can never be accepted.
-        if (password.length < 8) {
+        if (password.length < PASSWORD_MIN_LENGTH) {
           setErrorMessage(Copy.auth.error.passwordTooShort);
           return;
         }
@@ -171,7 +173,7 @@ export default function SignInScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            <Text style={styles.wordmark}>Pace AnalysisAI</Text>
+            <Text style={styles.wordmark}>{Copy.app.name}</Text>
             <Text style={styles.valueProp}>{Copy.auth.valueProp}</Text>
           </View>
 
@@ -201,6 +203,11 @@ export default function SignInScreen() {
                 disabled={isBusy}
                 style={({ pressed }) => [
                   styles.secondaryButton,
+                  // surface.base, not surface.raised — theme.ts documents surface.raised as
+                  // "the one raised element per screen," and Google above already claims it as
+                  // the recommended path (issue #25). Keeps this button legible (still has the
+                  // hairline border + primary-colored label) without contradicting the token.
+                  styles.emailButtonSurface,
                   isBusy && styles.buttonDisabled,
                   pressed && styles.buttonPressed,
                 ]}>
@@ -223,18 +230,26 @@ export default function SignInScreen() {
                   textContentType="emailAddress"
                   editable={!isBusy}
                 />
-                <TextInput
-                  style={styles.input}
-                  placeholder={Copy.auth.password.placeholder}
-                  accessibilityLabel={Copy.auth.password.placeholder}
-                  placeholderTextColor={colors.text.secondary}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  textContentType={mode === 'signUp' ? 'newPassword' : 'password'}
-                  editable={!isBusy}
-                />
+                <View style={styles.passwordField}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder={Copy.auth.password.placeholder}
+                    accessibilityLabel={Copy.auth.password.placeholder}
+                    placeholderTextColor={colors.text.secondary}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    textContentType={mode === 'signUp' ? 'newPassword' : 'password'}
+                    editable={!isBusy}
+                  />
+                  {/* Sign-up only — the rule is irrelevant once an account already exists
+                      (issue #9). Discloses it before submit instead of only after a failed
+                      attempt. */}
+                  {mode === 'signUp' && (
+                    <Text style={styles.passwordRuleText}>{Copy.auth.password.rule}</Text>
+                  )}
+                </View>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={
@@ -329,6 +344,11 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       fontSize: FontSize.md,
       color: colors.text.primary,
     },
+    // Overrides secondaryButton's background only — see the emailButtonSurface call site's
+    // comment for why (issue #25).
+    emailButtonSurface: {
+      backgroundColor: colors.surface.base,
+    },
     primaryButton: {
       minHeight: ControlHeight.standard,
       borderRadius: Radius.card,
@@ -364,6 +384,16 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
       color: colors.text.primary,
+    },
+    // Tighter than emailForm's Spacing.md between fields — the rule text belongs to the
+    // password input directly above it, not a sibling of equal weight.
+    passwordField: {
+      gap: Spacing.xs,
+    },
+    passwordRuleText: {
+      fontFamily: FontFamily.body.regular,
+      fontSize: FontSize.xs,
+      color: colors.text.secondary,
     },
     errorText: {
       fontFamily: FontFamily.body.regular,

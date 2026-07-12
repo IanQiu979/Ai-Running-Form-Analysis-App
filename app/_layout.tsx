@@ -16,7 +16,8 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import 'react-native-reanimated';
+import { Platform } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider, useSession } from '@/lib/session-provider';
@@ -41,6 +42,12 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const { session, isLoading: isSessionLoading } = useSession();
+  // Motion consult (docs/design/motion-consult.md, binding alongside brief §6): the
+  // auth<->tabs Stack.Protected swap below is a real stack transition today, so its
+  // reduced-motion mapping already applies — Android's stack transition must be forced to a
+  // fade, while iOS already honors the OS setting natively (keyed to "Prefer Cross-Fade
+  // Transitions", a distinct native-stack behavior) and needs no override here.
+  const reducedMotion = useReducedMotion();
   const [fontsLoaded, fontError] = useFonts({
     Archivo_400Regular,
     Archivo_500Medium,
@@ -70,7 +77,10 @@ function RootLayoutNav() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
+      <Stack
+        screenOptions={
+          Platform.OS === 'android' && reducedMotion ? { animation: 'fade' } : undefined
+        }>
         {/* Stack.Protected omits its screen from the navigator entirely (not just hides it)
             while its guard is false, so a signed-out user's Stack literally has no route
             at (tabs) to navigate to, and vice versa — this is what makes sign-in/sign-out

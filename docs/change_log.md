@@ -7,6 +7,34 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Five low-severity M7 polish fixes, one pass (closes #9, #21, #25, #29, #30).**
+  - **#30 — hardcoded strings.** Added `Copy.app.name` ("Pace AnalysisAI", the wordmark) and
+    `Copy.home.title` ("Home", the tab label) to the deck and `constants/copy.ts`, then
+    repointed `app/(auth)/sign-in.tsx` and `app/(tabs)/_layout.tsx` at them. The on-screen
+    "Home" heading in `app/(tabs)/index.tsx` was **deleted rather than keyed** — it sat directly
+    above a tab already labelled "Home," and the brief's Home is a motif + a CTA, not a headline
+    screen; the header row keeps only the sign-out control. `describeReadyQuota`'s `'Pro'`/
+    `'Elite'` fallback strings are a separate, not-yet-filed gap and were left alone.
+  - **#21 — accent used 2–3 times at once.** Home's error-state Retry link now renders in
+    `colors.text.primary` (was `Accent.value`), matching the sign-out link's underline
+    treatment, so the accent is on screen only on the primary CTA. The tab bar's
+    `tabBarActiveTintColor` use is untouched — a deliberate, code-commented deviation.
+  - **#25 — `surface.raised` on two buttons.** `app/(auth)/sign-in.tsx`'s "Continue with email"
+    button moves to `surface.base`; "Continue with Google" keeps `surface.raised`, satisfying
+    the token's own "one raised element per screen" rule. Does not preempt #20 (promoting
+    Google to the accent `primaryButton`), which is separate, Medium-severity work.
+  - **#29 — reduced motion.** `app/_layout.tsx`'s root `<Stack>` now reads
+    `useReducedMotion()` (`react-native-reanimated`) and forces `screenOptions={{ animation:
+    'fade' }}` on Android only when it's on — the auth↔tabs `Stack.Protected` swap is a real
+    transition today, and iOS already honors the OS setting natively per
+    `docs/design/motion-consult.md`'s reduced-motion map, so it's left alone there.
+  - **#9 — password rule invisible + triplicated (second half; the error-mapping half already
+    shipped in PR #73).** New `constants/validation.ts` exports `PASSWORD_MIN_LENGTH = 8`,
+    commented as mirroring — not owning — `supabase/config.toml`'s `minimum_password_length`.
+    `constants/copy.ts`'s `auth.password.rule` (new deck key, sign-up-mode-only helper text
+    under the password field) and `auth.error.passwordTooShort` now template off that constant
+    instead of each hardcoding "8," and `sign-in.tsx`'s pre-check reads
+    `password.length < PASSWORD_MIN_LENGTH`.
 - **Repo audit: seven small, self-contained M1 bugs fixed in one pass (closes #13, #14, #19,
   #22, #23, #31, #33).** Each had a prescribed, mechanical fix in its issue and needed no design
   decision; everything larger or ambiguous found in the same read-through was left as an issue

@@ -19,6 +19,12 @@
 
 ---
 
+## App identity
+
+| Key | String | Notes |
+|---|---|---|
+| `app.name` | "Pace AnalysisAI" | The exact wordmark casing (intro above) — never "PACE AnalysisAI." Today only Screen 1's header `<Text>`; reuse this key rather than retyping the name anywhere else it appears (issue #30). |
+
 ## 0. Shared components (defined once, reused by key)
 
 Buttons and micro-copy that recur across screens. Define once in code, reference everywhere below
@@ -62,6 +68,7 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 | `auth.cta.email` | "Continue with email" | Opens the email/password fields. |
 | `auth.email.placeholder` | "Email" | |
 | `auth.password.placeholder` | "Password" | |
+| `auth.password.rule` | "Must be at least 8 characters." | Helper text under the password field, **sign-up mode only** (irrelevant on sign-in) — discloses the length rule before submit instead of the user only learning it after a failed attempt (issue #9). Implementation hoists the "8" into one shared `PASSWORD_MIN_LENGTH` constant (`constants/validation.ts`) that both this string and the sign-up pre-check derive from, rather than typing the number a third time next to `supabase/config.toml`'s `minimum_password_length` (the real authority) and `auth.error.passwordTooShort` below. |
 | `auth.signIn.submit` | "Sign in" | |
 | `auth.signUp.submit` | "Create account" | |
 | `auth.signUp.link` | "New here? Create an account" | Text link on the sign-in screen, not a second button (brief §4.1). |
@@ -70,7 +77,7 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 | `auth.error.emailInUse` | "An account already exists with this email. Sign in instead." | Sign-up with a taken email. |
 | `auth.error.generic` | "Sign-in didn't go through. Try again." | Any other auth failure — provisional until Phase 1 wires real Supabase error codes; replace with a specific string per code where one exists rather than falling back to this by default. |
 | `auth.error.passwordBreached` | "That password has shown up in a data breach before. Pick a different one to keep your account secure." | Sign-up: the submitted password matches a known-breached password (client-side HaveIBeenPwned range-API check, issue #70 — Supabase's server-side version is Pro-plan-gated). Blocks account creation; no jargon ("pwned," "hash," "HaveIBeenPwned") and no blaming the user — reused passwords are common, the copy just asks for a different one. |
-| `auth.error.passwordTooShort` | "Password must be at least 8 characters." | Sign-up: Supabase rejects the password on length. Previously fell through to the generic error, telling the user nothing they could act on. |
+| `auth.error.passwordTooShort` | "Password must be at least 8 characters." | Sign-up: Supabase rejects the password on length. Previously fell through to the generic error, telling the user nothing they could act on. Same `PASSWORD_MIN_LENGTH`-templated "8" as `auth.password.rule` above (issue #9) — one constant, not a second hardcoded copy. |
 
 ---
 
@@ -78,6 +85,7 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 
 | Key | String | Shows when |
 |---|---|---|
+| `home.title` | "Home" | The tab bar label (`app/(tabs)/_layout.tsx`) only — there is **no separate on-screen heading**. The brief's Home is a motif + a CTA, not a headline screen, and a literal "Home" heading directly above a tab already labelled "Home" is redundant chrome; dropped rather than moved into the deck (issue #30's audit note, Ian's call). The header row keeps only the sign-out control. |
 | `home.cta.analyze` | "Analyze my form" | Default primary CTA — user has quota remaining (Free: unused; Pro/Elite: remaining > 0). Fixed wording per brief §4.2. |
 | `home.cta.upgradeToAnalyze` | "Upgrade to analyze" | Free tier, lifetime analysis already used. Routes to Paywall. Replaces `analyze` rather than reusing it — tapping this never starts an analysis, so the label must say so (see "ambiguities" at the end of this deck). |
 | `home.cta.upgradeForMore` | "Upgrade for more" | Pro tier, period quota used up but an upgrade path (Elite) exists. Routes to Paywall. |
@@ -393,3 +401,10 @@ earlier plain Continue/Cancel draft.
    (`consent.upload.cta.primary`, now "I consent — continue"), and the body names Anthropic and
    the health-data outcome by name instead of "our AI provider." This also resolves the privacy
    checklist's SHOULD item about naming Anthropic in the consent copy itself.
+7. **Home's on-screen heading, dropped (2026-07-12, issue #30).** §Screen 2 originally had no
+   title key at all, and the M1 build filled that gap with a hardcoded `<Text>` heading reading
+   "Home" — directly above a tab bar whose own label already says "Home." Rather than add a
+   second deck key for a heading that only restates the tab, I deleted the heading and kept
+   `home.title` as the tab label's key only. The header row keeps its sign-out control; nothing
+   else moves. If a future design pass wants a real on-screen headline for Home (distinct
+   wording from the tab label), that's a new key added then, not this one repurposed.

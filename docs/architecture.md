@@ -35,6 +35,10 @@ constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dar
                           # ControlHeight/ControlWidth/HitTarget/Opacity
 constants/copy.ts         # strings lifted verbatim from docs/design/copy-deck.md — sign-in and
                           # Home's copy live here first (M1); more screens' copy lands with them
+constants/validation.ts   # client-side mirrors of server-enforced rules, not the authority —
+                          # currently just PASSWORD_MIN_LENGTH, mirroring supabase/config.toml's
+                          # minimum_password_length so sign-in.tsx's pre-check and copy.ts's
+                          # password-rule strings derive from one number (issue #9)
 constants/contrast.ts     # contrast-ratio helper backing the AA proof below
 constants/__tests__/theme-contrast.test.ts  # 61-assertion Jest proof every text/surface and
                           # band pair clears WCAG AA (9 brief-§2 intent values were darkened/

@@ -144,8 +144,11 @@ export default function HomeScreen() {
           centers when there is room, but at the largest Dynamic Type sizes it scrolls instead
           of clipping (design brief §7: layouts reflow, never clip). */}
       <ScrollView contentContainerStyle={styles.content}>
+        {/* No on-screen "Home" heading — it would sit directly above a tab bar already labelled
+            "Home" (app/(tabs)/_layout.tsx's Copy.home.title), and the brief's Home is a motif +
+            a CTA, not a headline screen. Dropped per issue #30's audit note; this row keeps
+            only the sign-out control. */}
         <View style={styles.headerRow}>
-          <Text style={styles.header}>Home</Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={Copy.settings.signOut.cta}
@@ -246,12 +249,10 @@ function createStyles(colors: ThemeColors) {
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-    },
-    header: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
-      color: colors.text.primary,
+      // No heading occupies this row (see the render's comment) — the sign-out control is the
+      // only child, so it's pinned to where it always sat rather than space-between drifting it
+      // to flex-start now that there's nothing to be "between."
+      justifyContent: 'flex-end',
     },
     signOutButton: {
       minHeight: HitTarget.min,
@@ -309,7 +310,11 @@ function createStyles(colors: ThemeColors) {
     retryText: {
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.sm,
-      color: Accent.value,
+      // Not Accent.value — the accent is reserved for the primary CTA and only the primary CTA
+      // (theme.ts), and Retry rendering in it put the accent on screen twice at once alongside
+      // the always-rendered primary CTA below (issue #21). text.primary + underline instead,
+      // the same treatment as the sign-out link.
+      color: colors.text.primary,
       textDecorationLine: 'underline',
     },
     primaryButton: {
