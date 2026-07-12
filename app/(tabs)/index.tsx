@@ -132,19 +132,6 @@ export default function HomeScreen() {
   const isOutOfQuota =
     quota.status === 'ready' && quota.tier === 'free' && quota.hasUsedFreeAnalysis;
 
-  function handleSignOut() {
-    // onAuthStateChange (lib/session-provider.tsx) flips `session` to null, and the
-    // root layout's Stack.Protected guard routes back to (auth) automatically — that happens
-    // even if the network call below fails, because auth-js clears the local session either way.
-    // The `{ error }` this returns is intentionally discarded, not just forgotten: on a failed
-    // *global* revoke the local sign-out still succeeds, so the user isn't stuck, but the
-    // server-side refresh tokens survive and nobody is told. Surfacing that failure needs
-    // copy-deck text that doesn't exist yet — tracked separately by issue #27, which this does
-    // NOT close. `void` + `.catch` only makes the discard explicit and keeps the rejection from
-    // becoming an unhandled promise rejection.
-    void supabase.auth.signOut().catch(() => {});
-  }
-
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* Same ScrollView + flexGrow:1 pattern as app/(auth)/sign-in.tsx: the content still
@@ -153,12 +140,18 @@ export default function HomeScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <Text style={styles.header}>{Copy.home.title}</Text>
+          {/* Sign-out USED to live here as an M1 stub. Issue #53 moved it to Settings — its real
+              home, alongside delete-account — and this link is now the entry point to that screen.
+              Issue #27 (sign-out was fire-and-forget, so a failed global token revoke was silent)
+              is fixed there, once, rather than twice: see lib/sign-out.ts. */}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={Copy.settings.signOut.cta}
-            onPress={handleSignOut}
-            style={({ pressed }) => [styles.signOutButton, pressed && styles.pressed]}>
-            <Text style={styles.signOutText}>{Copy.settings.signOut.cta}</Text>
+            accessibilityLabel={Copy.settings.title}
+            onPress={() => {
+              router.push('/settings');
+            }}
+            style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]}>
+            <Text style={styles.settingsText}>{Copy.settings.title}</Text>
           </Pressable>
         </View>
 
@@ -277,14 +270,14 @@ function createStyles(colors: ThemeColors) {
       fontSize: FontSize.xl,
       color: colors.text.primary,
     },
-    signOutButton: {
+    settingsButton: {
       minHeight: HitTarget.min,
       minWidth: HitTarget.min,
       paddingHorizontal: Spacing.md,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    signOutText: {
+    settingsText: {
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.sm,
       color: colors.text.secondary,

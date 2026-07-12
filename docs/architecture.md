@@ -1887,3 +1887,87 @@ Supabase (Postgres *and* Storage — the property under test is that two differe
 which a fake cannot fail the way production does), and no re-authentication requirement on this
 endpoint (a stolen access token can delete an account; a confirmation field in the body would not
 change that, since an attacker would simply send it).
+
+## Current — the Settings screen (issue #53, 2026-07-13), closing issue #27
+
+Design-brief screen 11. **Supersedes the "Route tree" table above for `settings`**, which still
+lists it as `planned (M5)` — that line is now stale (left in place rather than edited, to avoid a
+merge conflict with the parallel paywall work that owns the other half of it).
+
+**Route placement: `app/settings.tsx`, a top-level PUSHED route — not a tab.** The planned route
+tree already implied this (it lists `paywall, settings` at root while nesting only
+`(tabs)/history`), and it is the right product call: the tab bar is for co-equal primary surfaces
+(Home, and later History), whereas Settings is a rare destination you push into and back out of.
+Entry point is a "Settings" link in Home's header — the slot the M1 sign-out stub used to occupy.
+
+⚠️ **It is declared as a `Stack.Screen` inside `app/_layout.tsx`'s signed-in `Stack.Protected`
+block, and that is a security property, not a formality.** Per that file's own contract, an
+*undeclared* route file renders as an always-available, **unguarded** top-level screen regardless
+of session. This screen hosts sign-out and account deletion; it must never be reachable signed-out.
+
+| Concern | Where it lives | State today |
+|---|---|---|
+| Account (email) | `session.user.email` | Real. Falls back to an honest line when a provider returns no email, rather than rendering an empty row. |
+| Plan (tier) | `subscriptions` read, `status = 'active'` | Real, and **display-only** — read, never computed (CLAUDE.md: the client is never the authority on tier). Loading and error are real states; a failed read never silently renders "Free". |
+| Sign out | `lib/sign-out.ts` | Real, and correct against all three real outcomes — see below. |
+| Delete account | `lib/delete-account.ts` | Real client, calls `supabase.functions.invoke('delete-account')`. ⚠️ The edge function it calls (#58/#121) is built but not yet merged/deployed — see below. |
+| Privacy disclosure + consent withdrawal | `lib/consent.ts` | Real. Restates the pre-upload disclosure (#68) and calls `withdrawConsent`, which had been built and waiting for a caller since #68. |
+| Privacy policy link | — | **Deliberately not linked.** See below. |
+
+**`lib/sign-out.ts` — the issue #27 fix, made once, in its final home.** The bug: `signOut()` was
+fire-and-forget, so a failed **global** token revoke left server-side refresh tokens alive while the
+user was shown a clean sign-out. `signOut()` awaits the call and **never rejects** (the
+unhandled-rejection half of #27), surfacing a failure through a native **`Alert`** rather than
+inline text, since a failure can mean the route guard is mid-unmount (see below) and an inline
+error would render into a dying tree.
+
+⚠️ **Corrected 2026-07-13, same day, per a security audit on PR #122 (finding F3):** the paragraph
+this replaces claimed auth-js clears the LOCAL session unconditionally on any `signOut()` failure.
+That is FALSE — verified against the installed `@supabase/auth-js` source (`GoTrueClient.js`'s
+`_signOut`, ~line 3360): an expired access token whose refresh also fails takes an **early return**
+that reports an error WITHOUT ever clearing the local session. So there are genuinely **three**
+outcomes, not two, and `signOut()` re-checks `supabase.auth.getSession()` after any failure to tell
+them apart, rather than assuming the local session is gone:
+1. Success — server revoke landed, local session cleared.
+2. `globalRevokeFailed` — local session **is** cleared; other sessions may still be active. Not
+   retryable from here (no local session survives to retry with) — the copy offers the one recovery
+   that works: sign in again, then sign out on a connection.
+3. `stillSignedIn` — the early-return case. Nothing happened; the user is signed in **everywhere**,
+   still. A real retry **is** offered here (the session it would authenticate with still exists).
+`hasLocalSession()`'s own read failure fails closed toward `stillSignedIn` — the same direction
+`lib/consent.ts`'s `hasConsented` fails closed — rather than ever guessing the reassuring answer.
+
+**`lib/delete-account.ts` — a real client (fixed 2026-07-13, same audit, finding F1).** This
+section originally described an injectable seam bound to a dev mock, on the theory that #58 would
+"replace one binding line." That handoff had no owner: #58/#121's file list is entirely under
+`supabase/functions/` and never touches `lib/`, so the swap would never have happened and
+production would have shipped silently lying about account erasure. `lib/delete-account.ts` now
+calls the real `supabase.functions.invoke('delete-account')`, against this response contract:
+
+| Outcome | Status | Body |
+|---|---|---|
+| Full success | `200` | `{ deleted: true, purgedObjectCount, consentEventsPurged }` |
+| `orphans_remaining` | `200` | `{ deleted: true, orphansRemaining: true, … }` — a **success**: the account is irreversibly gone; only a few stray objects didn't clear. No retry offered (there is no account left to retry deleting). |
+| `purge_failed` / `rows_failed` / `auth_delete_failed` | `503` | `{ error, code }` — all three retryable. The screen's copy (finding F2) deliberately does NOT claim a specific "what survived" per code, since the purge order (storage → rows → auth user) means different codes leave different things destroyed; it says only what's true across all three: some data may already be gone, retry is safe. |
+
+`submit()` stays **nullary** — the function identifies the user from the JWT; a client that could
+name the user to delete would be a vulnerability. Two things still narrow this implementation:
+the edge function (#58/#121) is **built but not yet merged to `main` or deployed**, so calling this
+today gets a 404, which the client folds into an honest, retryable failure rather than a false
+success (proven by test); and the exact contract may still drift, since this PR cannot import
+`#121`'s real `DeleteAccountErrorCode` type (barred from touching `supabase/functions/`) and
+instead hand-maintains a mirror of it — see `lib/delete-account.ts`'s header.
+
+**The privacy policy is not linked, and the draft is not rendered in-app.** `docs/privacy-policy.md`
+still carries its `DO NOT PUBLISH` guard: the data-controller legal identity, country, and contact
+email are unresolved (blocked on the Apple Developer account decision — `docs/blocked-on-apple.md`).
+So there is no URL, and inventing one is not an option. Rendering the *draft* in-app was rejected
+for the same reason the guard exists — it would show users placeholder legal identity and rights
+promises they could not actually exercise, which is worse than saying nothing. The screen instead
+shows an honest pending state and points at the disclosure that **is** certified and true today
+(`settings.privacy.body`, the fuller version of the pre-upload consent line). Replace the pending
+state with a real link in the same change that publishes the policy.
+
+**Not built, deliberately:** `settings.plan.cta` ("See plans") and `settings.restorePurchases.cta`.
+Both route to a Paywall (#52) and an IAP flow that do not exist; shipping them would build a dead
+end. #52 adds them back with the route they point at.

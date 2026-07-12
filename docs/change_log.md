@@ -146,6 +146,85 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     work end to end until **both** this issue and #122 (the client's binding swap off its current
     mock) ship — read alone, neither issue said that. Issues #124 (no re-authentication) and #125
     (wall-clock bound, not checkpointed) filed separately and are explicitly out of scope here.
+- **M5 Settings screen built (issue #53); sign-out failure is no longer silent (issue #27, closed)**
+  — design-brief screen 11 + copy-deck § Screen 11.
+  - **Added** `app/settings.tsx` as a **top-level pushed route**, not a tab, following
+    `docs/architecture.md`'s planned route tree (which lists `paywall, settings` at root and nests
+    only `(tabs)/history`). Declared as a `Stack.Screen` inside `app/_layout.tsx`'s signed-in
+    `Stack.Protected` block — load-bearing, not cosmetic: an *undeclared* route file renders as an
+    always-available **unguarded** top-level screen, and this one hosts sign-out and account
+    deletion. Reached from a "Settings" link in Home's header.
+  - **Sign-out moved off Home and fixed (#27)**: `app/(tabs)/index.tsx`'s temporary M1 stub
+    (`void supabase.auth.signOut().catch(() => {})`) is **gone**. New `lib/sign-out.ts` awaits the
+    call, inspects the returned `{ error }`, folds a thrown failure into the same result, and
+    **never rejects**. auth-js clears the local session either way, so a failed *global* revoke
+    cannot be undone — the screen therefore reports it through a native `Alert` (which outlives the
+    screen the route guard is already unmounting) telling the user they are signed out **here** but
+    possibly not **everywhere**, with the only recovery that actually works. Tested, including the
+    two silent-failure regression locks.
+  - **Delete account (entry point for #58)** — new `lib/delete-account.ts`: a typed, injectable
+    `DeleteAccountClient` seam matching the documented `POST /functions/v1/delete-account` contract
+    (`{ deleted: true }` / `{ error, code }`), bound to a **dev mock**, exactly as `lib/analyze-form.ts`
+    (#80) did for the then-unbuilt `analyze-form`. ⚠️ **The purge is mocked — tapping delete does not
+    yet delete anything.** #58 swaps one binding line. Confirmation copy is the deck's, verbatim.
+  - **Privacy (issue #68 restatement + withdrawal)** — Settings repeats the pre-upload disclosure
+    (`settings.privacy.body`) and wires the **consent-withdrawal** path to `lib/consent.ts`'s
+    `withdrawConsent`, which had been built and waiting for a caller. `hasConsented` throws on a
+    failed read and this screen honours that: it renders "couldn't load your consent status" rather
+    than guessing, since rendering "withdrawn" would be indistinguishable from a user who never
+    consented and would hide the outage.
+  - **The privacy policy is NOT linked.** `docs/privacy-policy.md` still carries its `DO NOT PUBLISH`
+    guard (unresolved data-controller identity), so there is no URL — and the draft is **not**
+    rendered in-app either, since that would show users placeholder legal identity and rights
+    promises they could not exercise. The screen shows an honest pending state and points at the
+    disclosure that *is* certified and true today. No URL was invented.
+  - **Tier is display-only** (read from `subscriptions`, never computed) with real loading and error
+    states — a failed read never silently renders as "Free".
+  - **New, UNCERTIFIED copy** added to `constants/copy.ts` in a delimited block (sign-out failure,
+    delete failure, consent withdrawal, the policy pending state, two screen-reader Retry labels).
+    It is **not** in the copy deck and needs Ian's review before it ships.
+  - Not built: `settings.plan.cta` ("See plans") and `settings.restorePurchases.cta`. Both point at
+    a Paywall (#52) and an IAP flow that do not exist; adding them would build a dead end.
+
+- **Same-day security audit on PR #122 found three real defects in the Settings work above; fixed
+  in place, same branch, before merge.**
+  - **F1 (CRITICAL) — `lib/delete-account.ts`'s mock binding had no owner to ever swap it for a
+    real client.** #58/#121's own file list is entirely under `supabase/functions/` and never
+    touches `lib/`, so "delete account" would have shipped calling a mock that always reports
+    success, purging nothing — a false claim of erasure (App Store Guideline 5.1.1(v), GDPR
+    Art. 17), invisible to the test suite (its own "is STILL THE MOCK" assertion passed in exactly
+    that state). Fixed: `lib/delete-account.ts` now implements a real
+    `supabase.functions.invoke('delete-account')` client against the settled response contract
+    (`purge_failed`/`rows_failed`/`auth_delete_failed` → `503`, retryable; `orphans_remaining` →
+    `200`, a **success**). The mock is kept for tests only and now throws if constructed outside
+    `__DEV__`, so a release build cannot silently fall back to it. The regression-lock test was
+    rewritten to assert the OPPOSITE of what it originally asserted — that the shipped binding is
+    the real client, not the mock.
+  - **F2 (HIGH) — the failure copy asserted an invariant that is false.** The original copy claimed
+    "the account is still active" on ANY delete failure, reasoning that the auth user is deleted
+    last. That's wrong for `orphans_remaining` (the account IS gone — now handled as a success, not
+    an error) and wrong for `auth_delete_failed` (storage and rows are already gone; only the
+    sign-in record survives). Fixed: `orphansRemaining` now signs the user out with its own honest
+    "account deleted, contact support if concerned" copy and no retry offered; the three retryable
+    failure codes share one honest message that claims only what's true across all of them ("some
+    data may already have been removed"), never a per-code claim the client can't back up.
+  - **F3 (MEDIUM-HIGH) — the #27 sign-out fix ruled out a state that turns out to be real.**
+    `lib/sign-out.ts` claimed auth-js clears the local session unconditionally on any failure.
+    Verified false against the installed `@supabase/auth-js` source: an expired-access-token-plus-
+    failed-refresh takes an early return that leaves the local session **fully intact**. The
+    original fix would have told a user "signed out here" while they sat in a fully authenticated
+    app — the exact shared/stolen-device failure #27 exists to prevent. Fixed: `signOut()` now
+    re-checks `supabase.auth.getSession()` after any failure and reports a genuine third state,
+    `stillSignedIn`, with its own copy and — unlike the `globalRevokeFailed` case — a real retry
+    (there is still a local session to authenticate a retry with). Fails closed toward
+    `stillSignedIn` on its own read error, same direction as `lib/consent.ts`'s `hasConsented`.
+  - Both `app/settings.tsx` handlers now switch exhaustively on the relevant result type (sign-out
+    reason; delete-account success outcome; delete-account error code), each with a `never`-typed
+    default branch, so a future outcome the compiler doesn't know about fails to build rather than
+    silently falling through to the wrong copy.
+  - `docs/status.md` Known Issue numbering: renumbered this work's issues to **#22**/**#23** — #121
+    (the `delete-account` edge function's own PR) independently claimed **#21** for a related but
+    distinct caveat; both PRs adding a "#21" would have collided on merge.
 
 ## 2026-07-12
 

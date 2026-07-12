@@ -224,10 +224,205 @@ export const Copy = {
     },
     // --- issue #56 additions end ---
   },
+  // Screen 11 — Settings (issue #53, which also closes #27). Lifted verbatim by key from
+  // docs/design/copy-deck.md § Screen 11, same convention as every namespace above. Keys the deck
+  // defines but this screen does NOT render are deliberately absent rather than added unused:
+  // `settings.plan.cta` ("See plans") and `settings.restorePurchases.cta` both route to a Paywall
+  // (#52) and an IAP flow that do not exist — adding either would build a dead end, which the deck
+  // itself warns against. #52 adds them back when it ships the route they point at.
+  //
+  // Several keys below are NEW — not in the deck — and are grouped in the explicitly delimited
+  // block at the end of this namespace rather than scattered, because ALL of them need Ian's
+  // review. Issue #27 called this out directly: "The copy deck has no `settings.signOut.error`
+  // key — whichever answer wins needs one written."
   settings: {
+    title: 'Settings',
+    // The deck's own `shared.cta.back` ("Back", §0), reused by value under this screen's namespace
+    // rather than through a `Copy.shared` namespace — the same call every screen before this one
+    // made for "Retry" and "Cancel". See the note on `analyzing.error.cta`.
+    back: 'Back',
+    section: {
+      account: 'Account',
+      plan: 'Plan',
+      privacy: 'Privacy',
+    },
     signOut: {
       cta: 'Sign out',
+      confirm: {
+        title: 'Sign out?',
+        body: 'You can sign back in anytime with the same account.',
+        cta: {
+          primary: 'Sign out',
+          secondary: 'Cancel',
+        },
+      },
     },
+    deleteAccount: {
+      cta: 'Delete account',
+      confirm: {
+        title: 'Delete your account?',
+        body: "This permanently deletes your account, every analysis, and every stored frame. This can't be undone.",
+        cta: {
+          primary: 'Delete account and data',
+          secondary: 'Cancel',
+        },
+      },
+    },
+    privacy: {
+      body: 'Your original photo or video never leaves your device. We extract a small number of still frames from it on your phone, and only those frames are uploaded — stored in a private location only you can access, and kept there until you delete the analysis or your account. To generate your results, the stored frames are sent to Anthropic, our AI provider, to analyze your form.',
+      deleteNote:
+        'Deleting an analysis removes its stored frames immediately. Deleting your account removes everything.',
+    },
+
+    // ----------------------------------------------------------------------------------------
+    // --- issue #53 NEW copy starts — NOT in the copy deck, NOT copy-certified. Needs review. ---
+    //
+    // Every string below covers a state the deck never specced. They are written to the deck's own
+    // stated rules (name the outcome, never claim a state that isn't true, no jargon, don't blame
+    // the user) but they have NOT been through `ux-copywriter` or Ian. Mirror them into
+    // copy-deck.md § Screen 11 once approved, the same way #36's and #56's NEW keys were.
+    // ----------------------------------------------------------------------------------------
+    /** Dismisses an informational alert (the three failure alerts below). One key, not three
+     *  identical "OK"s — an alert's dismiss button is the same control every time it appears. */
+    alertDismiss: 'OK',
+    account: {
+      email: {
+        label: 'Email',
+        // A session can carry no email (a provider that doesn't return one). Rare, but rendering
+        // an empty row would look broken, and inventing an address would be worse.
+        unknown: 'No email on this account.',
+      },
+    },
+    plan: {
+      // Same string as `home.quota.loading`, reused by value rather than through a shared
+      // namespace — matching how this file already reuses "Retry" across screens.
+      loading: 'Checking your plan…',
+      error: "Couldn't load your plan.",
+      retry: 'Retry',
+      // Screen-reader-only label. The VISIBLE text stays the deck's "Retry", but this screen can
+      // show two Retry buttons at once (plan + consent, if both reads fail), and two controls
+      // whose accessible name is the bare word "Retry" are indistinguishable to a screen reader —
+      // you hear "Retry… Retry" and cannot tell which does what. Naming the target fixes that
+      // without changing what anyone sees. Same pattern as the deck's own `result.pillar.a11yLabel`.
+      retryA11yLabel: 'Retry loading your plan',
+    },
+    signOutError: {
+      // THE ISSUE #27 STRING(S). A security audit on PR #122 (finding F3) found a THIRD real
+      // state here, not just the two below — see lib/sign-out.ts's header for the full
+      // reasoning (verified against @supabase/auth-js's source, not guessed).
+      //
+      // `globalRevokeFailed`: auth-js cleared the LOCAL session even though the server-side
+      // revoke failed, so "keep the user signed in and show an error" is not on the menu — by
+      // the time we know it failed, they are already signed out on this device and the route
+      // guard is tearing the screen down. The one thing we must not do is let a failed global
+      // revoke look like a clean sign-out: on a shared or stolen device, "signed out" is the one
+      // claim that has to be true. No jargon: no "token", no "revoke", no "session" as a noun.
+      globalRevokeFailed: {
+        title: 'Signed out here — but maybe not everywhere',
+        body: "You're signed out on this device. We couldn't reach the server to end your other sessions, so they may still be active. Sign in again while you have a connection, then sign out to end them everywhere.",
+      },
+      // `stillSignedIn`: the state the audit found missing. Here retrying is NOT theatre — the
+      // local session a retry would authenticate with is still fully intact, unlike the case
+      // above — so this offers a real retry instead of just an acknowledgement.
+      stillSignedIn: {
+        title: "You're still signed in",
+        body: "We couldn't reach the server, so nothing changed — you're still signed in here and everywhere else. Check your connection and try again.",
+        cta: {
+          primary: 'Try again',
+          secondary: 'Cancel',
+        },
+      },
+    },
+    deleteAccountState: {
+      pending: 'Deleting your account…',
+      // `orphansRemaining: true` is a SUCCESS, not a failure (audit finding F2) — the account IS
+      // gone, irreversibly. The only thing that didn't finish is clearing a handful of stray
+      // objects (almost always a concurrent upload landing mid-delete), which is why there is no
+      // retry here: there is no account left to retry deleting.
+      success: {
+        orphansRemaining: {
+          title: 'Account deleted',
+          body: 'Your account and everything in it are deleted. A small amount of stored media may take a little longer to finish clearing — contact support if that concerns you.',
+        },
+      },
+      error: {
+        title: "We couldn't delete your account",
+        // Rewritten per audit finding F2: the previous string claimed "the account is still
+        // active" as if that were always true on any failure. It is not — #58's purge runs
+        // storage objects → rows → auth user in strict order, so DIFFERENT failure codes mean
+        // DIFFERENT things actually got destroyed before it stopped (e.g. `auth_delete_failed`
+        // means storage AND rows are already gone; only the sign-in record survives). A single
+        // static "nothing changed" claim would be true for some failures and false for others —
+        // exactly the "never claim a state that isn't true" violation the deck's §5 rule forbids.
+        // This says only what is true across every retryable failure: some data may already be
+        // gone, and retrying is safe (every step is idempotent).
+        body: 'Some of your data may already have been removed. Check your connection and try again.',
+      },
+    },
+    consent: {
+      // The #68 restatement: Settings repeats the disclosure shown before the first upload, and is
+      // where consent can be withdrawn (GDPR Art. 7(3): withdrawal must be as easy as giving it —
+      // hence a plain row here, not a support email).
+      status: {
+        granted: "You've consented to health-related analysis of your uploaded frames.",
+        withdrawn: "You haven't consented to health-related analysis. We'll ask again before your next upload.",
+        loading: 'Checking your consent…',
+        // hasConsented() THROWS on any query failure and must not be guessed either way (see
+        // lib/consent.ts — it fails closed on purpose). So we say we don't know, rather than
+        // rendering either status falsely.
+        error: "Couldn't load your consent status.",
+        retry: 'Retry',
+        // Screen-reader-only — see `settings.plan.retryA11yLabel` for why both Retries need one.
+        retryA11yLabel: 'Retry loading your consent status',
+      },
+      withdraw: {
+        cta: 'Withdraw consent',
+        confirm: {
+          title: 'Withdraw consent?',
+          // The honest scope, and the part users most often get wrong: withdrawing consent is not
+          // erasure. Art. 7(3) withdrawal stops future processing; it does not retroactively
+          // delete what is already stored. Saying so plainly — and pointing at the control that
+          // DOES erase — is the difference between an honest control and a false comfort.
+          body: "We'll ask for your consent again before your next upload, and won't analyze anything until you give it. This doesn't delete frames or analyses you've already stored — use Delete account for that.",
+          cta: {
+            primary: 'Withdraw consent',
+            secondary: 'Cancel',
+          },
+        },
+        error: {
+          title: "We couldn't withdraw your consent",
+          // Mirrors `consent.upload.error.record`'s rule for the grant path: say plainly that
+          // nothing changed, so the user never walks away believing they withdrew when they
+          // didn't. The consent row is append-only — a failed write means no row, means the
+          // previous grant still stands, so "nothing has changed" is literally true here.
+          body: "Nothing has changed — your consent is still on record. Check your connection and try again.",
+        },
+      },
+    },
+    privacyPolicy: {
+      label: 'Full privacy policy',
+      // The policy is DRAFTED but NOT PUBLISHED — docs/privacy-policy.md carries a DO NOT PUBLISH
+      // guard because the data-controller legal identity, country, and contact email are still
+      // unresolved (blocked on the Apple Developer account decision — docs/blocked-on-apple.md).
+      // We therefore do not link out (there is no URL, and inventing one is not an option) and we
+      // do not render the draft in-app either: it would show users placeholder legal identity and
+      // rights promises they could not actually exercise, which is the precise failure the guard
+      // exists to prevent. Instead we say where things stand and point at the disclosure that IS
+      // certified and true today — the summary directly above it on this screen.
+      pending:
+        "The full policy isn't published yet. The summary above is the complete, current description of what we do with your data.",
+    },
+    // --- issue #53 NEW copy ends ---
+  },
+  // Shared tier labels — copy-deck.md § 1 ("Tier labels (shared)"), verbatim. Added by issue #53:
+  // Settings is the second screen to need a tier name, which is the condition `home.quota.tier`'s
+  // own note set for introducing the shared namespace ("Revisit if/when a second screen needs a
+  // tier label"). Additive only — `home.quota.tier` is deliberately left exactly where it is
+  // rather than migrated, since app/(tabs)/index.tsx is outside this issue's remit to restructure.
+  tier: {
+    free: 'Free',
+    pro: 'Pro',
+    elite: 'Elite',
   },
   // ---------------------------------------------------------------------------------------
   // Screens 3-5 (issue #36): Source picker, Capture, Extracting. Lifted verbatim from
