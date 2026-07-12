@@ -91,6 +91,10 @@ import { PACE_ANALYSIS_TOOL_NAME } from './analyze-form-prompt.ts';
 
 export interface AnthropicResponseBlock {
   type: string;
+  /** `text` blocks. With structured outputs, THIS is where the result lives: the response text is
+   * grammar-constrained to `PACE_RESULT_SCHEMA`, so it is the JSON object itself. */
+  text?: string;
+  /** `tool_use` blocks — only possible when the caller opted into `includeTool`. */
   name?: string;
   input?: unknown;
 }
@@ -293,30 +297,92 @@ export function readAttempt(response: AnthropicMessageResponse): AttemptOutcome 
     return { result: null, failure: 'refusal', salvage: null, usage, stopReason };
   }
 
-  const toolBlock = (response.content ?? []).find(
-    (block) => block?.type === 'tool_use' && block?.name === PACE_ANALYSIS_TOOL_NAME
-  );
+  const payload = extractPayload(response);
 
-  if (!toolBlock) {
-    // A prose reply, an empty response, or a call to some other tool. This is what a successful
-    // prompt injection looks like, and it is also what a model that simply ignored the output
-    // contract looks like — we cannot tell them apart, and do not try to.
+  if (payload === NOT_FOUND) {
+    // No schema-conformant JSON object and no tool call anywhere in the response: a prose reply, an
+    // empty response, or an answer that ignored the output contract entirely. This is what a
+    // successful prompt injection looks like, and it is also what a model having a bad day looks
+    // like — we cannot tell them apart, and do not try to.
     return { result: null, failure: 'no_tool_use', salvage: null, usage, stopReason };
   }
 
-  const input = toolBlock.input;
-
-  if (isPaceResult(input)) {
-    return { result: input, failure: null, salvage: null, usage, stopReason };
+  if (isPaceResult(payload)) {
+    return { result: payload, failure: null, salvage: null, usage, stopReason };
   }
 
   return {
     result: null,
     failure: 'invalid_shape',
-    salvage: salvagePillars(input),
+    salvage: salvagePillars(payload),
     usage,
     stopReason,
   };
+}
+
+/** Distinguishes "no payload at all" from "a payload that happens to BE `null`" — the latter is a
+ * real thing a model can emit, and it is an `invalid_shape`, not a missing answer. */
+const NOT_FOUND = Symbol('no-payload');
+
+/**
+ * Find the result in the response, accepting BOTH carriers of the output contract:
+ *
+ *   1. STRUCTURED OUTPUTS (the default — `output_config.format`): the payload IS the response text,
+ *      grammar-constrained to `PACE_RESULT_SCHEMA`. We `JSON.parse` the first text block that
+ *      parses to anything.
+ *   2. TOOL USE: a `submit_pace_analysis` block, reachable only when a caller opted into
+ *      `includeTool` (#42's evals may, to compare the two mechanisms).
+ *
+ * Reading both is deliberate insurance, not indecision. This project cannot make a live Anthropic
+ * call before shipping (zero-spend constraint), so the parser is written to be correct under either
+ * response envelope rather than to bet everything on one. Whichever mechanism the request used, the
+ * result lands in the same place and the rest of this module cannot tell the difference.
+ */
+function extractPayload(response: AnthropicMessageResponse): unknown {
+  const blocks = response.content ?? [];
+
+  const toolBlock = blocks.find(
+    (block) => block?.type === 'tool_use' && block?.name === PACE_ANALYSIS_TOOL_NAME
+  );
+  if (toolBlock) {
+    return toolBlock.input;
+  }
+
+  for (const block of blocks) {
+    if (block?.type !== 'text' || typeof block.text !== 'string') {
+      continue;
+    }
+    const parsed = parseJsonPayload(block.text);
+    if (parsed !== NOT_FOUND) {
+      return parsed;
+    }
+  }
+
+  return NOT_FOUND;
+}
+
+function parseJsonPayload(text: string): unknown {
+  let candidate = text.trim();
+  if (candidate.length === 0) {
+    // Sonnet 5 defaults `thinking.display` to `"omitted"`, which returns thinking blocks with an
+    // empty body. An empty text block is not a payload.
+    return NOT_FOUND;
+  }
+
+  // Tolerate a markdown fence even though the prompt forbids one and grammar-constrained sampling
+  // should make it impossible. Four lines, and it means a perfectly good analysis is never thrown
+  // away over a code fence — rejecting one would be exactly the over-tight parsing CLAUDE.md bans.
+  const fenced = candidate.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  if (fenced) {
+    candidate = fenced[1].trim();
+  }
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    // Prose. Not a payload — and emphatically not something to go regex a score out of.
+    return NOT_FOUND;
+  }
 }
 
 /**

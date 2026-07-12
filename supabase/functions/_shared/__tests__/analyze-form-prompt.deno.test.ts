@@ -705,15 +705,63 @@ Deno.test('THINKING IS ON BY DEFAULT, and set explicitly — this call is the pr
   assert('thinking' in request, 'thinking must be set explicitly, not left to the model default.');
 });
 
-Deno.test('thinking and tool_choice are INDEPENDENT — no coupling, no throw', () => {
-  // The earlier version of this module forced thinking OFF whenever the tool call was forced, and
-  // threw if you tried to combine them. That coupling is gone: all four combinations are
-  // constructible, and the caller (#44/#42) decides.
+Deno.test('the output contract travels in output_config.format — NOT in a tool (settled 2026-07-13)', () => {
+  // WHAT CHANGED AND WHY. This module used to send a `submit_pace_analysis` tool with
+  // `tool_choice: auto`, because a comment here claimed Anthropic's docs said — "with no platform
+  // scoping" — that a FORCED tool_choice is incompatible with extended thinking, and that the
+  // report of it being Bedrock-only "could not be confirmed". That was wrong. The restriction IS
+  // Bedrock-only: on Bedrock a forced tool_choice requires `thinking: {type: 'disabled'}`, and the
+  // first-party Claude API (what this project calls) does not require that at all.
+  //
+  // But the fix is not "force the tool call now". It is to use the mechanism that makes the whole
+  // question moot: STRUCTURED OUTPUTS. With no `tools` and no `tool_choice` in the request, there
+  // is nothing left for a platform-specific tool-choice rule to be incompatible with — the request
+  // is correct on the Claude API, Bedrock, and Vertex under every reading of every doc. And it is a
+  // STRONGER guarantee: the response itself is grammar-constrained to the schema, rather than "some
+  // tool got called and we then constrain its input".
+  const request = buildAnalyzeFormRequest(videoInput('pro'));
+
+  assert(request.output_config.format !== undefined, 'The schema must ride in output_config.format.');
+  assert(request.output_config.format?.type === 'json_schema', 'Structured outputs is json_schema.');
+  assert(
+    request.tools === undefined && request.tool_choice === undefined,
+    'No tool, no tool_choice — that is what makes the platform question moot.'
+  );
+  assert(request.thinking.type === 'adaptive', 'Structured outputs is compatible with thinking; keep it.');
+
+  // ONE definition of the shape, two possible carriers — never two definitions.
+  assert(
+    request.output_config.format?.schema === PACE_ANALYSIS_TOOL.input_schema,
+    'output_config.format.schema and the tool input_schema must be the SAME object (PACE_RESULT_SCHEMA).'
+  );
+
+  const blocks = request.messages[0].content;
+  const contract = blocks[blocks.length - 1];
+  if (contract === undefined || contract.type !== 'text') {
+    throw new Error('The output contract must be the last block of the user turn.');
+  }
+  assertIncludes(
+    contract.text,
+    'RETURN THE RESULT AS A SINGLE JSON OBJECT MATCHING THE REQUIRED OUTPUT SCHEMA',
+    'The prompt must ask for the JSON object, not a tool call.'
+  );
+  assertIncludes(
+    contract.text,
+    'no prose before or after it',
+    'The prompt must still forbid a prose answer — grammar-constrained sampling is not an excuse to stop asking.'
+  );
+});
+
+Deno.test('the tool remains constructible for #42 to eval, and forcing it is now legal', () => {
+  // Kept as an OPTION, not the default: the tool describes the same shape a second time, is billed
+  // as input, and reintroduces the platform-specific tool_choice question for no benefit. But
+  // `forceToolCall` alongside adaptive thinking is legal on the first-party Claude API (the
+  // incompatibility is Bedrock-only), so #42 can sweep both mechanisms head to head.
   const combos: Array<[BuildRequestOptions, 'adaptive' | 'disabled', 'auto' | 'tool']> = [
-    [{}, 'adaptive', 'auto'],
-    [{ forceToolCall: true }, 'adaptive', 'tool'],
-    [{ thinking: { type: 'disabled' } }, 'disabled', 'auto'],
-    [{ thinking: { type: 'disabled' }, forceToolCall: true }, 'disabled', 'tool'],
+    [{ includeTool: true }, 'adaptive', 'auto'],
+    [{ includeTool: true, forceToolCall: true }, 'adaptive', 'tool'],
+    [{ includeTool: true, thinking: { type: 'disabled' } }, 'disabled', 'auto'],
+    [{ includeTool: true, thinking: { type: 'disabled' }, forceToolCall: true }, 'disabled', 'tool'],
   ];
 
   for (const [options, expectedThinking, expectedChoice] of combos) {
@@ -723,48 +771,11 @@ Deno.test('thinking and tool_choice are INDEPENDENT — no coupling, no throw', 
       `Expected thinking "${expectedThinking}" for ${JSON.stringify(options)}.`
     );
     assert(
-      request.tool_choice.type === expectedChoice,
+      request.tool_choice?.type === expectedChoice,
       `Expected tool_choice "${expectedChoice}" for ${JSON.stringify(options)}.`
     );
+    assert(request.tools?.[0].strict === true, 'The tool must stay strict whenever it is sent.');
   }
-});
-
-Deno.test('the default does NOT force the tool call — and the reason is documented, not guessed', () => {
-  // Anthropic's tool-use and extended-thinking docs both state, with no platform scoping, that
-  // forced tool use is incompatible with thinking. There is a credible report that the
-  // restriction is Amazon Bedrock ONLY and that the first-party Claude API (what this project
-  // calls) accepts forced + adaptive. That could not be confirmed against the docs.
-  //
-  // So the default is the configuration that is correct under BOTH readings: thinking ON (the
-  // thing we cannot afford to lose) + tool_choice auto (valid everywhere). Getting this wrong in
-  // the other direction is not a soft failure — a forced call that turns out to be incompatible
-  // is a 400 on 100% of analyses.
-  const request = buildAnalyzeFormRequest(videoInput('pro'));
-
-  assert(request.tool_choice.type === 'auto', 'The default must not force the tool call.');
-  assert(
-    request.tool_choice.disable_parallel_tool_use === true,
-    'Exactly one tool call, even on auto.'
-  );
-  // The guarantee we keep without forcing: the schema is still strict, so IF the tool is called,
-  // its input is grammar-constrained to PaceResult...
-  assert(request.tools[0].strict === true, 'The tool must stay strict when tool_choice is auto.');
-  // ...and the prompt instructs the call in the strongest terms, so "auto" is auto in name only.
-  const blocks = request.messages[0].content;
-  const contract = blocks[blocks.length - 1];
-  if (contract === undefined || contract.type !== 'text') {
-    throw new Error('The output contract must be the last block of the user turn.');
-  }
-  assertIncludes(
-    contract.text,
-    `RETURN THE RESULT BY CALLING THE \`${PACE_ANALYSIS_TOOL_NAME}\` TOOL EXACTLY ONCE`,
-    'With tool_choice auto, the prompt MUST demand the tool call explicitly.'
-  );
-  assertIncludes(
-    contract.text,
-    'no prose before or after it',
-    'With tool_choice auto, the prompt must forbid a prose answer.'
-  );
 });
 
 Deno.test('effort is an explicit, named constant — not a magic value or a silent default', () => {
@@ -855,8 +866,13 @@ Deno.test('a valid Pro video request carries every frame as an image block', () 
   const images = request.messages[0].content.filter((b) => b.type === 'image');
 
   assert(images.length === 5, `Expected 5 image blocks, got ${images.length}.`);
-  assert(request.tools.length === 1, 'Exactly one tool should be offered.');
-  assert(request.tools[0].name === PACE_ANALYSIS_TOOL_NAME, 'The wrong tool is offered.');
+  // No tool by default — the output contract is `output_config.format` (structured outputs).
+  assert(request.tools === undefined, 'The default request must carry no tool.');
+  assert(request.output_config.format?.type === 'json_schema', 'The schema must ride in output_config.');
+
+  const withTool = buildAnalyzeFormRequest(videoInput('pro', 5), { includeTool: true });
+  assert(withTool.tools?.length === 1, 'Exactly one tool should be offered when opted in.');
+  assert(withTool.tools?.[0].name === PACE_ANALYSIS_TOOL_NAME, 'The wrong tool is offered.');
 });
 
 // -------------------------------------------------------------------------------------------
@@ -878,7 +894,11 @@ Deno.test("the spend gate's estimate still covers the real prompt (it did not, a
   // old ratio here would under-count the prompt by ~30% and hand the spend gate a second, quieter
   // version of the exact bug this test exists to catch.
   const CHARS_PER_TOKEN = 2.7;
-  const FORCED_TOOL_SYSTEM_OVERHEAD = 474; // Sonnet 5, tool_choice: tool (Anthropic pricing docs)
+  // Structured outputs injects a system prompt of its own ("Additional system prompt injected
+  // (increases token cost)"). Its exact size is not published, so we keep the same conservative
+  // 474-token allowance that the forced-tool-use system prompt carried — the mechanism changed,
+  // the need to budget for an injected preamble did not.
+  const STRUCTURED_OUTPUT_SYSTEM_OVERHEAD = 474;
 
   // Worst case across every tier, since one constant has to cover all three.
   let worst = 0;
@@ -893,11 +913,13 @@ Deno.test("the spend gate's estimate still covers the real prompt (it did not, a
       .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
       .map((b) => b.text)
       .join('\n').length;
-    const toolChars = JSON.stringify(request.tools).length;
+    // The schema is billed as input whichever carrier it rides in — as `tools` before, as
+    // `output_config.format` now. Same ~13k characters of descriptions, same cost.
+    const schemaChars = JSON.stringify(request.output_config.format).length;
 
     const nonFrameTokens =
-      Math.round((systemChars + userTextChars + toolChars) / CHARS_PER_TOKEN) +
-      FORCED_TOOL_SYSTEM_OVERHEAD;
+      Math.round((systemChars + userTextChars + schemaChars) / CHARS_PER_TOKEN) +
+      STRUCTURED_OUTPUT_SYSTEM_OVERHEAD;
 
     worst = Math.max(worst, nonFrameTokens);
   }

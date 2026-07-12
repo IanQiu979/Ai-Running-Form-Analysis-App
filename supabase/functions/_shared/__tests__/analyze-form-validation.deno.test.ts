@@ -31,7 +31,13 @@ import {
   type AnthropicMessageResponse,
   type AttemptOutcome,
 } from '../analyze-form-validation.ts';
-import { PACE_ANALYSIS_TOOL_NAME, SCORE_BAND_RUBRIC } from '../analyze-form-prompt.ts';
+import {
+  PACE_ANALYSIS_TOOL,
+  PACE_ANALYSIS_TOOL_NAME,
+  PACE_OUTPUT_FORMAT,
+  PACE_RESULT_SCHEMA,
+  SCORE_BAND_RUBRIC,
+} from '../analyze-form-prompt.ts';
 import {
   PACE_PILLARS,
   SCORE_BAND_VALUES,
@@ -264,6 +270,150 @@ Deno.test('structural not strict: flags and drills are accepted as-is, never che
   };
 
   assert(readAttempt(toolResponse(input)).result, 'grounding is a prompt problem, not a type problem');
+});
+
+// ---------------------------------------------------------------------------
+// 2b. STRUCTURED OUTPUTS — the response is now a JSON text block, not a tool call.
+// ---------------------------------------------------------------------------
+
+/** The structured-outputs response envelope: the answer IS the text, grammar-constrained to
+ * `PACE_RESULT_SCHEMA`. Thinking blocks (empty-bodied on Sonnet 5, whose `display` defaults to
+ * `"omitted"`) sit in front of it. */
+function structuredResponse(
+  payload: unknown,
+  overrides: Partial<AnthropicMessageResponse> = {}
+): AnthropicMessageResponse {
+  return {
+    content: [
+      { type: 'thinking' },
+      { type: 'text', text: JSON.stringify(payload) },
+    ],
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 25_000, output_tokens: 1_200 },
+    ...overrides,
+  };
+}
+
+Deno.test('structured outputs: a JSON text block validates exactly like a tool call did', () => {
+  const attempt = readAttempt(structuredResponse(fullToolInput()));
+
+  assert(attempt.result, 'the schema-constrained response text IS the result');
+  assertEquals(attempt.failure, null);
+  assertEquals(attempt.result.pillars.posture.score, 80);
+  assertEquals(attempt.result.overall.score, 76);
+});
+
+Deno.test('structured outputs: a malformed JSON payload still salvages its readable pillars', () => {
+  // The schema makes this rare, NOT impossible — `stop_reason: refusal` and `max_tokens` both
+  // explicitly "may not match your schema", and numerical constraints (score 0-100) are not even in
+  // the supported JSON Schema subset. #45's fallback path is not dead code.
+  const input = fullToolInput();
+  (input.pillars as Record<string, unknown>).cadence = { garbage: true };
+  delete input.overall;
+
+  const attempt = readAttempt(structuredResponse(input));
+
+  assertEquals(attempt.failure, 'invalid_shape');
+  assertEquals(attempt.salvage?.parsedPillars.length, 3);
+  assertEquals(attempt.salvage?.result.pillars.cadence.score, null);
+});
+
+Deno.test('structured outputs: an out-of-range score is caught in CODE, since the schema cannot express it', () => {
+  // `minimum`/`maximum` are NOT in Anthropic's supported JSON Schema subset. The schema guarantees
+  // the SHAPE (integer or null); `isPaceResult` guarantees the RANGE. This test is the proof that
+  // the runtime check still earns its place now that a schema is enforcing the rest.
+  const input = fullToolInput();
+  (input.pillars as Record<string, unknown>).posture = scoredPillar(140, 'strong');
+
+  const attempt = readAttempt(structuredResponse(input));
+
+  assertEquals(attempt.result, null, 'a schema-valid but out-of-range score must not be delivered');
+  assertEquals(attempt.salvage?.result.pillars.posture.score, null);
+});
+
+Deno.test('structured outputs: a markdown fence around the JSON is tolerated, not rejected', () => {
+  const attempt = readAttempt({
+    content: [{ type: 'text', text: '```json\n' + JSON.stringify(fullToolInput()) + '\n```' }],
+    stop_reason: 'end_turn',
+  });
+
+  assert(attempt.result, 'throwing away a perfect analysis over a code fence would be absurd');
+});
+
+Deno.test('structured outputs: a prose reply is still a content failure, not a crash', () => {
+  const attempt = readAttempt({
+    content: [{ type: 'text', text: 'Sure! Your running form looks great.' }],
+    stop_reason: 'end_turn',
+  });
+
+  assertEquals(attempt.failure, 'no_tool_use');
+  assertEquals(attempt.salvage, null);
+});
+
+Deno.test('structured outputs: an empty (thinking-only) response is a content failure', () => {
+  const attempt = readAttempt({
+    content: [{ type: 'thinking' }, { type: 'text', text: '' }],
+    stop_reason: 'end_turn',
+  });
+
+  assertEquals(attempt.failure, 'no_tool_use');
+});
+
+Deno.test('structured outputs: a truncated JSON response is a truncation, never salvaged', () => {
+  const attempt = readAttempt({
+    content: [{ type: 'text', text: '{"pillars":{"posture":{"score":80,' }],
+    stop_reason: 'max_tokens',
+  });
+
+  assertEquals(attempt.failure, 'truncated');
+  assertEquals(attempt.result, null);
+});
+
+Deno.test('the schema and the TypeScript type cannot drift: one shape, two carriers', () => {
+  // `output_config.format.schema` and `PACE_ANALYSIS_TOOL.input_schema` must be the SAME object
+  // (`PACE_RESULT_SCHEMA`), and that object must describe exactly `PaceResult` from pace.ts. If
+  // anyone adds a pillar to the type, or a band to the enum, without touching the schema — or vice
+  // versa — this fails.
+  assertEquals(
+    PACE_OUTPUT_FORMAT.schema,
+    PACE_ANALYSIS_TOOL.input_schema,
+    'the two carriers must share one schema object, never two copies'
+  );
+
+  const schema = PACE_RESULT_SCHEMA as {
+    required: string[];
+    properties: {
+      pillars: { required: string[]; properties: Record<string, {
+        required: string[];
+        properties: { band: { anyOf: [{ enum: string[] }, unknown] } };
+      }> };
+      overall: { required: string[] };
+    };
+  };
+
+  assertEquals(schema.required.sort(), ['overall', 'pillars']);
+  assertEquals(schema.properties.pillars.required.sort(), [...PACE_PILLARS].sort());
+  assertEquals(Object.keys(schema.properties.pillars.properties).sort(), [...PACE_PILLARS].sort());
+  assertEquals(schema.properties.overall.required.sort(), ['band', 'score']);
+
+  for (const id of PACE_PILLARS) {
+    const pillar = schema.properties.pillars.properties[id];
+    assertEquals(
+      pillar.required.sort(),
+      ['band', 'drills', 'feedback', 'flags', 'score'],
+      `pillar ${id}'s required keys drifted from PacePillarResult`
+    );
+    assertEquals(
+      pillar.properties.band.anyOf[0].enum.sort(),
+      [...SCORE_BAND_VALUES].sort(),
+      `pillar ${id}'s band enum drifted from ScoreBand`
+    );
+  }
+
+  // And the round trip: a canonical valid PaceResult must satisfy the schema's own required keys.
+  const canonical = readAttempt(structuredResponse(fullToolInput())).result;
+  assert(canonical, 'the fixture the schema describes must itself be a valid PaceResult');
+  assertEquals(Object.keys(canonical.pillars).sort(), [...PACE_PILLARS].sort());
 });
 
 // ---------------------------------------------------------------------------

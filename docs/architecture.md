@@ -340,10 +340,13 @@ pure/client split as `ai-guard.ts`. 28 Deno tests.
   ("Solid"), `ScoreBand` speaks in codes (`'good'`). `SCORE_BAND_RUBRIC` maps them, and a test
   asserts every label it claims actually appears in `pace_framework.md`. Without this the model
   guesses, and a correctly-scored pillar renders in the wrong colour.
-- **Thinking is ON (adaptive), effort is `medium`, and `tool_choice` is `auto`** — the reasoning,
-  including the unresolved forced-tool/thinking compatibility question, is in step 8 of the
-  `analyze-form` flow above. `thinking` and `tool_choice` are independent options on
-  `buildAnalyzeFormRequest()`; #42 sweeps `effort` via the exported `ANALYZE_FORM_EFFORT` constant.
+- **Thinking is ON (adaptive), effort is `medium`, and — as of 2026-07-13 (#44) — there is no
+  `tool_choice` at all**: the output contract moved to structured outputs (`output_config.format`).
+  The "unresolved forced-tool/thinking compatibility question" this bullet used to point at is
+  RESOLVED and was based on a false premise — the restriction is **Amazon Bedrock only** and never
+  applied to this project's first-party Claude API calls. See "Current — `analyze-form` edge
+  function" at the end of this file for the correction and the mechanism that replaced it. #42
+  sweeps `effort` via the exported `ANALYZE_FORM_EFFORT` constant.
 - **The spend gate's INPUT estimate was corrected in the same change.**
   `SYSTEM_PROMPT_TOKENS_ESTIMATE` (`ai-pricing.ts`, #91) shipped at `6000` as an explicit
   placeholder for a prompt that did not exist ("refine once it exists"). Two things drive the real
@@ -855,19 +858,16 @@ the original video (see "Media pipeline" below).
    (`{type: 'enabled', budget_tokens}`) is a 400; we set `{type: 'adaptive'}` explicitly so the
    intent is legible.
 
-   **`thinking` and `tool_choice` are independent options** in `buildAnalyzeFormRequest()` — no
-   coupling, no throw. The default is `thinking: adaptive` + `tool_choice: auto`. One open
-   question sits behind that default: Anthropic's tool-use and extended-thinking docs both state,
-   **with no platform scoping**, that a forced `tool_choice` (`any`/`tool`) is incompatible with
-   thinking and errors; there is a credible report that this is **Amazon Bedrock only** and that
-   the first-party Claude API (which is what we call) accepts forced + adaptive. It could not be
-   confirmed against the docs. `auto` is correct under **both** readings, so it is the default —
-   we keep thinking (which we cannot afford to lose) and give up only the hard *guarantee* of a
-   tool call, which was never the sole safeguard: `strict: true` still grammar-constrains the tool
-   input to `PaceResult` whenever it is called, the prompt demands the tool call as the entire
-   response, and #45's retry-then-fallback catches a prose reply. **#44 should confirm on its
-   first live call** whether `forceToolCall: true` is accepted alongside adaptive thinking; if it
-   is, flip that one option and gain the guarantee for free.
+   **SUPERSEDED 2026-07-13 (#44) — this paragraph's premise was false.** It used to say that the
+   docs state, "with no platform scoping", that a forced `tool_choice` is incompatible with
+   thinking, that the Bedrock-only reading "could not be confirmed", and that `tool_choice: auto`
+   was therefore the safe default. **The restriction IS Amazon Bedrock only** — the first-party
+   Claude API (what this project calls) accepts a forced tool call alongside adaptive thinking. But
+   the request no longer sends a tool at all: the output contract moved to **structured outputs**
+   (`output_config.format` against `PACE_RESULT_SCHEMA`), which is a stronger guarantee, makes the
+   platform question moot, and is cheaper. See "Current — `analyze-form` edge function" at the end
+   of this file for the full correction, and `_shared/analyze-form-prompt.ts`'s header for the
+   reasoning in code.
 
    **`max_tokens` is a hard limit on thinking + response text together**, so the gate's *output*
    reservation (`MAX_OUTPUT_TOKENS_BY_TIER`, the same number sent as `max_tokens`) remains a true
@@ -1647,24 +1647,44 @@ auth → consent → AI gate → idempotency + reserve → prompt → call (+1 r
    silently doubling spend on every request.
 
 **The model call — verified against the live Anthropic docs on 2026-07-13, not recalled.**
-`claude-sonnet-5`, `thinking: {type: 'adaptive'}`, `output_config: {effort: 'medium'}`, `max_tokens`
-4–8k from `MAX_OUTPUT_TOKENS_BY_TIER`, `strict: true` `submit_pace_analysis` tool.
+`claude-sonnet-5`, `thinking: {type: 'adaptive'}`, `output_config: {effort: 'medium', format:
+{type: 'json_schema', schema: PACE_RESULT_SCHEMA}}`, `max_tokens` 4–8k from
+`MAX_OUTPUT_TOKENS_BY_TIER`. **No `tools`. No `tool_choice`.**
 
-- **`tool_choice` is `auto`, NOT forced — and this is not a shortcut.** The live docs
-  (`/docs/en/agents-and-tools/tool-use/implement-tool-use` and `.../build-with-claude/extended-thinking`)
-  state, **with no platform scoping**: *"When using extended thinking with tool use,
-  `tool_choice: {"type": "any"}` and `tool_choice: {"type": "tool", "name": "..."}` are not
-  supported and will result in an error. Only `auto` and `none` are compatible with extended
-  thinking."* Adaptive thinking is ON by default on Sonnet 5. So forcing the tool call would be a
-  **400 on 100% of analyses**, not a stronger guarantee. The earlier "maybe it's Bedrock-only"
-  reading recorded in `analyze-form-prompt.ts` could not be confirmed and the docs contradict it.
-  We keep thinking (this is a multi-step vision task over up to 8 frames against a 25KB rubric —
-  the one call the product exists to make) and rely on the three things that actually make the
-  output parseable: `strict: true` grammar-constrains the tool INPUT to `PaceResult` whenever the
-  tool is called, the prompt demands the tool call as the entire response, and #45's
-  retry-then-fallback catches a prose reply. **If a guaranteed tool call is ever wanted, the
-  supported route is `output_config.format` (structured outputs), not `tool_choice` — that is a
-  separate change to `analyze-form-prompt.ts` (#41's file) and is not made here.**
+- **The output contract is STRUCTURED OUTPUTS (`output_config.format`), not a tool call.** This
+  supersedes both the "forced tool call" of the original spec and the `tool_choice: auto` this
+  section briefly recommended. Grammar-constrained sampling is applied to the **response itself**
+  against `PACE_RESULT_SCHEMA` — the same single schema constant the (now optional) tool would use,
+  so there is still exactly one definition of the shape. GA on `claude-sonnet-5` on the Claude API,
+  and documented compatible with extended thinking, so adaptive thinking stays on.
+- **CORRECTION — the forced-`tool_choice`-conflicts-with-thinking rule is AMAZON BEDROCK ONLY.**
+  This section, and `analyze-form-prompt.ts`'s header, previously claimed the restriction was stated
+  "with no platform scoping" and that the Bedrock-only reading "could not be confirmed". **That was
+  wrong.** On Bedrock, a forced `tool_choice` requires `thinking: {type: 'disabled'}`; the
+  **first-party Claude API** (`api.anthropic.com` + `x-api-key`, which is what `analyze-form/deps.ts`
+  calls) and Vertex AI do **not** require this. Forcing the tool call would never have 400'd here.
+  The claim is deleted rather than merely annotated, because leaving it visible is how it got
+  re-derived twice.
+- **Why structured outputs rather than simply forcing the tool now that we may.** Three reasons, in
+  order of weight: (1) it is a **stronger** guarantee — a forced tool call guarantees only that a
+  tool was invoked, and the schema then constrains that tool's *input*; structured outputs
+  constrains the *answer*, with no indirection; (2) it makes the platform question **moot** — with
+  no `tools` and no `tool_choice` in the request, there is nothing for a platform-specific
+  tool-choice rule to be incompatible with, and the request is correct on the Claude API, Bedrock,
+  and Vertex under every reading; (3) it is **cheaper** — `tools` is billed as input (~13k characters
+  of schema descriptions), plus a ~474-token tool-use system preamble when forced. The tool is
+  retained as an opt-in (`BuildRequestOptions.includeTool`, `forceToolCall`) purely so #42 can eval
+  the two mechanisms against each other.
+- **The schema does NOT make #45's fallback path dead code, and it was not weakened.** Structured
+  outputs explicitly does not guarantee conformance when `stop_reason` is `'refusal'` ("the output
+  may not match your schema because the refusal message takes precedence") or `'max_tokens'` ("the
+  output may be incomplete and not match your schema"). And **`minimum`/`maximum` are not in the
+  supported JSON Schema subset**, so "score is an integer 0–100" is *unenforceable* by the schema —
+  a `score: 140` is schema-valid and is caught only by `isPaceResult` at runtime. **The schema
+  guarantees the shape; code guarantees the range.**
+- **The response parser accepts both envelopes** — a JSON text block (structured outputs) and a
+  `tool_use` block (if anyone opts the tool back in). Insurance, not indecision: the zero-spend rule
+  meant no live call could confirm the structured-output envelope before shipping.
 - **Thinking tokens count against `max_tokens`** (docs: "Use `max_tokens` as a hard limit on total
   output (thinking + response text)"). `stop_reason: 'max_tokens'` is therefore treated as a
   **truncation and is never usable**, whatever the content looks like — Echo V1's exact bug.

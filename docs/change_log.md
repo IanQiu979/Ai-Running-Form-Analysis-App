@@ -41,9 +41,24 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   - **Model config, verified against the live Anthropic docs (not recalled)**: `claude-sonnet-5`,
     `thinking: {type: 'adaptive'}`, `output_config: {effort: 'medium'}`, `max_tokens` 4–8k from
     `MAX_OUTPUT_TOKENS_BY_TIER`. `stop_reason: 'max_tokens'` is treated as truncation and is never
-    usable. **`tool_choice` stays `auto`, NOT forced** — the live docs state, with no platform
-    scoping, that forced tool use errors when thinking is active, so forcing it would 400 on 100%
-    of analyses. See `docs/architecture.md`'s new "Current — `analyze-form`" section.
+    usable.
+  - **The output contract moved to STRUCTURED OUTPUTS (`output_config.format`), and the tool is
+    gone from the request.** This corrects a false claim that had propagated from
+    `_shared/analyze-form-prompt.ts` (#41) into `docs/architecture.md` and, briefly, into this
+    function: that Anthropic's docs state "with no platform scoping" that a *forced* `tool_choice`
+    is incompatible with extended thinking. **That restriction is Amazon Bedrock ONLY** — on
+    Bedrock a forced `tool_choice` requires `thinking: {type: 'disabled'}`; the first-party Claude
+    API (which is what `analyze-form/deps.ts` calls: `api.anthropic.com`, `x-api-key`) and Vertex
+    do not require it. The fix is not "force the tool call" but to use the mechanism that makes the
+    question moot: `output_config.format` grammar-constrains the RESPONSE ITSELF against
+    `PACE_RESULT_SCHEMA`. With no `tools` and no `tool_choice` in the request, there is nothing left
+    for a platform-specific tool-choice rule to conflict with, the guarantee is stronger (the answer
+    is schema-conformant by construction, not "some tool got called"), and the tool schema stops
+    being billed as input on every call. The tool is kept as an opt-in (`includeTool`) for #42's
+    evals. **#45's fallback path is unchanged and is NOT dead code**: structured outputs explicitly
+    does *not* guarantee the schema on `stop_reason: 'refusal'` or `'max_tokens'`, and
+    `minimum`/`maximum` are not in the supported JSON Schema subset — so "score is 0–100" is
+    enforceable only in code. The schema guarantees the shape; `isPaceResult` guarantees the range.
   - **Fixed while self-reviewing**: a gate denial was forwarding `gate_ai_call`'s `detail` to the
     client, which on `daily_cap` carries `spent_usd`/`cap_usd` — any authenticated user could read
     our AI spend and our ceiling by tripping the cap. The client now gets `{ error, code }` only;

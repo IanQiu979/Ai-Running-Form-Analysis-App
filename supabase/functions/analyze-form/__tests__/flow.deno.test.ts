@@ -144,6 +144,22 @@ function ok(input: unknown = validToolInput()): ModelCallResult {
   return { ok: true, response };
 }
 
+/** THE PRODUCTION ENVELOPE. `buildAnalyzeFormRequest` now sends `output_config.format` (structured
+ * outputs) and no tool, so a real response is a JSON text block — grammar-constrained to
+ * `PACE_RESULT_SCHEMA` — behind an empty-bodied thinking block. `ok()` above still uses the
+ * tool_use envelope on purpose: the parser must handle both (see `extractPayload`), and the whole
+ * flow must be indifferent to which one arrived. */
+function structuredOk(input: unknown = validToolInput()): ModelCallResult {
+  return {
+    ok: true,
+    response: {
+      content: [{ type: 'thinking' }, { type: 'text', text: JSON.stringify(input) }],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 26_000, output_tokens: 1_500 },
+    },
+  };
+}
+
 /** A prose reply — no tool_use block. Two of these is the prompt-injection signature. */
 function prose(): ModelCallResult {
   return {
@@ -972,6 +988,70 @@ Deno.test('the model gets a real timeout budget, never Infinity', async () => {
 
   assert(h.model.sent[0] > 0);
   assert(h.model.sent[0] <= 65_000);
+});
+
+// ===========================================================================
+// Structured outputs — the real production response envelope.
+// ===========================================================================
+
+Deno.test('structured outputs: the request carries output_config.format and NO tool', async () => {
+  // The whole platform-specific `tool_choice`-vs-thinking question is moot when there is no tool in
+  // the request at all. This asserts the flow actually sends that request.
+  let sent: Record<string, unknown> | null = null;
+  const h = harness([]);
+  h.deps.model = {
+    // deno-lint-ignore require-await
+    async send(request) {
+      sent = request as unknown as Record<string, unknown>;
+      return structuredOk();
+    },
+  };
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assert(sent, 'the model was never called');
+  const request = sent as Record<string, unknown>;
+  assertEquals(request.tools, undefined, 'no tool is sent');
+  assertEquals(request.tool_choice, undefined, 'and therefore no tool_choice to get wrong');
+
+  const outputConfig = request.output_config as { effort: string; format?: { type: string } };
+  assertEquals(outputConfig.format?.type, 'json_schema', 'the contract rides in output_config.format');
+  assertEquals((request.thinking as { type: string }).type, 'adaptive', 'thinking stays on');
+  assertEquals(request.temperature, undefined, 'sonnet-5 400s on a non-default temperature');
+});
+
+Deno.test('structured outputs: a JSON-text response settles exactly like a tool response did', async () => {
+  const h = harness([structuredOk()]);
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(res.body.isFallback, false);
+  assertEquals(h.rpc.to('settle_analysis')[0].args.p_is_fallback, false);
+  assertEquals(h.rpc.to('record_ai_call')[0].args.p_status, 'success');
+});
+
+Deno.test('structured outputs: a schema-shaped but out-of-range score still cannot reach the user', async () => {
+  // The schema cannot express `minimum`/`maximum`, so a 140 is schema-VALID. Only the runtime check
+  // stops it. Two attempts, both out of range on posture -> salvage keeps the other three pillars
+  // and posture comes back not-assessed. Never a clamped, invented 100.
+  const bogus = () => {
+    const input = validToolInput();
+    (input.pillars as Record<string, unknown>).posture = scoredPillar(140, 'strong');
+    return structuredOk(input);
+  };
+  const h = harness([bogus(), bogus()]);
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(res.body.isFallback, true);
+  const result = h.rpc.to('settle_analysis')[0].args.p_result as {
+    pillars: Record<string, { score: number | null }>;
+  };
+  assertEquals(result.pillars.posture.score, null, 'out of range must be dropped, never clamped');
+  assertEquals(result.pillars.armSwing.score, 72, 'the readable pillars survive verbatim');
 });
 
 // ===========================================================================

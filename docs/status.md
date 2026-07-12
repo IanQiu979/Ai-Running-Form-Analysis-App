@@ -399,8 +399,8 @@ milestone "done" criteria.
     that worktree — nothing enforces that whoever builds #56 picks the same name. Whoever builds
     #56 must pick one and, if it's not `result/[id]`, update `app/analyzing.tsx`'s navigation call
     in the same change.
-21. **NEW — `analyze-form` is BUILT but NOT DEPLOYED, and forced tool use turned out to be
-    impossible (issues #44 + #45, 2026-07-13).** The edge function exists, all four binding contract
+21. **NEW — `analyze-form` is BUILT but NOT DEPLOYED (issues #44 + #45, 2026-07-13).** The edge
+    function exists, all four binding contract
     rules from Known Issue #14 are discharged in code and locked by tests, and #91's gate/record
     contract (Known Issue #17) is honoured including a **separate gate for the retry**. See
     `docs/architecture.md`'s "Current — `analyze-form` edge function" section. What remains:
@@ -412,15 +412,39 @@ milestone "done" criteria.
     - **The `analyze-form` API contract is satisfied exactly as `lib/analyze-form.ts` documents it**
       — request `{ mediaType, frames: string[], timestamps: number[], idempotencyKey }`, 200
       `{ result, analysisId, isFallback }`, every non-2xx `{ error, code }`. No divergence.
-    - **Forced tool use is NOT possible alongside thinking, and this is now settled.** The live
-      Anthropic docs state it universally, with no platform scoping — the "maybe it's Bedrock-only"
-      hope recorded in `analyze-form-prompt.ts` (#41) and in `docs/architecture.md`'s step 8 is
-      **wrong**, and acting on it would have produced a **400 on 100% of analyses**. `tool_choice`
-      stays `auto`; `strict: true` + the prompt + #45's retry-then-fallback carry the load instead.
-      If a hard guarantee is ever wanted, the supported route is `output_config.format` (structured
-      outputs), which is a change to #41's file, not to `tool_choice`. **Whoever owns #41 or #42
-      should delete the Bedrock speculation from that file's header** — it is now known-false and
-      left in place only because #44 does not own that file.
+    - **A FALSE CLAIM WAS CORRECTED, and the output contract changed as a result.**
+      `_shared/analyze-form-prompt.ts` (#41) and `docs/architecture.md` both asserted that
+      Anthropic's docs say, "with no platform scoping", that a *forced* `tool_choice` is
+      incompatible with extended thinking, and that the report of it being Bedrock-only "could not
+      be confirmed". **That is wrong: the restriction is Amazon Bedrock ONLY.** On Bedrock a forced
+      `tool_choice` requires `thinking: {type: 'disabled'}`; the **first-party Claude API** (which
+      is what this project calls — `api.anthropic.com` + `x-api-key`, see `analyze-form/deps.ts`)
+      and Vertex do not require it. The claim has been deleted from that file's header and from
+      `architecture.md` and replaced with the scoped fact, so nobody re-derives it.
+    - **The output contract now travels in `output_config.format` (structured outputs), not in a
+      tool.** This is the mechanism neither side of the forced-tool-call argument had reached for,
+      and it is strictly better: grammar-constrained sampling applies to the RESPONSE ITSELF against
+      `PACE_RESULT_SCHEMA`, so the answer is schema-conformant by construction rather than "a tool
+      got invoked and we then constrain its input". With **no `tools` and no `tool_choice` in the
+      request at all**, the platform-specific tool-choice question becomes *moot* — the request is
+      correct on the Claude API, Bedrock, and Vertex under every reading. It is also cheaper (the
+      ~13k-character tool schema stops being billed as `tools` input, and the forced-tool system
+      preamble is gone). The tool is retained as an opt-in (`BuildRequestOptions.includeTool`) so
+      #42 can eval both mechanisms head to head.
+    - **#45's fallback path is NOT made redundant by the schema, and was not weakened.** Structured
+      outputs explicitly does *not* guarantee schema conformance on `stop_reason: 'refusal'` ("the
+      output may not match your schema") or `'max_tokens'` ("the output may be incomplete and not
+      match your schema" — and thinking tokens count against `max_tokens`, so this is live on every
+      call). And `minimum`/`maximum` are **not in the supported JSON Schema subset**, so "score is
+      an integer 0–100" is unenforceable by the schema and is caught only by `isPaceResult` at
+      runtime. The schema guarantees the SHAPE; code guarantees the RANGE. Retry-once, the ≥2-pillar
+      honest partial, and clean-failure-refunds-quota all still stand — they are product contracts,
+      not parser conveniences.
+    - **The response parser accepts BOTH envelopes** (a JSON text block *and* a `tool_use` block).
+      Deliberate insurance, not indecision: the zero-spend constraint means no live call could
+      confirm the structured-output response envelope before shipping, so the parser is correct
+      under either. **Ian's first live call should confirm the envelope**; if it is anything other
+      than a JSON text block, `extractPayload` already handles it.
     - **Consent-withdrawal vs. idempotent replay — DECIDED: refuse.** Known Issue #14 left this
       open ("do not silently pick one"). The consent check runs before idempotency, so a replay of
       an already-settled key by a user who has since withdrawn consent is **refused (403)**, not
