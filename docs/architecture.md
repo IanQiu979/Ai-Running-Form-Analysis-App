@@ -1593,3 +1593,66 @@ to own).
   `config.toml` outside the `[auth]` block (`[db]`, `[storage]`, `[api]`, etc.) governs a local
   `supabase start` stack only, present because `supabase init` generates the full default file —
   not evidence of any corresponding hosted configuration.
+
+## Current — the Settings screen (issue #53, 2026-07-13), closing issue #27
+
+Design-brief screen 11. **Supersedes the "Route tree" table above for `settings`**, which still
+lists it as `planned (M5)` — that line is now stale (left in place rather than edited, to avoid a
+merge conflict with the parallel paywall work that owns the other half of it).
+
+**Route placement: `app/settings.tsx`, a top-level PUSHED route — not a tab.** The planned route
+tree already implied this (it lists `paywall, settings` at root while nesting only
+`(tabs)/history`), and it is the right product call: the tab bar is for co-equal primary surfaces
+(Home, and later History), whereas Settings is a rare destination you push into and back out of.
+Entry point is a "Settings" link in Home's header — the slot the M1 sign-out stub used to occupy.
+
+⚠️ **It is declared as a `Stack.Screen` inside `app/_layout.tsx`'s signed-in `Stack.Protected`
+block, and that is a security property, not a formality.** Per that file's own contract, an
+*undeclared* route file renders as an always-available, **unguarded** top-level screen regardless
+of session. This screen hosts sign-out and account deletion; it must never be reachable signed-out.
+
+| Concern | Where it lives | State today |
+|---|---|---|
+| Account (email) | `session.user.email` | Real. Falls back to an honest line when a provider returns no email, rather than rendering an empty row. |
+| Plan (tier) | `subscriptions` read, `status = 'active'` | Real, and **display-only** — read, never computed (CLAUDE.md: the client is never the authority on tier). Loading and error are real states; a failed read never silently renders "Free". |
+| Sign out | `lib/sign-out.ts` | Real, and now correct — see below. |
+| Delete account | `lib/delete-account.ts` seam | ⚠️ **Wired, but bound to a MOCK.** #58's edge function does not exist yet. |
+| Privacy disclosure + consent withdrawal | `lib/consent.ts` | Real. Restates the pre-upload disclosure (#68) and calls `withdrawConsent`, which had been built and waiting for a caller since #68. |
+| Privacy policy link | — | **Deliberately not linked.** See below. |
+
+**`lib/sign-out.ts` — the issue #27 fix, made once, in its final home.** The bug: `signOut()` was
+fire-and-forget, so a failed **global** token revoke left server-side refresh tokens alive while the
+user was shown a clean sign-out. The constraint that shapes the fix: **auth-js clears the LOCAL
+session whether or not the server call succeeded**, so "cancel the sign-out and keep the user here"
+is not an available branch — by the time we know it failed, the session is gone and the route guard
+is already unmounting the screen. Therefore:
+- `signOut()` awaits the call, inspects `{ error }`, folds a *thrown* failure into the same result,
+  and **never rejects** (the unhandled-rejection half of #27).
+- The failure is surfaced through a native **`Alert`**, not inline text — an inline error would
+  render into a tree the route guard is tearing down and would never be read.
+- The copy names the split state exactly (signed out **here**, maybe not **everywhere**) and offers
+  the only recovery that works: sign in again, then sign out on a connection. A "Retry" would be
+  theatre — there is no local session left to authenticate a second revoke with.
+
+**`lib/delete-account.ts` — an injectable seam, same pattern as `lib/analyze-form.ts` (#80).** Types
+match the documented `POST /functions/v1/delete-account` contract (`{ deleted: true }`, and the
+app-wide `{ error, code }` error body). `submit()` is **nullary on purpose** — the function
+identifies the user from the JWT; a client that could name the user to delete would be a
+vulnerability. #58 replaces exactly one binding line at the bottom of the file. Until it does,
+**tapping "Delete account and data" purges nothing** — do not ship a build with the mock bound, as
+that would tell a user their account was deleted when it was not (the precise lie App Store
+Guideline 5.1.1(v) exists to prevent).
+
+**The privacy policy is not linked, and the draft is not rendered in-app.** `docs/privacy-policy.md`
+still carries its `DO NOT PUBLISH` guard: the data-controller legal identity, country, and contact
+email are unresolved (blocked on the Apple Developer account decision — `docs/blocked-on-apple.md`).
+So there is no URL, and inventing one is not an option. Rendering the *draft* in-app was rejected
+for the same reason the guard exists — it would show users placeholder legal identity and rights
+promises they could not actually exercise, which is worse than saying nothing. The screen instead
+shows an honest pending state and points at the disclosure that **is** certified and true today
+(`settings.privacy.body`, the fuller version of the pre-upload consent line). Replace the pending
+state with a real link in the same change that publishes the policy.
+
+**Not built, deliberately:** `settings.plan.cta` ("See plans") and `settings.restorePurchases.cta`.
+Both route to a Paywall (#52) and an IAP flow that do not exist; shipping them would build a dead
+end. #52 adds them back with the route they point at.

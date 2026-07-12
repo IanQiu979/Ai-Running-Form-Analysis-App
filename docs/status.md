@@ -22,6 +22,15 @@ milestone "done" criteria.
 
 ## Done so far
 
+- **Settings screen (issue #53, 2026-07-13), which also closes #27.** `app/settings.tsx` — a
+  top-level pushed route (not a tab), declared inside the signed-in `Stack.Protected` block, reached
+  from Home's header. Carries Account (email), Plan (tier — display-only), Sign out, Delete account,
+  and the #68 privacy restatement + consent-withdrawal path (the first caller `withdrawConsent` has
+  ever had). **#27 is fixed here, in its final home**: sign-out now awaits, inspects the returned
+  error, never rejects, and surfaces a failed *global* revoke instead of swallowing it (new
+  `lib/sign-out.ts`, tested). Two caveats, both tracked as Known Issues below: **delete-account is
+  bound to a MOCK** until #58 lands (#21), and the screen ships **uncertified copy** needing review
+  (#22). The privacy policy is deliberately **not linked** — it is still `DO NOT PUBLISH`.
 - Expo SDK 54 app scaffolded (expo-router template, TypeScript strict, `@/*` path alias ->
   `./*`; no `src/` in this project — code lives at the repo root in `app/`, `components/`,
   `constants/`, `hooks/`).
@@ -399,6 +408,24 @@ milestone "done" criteria.
     that worktree — nothing enforces that whoever builds #56 picks the same name. Whoever builds
     #56 must pick one and, if it's not `result/[id]`, update `app/analyzing.tsx`'s navigation call
     in the same change.
+21. **NEW — `delete-account` is wired but MOCKED (issue #53, 2026-07-13).** The Settings screen's
+    "Delete account and data" flow is built end-to-end against `lib/delete-account.ts`'s injectable
+    seam, which is currently bound to a **dev mock** because #58's edge function does not exist yet.
+    The confirmation is real; **the purge is not** — today the button deletes nothing. #58 closes
+    this by swapping one binding line at the bottom of that file (a test in
+    `lib/__tests__/delete-account.test.ts` asserts the mock is still bound, so it fails loudly at
+    the moment of the swap and forces whoever does it to confirm the real client is wired).
+    ⚠️ **Do not ship a build to a real user with the mock bound**: it would tell them their account
+    was deleted when it was not — exactly the failure App Store Guideline 5.1.1(v) exists to
+    prevent, and the policy-publication gate in Known Issue #15 stays shut until the real purge runs.
+22. **NEW — the Settings screen ships UNCERTIFIED copy (issue #53, 2026-07-13).** `constants/copy.ts`
+    gained a clearly-delimited block of strings that are **not in `docs/design/copy-deck.md`** and
+    have not been through `ux-copywriter` or Ian: the sign-out failure alert (the string issue #27
+    explicitly said had to be written), the delete-account failure alert, the consent-withdrawal
+    confirmation, the "policy not published yet" line, and two screen-reader-only Retry labels.
+    They were written to the deck's own rules (name the outcome, never claim a state that isn't
+    true, no jargon) but they are drafts. Review them, then mirror the approved wording into
+    copy-deck.md § Screen 11 the way #36's and #56's NEW keys were.
 
 ## Next action
 
