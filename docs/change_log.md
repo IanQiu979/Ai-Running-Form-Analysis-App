@@ -7,6 +7,53 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **AI spend guardrails substrate landed, ahead of `analyze-form` itself (closes #91).** #48
+  established account creation on this project is currently unbounded (no signup rate limit,
+  autoconfirm on, CAPTCHA blocked on Ian) and its own conclusion is that this blocks M4 *going
+  live*, not the M4 *build* — so M4 (#44, still Not Started) was on track to land with no brake
+  behind it at all. This ships that brake first, built against the design spec in
+  `docs/superpowers/specs/2026-07-12-ai-spend-guardrails-design.md`.
+  - **Added** `supabase/migrations/20260712210000_ai_spend_guardrails.sql` — `ai_ops_config`
+    (the kill switch + daily $ cap + breaker dials, singleton row, RLS-on-zero-policies plus
+    explicit `anon`/`authenticated` grant revocation), `ai_model_pricing` (rates, reprice with
+    an `UPDATE`, never a migration; seeded at `claude-sonnet-5` LIST price so every estimate
+    errs conservative), `ai_call_log` (the per-call spend ledger — all four token fields stored
+    separately since they bill at different rates; `user_id`/`analysis_id` `ON DELETE SET NULL`
+    so account/analysis deletion erases personal data but keeps spend history queryable).
+  - **Added** `supabase/migrations/20260712210100_ai_spend_guardrail_functions.sql` —
+    `gate_ai_call` (kill switch → circuit breaker → daily cap, in order, on a global advisory
+    lock; reserves a `'pending'` ledger row on allow), `record_ai_call` (idempotent settle;
+    `'cancelled'` releases at $0 immediately, a no-usage-data settle falls back to the estimate
+    rather than $0), `ai_breaker_state` (derived on read, not stored — filled a gap the design
+    spec left open: a still-`'pending'` row created after the last failure now counts as an
+    in-flight breaker probe, so a concurrent burst can't all pass through as "the" probe once
+    the cooldown lapses), `ai_spend_today` (one JSONB snapshot for `db-audit`/`cost-monitor`).
+    All four `service_role`-only, same privilege shape as `reserve_analysis`'s RPC family.
+    **Neither migration is applied to the live project** — no non-production Supabase
+    environment exists yet (#92), so both wait on that or Ian applying them directly.
+  - **Added** `supabase/functions/_shared/ai-pricing.ts` (pure token/cost estimate math, zero
+    imports), `ai-guard.ts` (`gateAiCall`/`recordAiCall`/the deny→`503` HTTP mapping against an
+    injected `RpcClient`, also free of Deno-only imports), `ai-guard-client.ts` (the real
+    Deno/`Deno.env`/`npm:` service-role client factory, imported only by the eventual edge
+    function). 33 new Jest tests across
+    `supabase/functions/_shared/__tests__/{ai-pricing,ai-guard}.test.ts` covering the cost math
+    and the three refusal cases the issue names (cap exceeded, kill switch on, breaker open)
+    against a mocked RPC transport.
+  - **Updated** `tsconfig.json` to exclude `supabase/functions/**` from `npm run typecheck` —
+    that tree runs on Deno, a different module/type system than this Expo app's `tsc` project;
+    `#44` should add its own Deno-side check rather than rely on this one to cover it.
+  - **Call ordering, binding on #44**: the gate runs *before* idempotency/`reserve_analysis`,
+    not after — if it ran after, every guardrail denial would have to release that reservation,
+    and `reserve_analysis` counts released rows against its 3-failed-attempt anti-farming cap,
+    which would eventually lock out a legitimate user for something the guardrail did. Full
+    contract recorded in `docs/architecture.md`'s "Current — AI spend guardrails substrate"
+    section and `docs/status.md` Known Issue #16.
+  - **Honestly scoped, not overclaimed**: DB grants make the client unable to bypass the gate,
+    and there's no way to get a `call_id` other than through it — but nothing here can stop
+    `analyze-form`'s own code from skipping the gate and calling Anthropic directly; that's
+    closed by `AGENTS.md`'s mandatory `security-auditor` review of the hot list, not by this
+    migration. Also still open, and not something buildable from this repo: the hard spend
+    ceiling in the Anthropic Console (Known Issue #16).
 - **HIBP fail-open is now observable (refs #74).** `lib/hibp.ts` fails open and deliberately
   never logs, which made the leaked-password check silently unobservable: if HIBP's endpoint
   rotted, every sign-up would pass the check forever with nothing to show for it.

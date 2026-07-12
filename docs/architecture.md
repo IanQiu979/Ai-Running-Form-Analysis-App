@@ -56,13 +56,20 @@ supabase/
   config.toml              # local mirror of live auth config — see "Current — Supabase config"
   functions/.env.example   # committed placeholder; the real ANTHROPIC_API_KEY is in the
                           # gitignored functions/.env locally and in production secrets
-  migrations/               # 8 migrations, applied live — see "Current — DB schema" below
+  functions/_shared/       # ai-pricing.ts, ai-guard.ts, ai-guard-client.ts (2026-07-12, issue
+                          # #91) — the AI spend gate `analyze-form` (#44) will be forced through;
+                          # see "Current — AI spend guardrails substrate" below. Still no
+                          # edge function itself (no Deno.serve entrypoint anywhere yet).
+  migrations/               # applied-live migrations (see "Current — DB schema" below) plus 2
+                          # WRITTEN-NOT-APPLIED migrations for issue #91's guardrails, blocked
+                          # on issue #92 (no non-prod environment) — see "Current — AI spend
+                          # guardrails substrate" below
 ```
 
 The template's `(tabs)/explore.tsx` and `modal.tsx` are deleted, not left as dead scaffolding.
-Still absent: `supabase/functions/analyze-form` (or any edge function), `lib/frames.ts`,
-`lib/pace.ts`, `lib/subscription.ts`, and every route beyond sign-in + empty Home (capture,
-result, paywall, settings, history).
+Still absent: `supabase/functions/analyze-form` (or any edge function entrypoint — `_shared/`
+has no `Deno.serve` in it), `lib/frames.ts`, `lib/pace.ts`, `lib/subscription.ts`, and every
+route beyond sign-in + empty Home (capture, result, paywall, settings, history).
 
 ## Route tree — current (M1) vs planned
 
@@ -353,10 +360,10 @@ the original video (see "Media pipeline" below).
    `docs/status.md` Known Issue #14 for the exact check.
 
    **Open question for M4, unresolved — do not silently pick one**: this step runs before
-   idempotency (step 3) on purpose, refuse-before-work, but that leaves undecided what happens
+   idempotency (step 4) on purpose, refuse-before-work, but that leaves undecided what happens
    when consent is withdrawn *after* an analysis already settled under an idempotency key. A
    replay of that same request now hits this step first and is refused, rather than reaching
-   step 3 and returning the existing row as-is, which is what idempotency currently promises.
+   step 4 and returning the existing row as-is, which is what idempotency currently promises.
    Both readings have a real argument: returning the cached row is arguably fine (GDPR Art.
    7(3) — withdrawal "shall not affect the lawfulness of processing based on consent before its
    withdrawal," and serving an already-produced result isn't new processing), while refusing is
@@ -365,34 +372,52 @@ the original video (see "Media pipeline" below).
    answer likely coincides with whatever the delete/purge path (#57, #58) already does to that
    row, since a withdrawn-consent analysis is exactly the kind of row that path should be
    removing anyway.
-3. **Idempotency** — an existing `(user_id, idempotency_key)` row is returned as-is instead of
-   re-running the analysis.
-4. **Atomic reserve** — a `SECURITY DEFINER` RPC checks the tier's limit (Free 1 lifetime / Pro
+3. **AI spend gate** (substrate added 2026-07-12, issue #91 — see "Current — AI spend
+   guardrails substrate" above) — call `gateAiCall()` from
+   `supabase/functions/_shared/ai-guard.ts` **before** idempotency/reserve, not after. On
+   `allowed: false` (kill switch off, circuit breaker open, or the global daily $ cap would be
+   exceeded), return `503` with `gateDenyResponseBody()`'s structured `{ error, code }` body —
+   this is the brake, not the caller's fault, so it is never a `4xx`. On allow, hold the returned
+   `call_id` for step 9. This runs before idempotency deliberately — see the "call ordering"
+   note in that section for why the alternative (gate after reserve) would eventually lock out
+   legitimate users.
+4. **Idempotency** — an existing `(user_id, idempotency_key)` row is returned as-is instead of
+   re-running the analysis. If this branch fires, the call was never going to happen even though
+   the gate already reserved budget for it — settle that reservation immediately with
+   `recordAiCall({ callId, status: 'cancelled' })` before returning.
+5. **Atomic reserve** — a `SECURITY DEFINER` RPC checks the tier's limit (Free 1 lifetime / Pro
    10 / Elite 30 per purchase-anchored period) and frame-count cap, then reserves the analysis
-   atomically, before the model is ever called. Over quota → structured `402`.
-5. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames with their actual
+   atomically, before the model is ever called. Over quota → structured `402`, and — same as
+   step 4 — settle the gate's reservation as `'cancelled'` before returning, since the model is
+   never going to be called for this request either.
+6. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames with their actual
    sampled timestamps (Android snaps to keyframes, so the actual timestamps are recorded rather
    than assumed to be evenly spaced); those same frames were already uploaded direct-to-bucket,
    and their storage paths ride in the request alongside the base64 frame data. Frame count per
    tier: Free 1 / Pro 5 / Elite 8.
-6. **Build the grounded prompt**: system message = the certified PACE knowledge (framework +
+7. **Build the grounded prompt**: system message = the certified PACE knowledge (framework +
    injury flags + drills, bundled with the function, not fetched per call), then the image
    block(s) plus their timestamps, then the PACE scoring instruction. Detail scales with tier
    via a verbosity dial on one prompt, not a different call — Free gets scores + one line per
    pillar and no drills; Pro gets fuller feedback, injury-risk flags, and drills; Elite gets the
    same analysis as Pro plus a small verbosity/depth bump (the Pro→Elite gap is intentionally
    tiny).
-7. **One vision call** — `claude-sonnet-5`, explicit thinking config, `max_tokens` 4–8k, a
+8. **One vision call** — `claude-sonnet-5`, explicit thinking config, `max_tokens` 4–8k, a
    forced tool call returning structured JSON for the 4 PACE pillars (Posture, Arm swing,
    Cadence, Elasticity), each scored with feedback, plus injury flags and (paid) drills.
-8. **Validate structurally, loosely** — check the expected shape exists, never judge content.
+9. **Validate structurally, loosely** — check the expected shape exists, never judge content.
    On failure retry once; on a second failure, a clearly-labelled partial result if ≥2 pillars
    parsed (`is_fallback: true`, never a fabricated score for the rest), else a clean failure.
    The reserve is released either way — failures and fallbacks never burn quota — capped at 3
-   free retries per period against prompt-injection farming.
-9. **Settle** — mark the reservation delivered, persist the result to `analyses`
-   (`result` JSONB, `media_paths`, `tier_at_run`, `frame_count`, `is_fallback`), return
-   `{ result, analysisId, isFallback }`.
+   free retries per period against prompt-injection farming. Whatever the outcome, call
+   `recordAiCall()` with the matching status (`'success'`, `'fallback'` for a delivered partial,
+   `'validation_failed'` for a clean failure, or `'model_error'` if the Anthropic call itself
+   errored) and the real token usage from the response — this is what feeds `actual_usd` and the
+   circuit breaker; skipping it on any exit path leaves that call's reservation stuck as
+   `'pending'` until `pending_timeout_seconds` ages it out on its own.
+10. **Settle** — mark the reservation delivered, persist the result to `analyses`
+    (`result` JSONB, `media_paths`, `tier_at_run`, `frame_count`, `is_fallback`), return
+    `{ result, analysisId, isFallback }`.
 
 ## Planned — media pipeline
 
@@ -423,10 +448,13 @@ burn, no extra storage, no new edge function or API route.
 
 ## Planned — API
 
-None of these edge functions exist yet (no `supabase/functions/` beyond the `.env.example`
-placeholder) — but `analyze-form`'s core dependency, the reserve/settle/release quota RPC
-family, is already live; see "Current — DB schema" below and the M1-review contract notes in
-`docs/status.md` Known Issue #14 before building it.
+None of these edge functions exist yet — `supabase/functions/` has the `.env.example`
+placeholder and, as of 2026-07-12 (issue #91), the `_shared/ai-guard*.ts` spend-gate substrate,
+but no `analyze-form/index.ts` and no `Deno.serve` entrypoint of any kind. `analyze-form`'s core
+dependencies are already live/written, though: the reserve/settle/release quota RPC family (live
+— see "Current — DB schema" below), the AI spend gate (written, not yet applied — see "Current —
+AI spend guardrails substrate" above), and the M1-review contract notes in `docs/status.md`
+Known Issue #14. Read all three before building it.
 
 The client never talks to Postgres for privileged operations — those go through edge
 functions. Plain reads of the caller's own rows go through the Supabase client, protected by
@@ -560,6 +588,156 @@ has owner-scoped `storage.objects` RLS for insert/select/delete — first path s
 deleted, never edited in place). Photos/videos of people are sensitive; only the analyzed
 frames (never the original video) are ever uploaded. No public URLs — access is via signed URLs
 or authenticated reads only.
+
+## Current — AI spend guardrails substrate (issue #91, 2026-07-12)
+
+**Migration files WRITTEN, deliberately NOT applied to the live project** — this repo has no
+non-production Supabase environment (issue #92), and applying schema/writing data to the hosted
+project from an agent worktree is out of scope for this change. The two migrations below
+(`20260712210000_ai_spend_guardrails.sql`, `20260712210100_ai_spend_guardrail_functions.sql`)
+are ready for `supabase db push` whenever that constraint is resolved or Ian applies them
+directly; until then this section describes designed-and-written behavior, not deployed
+behavior — contrast with "Current — DB schema" above, which is genuinely live.
+
+Design spec: `docs/superpowers/specs/2026-07-12-ai-spend-guardrails-design.md`. Built because
+issue #48 established account creation on this project is currently unbounded (no signup rate
+limit, autoconfirm on, CAPTCHA blocked on Ian) and its own conclusion is that this blocks M4
+*going live*, not the M4 *build* — so M4 (#44, still Not Started) is expected to land with that
+hole open. This substrate is the brake it lands behind.
+
+```sql
+-- public.ai_ops_config: singleton row (id boolean primary key default true check (id)).
+-- THE KILL SWITCH lives here. RLS on, zero policies, and every anon/authenticated grant
+-- explicitly revoked (not left to RLS alone — see the consents_grant_hardening lesson) — the
+-- client cannot read or write this table at all. An operator flips it from the dashboard/SQL
+-- editor/MCP with one UPDATE. No redeploy.
+ai_ops_config    (id boolean pk default true check (id),
+                  analyze_enabled boolean not null default true,   -- THE KILL SWITCH
+                  disabled_reason text,
+                  daily_usd_cap numeric not null default 10.00,     -- global daily ceiling
+                  breaker_failure_threshold integer not null default 5,
+                  breaker_cooldown_seconds integer not null default 900,
+                  pending_timeout_seconds integer not null default 300,
+                  updated_at)
+
+-- public.ai_model_pricing: rates, not a migration — reprice with one UPDATE. Seeded at
+-- claude-sonnet-5's LIST price ($3/$15 per Mtok), not the cheaper introductory rate, so every
+-- estimate errs conservative.
+ai_model_pricing (model text pk, input_usd_per_mtok, output_usd_per_mtok,
+                  cache_write_multiplier numeric not null default 1.25,
+                  cache_read_multiplier numeric not null default 0.10, updated_at)
+
+-- public.ai_call_log: one row per attempted model call — the spend ledger. user_id/analysis_id
+-- are ON DELETE SET NULL, not CASCADE: deleting an account/analysis erases personal data but
+-- keeps the cost row queryable (satisfies both the issue's "queryable" requirement and GDPR
+-- erasure). All four token fields stored separately — they bill at different rates.
+ai_call_log      (id uuid pk, user_id uuid -> profiles(id) on delete set null,
+                  analysis_id uuid -> analyses(id) on delete set null,
+                  model text not null -> ai_model_pricing(model),
+                  status ai_call_status not null default 'pending', -- pending|success|
+                                                                     -- model_error|
+                                                                     -- validation_failed|
+                                                                     -- fallback|cancelled
+                  estimated_input_tokens, estimated_output_tokens, estimated_usd not null,
+                  input_tokens, output_tokens, cache_creation_input_tokens,
+                  cache_read_input_tokens, actual_usd,               -- null until settled
+                  created_at, settled_at)
+```
+
+**The gate — `gate_ai_call` / `record_ai_call` / `ai_breaker_state` / `ai_spend_today`.** All
+four are `SECURITY DEFINER`, pinned `search_path`, `EXECUTE` revoked from
+`public`/`anon`/`authenticated` and granted only to `service_role` — the exact same privilege
+shape as `reserve_analysis`/`settle_analysis`/`release_analysis`, and for the identical reason:
+only a future edge function calling with the service-role key can invoke these, never the client.
+
+- **`gate_ai_call(p_user_id, p_estimated_input_tokens, p_estimated_output_tokens, p_model, p_analysis_id)`**
+  takes a single **global** advisory lock (`hashtext('ai_ops_gate')` — deliberately not per-user
+  like `reserve_analysis`'s lock, because this cap is global), then denies in order: kill switch
+  off (`reason: 'killed'`) → circuit breaker open (`reason: 'breaker_open'`) → unpriced model
+  (`reason: 'unknown_model'`) → daily cap would be exceeded (`reason: 'daily_cap'`). "Today's
+  spend" counts settled `actual_usd` since UTC midnight (the function pins `set timezone = 'UTC'`, not relying on the session default) **plus** every still-`'pending'`
+  reservation's `estimated_usd` made since midnight and not yet timed out — counting pending
+  estimates is what makes the cap hold under a concurrent burst; an orphaned pending row (the
+  function crashed mid-call) ages out of the sum on its own after `pending_timeout_seconds`, no
+  cron sweeper needed. On allow, inserts a `'pending'` row and returns
+  `{ allowed: true, call_id, estimated_usd }`.
+- **`ai_breaker_state()`** is derived on every read, not stored: open if the last
+  `breaker_failure_threshold` settled calls are **all** `model_error`/`validation_failed` (a
+  delivered `'fallback'` counts as success — the user got value) and the most recent is within
+  `breaker_cooldown_seconds`. A gap the design spec left open, filled here: once the cooldown
+  lapses, the state alone can't guarantee "exactly one call probes through" under a concurrent
+  burst (the advisory lock only serializes calls that already reached the gate, not a decision
+  about who gets to be *the* probe) — so a still-`'pending'` row created after the last failure
+  counts as a probe already in flight, and the breaker stays open for every other caller until it
+  settles.
+- **`record_ai_call(p_call_id, p_status, p_input_tokens, p_output_tokens, p_cache_creation_input_tokens, p_cache_read_input_tokens, p_analysis_id)`**
+  settles a `'pending'` row exactly once; a retried call for an already-settled row is a safe
+  no-op (`already_settled: true`), same guard shape as `settle_analysis`/`release_analysis`. A
+  `'cancelled'` settle (the gate allowed the call but it was never made — see "call ordering"
+  below) records `actual_usd = 0`. A settle with **no usage data at all** (e.g. the Anthropic
+  call itself network-timed-out) records `actual_usd` at the **estimate**, not zero — an unknown
+  cost is assumed incurred so the daily-cap budget never quietly under-counts. Otherwise
+  `actual_usd` is computed from `ai_model_pricing`'s rates across all four token fields.
+- **`ai_spend_today()`** returns one JSONB snapshot — spend (settled/pending/total), the cap,
+  today's call counts by status, breaker state, kill-switch state — for `db-audit`,
+  `cost-monitor`, and manual inspection. Service-role only, same as the rest.
+
+**Call ordering — binding on #44, not optional.** The gate runs **before** `reserve_analysis`:
+
+```
+auth → consent → AI GATE → idempotency + quota reserve → model call → record + settle
+```
+
+If the gate ran after the quota reserve, every kill-switch/cap/breaker denial would have to
+release that reservation — and `reserve_analysis` counts released rows against its
+3-failed-attempt anti-farming cap (see "Quota RPC family" above), so repeated guardrail denials
+would eventually lock out a legitimate user for something the guardrail did, not them. Gating
+first means a denied request never creates a reservation, and **`reserve_analysis` needs no
+changes** for this to work. The cost: because idempotency lives inside `reserve_analysis`, every
+call — including a pure replay of an already-delivered analysis — reserves a `'pending'`
+`ai_call_log` row before the edge function can know the model call isn't actually needed;
+`record_ai_call(status: 'cancelled')` is the release valve for exactly that case, released for
+$0 immediately rather than left to age out.
+
+**What #44 must do, added to the binding M4 contract (alongside Known Issue #14's existing
+items — see `docs/status.md`):**
+1. Call `gateAiCall()` (from `supabase/functions/_shared/ai-guard.ts`) before every Anthropic
+   request. On `allowed: false`, return `503` (`httpStatusForGateDeny`) with the structured
+   `{ error, code }` body (`gateDenyResponseBody`) — never a `4xx`; every denial is the brake,
+   not the caller's fault.
+2. Call `recordAiCall()` on **every** exit path after a successful gate — success, model error,
+   validation failure, delivered fallback, or a `'cancelled'` settle when the call turns out
+   never to be needed. Treat it like a `finally`: an unsettled `'pending'` row silently eats
+   daily-cap headroom until `pending_timeout_seconds` ages it out, with no other cleanup path.
+3. Use `supabase/functions/_shared/ai-guard-client.ts`'s `createAiGuardClient()` (or an
+   equivalent service-role client) — never a client built from the caller's JWT; the RPCs are
+   `service_role`-only by grant and will simply fail for anything else.
+
+**Honest scope of "physically cannot make an Anthropic call without passing through the
+brake"**: real in two senses, not three. (1) The client cannot bypass any of this — DB privilege,
+enforced. (2) There is no exported way to get a `call_id` other than `gateAiCall()`, and
+`recordAiCall()` requires one, so *using the ledger at all* runs through the gate by
+construction. (3) Nothing in Postgres can stop `analyze-form`'s own code from calling Anthropic
+directly and never importing this module — that is a code-review problem, closed by
+`AGENTS.md`'s mandatory HIGH/CRITICAL chain, which requires `security-auditor` review of
+anything on the hot list (edge functions and the `analyze-form` flow are both named explicitly)
+before it ships, not by anything in this migration.
+
+**TypeScript interface** (`supabase/functions/_shared/`, all new, none deployed — there is still
+no edge function): `ai-pricing.ts` (pure, zero imports, Jest-tested — token/cost estimate math
+for the pre-call estimate; `AI_MODEL_PRICING` mirrors `ai_model_pricing`'s seed row, manually
+kept in sync, used only for pre-call estimation, never actual billing) → `ai-guard.ts`
+(`gateAiCall`/`recordAiCall`/HTTP mapping against an injected `RpcClient`, also Jest-tested, also
+free of Deno-only imports) → `ai-guard-client.ts` (the real Deno/`Deno.env`/`npm:` client
+factory, imported only by the eventual edge function, not tested — nothing pure to test).
+`tsconfig.json` now excludes `supabase/functions/**` from `npm run typecheck` — it runs on Deno,
+a different module/type system than this Expo app's `tsc` project; #44 should add its own
+Deno-side check (`deno check`) rather than rely on `npm run typecheck` to cover it.
+
+**Manual step that cannot be automated from this repo**: set a hard spend ceiling in the
+Anthropic Console. It's free configuration and the only backstop that survives a bug in this
+gate, a Supabase outage, or a leaked `ANTHROPIC_API_KEY` — everything above is defense-in-depth
+*behind* it, not instead of it. Tracked as an open item in `docs/status.md` until Ian sets it.
 
 ## Current — Supabase config: `config.toml` vs dashboard-only
 

@@ -12,7 +12,7 @@ milestone "done" criteria.
 | M1 — Foundation (sign-up creates an account → empty Home) | **Done 2026-07-11** — security audit (no Critical/High) + code review (5 findings fixed), gate passed with Ian's on-phone sign-up test; merged via PR from `feat/m1-spine` |
 | M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Not started |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | Not started — knowledge files exist; Elasticity pending Ian's certification |
-| M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started |
+| M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12, written but not yet applied to the live project (blocked on issue #92). See Known Issue #16. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
 | M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
@@ -64,6 +64,18 @@ milestone "done" criteria.
   `observability-setup` work happens, and **Sentry is actively contraindicated** there (its
   breadcrumbs would fingerprint the passwords `lib/hibp.ts` protects). See
   `docs/architecture.md`'s "Current — CI" section.
+- **AI spend guardrails substrate landed 2026-07-12 (issue #91)** — the kill switch, global
+  daily $ cap, circuit breaker, and per-call token/cost ledger `analyze-form` (#44) will be
+  forced through, built *before* #44 exists on purpose (see the design spec,
+  `docs/superpowers/specs/2026-07-12-ai-spend-guardrails-design.md`). Two migrations
+  (`ai_ops_config` / `ai_model_pricing` / `ai_call_log` tables + `gate_ai_call` /
+  `record_ai_call` / `ai_breaker_state` / `ai_spend_today` RPCs, all `service_role`-only) and a
+  Jest-tested TypeScript interface (`supabase/functions/_shared/ai-pricing.ts`, `ai-guard.ts`,
+  `ai-guard-client.ts`). **Written, not yet applied to the live project** — this repo has no
+  non-production Supabase environment (issue #92), so the migrations wait for either that or
+  Ian applying them directly. Full detail: `docs/architecture.md`'s "Current — AI spend
+  guardrails substrate" section. **Still open, and not something this work could do from the
+  repo: the hard spend ceiling in the Anthropic Console** — see Known Issue #16.
 - Full dated history: [`docs/change_log.md`](change_log.md).
 
 ## Known issues
@@ -208,6 +220,30 @@ milestone "done" criteria.
     information (s6D(4)(b)) — an app producing injury-risk assessments plausibly qualifies, which
     would make this a full APP entity regardless of size (APP 8 overseas disclosure + a
     complaints process). See `docs/privacy-checklist-m7.md`.
+16. **NEW — AI spend guardrail contract for #44, and one manual step still open (issue #91,
+    2026-07-12).** The substrate ("Done so far" above) is written; two things are not:
+    - **The migrations are not applied to the live project.** `supabase db push` (or Ian applying
+      them directly) is a prerequisite for #44, since `analyze-form` cannot call
+      `gate_ai_call`/`record_ai_call` if they don't exist yet. Blocked on issue #92 (no
+      non-production Supabase environment) for who gets to run that command safely.
+    - **`analyze-form` (#44) MUST call `gateAiCall()` before every Anthropic request and
+      `recordAiCall()` on every exit path after**, per the call-ordering contract in
+      `docs/architecture.md`'s "Current — AI spend guardrails substrate" section (gate runs
+      *before* idempotency/`reserve_analysis`, not after — mirrors why Known Issue #14's
+      `release_analysis` requirement is a `finally`, not a happy-path-only call). This is
+      DB-enforced against the client (the RPCs are `service_role`-only) but NOT DB-enforced
+      against `analyze-form`'s own code skipping it — that gap is closed by `AGENTS.md`'s
+      mandatory `security-auditor` review for anything on the hot list, which `analyze-form`
+      explicitly is. Verify this specific contract at that review, not just generic security
+      hygiene.
+    - **Still open, and it is the one thing here that genuinely can't be done from this repo:
+      set a hard spend ceiling in the Anthropic Console.** It's free configuration and the only
+      backstop that survives a bug in the gate itself, a Supabase outage, or a leaked
+      `ANTHROPIC_API_KEY` — everything else in issue #91 is defense-in-depth *behind* it, not a
+      replacement for it. Needs Ian's Anthropic Console access.
+    - Out of scope for #91, unaffected by it: a monthly cap (the Anthropic Console limit above
+      already is one — a second one here would be duplicated state that can drift) and CAPTCHA/
+      signup rate limiting (Known Issue #12, still blocked on Ian).
 
 ## Next action
 
