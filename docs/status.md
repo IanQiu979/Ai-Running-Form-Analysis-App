@@ -17,7 +17,7 @@ milestone "done" criteria.
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | **In progress** — the grounded prompt, tier verbosity dial, and structured-output contract landed 2026-07-12 (issue #41, `supabase/functions/_shared/analyze-form-prompt.ts`, 28 Deno tests, **no live model call made**), unblocking M4's #44/#45. The milestone's own gate — "prompt *provably* includes the framework text" — is proven statically today (the three certified files are asserted present **byte-for-byte** in the assembled prompt); proving the *output* references the PACE pillars still needs #42's live-call eval harness. Still open: **#39** (Ian certifies Elasticity + the pillar refinements — the prompt ships his name) and **#40** (the runner's-note guidance in `injury_flags.md`; #41 neutralises it at the prompt layer, but the certified file itself still says "if the note reports…", so #40 stays open for Ian's review). |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. `purchase-tier` and every M5 screen (paywall, tier-aware CTAs) remain unbuilt. |
-| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. |
+| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **not deployed** — see Known Issue #21. |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
 
 ## Done so far
@@ -399,6 +399,39 @@ milestone "done" criteria.
     that worktree — nothing enforces that whoever builds #56 picks the same name. Whoever builds
     #56 must pick one and, if it's not `result/[id]`, update `app/analyzing.tsx`'s navigation call
     in the same change.
+21. **NEW — `delete-account` is built but NOT deployed, and #59's live-DB half is still open
+    (issue #58, 2026-07-13).** `POST /functions/v1/delete-account` is written and Deno-tested on
+    `feat/58-delete-account` (20 tests: zero orphaned Storage objects, nested-prefix recursion,
+    delete order, a mid-purge failure leaving the auth user alive, the consent-trail decision). It
+    reuses #57's `purgePrefix()` — one implementation, two callers — and sweeps the whole
+    `{user_id}/` prefix, so it also cleans up the frames Known Issue #19 describes (rows
+    soft-deleted through #2's client UPDATE policy never purge their own frames; an account delete
+    now does, because the sweep is by prefix and never consults a row). **What is still open:**
+    - **Not deployed.** `supabase functions deploy delete-account` is Ian's to run. Until then
+      Guideline 5.1.1(v) is not satisfied and Known Issue #15's second blocker (in-app account
+      deletion "actually shipping and purging") stays unticked — the privacy policy still cannot
+      be published. No migration is needed: `service_role` already holds every grant this function
+      uses, so it is a deploy, not a schema change.
+    - **Issue #59's other half.** The tests here mock the Supabase client, so they prove the
+      *contract* (ordering, recursion, atomicity, idempotency). #59 also asks for the same
+      properties against a real local Postgres **and** real Storage, because the property under
+      test is precisely that two different systems agree — a fake cannot fail the way production
+      fails. Not built; no local `supabase start` harness exists in this repo yet.
+    - **No re-authentication requirement.** A stolen access token can delete an account outright.
+      The mitigation is a recent-login / AAL check, not a confirmation field in the body (an
+      attacker would simply send the field too). Deliberately not built; worth filing.
+    - **Wall-clock bound, not checkpointed.** The removes ARE bounded (`REMOVE_BATCH_SIZE = 500` —
+      an unbounded single `remove()` would have made the heaviest accounts undeletable), but the
+      sweep still issues one sequential `list()` per analysis prefix. An account with many hundreds
+      of analyses would make many hundreds of round trips in one invocation. Fine at any plausible
+      near-term volume (Free = 1 lifetime, Pro/Elite ≈ 10/month), but if a user ever gets large
+      enough to approach the function's wall-clock limit, the purge needs to checkpoint and resume
+      rather than restart. Not built — no durable work record exists to checkpoint against.
+    - **The consent trail is purged, deliberately** (GDPR Art. 17(3)(e) reasoning in
+      `_shared/delete-account.ts`'s header and `docs/architecture.md`), which keeps
+      `docs/privacy-policy.md`'s "Deleting your account removes everything" literally true and
+      needs no policy amendment. **Revisit if EU/UK users are admitted** — see Known Issue #15's
+      note that the TestFlight beta currently excludes them.
 
 ## Next action
 

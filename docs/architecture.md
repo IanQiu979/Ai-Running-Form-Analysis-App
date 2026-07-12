@@ -964,7 +964,7 @@ RLS.
 | `POST /functions/v1/purchase-tier` | JWT | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` | Same contract as V2.2; v2 swaps `source` to receipt verification. |
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, not deployed (issue #50, 2026-07-12)** — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, not deployed (issue #57, 2026-07-12)** — see "Current" below. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. |
-| `POST /functions/v1/delete-account` | JWT | — | `{ deleted: true }` | Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. |
+| `POST /functions/v1/delete-account` | JWT | — | `{ deleted: true, purgedObjectCount, consentEventsPurged }` or `503 purge_failed` / `503 rows_failed` / `503 auth_delete_failed` / `500 orphans_remaining` | **Built, Deno-tested, not deployed (issue #58, 2026-07-13)** — see "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
 `supabase.functions.invoke` wraps non-2xx responses in a generic `FunctionsHttpError`, so the
@@ -1593,3 +1593,99 @@ to own).
   `config.toml` outside the `[auth]` block (`[db]`, `[storage]`, `[api]`, etc.) governs a local
   `supabase start` stack only, present because `supabase init` generates the full default file —
   not evidence of any corresponding hosted configuration.
+
+## Current — `POST /functions/v1/delete-account` (issue #58, 2026-07-13)
+
+In-app account deletion. An **App Store submission blocker** (Guideline 5.1.1(v)) and the hard
+gate on publishing `docs/privacy-policy.md` at all (`docs/status.md` Known Issue #15). **Written
+and Deno-tested; NOT deployed** — `supabase functions deploy delete-account` is Ian's to run.
+
+Three files, the same three-way split as `analysis/index.ts` (#57):
+`supabase/functions/delete-account/index.ts` (HTTP + JWT glue),
+`_shared/delete-account.ts` (all decision logic, no Deno/`npm:` import, unit-tested), and
+`_shared/delete-account-client.ts` (the service-role `npm:@supabase/supabase-js` factory).
+
+- **The delete order IS the design: storage objects → rows → auth user.** It is the reverse of
+  what feels natural and inverting it is unrecoverable. Deleting the auth user first cascades
+  `profiles` → `analyses`/`subscriptions`/`consents` away — and `storage.objects` has **no FK to
+  `auth.users`**, so every frame survives under a `{user_id}/` prefix whose owner no longer
+  exists: un-enumerable (the rows that named them are gone), un-ownable, and nothing else in the
+  system will ever clean them up. Asserted by a test on the observed call order.
+- **Purge by prefix, never by `media_paths` and never by walking `analyses` rows.** The sweep
+  target is the single prefix `{user_id}/`, built from the JWT-verified caller id alone. That is
+  strictly stronger than any row-driven purge and closes three orphan sources without
+  special-casing any: rows whose `media_paths` is empty because `analyze-form` crashed before
+  `settle_analysis` (#88's write-side bug, reintroduced if the read side is row-driven); rows
+  **soft-deleted** through #2's client `deleted_at` UPDATE policy, whose `media_paths` the redact
+  trigger has since blanked (**Known Issue #19** — a row-driven sweep misses these, this one
+  cannot); and objects under a prefix with no row at all, from any cause.
+- **The nested-prefix trap is reused, not re-implemented.** `purgePrefix()` in
+  `_shared/delete-analysis.ts` (#57) is now exported and called by both delete paths. It
+  recurses into every `{analysis_id}/` sub-prefix, paginates each level, and **re-lists the
+  prefix after removing, refusing to return unless it comes back empty** — so a `remove()` that
+  silently drops paths is caught rather than reported as success. A flat `storage.list(user_id)`
+  returns the analysis-id **pseudo-directories**, not files, and removing those deletes NOTHING
+  while reporting success: V1's `delete-user` bug, named in `docs/privacy-checklist-m7.md`. One
+  implementation, two callers, exactly one place it can ever be wrong.
+- **The purge is BLOCKING, not best-effort and not reconciled.** If Storage fails, nothing is
+  deleted — no rows, no auth user — and the caller gets a `503`. Reconciliation would need a
+  durable work record, a scheduled worker, and alerting on its own silent failure, and would be
+  the only thing standing between a failed purge and permanently un-ownable body images. Blocking
+  needs none of that, because the retry key is the user id and the user id still exists precisely
+  *because* we refused to delete the account. Every step is idempotent, so a retry converges: an
+  empty prefix, zero rows, and an already-absent auth user are all successes.
+- **A second sweep runs after the auth user is deleted**, closing the one race blocking cannot: an
+  `analyze-form` call that reserved its row before our row delete can upload frames into a prefix
+  we already swept. If that sweep cannot clear them, the outcome is `orphans_remaining` — a `500`
+  (not a `503`; the account is gone, so a retry would only `401`) logged at **error** level with
+  the prefix a human must go clean. It is the one failure that still reports `deleted: true`,
+  because the account really is deleted and lying in either direction would be worse.
+- **The consent trail is PURGED — explicitly, in code, not by inheriting the FK cascade.**
+  `consents.user_id references profiles(id) on delete cascade` would erase the Art. 9 consent
+  record as a side effect nobody chose; `20260712020729_consents.sql`'s own comment demands a
+  "conscious purge-vs-retain-for-defence choice for this table specifically." The choice is purge,
+  enforced by a named `deleteConsents()` step that runs *before* the profile delete and reports
+  the count. Reasoning (argued in full in `_shared/delete-account.ts`'s header): GDPR Art. 17(3)(e)
+  permits retaining what is **necessary** to defend a legal claim, and a consent row keyed only on
+  a `user_id` we can no longer map to any person — email, identity and profile all cascade out of
+  `auth.users` — cannot defend anything, so the exception does not reach it. Making it usable would
+  mean retaining a re-identifiable token (an email, or a keyed hash of one) of someone who asked to
+  be forgotten, purely so we could find them again: more invasive than the risk it hedges. What
+  actually answers a "no valid consent" complaint is systemic and survives — `<ConsentGate />`,
+  `lib/consent.ts`, the append-only `consents` schema and their tests demonstrate the *process*
+  (Art. 7(1)) — and to an erasure complaint, "we hold nothing about you" is the complete answer.
+  **Revisit if EU/UK users are admitted** (the TestFlight beta excludes them today) or the user
+  base grows enough for a claim to be plausible; the decision then is a bounded, keyed-hash consent
+  archive with a retention window and a privacy-policy disclosure, not a flipped FK. Because the
+  purge is an explicit step, that change has exactly one home.
+- **`public.ai_call_log` deliberately survives, stripped.** Both its FKs are `on delete set null`
+  (`20260712210000_ai_spend_guardrails.sql`): the spend ledger outlives the account with the only
+  two identifying columns nulled, so a farm cannot delete its own cost evidence and no personal
+  data survives. `delete-account` relies on that and must not defeat it.
+- **Identity comes only from the verified JWT** (`auth.getUser()` — a real round trip, not a local
+  decode). There is no id in the path and none in the body. This endpoint is irreversible, so an id
+  read off the request would be a one-request account-deletion weapon against any user whose UUID
+  could be guessed or observed.
+- **Service-role key, non-negotiable.** Removing objects from the private `media` bucket
+  (`storage.objects` grants the client SELECT only — #88), deleting `public.consents` /
+  `public.analyses` rows (no client DELETE grant — #68, #2), and removing the `auth.users` row (the
+  Auth **admin** API) are each unreachable without it. None of this can ever be a client operation.
+- **The removes are bounded (`REMOVE_BATCH_SIZE = 500`).** `purgePrefix` hands every collected path
+  to a single `remove()` — fine for one analysis (~10 frames), but an account spans every analysis
+  the user ever ran, and one `remove()` carrying thousands of paths is the call that starts failing
+  on request size. Because the purge is (correctly) blocking, that failure would make the heaviest
+  accounts **permanently undeletable** — the classic "runs fine for six months, then breaks with no
+  code change" failure, breaching Guideline 5.1.1(v) for exactly the users least willing to wait.
+  `batchedRemove()` in `_shared/delete-account.ts` wraps the injected bucket so removes go out in
+  fixed-size batches, leaving `purgePrefix` itself untouched and still the only implementation of
+  the recursion. Asserted by a 1250-object test.
+- **Structured JSON logs at every boundary** — invocation, storage purge, consent purge, row
+  delete, auth delete, completion, each failure, with durations. When a deletion half-succeeds in
+  production these are the only evidence of where it stopped, and they have to exist *before* the
+  incident. No frame bytes, results, or emails are logged.
+
+**Still open** (see `docs/status.md` Known Issue #21): the #59 half that runs against a real local
+Supabase (Postgres *and* Storage — the property under test is that two different systems agree,
+which a fake cannot fail the way production does), and no re-authentication requirement on this
+endpoint (a stolen access token can delete an account; a confirmation field in the body would not
+change that, since an attacker would simply send it).
