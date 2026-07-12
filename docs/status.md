@@ -15,7 +15,7 @@ milestone "done" criteria.
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
 | M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started |
-| M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent line and result disclaimer remain blocked on M2/M4. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
+| M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
 
 ## Done so far
 
@@ -162,6 +162,17 @@ milestone "done" criteria.
       happy-path retry-exhausted branch) — an unreleased `'reserved'` row silently eats one of
       the user's quota slots forever. Also consider a periodic sweep for stale `'reserved'` rows
       (e.g. the edge function crashed before either settling or releasing).
+    - MUST refuse to run for a user with no recorded consent. `public.consents` (added 2026-07-12,
+      issue #68) is the record; the check is `select granted from public.consents where user_id =
+      <jwt uid> and consent_key = 'upload.health.v1' order by created_at desc limit 1`, and a
+      missing row, a `granted = false` row, or a query error all mean **refuse**. The
+      `<ConsentGate />` in the client is UX only — it can be bypassed by anyone calling the
+      function directly, so it is not the control. If this check is skipped, the app processes
+      Art. 9 health data with no legal basis and the entire consent record becomes decorative.
+      **Open question, unresolved**: consent-before-idempotency ordering means a replay of an
+      idempotent request after a withdrawal could either be refused or return the existing
+      settled row as-is — see `docs/architecture.md`'s consent step for both readings; the
+      answer likely tracks whatever the delete/purge path (#57, #58) already does to that row.
 15. **NEW — privacy policy is drafted but publication is ON HOLD (issue #68, 2026-07-12).**
     `docs/privacy-policy.md` is written and reviewed, but it cannot go live until Ian resolves
     two things, and the file carries a `DO NOT PUBLISH` guard until he does:

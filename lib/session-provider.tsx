@@ -69,9 +69,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     // Catches a redirect already pending when the app launches cold (e.g. the OS relaunched
     // the app to deliver it) in addition to ones that arrive while already running.
-    Linking.getInitialURL().then((url) => {
-      if (url) createSessionFromUrl(url).catch(() => {});
-    });
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) createSessionFromUrl(url).catch(() => {});
+      })
+      .catch(() => {});
 
     const subscription = Linking.addEventListener('url', ({ url }) => {
       createSessionFromUrl(url).catch(() => {});

@@ -151,6 +151,49 @@ export const Score: Record<
 } as const;
 
 // -------------------------------------------------------------------------------------------
+// Semantic roles — not in the brief (it predates this need); added for issue #24. Until now,
+// `app/(auth)/sign-in.tsx` painted auth errors with `Score.low[scheme].text`, the "Needs work"
+// SCORE-BAND hue — a defensible stopgap (a token, not a hardcoded hex) but semantically wrong,
+// and actively confusing on the M6 Result screen where a low pillar score and a system error
+// would otherwise read as the same colour with different meanings, in an app whose product IS
+// colour-coded scoring. `error` is therefore a distinct hue family from `score.low`, not just a
+// different lightness of it: a true/cool crimson (hue ~350°, i.e. past pure red toward magenta)
+// vs. score.low's clay red-orange (hue ~15°, leaning toward amber) — a ~335° hue separation, so
+// the two cannot be mistaken for each other even color-blind-adjacent. Saturation (~53%) stays
+// in the same muted family every other token here uses — no generic, fully-saturated Material
+// red (e.g. #F44336, sat ~90%) — to match the palette's restrained, "caution not alarm" register
+// (brief §2's line for score.low applies just as well to a system error: this app doesn't scold).
+//
+// Same hue/saturation family across both themes, only lightness moved, exactly like the score
+// bands: intent #C23B52 (hue 349.8°, sat 53.4%, L 49.6%) already clears 4.5:1 against every light
+// surface unchanged -> 4.61:1 (bg) / 4.94:1 (surface.base) / 5.20:1 (surface.raised). That same
+// value fails badly in dark mode (a mid-tone color has too little contrast against a near-black
+// background) so, per the file's established method, lightened along the same hue/sat to #D47383
+// (hue 350.1°, sat 53.0%, L 64.1%) -> 5.60:1 (bg) / 5.20:1 (surface.base) / 4.70:1
+// (surface.raised) — surface.raised is dark mode's *lightest* surface, so again the binding
+// constraint for a light-tinted foreground, cleared with real margin rather than shaved to the
+// wire.
+//
+// `error` is a foreground/text role only (parallel to `text.primary`/`text.secondary` and each
+// score band's `text`), proven as text (>=4.5:1) against all three surfaces in both themes below
+// — see theme-contrast.test.ts. No non-text `fill` role is defined: nothing today paints a solid
+// error-colored graphic (bar, chip fill) the way the score scale does, so adding one would be an
+// unproven, speculative token. `success`/`warning` roles are deliberately NOT added here either —
+// no screen in this codebase has a real near-term consumer for either (grepped: none), and this
+// file's own rule is to prove AA before shipping a token, not get ahead of a need. Add them, with
+// their own proof, when a real consumer shows up.
+// -------------------------------------------------------------------------------------------
+
+export type SemanticRole = 'error';
+
+export const Semantic: Record<SemanticRole, { light: string; dark: string }> = {
+  error: {
+    light: '#C23B52',
+    dark: '#D47383',
+  },
+} as const;
+
+// -------------------------------------------------------------------------------------------
 // The accent — brief §2 "One accent (reserved, single-use)". Theme-invariant: the CTA reads the
 // same whether the screen is light or dark, so — like V2.2's `Accent` — it is never nested
 // under `Colors`. Intent value #2F6BEB unchanged: it clears every pair it's used in (white CTA
@@ -252,6 +295,13 @@ export const ControlWidth = {
 export const HitTarget = {
   /** Minimum tappable square for a text-only/icon-only control (e.g. Home's Sign out link). */
   min: 44,
+} as const;
+
+export const CheckboxSize = {
+  /** The drawn box. The tappable row around it is `HitTarget.min` — the box itself is smaller
+   *  than 44pt on purpose; it is the ROW that must meet the target, not the glyph. */
+  box: 24,
+  border: 2,
 } as const;
 
 export const Opacity = {

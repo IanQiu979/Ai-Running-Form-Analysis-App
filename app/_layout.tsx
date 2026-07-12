@@ -19,13 +19,17 @@ import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { SessionProvider, useSession } from '@/lib/session-provider';
 
 // Held until both the design-system fonts (brief §2: Archivo/Inter/IBM Plex Mono) and the
 // initial auth check (SessionProvider's getSession()) are ready — see RootLayoutNav below —
 // so the very first frame the user sees is never a system-font flash or a route flicker
 // between the auth and tabs groups.
-SplashScreen.preventAutoHideAsync();
+// Both splash calls can reject (e.g. "already hidden" if the OS got there first). A rejection
+// here is not actionable and must not surface as an unhandled rejection, so both are caught —
+// the same treatment the rejected session read already gets in lib/session-provider.tsx.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   return (
@@ -37,6 +41,7 @@ export default function RootLayout() {
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  const reduceMotion = useReducedMotion();
   const { session, isLoading: isSessionLoading } = useSession();
   const [fontsLoaded, fontError] = useFonts({
     Archivo_400Regular,
@@ -56,7 +61,7 @@ function RootLayoutNav() {
 
   useEffect(() => {
     if (isReady) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [isReady]);
 
@@ -67,7 +72,11 @@ function RootLayoutNav() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
+      {/* The only animation that exists in this app today is expo-router's default stack
+          push/pop transition (the auth <-> tabs swap below) — gated behind the OS Reduce
+          Motion setting (issue #29). `animation: 'none'` vs. the native-stack default is the
+          full extent of the wiring; no new motion is introduced here. */}
+      <Stack screenOptions={{ animation: reduceMotion ? 'none' : 'default' }}>
         {/* Stack.Protected omits its screen from the navigator entirely (not just hides it)
             while its guard is false, so a signed-out user's Stack literally has no route
             at (tabs) to navigate to, and vice versa — this is what makes sign-in/sign-out
