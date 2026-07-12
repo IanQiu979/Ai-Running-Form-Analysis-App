@@ -9,7 +9,16 @@ module.exports = {
   // make `npm test` depend on a third party's uptime and on having a network connection. It
   // runs only under `jest.canary.config.js`, on a cron. See docs/superpowers/specs/
   // 2026-07-12-hibp-canary-design.md.
-  testPathIgnorePatterns: ['<rootDir>/.*\\.canary\\.test\\.ts$'],
+  //
+  // `*.deno.test.ts` (issue #90) is the mirror-image exclusion: these files call the `Deno.test`
+  // global and live under `supabase/functions/`, run only by `deno test` (see `npm run
+  // test:edge`). Jest's default testMatch (`**/__tests__/**/*.[jt]s?(x)`) would otherwise pick
+  // them up regardless of filename just for being inside a `__tests__` directory — matching them
+  // by name here (not by directory) is what lets Deno-only and Jest-only test files sit
+  // side-by-side in the same `_shared/__tests__/` directory without one runner choking on the
+  // other's globals. See `supabase/functions/deno.json`'s `exclude` for the opposite direction
+  // (Jest-only `*.test.ts` files Deno must not try to check/run).
+  testPathIgnorePatterns: ['<rootDir>/.*\\.canary\\.test\\.ts$', '<rootDir>/.*\\.deno\\.test\\.ts$'],
   // Agent worktrees live in .claude/worktrees/ and carry their own node_modules and a full
   // copy of the test suite. Without this, `npm test` discovers those copies, resolves their
   // react-native against the wrong node_modules, and fails suites that pass in the real tree.

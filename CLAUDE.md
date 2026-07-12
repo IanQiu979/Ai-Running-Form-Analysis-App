@@ -27,11 +27,19 @@ in [`docs/architecture.md`](docs/architecture.md).
 | `npm start` | `expo start` — serves a **development build** URL, not Expo Go (see below) |
 | `npm run start:go` | `expo start --go` — serves `exp://…` for Expo Go on a phone |
 | `npm run ios` / `npm run android` / `npm run web` | `expo start --ios` / `--android` / `--web` |
-| `npm run typecheck` | `tsc --noEmit` |
+| `npm run typecheck` | `tsc --noEmit && npm run typecheck:edge` — the app + `supabase/functions/` |
+| `npm run typecheck:edge` | `deno check` over `supabase/functions/` only (issue #90) |
 | `npm run lint` | `expo lint` |
-| `npm test` | `jest` |
+| `npm test` | `jest && npm run test:edge` — the app + `supabase/functions/` |
+| `npm run test:edge` | `npm run verify:knowledge && deno test` over `supabase/functions/` only (issue #90) |
+| `npm run generate:knowledge` | Codegens `supabase/functions/_shared/knowledge.generated.ts` from `knowledge/*.md` — run after editing any of those files, then commit the regenerated output |
+| `npm run verify:knowledge` | Regenerates the knowledge bundle and fails (`git diff --exit-code`) if it drifted from a committed `knowledge/*.md` edit |
 
-Run `npm run typecheck && npm run lint && npm test` clean before every commit.
+Run `npm run typecheck && npm run lint && npm test` clean before every commit — both composite
+commands now cover `supabase/functions/` too (issue #90), so this one invocation is still the
+whole gate; nothing extra to remember. `typecheck:edge`/`test:edge` need Deno on `PATH` (installed
+locally at `~/.local/bin/deno`) — see `docs/architecture.md`'s "Current — Deno build/test
+contract..." section for why the Deno/Jest split is where it is.
 
 `expo-dev-client` is a dependency, so plain `expo start` defaults to a development build and its
 QR code is an `exp+…://expo-development-client/` deep link that **Expo Go cannot open**. Use
@@ -92,8 +100,10 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
   fall back to a safe partial result flagged as such. Over-tight content validation is a known
   Echo V1 mistake.
 - Shared PACE types (the four pillars — Posture, Arm swing, Cadence, Elasticity — and the
-  result shape) belong in one place (planned: `lib/pace.ts`) and are imported by both the app
-  and the edge functions.
+  result shape) belong in one place — `supabase/functions/_shared/pace.ts` (moved here from
+  `lib/pace.ts` by issue #90, since only that location ships in the `supabase functions deploy`
+  bundle) — and are imported by both the app (via the `@shared/*` tsconfig alias) and the edge
+  functions.
 
 ## Testing
 

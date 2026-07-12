@@ -11,9 +11,13 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "typecheck": "tsc --noEmit",
-    "test": "jest",
-    "test:canary": "jest --config jest.canary.config.js"
+    "typecheck": "tsc --noEmit && npm run typecheck:edge",
+    "typecheck:edge": "deno check --config supabase/functions/deno.json supabase/functions",
+    "test": "jest && npm run test:edge",
+    "test:edge": "npm run verify:knowledge && deno test --config supabase/functions/deno.json --allow-read supabase/functions",
+    "test:canary": "jest --config jest.canary.config.js",
+    "generate:knowledge": "node ./scripts/generate-knowledge-bundle.js",
+    "verify:knowledge": "npm run generate:knowledge && git diff --exit-code -- supabase/functions/_shared/knowledge.generated.ts"
   },
   "dependencies": {
     "@expo-google-fonts/archivo": "^0.4.2",

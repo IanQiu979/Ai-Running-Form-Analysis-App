@@ -4,28 +4,37 @@
  * function (CLAUDE.md: "Shared PACE types... belong in one place... imported by both the app and
  * the edge functions" — issue #43). #44, #45, #46, #56, and #60 all build against this shape.
  *
- * SHARING CONSTRAINT (issue #90, unresolved — read before adding an import here). The app
- * resolves the `@/*` alias and extensionless TypeScript via Metro; Deno resolves neither alias
- * nor extensionless specifiers, and has no `react-native`. So this file:
+ * SHARING MECHANISM (issue #90, decided): this file lives here, under
+ * `supabase/functions/_shared/`, not in `lib/`, and there is no copy, codegen, or symlink of it
+ * anywhere else — this location IS the single source of truth. `supabase functions deploy` only
+ * bundles `supabase/functions/`, so a `lib/`-resident copy could never reach the edge function;
+ * living here instead makes that structurally impossible to get wrong. The app imports it via
+ * the `@shared/*` tsconfig path alias (`@shared/pace`, mapped to
+ * `./supabase/functions/_shared/*` in `tsconfig.json`) — `jest-expo`'s preset derives its Jest
+ * `moduleNameMapper` from the same `tsconfig.json` `paths`, so the alias resolves identically
+ * under Metro and Jest with no separate config. `tsconfig.json` excludes `supabase/functions/**`
+ * from automatic inclusion (Deno-only syntax elsewhere under that tree would break `tsc`), but an
+ * `include`d file importing this one still pulls it into the TS program — `exclude` blocks
+ * automatic inclusion, not reachability via the import graph — so `npm run typecheck` still
+ * checks this file in full. Deno, separately, resolves and checks it via `deno check` (see
+ * `supabase/functions/deno.json`, wired as `npm run typecheck:edge`).
+ *
+ * This file keeps the constraints that sharing requires either way:
  *   - has ZERO runtime dependencies — no npm package, no React/React Native, no Node or Deno
  *     built-in (`process.env` included), and no import of anything that itself pulls one in;
- *   - uses only relative, non-aliased import specifiers (nothing goes through `@/*`);
- *   - is pure TypeScript — types, constants, and pure functions only, no I/O.
- * The one exception is the `import type { ScoreBand }` below: the issue is explicit that bands
- * are already defined in `constants/theme.ts` and must be imported, not re-declared. `import
- * type` is erased before either toolchain runs a byte of it — Metro/Babel strips it because a
- * type can never be a value, and a single-file TypeScript transpiler (the kind #90 will need for
- * Deno) elides an `import type` statement on sight, with no module resolution at all — so this
- * does NOT pull `constants/theme.ts`'s own runtime import (`react-native`, for `SystemFont`) into
- * either bundle. Do not change it to a value import (`import { ScoreBand }`) — that forces full
- * evaluation of `theme.ts`, including its `react-native` import, which cannot resolve in Deno.
- * `ScoreBandRange`/`ScoreBandLabel` are VALUES, not types, and are deliberately NOT imported here
- * for the same reason — see the validator section below for how this file avoids needing them.
- *
- * Whatever mechanism #90 eventually picks for the edge function's copy of this file will still
- * need to either (a) prove its Deno toolchain also elides `import type` without resolving the
- * specifier, or (b) replace that one line with an inline, locally-scoped copy of the same four
- * string literals. Nothing else in this file needs to change either way.
+ *   - uses only relative, non-aliased import specifiers (nothing goes through `@/*`/`@shared/*`
+ *     from inside this file itself — Deno resolves neither alias);
+ *   - is pure TypeScript — types, constants, and pure functions only, no I/O — which is also
+ *     exactly what keeps it valid, uncomplicated Deno source with zero Deno-only syntax.
+ * `ScoreBand` below is a deliberate INLINE COPY of `constants/theme.ts`'s type of the same name,
+ * not an import of it — Deno cannot resolve an extensionless, non-aliased specifier, and
+ * `constants/theme.ts` sits outside the deploy bundle (and pulls in `react-native`) regardless.
+ * Drift between the two is structurally possible now that they're two declarations, so it is
+ * caught by a test instead: `supabase/functions/_shared/__tests__/pace.test.ts`'s "ScoreBand
+ * parity with constants/theme.ts" suite fails if this union and `constants/theme.ts`'s
+ * `ScoreBandOrder` ever disagree. `ScoreBandRange`/`ScoreBandLabel` are VALUES, not types, and
+ * are deliberately NOT duplicated here — see the validator section below for how this file avoids
+ * needing them.
  *
  * VALIDATION PHILOSOPHY (CLAUDE.md): structural, not strict-content. `isPaceResult` and
  * `isPaceAnalysisOutcome` below check that the shape holds — the right keys, the right JS types,
@@ -35,7 +44,20 @@
  * problem — over-tight content validation is a known Echo V1 mistake this file does not repeat.
  */
 
-import type { ScoreBand } from '../constants/theme';
+// -------------------------------------------------------------------------------------------
+// Score bands — inline copy of constants/theme.ts's ScoreBand; see the file header for why this
+// is a copy, not an import, and supabase/functions/_shared/__tests__/pace.test.ts for the test
+// that fails if the two ever diverge.
+// -------------------------------------------------------------------------------------------
+
+export type ScoreBand = 'low' | 'mid' | 'good' | 'strong';
+
+/** Runtime companion to the `ScoreBand` type above, worst-to-best, same order as
+ * `constants/theme.ts`'s `ScoreBandOrder` — the one artifact
+ * `supabase/functions/_shared/__tests__/pace.test.ts`'s "ScoreBand parity" suite can actually
+ * compare at runtime (a type has no runtime representation to diff against). Exists solely to
+ * make the drift test possible; nothing in this file's own logic reads it. */
+export const SCORE_BAND_VALUES: readonly ScoreBand[] = ['low', 'mid', 'good', 'strong'];
 
 // -------------------------------------------------------------------------------------------
 // The four pillars
