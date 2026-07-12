@@ -80,12 +80,17 @@ supabase/
 ```
 
 The template's `(tabs)/explore.tsx` and `modal.tsx` are deleted, not left as dead scaffolding.
-Still absent: `supabase/functions/analyze-form` and `purchase-tier`/`quota-status`, `lib/
+Still absent: `supabase/functions/analyze-form` and `purchase-tier`, `lib/
 frames.ts`, `lib/subscription.ts`, and every route beyond sign-in + empty Home (capture, result,
-paywall, settings, history). **One edge function now exists**: `supabase/functions/analysis/
+paywall, settings, history). **Two edge functions now exist**: `supabase/functions/analysis/
 index.ts` (issue #57, 2026-07-12) — `DELETE /functions/v1/analysis/:id`, the first
-`Deno.serve` entrypoint in the repo. Written and Deno-tested on `fix/57` only; **not deployed**,
-no migration applied. See "Current — `DELETE /functions/v1/analysis/:id` (issue #57)" below.
+`Deno.serve` entrypoint in the repo — and `supabase/functions/quota-status/index.ts` (issue #50,
+2026-07-12) — `GET /functions/v1/quota-status`, the server-authoritative read #54 (Home's quota
+display) must be wired to. Both written and Deno-tested on their own branches only (`fix/57`,
+`fix/50`); **neither is deployed**. #50's function additionally depends on a new DB function,
+`pace_quota_status`, whose migration is written but **not applied** to any database. See
+"Current — `DELETE /functions/v1/analysis/:id` (issue #57)" and "Current — `GET
+/functions/v1/quota-status` (issue #50)" below.
 `supabase/functions/_shared/pace.ts` now exists (#43; moved here from `lib/pace.ts` by #90,
 2026-07-12, which settled the Deno bundling mechanism) — the shared PACE types, result shape,
 and structural validator, imported by the app (via the new `@shared/*` tsconfig alias) and,
@@ -742,13 +747,14 @@ burn, no extra storage, no new edge function or API route.
 
 Most of these edge functions do not exist yet — `supabase/functions/` has the `.env.example`
 placeholder, the `_shared/ai-guard*.ts` spend-gate substrate (issue #91), and, as of 2026-07-12,
-`_shared/delete-analysis*.ts` plus `analysis/index.ts` (issue #57 — see "Current" below), but no
-`analyze-form/index.ts`, `purchase-tier/index.ts`, or `quota-status/index.ts`. `analyze-form`'s
-core dependencies are already live, though: the reserve/settle/release quota RPC family (live —
-see "Current — DB schema" below) and the AI spend gate (live — see "Current — AI spend
-guardrails substrate" above) are both applied and verified against the live database; only the
-edge function code that calls them remains unbuilt. Also read the M1-review contract notes in
-`docs/status.md` Known Issue #14 before building it.
+`_shared/delete-analysis*.ts` plus `analysis/index.ts` (issue #57) and `_shared/quota-status*.ts`
+plus `quota-status/index.ts` (issue #50 — see "Current" below for both), but still no
+`analyze-form/index.ts` or `purchase-tier/index.ts`. `analyze-form`'s core dependencies are
+already live, though: the reserve/settle/release quota RPC family (live — see "Current — DB
+schema" below) and the AI spend gate (live — see "Current — AI spend guardrails substrate" above)
+are both applied and verified against the live database; only the edge function code that calls
+them remains unbuilt. Also read the M1-review contract notes in `docs/status.md` Known Issue #14
+before building it.
 
 The client never talks to Postgres for privileged operations — those go through edge
 functions. Plain reads of the caller's own rows go through the Supabase client, protected by
@@ -758,7 +764,7 @@ RLS.
 |---|---|---|---|---|
 | `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | `{ result, analysisId, isFallback }` or `402` over-quota / `403` anon | Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. |
 | `POST /functions/v1/purchase-tier` | JWT | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` | Same contract as V2.2; v2 swaps `source` to receipt verification. |
-| `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, periodEnd }` | Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). Computed from `count(analyses)`, never a client counter. |
+| `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, not deployed (issue #50, 2026-07-12)** — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, not deployed (issue #57, 2026-07-12)** — see "Current" below. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. |
 | `POST /functions/v1/delete-account` | JWT | — | `{ deleted: true }` | Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. |
 
@@ -833,6 +839,84 @@ as a pseudo-directory (`id: null`) and paginates each level, proven by tests cov
 folder and a multi-page listing.
 
 **Verification run**: `npm run typecheck && npm run lint && npm test` clean.
+
+## Current — `GET /functions/v1/quota-status` (issue #50, 2026-07-12)
+
+Built and Deno-tested on `fix/50`. **Not deployed** — `supabase functions deploy` was never run.
+The DB function it depends on, `pace_quota_status`, has a written migration
+(`20260712233000_quota_status_function.sql`) that is **not applied** to any database, live or
+otherwise — this section describes what exists in the repo, not live behavior. Calling this
+function against the live project today returns `500 quota_status_unavailable` (the RPC does not
+exist yet), by design of the endpoint's own error handling, not a bug.
+
+```
+supabase/functions/
+  quota-status/index.ts                    # Deno.serve entrypoint. Method + JWT verification via
+                                            # auth.getUser() (same pattern as analysis/index.ts),
+                                            # wires the two files below, maps the outcome to the
+                                            # documented HTTP status/body.
+  _shared/quota-status.ts                  # pure, injectable orchestration — no npm:/Deno-only
+                                            # import. getQuotaStatus(), the RPC-response shaping,
+                                            # and the HTTP-mapping helpers.
+  _shared/quota-status-client.ts           # the real service-role Supabase client, untested
+                                            # (nothing pure in a thin Deno/npm: factory), same
+                                            # split as ai-guard.ts / ai-guard-client.ts.
+  _shared/__tests__/quota-status.deno.test.ts   # 18 Deno tests
+supabase/migrations/
+  20260712233000_quota_status_function.sql # WRITTEN, NOT APPLIED — see its own header.
+```
+
+**Why this needed a new migration, unlike #57.** #57 found `service_role` already held enough
+table-level privilege on `analyses`/`storage.objects` to skip a migration entirely. Quota
+counting is different: it must agree with `reserve_analysis`'s tier-derivation, period-windowing,
+and anti-farm-classification rules exactly, and issue #50's own brief forbids touching
+`reserve_analysis`/`settle_analysis`/`release_analysis` to share that logic directly. The
+resolution is a new, read-only, side-effect-free SQL function, `pace_quota_status(p_user_id,
+p_as_of)` — SECURITY DEFINER, `STABLE`, pinned `search_path`, `EXECUTE` revoked from
+`public`/`anon`/`authenticated` and granted only to `service_role`, same privilege shape as the
+rest of the quota RPC family. It calls the exact same `pace_current_period` and
+`pace_is_farming_signal` functions `reserve_analysis` calls (verified live via
+`pg_get_functiondef` against `vputdomdlknvthnzritt` immediately before writing both files), so
+period-boundary math and farming-signal classification cannot drift between the two functions.
+The one piece that could not be shared without editing `reserve_analysis`'s own body is its
+literal tier -> limit/frame_cap `case` expression (free 1/1, pro 10/5, elite 30/8); that table is
+duplicated in `pace_quota_status` with a loud comment pinning it to the live values captured the
+same session, and flagged as a follow-up (factor it into its own `pace_tier_limits(tier)` helper,
+the same move the anti-farm fix already made for the farming-signal check) that issue #50
+deliberately left undone since it requires touching `reserve_analysis`'s body.
+
+**Representing the anti-farm block honestly (issue #6).** `blocked`, `blockedReason`, and
+`blockedUntil` are independent of `used`/`remaining` — a free or paid user can have quota
+remaining and still be refused by the rolling-window (free, 24h) or period-window (pro/elite)
+anti-farm cap `reserve_analysis` enforces as `too_many_failed_attempts`. `pace_quota_status`
+computes `blockedUntil` itself (not tracked anywhere else in the schema, since
+`reserve_analysis` only ever needs to know "is the count >= 3", never "when does it drop back
+below 3"): for pro/elite it is exactly `period_end` (the same window reset that zeroes the count);
+for free it is the 24h expiry of the oldest currently-counted farming-signal release, found by
+ordering the counted rows oldest-first and offsetting to the one whose expiry brings the count
+below 3.
+
+**Test strategy, and its honest limit.** There is no live (or local) database this branch is
+allowed to run `pace_quota_status` against — issue #50's hard constraint forbids applying its
+migration anywhere from this worktree. `_shared/__tests__/quota-status.deno.test.ts` therefore
+splits into two kinds of test: (1) RPC-response-shaping tests against an injected fake `RpcClient`
+(same technique `delete-analysis.deno.test.ts` uses), covering free lifetime exhaustion, paid
+period windowing, and — the case issue #50 called out by name — a user simultaneously
+`remaining > 0` and `blocked: true`; (2) migration-text invariant tests that read the migration
+file's own SQL and assert specific properties by name: the counting queries never filter on
+`deleted_at` (proving a soft-deleted analysis keeps counting, matching `reserve_analysis`), the
+tier -> limit table matches the literal string captured from the live `reserve_analysis`, the
+function calls (not reimplements) `pace_current_period`/`pace_is_farming_signal`, and the
+migration never `create or replace`s any of the three forbidden functions. This is weaker than a
+real integration test — it proves the migration file says the right thing, not that Postgres
+executes it as written — but it is the same honest ceiling `analyses_quota_soft_delete.test.ts`
+already operates under in this repo (see that file's own header) for the identical reason: no
+Docker/local Postgres available to this sandbox, and no non-production project to push a real
+migration to. Whoever applies this migration should re-verify `pace_quota_status`'s output
+against a real `reserve_analysis` call for the same user, once both are live.
+
+**Verification run**: `npm run typecheck && npm run lint && npm test` clean (47 Deno tests
+total across all suites, including this one's 18; 309 Jest tests).
 
 ## Current — frame-upload ordering fix (#88), applied and verified 2026-07-12
 
