@@ -88,6 +88,7 @@ import {
   type ReleaseReason,
 } from '../_shared/analyze-form-validation.ts';
 import {
+  PACE_FRAME_CAP,
   PACE_MAX_REQUEST_BODY_BYTES,
   isPaceResult,
   type PaceResult,
@@ -220,15 +221,29 @@ interface ParsedRequest {
   idempotencyKey: string;
 }
 
-type ParseResult = { ok: true; request: ParsedRequest } | { ok: false; message: string };
+type ParseResult =
+  | { ok: true; request: ParsedRequest }
+  /** `code` defaults to `'invalid_request'` at the call site; a rejection that the client should be
+   * able to distinguish (e.g. `'too_many_frames'`) sets its own. */
+  | { ok: false; code?: string; message: string };
 
 /**
- * Structural validation of the request body. Note what is NOT checked here: the frame cap, the
- * tier, and the photo-must-be-one-frame rule. Those are business rules, and `reserve_analysis`
- * (`SECURITY DEFINER`, service-role) is their sole authority (CLAUDE.md: "No business rules in the
- * client" — and this function is not the authority either). Re-deriving them here would create a
- * second, drifting copy. What IS checked here is only what must be true for the request to be
- * PROCESSABLE at all, and what would otherwise be paid for in a doomed vision call.
+ * Structural validation of the request body. Note what the PER-TIER frame cap is NOT: the exact
+ * tier limit (Free 1 / Pro 5 / Elite 8) and the photo-must-be-one-frame rule are business rules,
+ * and `reserve_analysis` (`SECURITY DEFINER`, service-role) is their sole authority (CLAUDE.md:
+ * "No business rules in the client" — and this function is not the authority either). Re-deriving
+ * the exact per-tier limit here would create a second, drifting copy.
+ *
+ * What IS enforced here is a single GLOBAL frame-count ceiling — `PACE_FRAME_CAP.elite`, the most
+ * any tier could ever legitimately send. That is not a business rule, it is a DoS bound. Because
+ * the spend gate runs BEFORE the reserve (#91's ordering), an unbounded frame count lets a caller
+ * whose quota is already spent send ~2000 tiny valid-base64 frames: `estimateTokensForCall(2000,
+ * 'elite')` is ~$9.9, which `gate_ai_call` holds against the live $10 daily cap as a `'pending'`
+ * row for the whole request lifetime. The reserve then denies and the `finally` cancels the
+ * hold at $0 real spend — but sustained with light concurrency it keeps the GLOBAL cap saturated
+ * and every legitimate analysis gets a `daily_cap` 503. Capping at 8 bounds that pre-reserve
+ * estimate to ~$0.23. A Free user sending 8 frames still gets `frame_cap_exceeded` from the
+ * reserve; this ceiling only stops the pathological case before it can reserve gate budget.
  */
 function parseRequestBody(raw: unknown): ParseResult {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -250,6 +265,16 @@ function parseRequestBody(raw: unknown): ParseResult {
   const timestamps = body.timestamps;
   if (!Array.isArray(frames) || frames.length === 0) {
     return { ok: false, message: 'frames must be a non-empty array of base64 strings.' };
+  }
+  // Global DoS ceiling — reject an over-count BEFORE the per-frame loop, the gate, or the reserve,
+  // so a 2000-frame payload never reserves gate budget. Not the per-tier business rule (that is
+  // reserve_analysis's job); just the largest count any tier could ever legitimately produce.
+  if (frames.length > PACE_FRAME_CAP.elite) {
+    return {
+      ok: false,
+      code: 'too_many_frames',
+      message: `A submission may include at most ${PACE_FRAME_CAP.elite} frames; got ${frames.length}.`,
+    };
   }
   if (!Array.isArray(timestamps) || timestamps.length !== frames.length) {
     return {
@@ -545,8 +570,9 @@ export async function runAnalyzeForm(
     // ── 0. Request shape ───────────────────────────────────────────────────────────────────
     const parsed = parseRequestBody(params.rawBody);
     if (!parsed.ok) {
-      outcome = 'invalid_request';
-      return (response = fail(400, 'invalid_request', parsed.message));
+      const code = parsed.code ?? 'invalid_request';
+      outcome = code;
+      return (response = fail(400, code, parsed.message));
     }
     const request = parsed.request;
     mediaType = request.mediaType;
@@ -643,6 +669,13 @@ export async function runAnalyzeForm(
       releaseReason = 'provider_timeout';
     }
 
+    // Did the model get its full second chance? This is the signal `decideOutcome` needs to tell a
+    // genuine farmer (asked twice, refused twice) from OUR suppressed-retry degradation (attempt 1
+    // failed, but WE cut the retry — too little deadline left, or its spend gate denied it). Only
+    // the former may release as the anti-farming `'validation_failed'`; the latter is `'model_error'`
+    // and must not tick the user's 3-strike cap for something we did (issue #6).
+    let retryRan = false;
+
     if (!first.attempt.result) {
       const remaining = deadline - now();
       if (remaining >= MIN_RETRY_BUDGET_MS) {
@@ -672,17 +705,24 @@ export async function runAnalyzeForm(
             now
           );
           attempts.push(second.attempt);
+          // The retry genuinely happened — the model was asked a second time. This, and ONLY this,
+          // is what lets a two-content-failure pair be classified as the farming signal.
+          retryRan = true;
           if (second.timedOut) {
             releaseReason = 'provider_timeout';
           }
         } else {
+          // We suppressed the retry (daily cap / open breaker). `retryRan` stays false: a content
+          // failure on attempt 1 alone is our fault now, not a farming signal.
           console.error(`analyze-form: retry gated out (${retryGate.reason})`);
         }
       }
+      // (else: `remaining < MIN_RETRY_BUDGET_MS` — we skipped the retry to avoid paying for a call
+      // we'd have to abort. `retryRan` stays false for the same reason.)
     }
 
     // ── 9. The decision (#45). Never fabricate a score. ────────────────────────────────────
-    decision = decideOutcome(attempts);
+    decision = decideOutcome(attempts, retryRan);
 
     if (decision.kind === 'failed') {
       // A timeout already claimed `releaseReason` above and outranks the classifier: `decideOutcome`

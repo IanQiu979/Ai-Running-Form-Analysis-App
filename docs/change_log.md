@@ -7,6 +7,29 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-13
 
+- **M4 review fixes (two MEDIUM findings on PR #127, both fixed in place):**
+  - **A suppressed retry no longer charges an anti-farming strike for our own degradation.**
+    `classifyReleaseReason` returned `'validation_failed'` (the one farming signal, counted toward
+    the 3-strike cap) whenever every response was a content failure — *including when only one
+    attempt ran*. But the flow **skips** the retry when the deadline is nearly spent and its spend
+    gate **denies** it when the daily cap is near or the breaker is open. So a model that degraded
+    to prose exactly when the breaker tripped under load would strike three unlucky Free users out
+    of their one lifetime analysis in 24h, for an outage that was entirely ours (the exact harm
+    issue #6 exists to close). Fix: `decideOutcome`/`classifyReleaseReason` now take an explicit
+    `retryRan` flag threaded from the flow; `'validation_failed'` requires the retry to have
+    **actually run** and *still* only produced content failures. A lone content failure with a
+    suppressed retry releases as `'model_error'` (server fault — refunds quota, does not tick the
+    counter). Tests cover all three sub-cases: retry skipped (low budget), retry gate denied, and a
+    genuine two-attempt farmer.
+  - **Uncapped frame count was a $0-cost global-cap DoS.** `parseRequestBody` capped total bytes
+    (5 MB) but not the number of frames. Because the gate runs before the reserve (#91), a caller
+    whose quota is spent could send ~2000 tiny valid-base64 frames — `estimateTokensForCall(2000,
+    'elite')` ≈ $9.9 — which `gate_ai_call` holds against the live $10 daily cap as a `'pending'`
+    row for the request's lifetime; the reserve then denies and the hold cancels at $0 real spend,
+    but sustained it saturates the **global** cap and every legitimate analysis gets a `daily_cap`
+    503. Fix: `parseRequestBody` rejects `frames.length > PACE_FRAME_CAP.elite` (8) with
+    `too_many_frames` / 400 **before** the gate/reserve/model, bounding the pre-reserve estimate to
+    ~$0.23. `reserve_analysis` still owns the real per-tier cap; this is only a DoS bound.
 - **M4: the `analyze-form` edge function is built (issues #44 + #45)** — the core of the product.
   A side-on clip now returns an honest, certified, well-parsed PACE result, or an honest failure
   that costs the user nothing. Not deployed: the code is written and fully tested; `supabase

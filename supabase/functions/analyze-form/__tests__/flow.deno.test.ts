@@ -377,7 +377,9 @@ function releaseReasonFrom(rpc: FakeRpc): unknown {
   return calls[0].args.p_reason;
 }
 
-Deno.test('rule 3: a clean validation failure releases with validation_failed', async () => {
+Deno.test('rule 3 / finding 1(c): TWO content failures after a REAL retry -> validation_failed', async () => {
+  // The genuine-farmer case, and the ONLY one that ticks the anti-farming counter: the model was
+  // asked twice and twice refused to honor the schema. Two attempts in the queue => the retry runs.
   const h = harness([prose(), prose()]);
 
   const res = await run(h);
@@ -385,6 +387,51 @@ Deno.test('rule 3: a clean validation failure releases with validation_failed', 
   assertEquals(res.status, 422);
   assertEquals(res.body.code, 'validation_failed');
   assertEquals(releaseReasonFrom(h.rpc), 'validation_failed');
+  assertEquals(h.model.sent.length, 2, 'the retry genuinely ran');
+});
+
+Deno.test('finding 1(a): retry SKIPPED for low budget + a lone content failure -> model_error, no strike', async () => {
+  // Attack-shaped-but-not-an-attack: the model degrades to prose AND attempt 1 was slow (adaptive
+  // thinking), so `remaining < MIN_RETRY_BUDGET_MS` and we skip the retry. Only one attempt exists,
+  // and WE cut the second — so this is OUR degradation, released as `model_error` (503, refunds
+  // quota, does NOT tick the 3-strike cap), never `validation_failed`.
+  let clock = 0;
+  const h = harness([prose()], {
+    now: () => {
+      const value = clock;
+      clock += 100_000; // jump past the retry budget the instant attempt 1 is done
+      return value;
+    },
+  });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 503, 'server fault is a 503, not the 422 a farming signal gets');
+  assertEquals(res.body.code, 'model_error');
+  assertEquals(releaseReasonFrom(h.rpc), 'model_error');
+  assertEquals(h.model.sent.length, 1, 'the retry was skipped, so there was no second chance to fail');
+});
+
+Deno.test('finding 1(b): retry gate DENIED + a lone content failure -> model_error, no strike', async () => {
+  // The precise scenario the review flagged: the model degrades to prose exactly when the circuit
+  // breaker trips under load, so the retry's own gate denies it. One attempt, suppressed retry ->
+  // our fault -> `model_error`. Charging this as `validation_failed` would strike Free users out of
+  // their one lifetime analysis for an outage that was entirely ours (issue #6).
+  let gateCalls = 0;
+  const h = harness([prose()]);
+  h.rpc.handlers.gate_ai_call = () => {
+    gateCalls += 1;
+    if (gateCalls === 1) {
+      return { data: { allowed: true, call_id: 'call-1', estimated_usd: 0.09 }, error: null };
+    }
+    return { data: { allowed: false, reason: 'breaker_open' }, error: null };
+  };
+
+  const res = await run(h);
+
+  assertEquals(res.status, 503);
+  assertEquals(releaseReasonFrom(h.rpc), 'model_error', 'we suppressed the retry, so this is our fault');
+  assertEquals(h.model.sent.length, 1, 'the retry was gated out');
 });
 
 Deno.test('rule 3: a model transport error releases with model_error (NOT a farming signal)', async () => {
@@ -940,6 +987,66 @@ Deno.test('an oversize / malformed body is rejected before any spend, any row, a
     assertEquals(h.rpc.calls.length, 0, `${label}: nothing may be gated or reserved`);
     assertEquals(h.storage.uploads.length, 0, label);
   }
+});
+
+Deno.test('finding 2: >8 frames is rejected as too_many_frames BEFORE any gate/reserve/model call', async () => {
+  // The pre-reserve DoS bound. Because the spend gate runs before the reserve (#91), an unbounded
+  // frame count lets a caller whose quota is spent send ~2000 tiny valid-base64 frames:
+  // estimateTokensForCall(2000,'elite') ~= $9.9, which gate_ai_call holds against the live $10
+  // daily cap as a 'pending' row for the whole request — costing $0 of real spend but, sustained,
+  // saturating the GLOBAL cap so every legitimate analysis 503s. Capping at PACE_FRAME_CAP.elite (8)
+  // bounds that estimate to ~$0.23, and rejecting BEFORE the gate means the pending row is never
+  // even created.
+  const nineFrames = Array.from({ length: 9 }, () => 'AAAA');
+  const nineStamps = Array.from({ length: 9 }, (_, i) => i * 100);
+
+  const h = harness([]);
+  const res = await run(h, {
+    mediaType: 'video',
+    frames: nineFrames,
+    timestamps: nineStamps,
+    idempotencyKey: 'k',
+  });
+
+  assertEquals(res.status, 400);
+  assertEquals(res.body.code, 'too_many_frames', 'a distinct code, not a generic invalid_request');
+  assertEquals(h.rpc.calls.length, 0, 'the gate must never see it — that is the whole point');
+  assertEquals(h.model.sent.length, 0);
+  assertEquals(h.storage.uploads.length, 0);
+});
+
+Deno.test('finding 2: a pathological 2000-frame payload never reserves gate budget', async () => {
+  const h = harness([]);
+  const res = await run(h, {
+    mediaType: 'video',
+    frames: Array.from({ length: 2000 }, () => 'AAAA'),
+    timestamps: Array.from({ length: 2000 }, (_, i) => i),
+    idempotencyKey: 'k',
+  });
+
+  assertEquals(res.status, 400);
+  assertEquals(res.body.code, 'too_many_frames');
+  assertEquals(h.rpc.calls.length, 0, 'no gate_ai_call, so no ~$9.9 pending hold against the daily cap');
+});
+
+Deno.test('finding 2: exactly 8 frames (Elite\'s legitimate max) is accepted past the parse gate', async () => {
+  // The cap is the global maximum, not a per-tier rule. 8 frames from an Elite clip must pass parse
+  // validation; reserve_analysis remains the authority on the actual per-tier limit.
+  const h = harness([ok()]);
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'elite' },
+    error: null,
+  });
+
+  const res = await run(h, {
+    mediaType: 'video',
+    frames: Array.from({ length: 8 }, () => 'AAAA'),
+    timestamps: Array.from({ length: 8 }, (_, i) => i * 100),
+    idempotencyKey: 'k',
+  });
+
+  assertEquals(res.status, 200, '8 frames is legitimate for Elite and must not be rejected at parse');
+  assertEquals(h.rpc.to('reserve_analysis')[0].args.p_frame_count, 8);
 });
 
 Deno.test('a photo runs on the free tier at one frame, and the tier comes from the RESERVE, not the body', async () => {

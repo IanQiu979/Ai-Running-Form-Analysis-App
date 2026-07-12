@@ -445,6 +445,15 @@ milestone "done" criteria.
       confirm the structured-output response envelope before shipping, so the parser is correct
       under either. **Ian's first live call should confirm the envelope**; if it is anything other
       than a JSON text block, `extractPayload` already handles it.
+    - **Two MEDIUM review findings fixed in-place (2026-07-13, see `docs/change_log.md`):** (1) a
+      suppressed retry (deadline nearly spent, or the retry's spend gate denied by the daily cap /
+      open breaker) no longer releases a lone content failure as `'validation_failed'` — that would
+      have ticked the anti-farming cap for our own outage; it now requires the retry to have
+      actually run (`retryRan`) and releases `'model_error'` otherwise. (2) `parseRequestBody` now
+      caps `frames.length` at `PACE_FRAME_CAP.elite` (8) with `too_many_frames`/400 before the gate,
+      closing a $0-real-cost DoS that could saturate the global daily $ cap with ~$9.9 `'pending'`
+      holds. The broader "$10 global cap + open signup" availability exposure is a config/design
+      decision above this PR and is being raised with Ian separately.
     - **Consent-withdrawal vs. idempotent replay — DECIDED: refuse.** Known Issue #14 left this
       open ("do not silently pick one"). The consent check runs before idempotency, so a replay of
       an already-settled key by a user who has since withdrawn consent is **refused (403)**, not

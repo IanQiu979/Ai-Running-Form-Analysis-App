@@ -219,7 +219,7 @@ Deno.test('structural not strict: a photo response with two honestly-null pillar
     overall: { score: 72, band: 'good' },
   };
 
-  const decision = decideOutcome([readAttempt(toolResponse(input))]);
+  const decision = decideOutcome([readAttempt(toolResponse(input))], false);
 
   assertEquals(decision.kind, 'valid');
 });
@@ -391,12 +391,20 @@ Deno.test('the schema and the TypeScript type cannot drift: one shape, two carri
     };
   };
 
+  // HARDCODED LITERALS on purpose. Comparing the schema against `[...PACE_PILLARS]` /
+  // `[...SCORE_BAND_VALUES]` would be circular — the schema is BUILT from those constants, so the
+  // two sides move together and detect nothing. Pinning the expectation to literals means ANY
+  // change to `PacePillarId`/`ScoreBand` (via those constants) forces a human to update this test
+  // and re-confirm that the schema, the tool input, and the TypeScript type still agree.
   assertEquals(schema.required.sort(), ['overall', 'pillars']);
-  assertEquals(schema.properties.pillars.required.sort(), [...PACE_PILLARS].sort());
-  assertEquals(Object.keys(schema.properties.pillars.properties).sort(), [...PACE_PILLARS].sort());
+  assertEquals(schema.properties.pillars.required.sort(), ['armSwing', 'cadence', 'elasticity', 'posture']);
+  assertEquals(
+    Object.keys(schema.properties.pillars.properties).sort(),
+    ['armSwing', 'cadence', 'elasticity', 'posture']
+  );
   assertEquals(schema.properties.overall.required.sort(), ['band', 'score']);
 
-  for (const id of PACE_PILLARS) {
+  for (const id of ['armSwing', 'cadence', 'elasticity', 'posture'] as const) {
     const pillar = schema.properties.pillars.properties[id];
     assertEquals(
       pillar.required.sort(),
@@ -405,7 +413,7 @@ Deno.test('the schema and the TypeScript type cannot drift: one shape, two carri
     );
     assertEquals(
       pillar.properties.band.anyOf[0].enum.sort(),
-      [...SCORE_BAND_VALUES].sort(),
+      ['good', 'low', 'mid', 'strong'],
       `pillar ${id}'s band enum drifted from ScoreBand`
     );
   }
@@ -516,16 +524,20 @@ function partialResponse(parsed: PacePillarId[]): AttemptOutcome {
 }
 
 Deno.test('decision: a valid attempt wins outright, even if the other attempt was garbage', () => {
-  const decision = decideOutcome([
-    readAttempt({ content: [{ type: 'text' }], stop_reason: 'end_turn' }),
-    readAttempt(toolResponse(fullToolInput())),
-  ]);
+  const decision = decideOutcome(
+    [
+      readAttempt({ content: [{ type: 'text' }], stop_reason: 'end_turn' }),
+      readAttempt(toolResponse(fullToolInput())),
+    ],
+    true
+  );
 
   assertEquals(decision.kind, 'valid');
 });
 
 Deno.test('decision: >=2 pillars parsed -> honest partial (is_fallback = true)', () => {
-  const decision = decideOutcome([partialResponse(['posture', 'armSwing'])]);
+  // retryRan does not affect a partial (a delivered result is judged on content, not attempt count).
+  const decision = decideOutcome([partialResponse(['posture', 'armSwing'])], false);
 
   assert(decision.kind === 'partial');
   assertEquals(decision.parsedPillars, ['posture', 'armSwing']);
@@ -535,15 +547,20 @@ Deno.test('decision: >=2 pillars parsed -> honest partial (is_fallback = true)',
   assert(isPaceResult(decision.result), 'a partial must still be a structurally valid PaceResult');
 });
 
-Deno.test('decision: exactly 1 pillar parsed -> clean failure, quota refunded', () => {
-  const decision = decideOutcome([partialResponse(['posture'])]);
+Deno.test('decision: exactly 1 pillar parsed after a REAL retry -> clean failure, validation_failed', () => {
+  // Both attempts came back with content but only one readable pillar each — below the 2-pillar
+  // partial threshold, and the retry genuinely ran, so this is the farming-signal case.
+  const decision = decideOutcome([partialResponse(['posture']), partialResponse(['posture'])], true);
 
   assert(decision.kind === 'failed', 'one pillar is below PACE_MIN_ASSESSED_PILLARS_FOR_PARTIAL');
   assertEquals(decision.releaseReason, 'validation_failed');
 });
 
 Deno.test('decision: 0 pillars parsed -> clean failure', () => {
-  const decision = decideOutcome([readAttempt(toolResponse({ pillars: { posture: 'junk' } }))]);
+  const decision = decideOutcome(
+    [readAttempt(toolResponse({ pillars: { posture: 'junk' } }))],
+    false
+  );
 
   assertEquals(decision.kind, 'failed');
 });
@@ -554,18 +571,21 @@ Deno.test('decision: a "partial" with no pillar actually SCORED is a clean failu
   // failure refunds the slot instead. (This is a deliberate addition to issue #45's literal table —
   // see decideOutcome's doc comment. Note a response where the model VALIDLY reports all four as
   // not-assessed never reaches here: it validates, and is delivered as a real result.)
-  const decision = decideOutcome([
-    readAttempt(
-      toolResponse({
-        pillars: {
-          posture: notAssessedPillar('angle'),
-          armSwing: notAssessedPillar('angle'),
-          cadence: { junk: true },
-          elasticity: { junk: true },
-        },
-      })
-    ),
-  ]);
+  const decision = decideOutcome(
+    [
+      readAttempt(
+        toolResponse({
+          pillars: {
+            posture: notAssessedPillar('angle'),
+            armSwing: notAssessedPillar('angle'),
+            cadence: { junk: true },
+            elasticity: { junk: true },
+          },
+        })
+      ),
+    ],
+    false
+  );
 
   assertEquals(decision.kind, 'failed');
 });
@@ -574,31 +594,44 @@ Deno.test('decision: the BETTER of two salvages is used, and pillars are never m
   const weak = partialResponse(['posture', 'armSwing']);
   const strong = partialResponse(['posture', 'armSwing', 'cadence']);
 
-  const decision = decideOutcome([weak, strong]);
+  const decision = decideOutcome([weak, strong], true);
 
   assert(decision.kind === 'partial');
   assertEquals(decision.assessedPillars.length, 3, 'the richer attempt wins');
 
   // And the reverse order gives the same answer — the choice is by quality, not by recency.
-  const reversed = decideOutcome([strong, weak]);
+  const reversed = decideOutcome([strong, weak], true);
   assert(reversed.kind === 'partial');
   assertEquals(reversed.assessedPillars.length, 3);
 });
 
 Deno.test('decision: no attempts at all is a clean failure, never a delivery', () => {
-  assertEquals(decideOutcome([]).kind, 'failed');
+  assertEquals(decideOutcome([], false).kind, 'failed');
 });
 
 // ---------------------------------------------------------------------------
 // 5. release_reason — the string that decides whether a user gets locked out.
 // ---------------------------------------------------------------------------
 
-Deno.test('release_reason: two content failures = validation_failed (the farming signal)', () => {
+Deno.test('release_reason: two content failures AFTER A REAL RETRY = validation_failed (the farming signal)', () => {
   const prose = readAttempt({ content: [{ type: 'text' }], stop_reason: 'end_turn' });
   const junk = readAttempt(toolResponse({ nonsense: true }));
 
-  assertEquals(classifyReleaseReason([prose, junk]), 'validation_failed');
-  assertEquals(classifyReleaseReason([prose, prose]), 'validation_failed');
+  assertEquals(classifyReleaseReason([prose, junk], true), 'validation_failed');
+  assertEquals(classifyReleaseReason([prose, prose], true), 'validation_failed');
+});
+
+Deno.test('release_reason: a LONE content failure with the retry SUPPRESSED is model_error, not a strike', () => {
+  // THE FINDING-1 CASE. When #44's flow suppresses the retry — too little deadline left, or the
+  // retry's spend gate denied it (daily cap / open breaker) — only one attempt exists. A prose
+  // reply there is OUR degradation, not the user's attack: charging it as validation_failed would
+  // tick the 3-strike anti-farming cap for something we did, and three such in 24h locks a Free
+  // user out of their one lifetime analysis (issue #6). `retryRan: false` => model_error.
+  const prose = readAttempt({ content: [{ type: 'text' }], stop_reason: 'end_turn' });
+  const junk = readAttempt(toolResponse({ nonsense: true }));
+
+  assertEquals(classifyReleaseReason([prose], false), 'model_error');
+  assertEquals(classifyReleaseReason([junk], false), 'model_error');
 });
 
 Deno.test('release_reason: a truncation anywhere makes it model_error, NOT the user\'s fault', () => {
@@ -607,21 +640,22 @@ Deno.test('release_reason: a truncation anywhere makes it model_error, NOT the u
 
   // A truncation is OUR max_tokens budget being too tight for the thinking the model did. Counting
   // it as a farming signal would tick a free user toward a 24h lockout for something we did — the
-  // exact harm issue #6 exists to close.
-  assertEquals(classifyReleaseReason([truncated, prose]), 'model_error');
-  assertEquals(classifyReleaseReason([prose, truncated]), 'model_error');
-  assertEquals(classifyReleaseReason([truncated, truncated]), 'model_error');
+  // exact harm issue #6 exists to close. (retryRan is true here — it is the KIND of failure, not
+  // the retry, that disqualifies these from the farming signal.)
+  assertEquals(classifyReleaseReason([truncated, prose], true), 'model_error');
+  assertEquals(classifyReleaseReason([prose, truncated], true), 'model_error');
+  assertEquals(classifyReleaseReason([truncated, truncated], true), 'model_error');
 });
 
 Deno.test('release_reason: a refusal is model_error', () => {
   const refusal = readAttempt(toolResponse(fullToolInput(), { stop_reason: 'refusal' }));
 
-  assertEquals(classifyReleaseReason([refusal, refusal]), 'model_error');
+  assertEquals(classifyReleaseReason([refusal, refusal], true), 'model_error');
 });
 
 Deno.test('release_reason: a call that never returned is model_error', () => {
-  assertEquals(classifyReleaseReason([callFailedAttempt(), callFailedAttempt()]), 'model_error');
-  assertEquals(classifyReleaseReason([]), 'model_error', 'no evidence is never a farming signal');
+  assertEquals(classifyReleaseReason([callFailedAttempt(), callFailedAttempt()], true), 'model_error');
+  assertEquals(classifyReleaseReason([], false), 'model_error', 'no evidence is never a farming signal');
 });
 
 Deno.test('release_reason: only validation_failed is a farming signal, per the live CHECK constraint', () => {
@@ -633,8 +667,14 @@ Deno.test('release_reason: only validation_failed is a farming signal, per the l
   const permitted = ['model_error', 'provider_timeout', 'internal_error', 'validation_failed'];
   const prose = readAttempt({ content: [{ type: 'text' }], stop_reason: 'end_turn' });
 
-  for (const attempts of [[prose, prose], [callFailedAttempt()], []]) {
-    assert(permitted.includes(classifyReleaseReason(attempts)));
+  const cases: Array<[AttemptOutcome[], boolean]> = [
+    [[prose, prose], true],
+    [[prose], false],
+    [[callFailedAttempt()], false],
+    [[], false],
+  ];
+  for (const [attempts, retryRan] of cases) {
+    assert(permitted.includes(classifyReleaseReason(attempts, retryRan)));
   }
 });
 

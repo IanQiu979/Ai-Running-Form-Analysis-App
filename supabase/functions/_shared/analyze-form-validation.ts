@@ -46,15 +46,29 @@
  *   - FARMING SIGNAL, counted (3 within 24h on free -> `too_many_failed_attempts`):
  *       'validation_failed' — the response came back and failed structural validation twice
  *
- * `classifyReleaseReason()` below leans deliberately toward SERVER FAULT: a truncation or a
- * refusal anywhere in the attempt pair yields `'model_error'`, even if the other attempt was a
- * prose reply. Only when EVERY response we actually received was a content failure (a prose
- * reply, or a tool call whose input we could not read) do we call it `'validation_failed'` —
- * because that, and only that, is the prompt-injection signature the cap exists to stop. A user
- * with an odd camera angle never produces it: the model still calls the tool and honestly reports
- * `score: null`, which VALIDATES and is delivered as a success. Getting this backwards would lock
- * a legitimate first-time user out of the one thing the app does, for something we did — the exact
- * harm issue #6 exists to close.
+ * `classifyReleaseReason()` below leans deliberately toward SERVER FAULT, and does so on TWO axes:
+ *   1. KIND of failure. A truncation or a refusal anywhere in the attempt pair yields
+ *      `'model_error'`, even if the other attempt was a prose reply. Only when EVERY response we
+ *      actually received was a content failure (a prose reply, or a tool call whose input we could
+ *      not read) is `'validation_failed'` even on the table.
+ *   2. WHETHER THE RETRY RAN. `'validation_failed'` additionally requires that the model was given
+ *      its full second chance — `retryRan === true` — and STILL only produced content failures.
+ *      The migration's own wording is "failed structural validation **after retry**", and #44's
+ *      flow does not always run the retry: it SKIPS it when too little of the deadline is left
+ *      (attempt 1 was slow under adaptive thinking) and it is DENIED when the retry's own spend
+ *      gate returns `!allowed` (the daily cap is near, or the circuit breaker just tripped under
+ *      load). In BOTH of those sub-cases only one attempt exists, and it was WE who cut the second
+ *      one — so a lone prose reply there is our degradation, not the user's attack, and must
+ *      release as `'model_error'` (refunds quota, does NOT tick the farming counter). Without this,
+ *      a model that degrades to prose exactly when the breaker is open — precisely the moment the
+ *      retry is denied — would strike three unlucky Free users out of their one lifetime analysis
+ *      in 24h, for an outage that was entirely ours. That is the exact harm issue #6 exists to
+ *      close, and the promise this header opens with.
+ *
+ * A user with an odd camera angle never produces `'validation_failed'` either way: the model still
+ * returns a schema-valid result and honestly reports `score: null`, which VALIDATES and is
+ * delivered as a success. The farming signal is reserved for the one case that actually looks like
+ * an attack: the model was asked twice, and twice refused to honor the schema.
  */
 
 import {
@@ -481,8 +495,17 @@ export type AnalyzeFormDecision =
  *     function, and it is delivered as a real result with real "here's the shot that would fix
  *     it" feedback.)
  *  4. Otherwise: clean failure, with `releaseReason` from `classifyReleaseReason()`.
+ *
+ * `retryRan` is passed straight through to `classifyReleaseReason` and matters ONLY on the clean-
+ * failure branch — it is the "did the model get its full second chance?" signal that separates a
+ * genuine farmer (asked twice, refused twice) from our own suppressed-retry degradation. It does
+ * not, and must not, affect whether a result is valid or partial: a delivered analysis is judged on
+ * its content, never on how many attempts produced it.
  */
-export function decideOutcome(attempts: readonly AttemptOutcome[]): AnalyzeFormDecision {
+export function decideOutcome(
+  attempts: readonly AttemptOutcome[],
+  retryRan: boolean
+): AnalyzeFormDecision {
   for (let i = 0; i < attempts.length; i += 1) {
     const result = attempts[i].result;
     if (result) {
@@ -506,7 +529,7 @@ export function decideOutcome(attempts: readonly AttemptOutcome[]): AnalyzeFormD
     };
   }
 
-  return { kind: 'failed', releaseReason: classifyReleaseReason(attempts) };
+  return { kind: 'failed', releaseReason: classifyReleaseReason(attempts, retryRan) };
 }
 
 /** `sourceAttempt` is not decoration: `flow.ts` settles the AI-spend ledger PER GATED CALL, and a
@@ -538,20 +561,32 @@ function bestSalvage(attempts: readonly AttemptOutcome[]): { salvage: Salvage; i
  * Whose fault was this failure? Read the header's `release_reason` section before changing a line
  * of this: the answer decides whether the user's 3-strike anti-farming counter ticks.
  *
- * `'validation_failed'` — the ONLY farming signal — requires that we actually received at least
- * one response AND that every response we received was a content failure (a prose reply, or a tool
- * input we could not read). Anything else — a truncation, a refusal, a call that never came back,
- * or a mix that includes one of those — is a server fault: `'model_error'`. A timeout is
- * classified by `flow.ts`, which is the only layer that knows an abort happened, and passes
- * `'provider_timeout'` directly.
+ * `'validation_failed'` — the ONLY farming signal — requires ALL THREE of:
+ *   1. at least one response was actually received (`attempts.length > 0`);
+ *   2. EVERY response received was a content failure (a prose reply, or a tool/JSON payload we
+ *      could not read) — no truncation, no refusal, no dead call in the mix; and
+ *   3. the retry ACTUALLY RAN (`retryRan`). If #44's flow suppressed the retry — too little of the
+ *      deadline left, or the retry's spend gate denied it — a lone content failure is our
+ *      degradation, not the user's attack.
+ * Anything else is a server fault: `'model_error'`. A timeout is classified by `flow.ts`, the only
+ * layer that knows an abort happened, and passed as `'provider_timeout'` directly.
+ *
+ * `retryRan` is threaded in rather than inferred from `attempts.length >= 2` on purpose: the two
+ * happen to coincide today (the flow pushes exactly one attempt per issued call), but "the model
+ * was given its second chance" is a decision the flow makes, not a property of the attempts list,
+ * and coupling the anti-farming rule to an array length would silently break if the retry logic
+ * ever changed.
  */
-export function classifyReleaseReason(attempts: readonly AttemptOutcome[]): ReleaseReason {
+export function classifyReleaseReason(
+  attempts: readonly AttemptOutcome[],
+  retryRan: boolean
+): ReleaseReason {
   const responded = attempts.filter(
     (attempt) => attempt.failure === 'no_tool_use' || attempt.failure === 'invalid_shape'
   );
 
-  const isPureContentFailure =
+  const everyResponseWasContentFailure =
     attempts.length > 0 && responded.length === attempts.length;
 
-  return isPureContentFailure ? 'validation_failed' : 'model_error';
+  return everyResponseWasContentFailure && retryRan ? 'validation_failed' : 'model_error';
 }
