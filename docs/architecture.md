@@ -317,6 +317,20 @@ the original video (see "Media pipeline" below).
    2026-07-12, issue #68): a missing row, a `granted = false` row, or a query error all mean
    refuse. The client's `<ConsentGate />` is UX only and does not enforce this — see
    `docs/status.md` Known Issue #14 for the exact check.
+
+   **Open question for M4, unresolved — do not silently pick one**: this step runs before
+   idempotency (step 3) on purpose, refuse-before-work, but that leaves undecided what happens
+   when consent is withdrawn *after* an analysis already settled under an idempotency key. A
+   replay of that same request now hits this step first and is refused, rather than reaching
+   step 3 and returning the existing row as-is, which is what idempotency currently promises.
+   Both readings have a real argument: returning the cached row is arguably fine (GDPR Art.
+   7(3) — withdrawal "shall not affect the lawfulness of processing based on consent before its
+   withdrawal," and serving an already-produced result isn't new processing), while refusing is
+   the safer read (continuing to serve health inferences derived from withdrawn consent is at
+   least awkward). Whoever builds M4 must decide and document which wins — and note that the
+   answer likely coincides with whatever the delete/purge path (#57, #58) already does to that
+   row, since a withdrawn-consent analysis is exactly the kind of row that path should be
+   removing anyway.
 3. **Idempotency** — an existing `(user_id, idempotency_key)` row is returned as-is instead of
    re-running the analysis.
 4. **Atomic reserve** — a `SECURITY DEFINER` RPC checks the tier's limit (Free 1 lifetime / Pro

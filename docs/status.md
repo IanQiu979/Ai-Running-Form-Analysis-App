@@ -161,6 +161,10 @@ milestone "done" criteria.
       `<ConsentGate />` in the client is UX only — it can be bypassed by anyone calling the
       function directly, so it is not the control. If this check is skipped, the app processes
       Art. 9 health data with no legal basis and the entire consent record becomes decorative.
+      **Open question, unresolved**: consent-before-idempotency ordering means a replay of an
+      idempotent request after a withdrawal could either be refused or return the existing
+      settled row as-is — see `docs/architecture.md`'s consent step for both readings; the
+      answer likely tracks whatever the delete/purge path (#57, #58) already does to that row.
 15. **NEW — privacy policy is drafted but publication is ON HOLD (issue #68, 2026-07-12).**
     `docs/privacy-policy.md` is written and reviewed, but it cannot go live until Ian resolves
     two things, and the file carries a `DO NOT PUBLISH` guard until he does:
