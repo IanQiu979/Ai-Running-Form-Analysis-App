@@ -209,4 +209,9 @@ Listed so this file is not mistaken for the complete blocked list:
 - **#70** — needs a **Supabase Pro** upgrade (server-side leaked-password protection is Pro-gated; enabling it returned HTTP 402 on the Free plan).
 - **#48** — needs **CAPTCHA provider keys** (hCaptcha or Turnstile). Blocks `analyze-form` going *live*, not the M4 build.
 - **#39** — needs **Ian's certification** of the drafted Elasticity content and the pillar refinements. It ships into every analysis prompt under his name.
-- **#74** — needs an **observability stack** to exist before the HIBP fail-open can be made detectable.
+- **#74** — **partially resolved 2026-07-12.** The endpoint-side half is now covered by a daily
+  live-API canary (`.github/workflows/hibp-canary.yml`) that needs no observability stack and
+  collects no user data. Only the device-side residue (captive portals, Cloudflare challenging
+  React Native's user-agent) still needs an **observability stack**. Note that **Sentry is
+  actively contraindicated** for it — its breadcrumbs would fingerprint the very passwords the
+  check protects; see the issue.

@@ -7,6 +7,25 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **HIBP fail-open is now observable (refs #74).** `lib/hibp.ts` fails open and deliberately
+  never logs, which made the leaked-password check silently unobservable: if HIBP's endpoint
+  rotted, every sign-up would pass the check forever with nothing to show for it.
+  - **Added** `lib/__tests__/hibp.canary.test.ts` — a live-network canary that runs the real
+    shipped `checkPasswordBreached` against the live Pwned Passwords range API, asserting a
+    known-breached password still returns `breached` and a random one still returns `safe`.
+    Both reject `unavailable`. It mocks only `expo-crypto`'s native digest (a real `node:crypto`
+    SHA-1 returning lowercase hex, as the native module does), so the uppercase normalization is
+    proven end-to-end against a live response.
+  - **Added** `jest.canary.config.js` + `npm run test:canary`, and excluded `*.canary.test.ts`
+    from `jest.config.js`, so `npm test` stays hermetic and offline.
+  - **Added** `.github/workflows/hibp-canary.yml` — the repo's first CI workflow. Daily cron,
+    3 attempts with backoff (a canary that cries wolf gets muted), opens/updates a labelled
+    `security` issue on sustained failure and auto-closes it on recovery.
+  - **Narrowed** issue #74 to the device-side residue only, recording that **Sentry is actively
+    contraindicated** here: its breadcrumbs would fingerprint the very passwords the check
+    protects.
+  - **No user data is collected** and no SDK was added — the App Store privacy-label answers
+    are unchanged.
 - **Repo audit, second pass: the six actionable Low-severity issues (closes #9, #21, #24, #25,
   #29, #30).** All six needed a design decision, which is why they were not taken in the first
   pass; each decision below is derived from `docs/design/frontend-design-brief.md` §2/§4.1 rather

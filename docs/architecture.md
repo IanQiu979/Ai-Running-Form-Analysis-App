@@ -262,6 +262,39 @@ config" below) is a required pre-first-dev-build cleanup, not yet done. It is **
 the `development` profile's `ios.simulator: true` build needs no Apple account and is enough to
 retire Expo Go. See `docs/status.md` Known Issue #7.
 
+## Current — CI (added 2026-07-12, the repo's first workflow)
+
+The repo previously had **no CI at all**. `.github/workflows/hibp-canary.yml` is the first one,
+and it is deliberately narrow: a **daily scheduled cron, not a PR gate** — a live-network check
+required on every PR would make unrelated PRs flaky against a third party's uptime.
+
+- **What it watches**: `lib/hibp.ts`'s `checkPasswordBreached` fails open and deliberately never
+  logs (see its header comment), which made the leaked-password check silently unobservable in
+  production — if HIBP's endpoint rotted, every sign-up would pass the check forever with
+  nothing to show for it (issue #74). The workflow runs `lib/__tests__/hibp.canary.test.ts`
+  (via `jest.canary.config.js` / `npm run test:canary`) against the real, live Pwned Passwords
+  range API — the same endpoint `lib/hibp.ts` calls in production — asserting a known-breached
+  password still returns `breached` and a random one still returns `safe`.
+- **Retry then alarm, not alarm-on-first-blip**: 3 attempts with backoff inside one run (a live
+  third-party API blips occasionally; a canary that cries wolf gets muted, which lands right
+  back at an unobservable control). Only sustained failure across all 3 attempts opens or
+  updates a labelled `hibp-canary` + `security` GitHub issue; recovery auto-closes it. See the
+  design rationale in `docs/superpowers/specs/2026-07-12-hibp-canary-design.md`.
+- **Collects no user data**: the only two strings ever hashed are the public test vector
+  `password` and a fresh random UUID, run from a GitHub runner, not a user's device. It adds no
+  SDK to the app bundle, so it does not change any App Store privacy-label answer (see
+  `docs/privacy-checklist-m7.md`).
+- **Narrowed, did not close, issue #74**: the canary covers the endpoint-side failure modes
+  (content-type change, Cloudflare challenge, egress rate-limit, response-shape change) but runs
+  from a GitHub runner — different IP, different user-agent, no captive portal — so it cannot
+  see genuinely device-side failures (a captive portal on a user's Wi-Fi, or Cloudflare
+  challenging React Native's user-agent specifically). That residue still needs per-user
+  telemetry, and **Sentry (or any crash SDK) is actively contraindicated for it**: every HIBP
+  request URL carries the 5-char SHA-1 prefix of the candidate password, and a crash SDK
+  captures outbound request URLs as breadcrumbs — without `denyUrls`/`beforeBreadcrumb`
+  configured to drop `api.pwnedpasswords.com`, adding one would turn crash reports into a
+  durable, identity-linked fingerprint of every user's password.
+
 ## Current — consent record & disclaimer (done 2026-07-12, issue #68)
 
 The client-side half of #68's two blocked checklist items — a durable consent **record**, not

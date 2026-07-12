@@ -1,0 +1,158 @@
+# Live-endpoint canary for the HIBP leaked-password check (issue #74).
+#
+# lib/hibp.ts fails open by design and deliberately never logs, so if HIBP changes its
+# content-type, Cloudflare starts challenging us, or our egress gets rate-limited, every signup
+# would silently pass the check forever with nothing to show for it. This is the thing that
+# notices.
+#
+# It does NOT gate PRs: a live-network required check would make every unrelated PR flaky.
+name: HIBP canary
+
+on:
+  schedule:
+    # 07:00 UTC daily. The check is an interim, bypassable-by-design control, so a detection
+    # latency of up to a day is acceptable; a tighter cron just burns a third party's bandwidth.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+# Never let two runs race to open/close the same issue.
+concurrency:
+  group: hibp-canary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+# Hoisted so the create, lookup, and close paths below cannot drift apart on the title string
+# they all key off of.
+env:
+  CANARY_TITLE: "HIBP canary is red — the leaked-password check has silently stopped working"
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Three attempts with backoff. A canary hitting a live third-party API WILL occasionally
+      # blip, and one that cries wolf gets muted -- which lands us right back at an unobservable
+      # control. Only sustained failure counts as rot. This step always exits 0; the outcome is
+      # carried in its output so the steps below can act on it.
+      - name: Run the canary (3 attempts)
+        id: canary
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::Canary attempt ${attempt}/3"
+            if npm run test:canary; then
+              echo "::endgroup::"
+              echo "result=pass" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::endgroup::"
+            if [ "${attempt}" -lt 3 ]; then
+              backoff=$((attempt * 60))
+              echo "Attempt ${attempt} failed. Sleeping ${backoff}s before retrying."
+              sleep "${backoff}"
+            fi
+          done
+          echo "result=fail" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      # `hibp-canary` is a label this workflow owns outright, so `--force` (idempotent
+      # recreate/update) is correct there: the workflow is self-contained and does not depend
+      # on the label having been created by hand.
+      #
+      # `security` is different: it's a pre-existing, human-owned repo label, so we must NOT
+      # force-overwrite its colour/description on every run. But `gh issue create --label
+      # security` below fails (and, sitting in an `else` under `bash -e`, aborts the step) if
+      # the label is absent -- so it still needs to be guaranteed to exist. Create it only when
+      # missing; a genuine creation failure still fails the step.
+      - name: Ensure required labels exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create hibp-canary \
+            --color B60205 \
+            --description "Raised automatically by the HIBP live-endpoint canary" \
+            --force
+
+          if ! gh label list --json name --jq '.[].name' | grep -qx 'security'; then
+            gh label create security --color d93f0b --description "Security-relevant work"
+          fi
+
+      - name: Open or update the alarm issue
+        if: steps.canary.outputs.result == 'fail'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Scope by exact title as well as the label: the label alone can be applied by anyone
+          # with triage permission to an unrelated open issue, which would silently downgrade a
+          # real failure to a comment on that issue instead of a visible new alarm.
+          existing="$(gh issue list --label hibp-canary --state open --limit 20 --json number,title \
+            | jq -r --arg t "${CANARY_TITLE}" '[.[] | select(.title == $t)][0].number // empty')"
+
+          body="$(cat <<EOF
+          The HIBP live-endpoint canary failed **3 consecutive attempts**, so this is sustained
+          rot rather than a transient blip.
+
+          **What this means:** \`lib/hibp.ts\` fails open. Right now, every sign-up is very
+          likely passing the leaked-password check regardless of whether the password is
+          breached — silently, with no user-visible symptom. The control is effectively off.
+
+          **Likely causes**, in the order worth checking:
+          - HIBP changed the range API's content-type (the check requires \`text/plain\`)
+          - Cloudflare is challenging our requests (an HTTP 200 HTML challenge page)
+          - our egress IP is being rate-limited
+          - the range API's response shape changed
+
+          **Reproduce locally:** \`npm run test:canary\`
+
+          Failing run: ${RUN_URL}
+          Design: \`docs/superpowers/specs/2026-07-12-hibp-canary-design.md\`
+          Refs #70, #74
+          EOF
+          )"
+
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --body "Still failing as of ${RUN_URL}"
+          else
+            gh issue create \
+              --title "${CANARY_TITLE}" \
+              --label hibp-canary \
+              --label security \
+              --body "${body}"
+          fi
+
+      # Self-healing: recovery closes the alarm, so a stale red issue never accumulates and the
+      # signal keeps meaning something.
+      - name: Close the alarm issue on recovery
+        if: steps.canary.outputs.result == 'pass'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Same exact-title scoping as the open/update step above, so recovery can only ever
+          # close the canary's own issue -- never an unrelated issue someone else labelled.
+          existing="$(gh issue list --label hibp-canary --state open --limit 20 --json number,title \
+            | jq -r --arg t "${CANARY_TITLE}" '[.[] | select(.title == $t)][0].number // empty')"
+          if [ -n "${existing}" ]; then
+            gh issue close "${existing}" \
+              --comment "Canary is green again as of ${RUN_URL} — the HIBP check is working. Closing automatically."
+          fi
+
+      # Surface the failure in the Actions tab too, not just as an issue.
+      - name: Fail the job if the canary is red
+        if: steps.canary.outputs.result == 'fail'
+        run: exit 1

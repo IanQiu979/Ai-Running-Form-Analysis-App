@@ -15,7 +15,7 @@ milestone "done" criteria.
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
 | M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started |
-| M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. |
+| M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
 
 ## Done so far
 
@@ -56,6 +56,14 @@ milestone "done" criteria.
 - **Everything gated on the Apple Developer Program lives in
   [`docs/blocked-on-apple.md`](blocked-on-apple.md)**, not in the GitHub tracker (as of
   2026-07-12). The open-issue list is deliberately kept to work that is actionable today.
+- **First CI workflow landed 2026-07-12** — `.github/workflows/hibp-canary.yml`: a daily
+  scheduled cron (not a PR gate) that runs `lib/__tests__/hibp.canary.test.ts` against the live
+  HIBP endpoint, opening/updating a labelled `security` issue on 3 consecutive failures and
+  auto-closing it on recovery. Narrows issue #74 to its remaining device-side residue (captive
+  portals, Cloudflare challenging React Native's user-agent) — still deferred to whenever
+  `observability-setup` work happens, and **Sentry is actively contraindicated** there (its
+  breadcrumbs would fingerprint the passwords `lib/hibp.ts` protects). See
+  `docs/architecture.md`'s "Current — CI" section.
 - Full dated history: [`docs/change_log.md`](change_log.md).
 
 ## Known issues
