@@ -34,9 +34,14 @@
  *    prompt that presents these intervals as exact would have the model reason about a rhythm
  *    the runner does not have and produce confident, wrong advice. It would not crash. See
  *    `TIMESTAMP_RULES` and `formatFrameManifest()`: intervals are always labelled approximate,
- *    the model is told the error bar, and precise SPM/GCT/VO figures are forbidden at EVERY
- *    tier. The field is named `requestedTimestampMs` so a future caller cannot casually mistake
- *    it for a measured one.
+ *    the model is told the error bar, precise SPM/GCT/VO figures are forbidden at EVERY tier, and
+ *    any Cadence/Elasticity judgement that leans on the timing must carry that uncertainty into
+ *    the user-visible `feedback` — a hedge the runner never sees is not a hedge. The field is
+ *    named `requestedTimestampMs` so a future caller cannot casually mistake it for a measured
+ *    one. And because `pace_framework.md` is CERTIFIED CONTENT that itself conditions on timing
+ *    ("only if frame timestamps are known", "across evenly-spaced frames"), the last block of
+ *    `TIMESTAMP_RULES` AMENDS HOW THOSE TWO CLAUSES ARE READ instead of editing the certified file
+ *    — the same prompt-layer mechanism `INPUT_CHANNEL_RULES` uses for #40's runner's-note clauses.
  *
  * 4. THE OUTPUT CONTRACT. A strict, forced tool call whose `input_schema` is exactly
  *    `PaceResult` from `./pace.ts` (#43) — the same shape the app renders and `settle_analysis`
@@ -521,6 +526,21 @@ const NOT_ASSESSED_RULES = [
  * the timestamp-independent evidence as primary, and demotes anything timing-derived to a hedged
  * secondary. That is not a downgrade — it is what `pace_framework.md` already says is the most
  * important thing you can see.
+ *
+ * THE CERTIFIED-CLAUSE AMENDMENT (the last block below) uses the SAME MECHANISM as
+ * `INPUT_CHANNEL_RULES` does for issue #40's runner's-note clauses, and for the same reason:
+ * `pace_framework.md` is CERTIFIED CONTENT shipping under Ian's name and is not editable without
+ * his certification review (#39/#40). It contains exactly two clauses that presuppose a timing
+ * precision this deployment does not have — "**Only if frame timestamps are known** may you
+ * estimate a cadence *range*" (which a model reading the frame manifest would score as SATISFIED,
+ * because timestamps are visibly present) and "Across evenly-spaced frames you can estimate …
+ * vertical bounce" (which the frames are NOT reliably). Both are quoted back verbatim and re-read
+ * at the prompt layer: "known" becomes "known approximately", "evenly-spaced" becomes "not
+ * reliably evenly spaced". The certified file is shipped byte-for-byte and unedited; only its
+ * reading is amended, and the amendment can only ever TIGHTEN (it licenses nothing the certified
+ * file forbids). `analyze-form-prompt.deno.test.ts` § 5 asserts both quoted clauses still exist
+ * in `PACE_FRAMEWORK_MD` byte-for-byte — so if a future certification pass rewords them, the
+ * suite fails loudly instead of leaving an amendment that silently points at nothing.
  */
 const TIMESTAMP_RULES = [
   'FRAME TIMESTAMPS ARE APPROXIMATE — READ THIS BEFORE SCORING CADENCE OR ELASTICITY:',
@@ -541,6 +561,12 @@ const TIMESTAMP_RULES = [
   '  * Treat any interval-derived quantity as a WIDE, EXPLICITLY APPROXIMATE estimate, and say in',
   '    the `feedback` that it is approximate. Widen your confidence accordingly — if the timing',
   '    is the only thing pointing at a fault, that is not enough to call the fault.',
+  '  * SAY IT IN THE OUTPUT, NOT JUST IN YOUR HEAD. Any Cadence or Elasticity judgement that leans',
+  '    on the frame timing AT ALL must carry that uncertainty in the `feedback` the runner',
+  '    actually reads — they never see your reasoning, only `score`, `band`, and `feedback`. Name',
+  '    it plainly: "roughly 160-170 SPM — approximate, estimated from frames whose timing is not',
+  '    exact". A hedge you kept to yourself is not a hedge; it is just a confident number with a',
+  '    private doubt attached.',
   '- FORBIDDEN AT EVERY TIER, INCLUDING ELITE — these are false precision, and a paying tier buys',
   '  more DEPTH, never more CERTAINTY:',
   '  * A single precise cadence figure ("your cadence is 164 SPM"). A labelled approximate RANGE',
@@ -552,6 +578,25 @@ const TIMESTAMP_RULES = [
   '    measure it.',
   '- If you cannot support a Cadence or Elasticity judgement from the visible geometry, the',
   '  honest answer is `score: null` — not a number propped up by timings you cannot trust.',
+  '',
+  'HOW TO READ pace_framework.md\'s TWO TIMING CLAUSES. The certified framework above was written',
+  'assuming a timing precision this deployment does not have. It is reproduced unedited, and these',
+  'two clauses — and ONLY these two — are amended in how you READ them. The amendment can only',
+  'ever TIGHTEN: it licenses nothing the certified file forbids.',
+  '- It says: "**Only if frame timestamps are known** may you estimate a cadence *range* from',
+  '  steps-per-second across frames — and label it approximate." READ "known" AS "KNOWN',
+  '  APPROXIMATELY". The condition is met only in that weak sense — the timestamps below are',
+  '  requested, not measured — so what the clause licenses is a WIDE range, labelled approximate,',
+  '  and NEVER a point figure. Where a steps-per-second count off these frames disagrees with what',
+  '  the geometry plainly shows, believe the geometry.',
+  '- It says: "Across evenly-spaced frames you can estimate ... vertical bounce (torso height',
+  '  change between frames)." THESE FRAMES ARE NOT RELIABLY EVENLY SPACED, whatever their stated',
+  '  times suggest. The torso height CHANGE between frames is still real evidence — you can see it',
+  '  with your own eyes — but its RATE is not, so judge the bounce by how big it looks, never by',
+  '  dividing it by a stated interval.',
+  '- Every other rule in pace_framework.md stands unchanged and in full — above all "Never',
+  '  fabricate a number" and "Never state a precise SPM you cannot derive", which this amendment',
+  '  reinforces rather than relaxes.',
 ].join('\n');
 
 /**

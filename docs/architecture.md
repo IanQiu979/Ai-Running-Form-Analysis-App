@@ -318,6 +318,23 @@ pure/client split as `ai-guard.ts`. 28 Deno tests.
   steered onto **timestamp-independent** evidence — the overstriding signature and the visible
   quality of the landing, which `pace_framework.md` already calls the most important thing you can
   see, and which need no clock.
+- **`pace_framework.md`'s two timing clauses are amended at the prompt layer, not edited** (#112,
+  the same mechanism as the note-conditional clauses below). The certified file — which ships
+  byte-for-byte and is not editable without Ian's certification review — says *"**Only if frame
+  timestamps are known** may you estimate a cadence *range*"* and *"Across evenly-spaced frames you
+  can estimate … vertical bounce"*. A model reading the frame manifest would score the first as
+  **satisfied** (timestamps are visibly there) and the second as **true** (the requested times look
+  evenly spaced); neither holds. So `TIMESTAMP_RULES` quotes both clauses back and re-reads them:
+  *"known"* ⇒ **"known approximately"** (licensing a wide, labelled range — never a point figure),
+  and *"evenly-spaced"* ⇒ **"not reliably evenly spaced"** (torso height *change* between frames is
+  still visible evidence; its *rate* is not). The amendment can only ever **tighten** — it licenses
+  nothing the certified file forbids — and the test suite asserts both quoted clauses still exist
+  in the shipped bundle byte-for-byte, so a future re-certification that rewords them fails the
+  build instead of leaving an amendment aimed at a sentence that no longer exists.
+- **The uncertainty must reach the runner, not just the model.** Any Cadence/Elasticity judgement
+  that leans on the frame timing has to carry the hedge into the user-visible `feedback` ("roughly
+  160–170 SPM — approximate, estimated from frames whose timing is not exact"). The runner sees
+  only `score`, `band`, and `feedback`; a hedge the model keeps to itself is not a hedge.
 - **The note-conditional certified guidance is neutralised at the prompt layer**, not by editing
   certified text (that needs Ian's review — #39/#40). No note field ships (Known Issue #10), so the
   prompt states plainly that there is no runner's note, no history, no reported symptoms, and that

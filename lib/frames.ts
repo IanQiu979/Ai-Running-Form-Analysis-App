@@ -17,12 +17,14 @@
  * `reserve_analysis` re-checks the tier's real cap server-side regardless of what this file sends
  * — a build that sent more frames than its tier allows would still be rejected there, not here.
  *
- * TIMESTAMP ACCURACY — A KNOWN GAP AGAINST THE PLAN, READ BEFORE TRUSTING `timestampMs`.
- * `docs/architecture.md` requires recording the frame extractor's *actual* sampled timestamp,
- * not the one requested, because Android's frame-seek snaps to the nearest keyframe and can land
- * meaningfully away from the requested time. That is correct, but `expo-video-thumbnails@~10.0.8`
- * (the only frame extractor this repo has — `expo-video` is deliberately not installed) has no
- * way to report it back, on EITHER platform:
+ * TIMESTAMP ACCURACY — ISSUE #112, READ BEFORE TRUSTING `timestampMs`.
+ * `docs/architecture.md` used to promise that this file records the frame extractor's *actual*
+ * sampled timestamp rather than the requested one, on the correct reasoning that Android's
+ * frame-seek snaps to the nearest keyframe and can land meaningfully away from the time asked
+ * for. The reasoning was right; the promise was not deliverable, and the doc has since been
+ * corrected to describe what actually happens (#112). `expo-video-thumbnails@~10.0.8` (the only
+ * frame extractor this repo has — `expo-video` is deliberately not installed) has no way to
+ * report the decoded time back, on EITHER platform:
  *   - Android's native module (`VideoThumbnailsModule.kt`) calls
  *     `MediaMetadataRetriever.getFrameAtTime(time, OPTION_CLOSEST_SYNC)`, which snaps to the
  *     nearest sync (key) frame — and returns only a `Bitmap`. There is no public Android API that
@@ -34,13 +36,19 @@
  *   - Either way, `VideoThumbnailsResult` (the JS-facing return type) is `{ uri, width, height }`
  *     — no timestamp field exists to read, requested or actual.
  * So `timestampMs` below is the REQUESTED time only, faithfully recorded (not re-derived from an
- * independent "assume even spacing" formula — see `sampleTimestamps`), but not independently
- * confirmed against what the extractor actually decoded. This satisfies the letter of "don't
- * assume perfect spacing after the fact" but not the full "record the actual timestamp" ask —
- * flagged here rather than silently presented as fully meeting it. Closing the gap for real needs
- * either a native module patch (out of this issue's scope: it only installs
- * `expo-image-manipulator` and writes this file) or a different extractor; tracked as a follow-up,
- * not resolved here.
+ * independent "assume even spacing" formula — see `sampleTimestamps`), and NOT independently
+ * confirmed against what the extractor actually decoded. It is flagged as such everywhere it is
+ * consumed rather than quietly presented as a measured time: the field arrives at the prompt
+ * builder as `requestedTimestampMs` (`supabase/functions/_shared/analyze-form-prompt.ts`), which
+ * renders every time hedged, tells the model the error bar, forbids a precise SPM/GCT/VO figure at
+ * every tier, and amends `pace_framework.md`'s two timing clauses so the certified "only if frame
+ * timestamps are known" reads as "known approximately". That is the #112 mitigation, and it is
+ * where the mitigation belongs — Cadence and Elasticity are the two pillars derived from motion
+ * over time, so the fix has to be that the ANALYSIS hedges, not that this file invents precision.
+ * Whatever you do here, do NOT "close the gap" by evenly spacing the values and calling them
+ * actual: that looks precise, is wrong, and signals nothing. Closing it for real needs either a
+ * native-module patch (iOS's `actualTime` is already computed and discarded — a small change) or a
+ * different extractor; tracked in #112, not resolved here.
  *
  * WHAT THIS FILE DOES:
  *   - `photo` input: exactly one frame, always (`docs/architecture.md`: "a photo submission is
