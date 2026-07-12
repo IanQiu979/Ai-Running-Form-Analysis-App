@@ -29,6 +29,7 @@ import {
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { signInWithGoogle } from '@/lib/auth';
+import { mapAuthError } from '@/lib/auth-errors';
 import { checkPasswordBreached } from '@/lib/hibp';
 import { supabase } from '@/lib/supabase';
 
@@ -37,23 +38,6 @@ type PendingAction = 'google' | 'email' | null;
 
 function isValidEmail(value: string): boolean {
   return /\S+@\S+\.\S+/.test(value.trim());
-}
-
-// Maps raw Supabase auth-js error messages to the copy deck's fixed strings (screen 1) — kept
-// local to this screen since it's the only caller today; hoist to lib/ if a second screen
-// (e.g. a future password-reset flow) needs the same mapping.
-function mapAuthError(message: string): string {
-  const m = message.toLowerCase();
-  if (m.includes('invalid login credentials') || m.includes('invalid credentials')) {
-    return Copy.auth.error.invalidCredentials;
-  }
-  if (m.includes('already registered') || m.includes('already exists') || m.includes('user already')) {
-    return Copy.auth.error.emailInUse;
-  }
-  if (m.includes('password should be at least')) {
-    return Copy.auth.error.passwordTooShort;
-  }
-  return Copy.auth.error.generic;
 }
 
 export default function SignInScreen() {
@@ -81,7 +65,7 @@ export default function SignInScreen() {
       // null = the user cancelled/dismissed the browser sheet — not an error, so no message.
       await signInWithGoogle();
     } catch (err) {
-      setErrorMessage(mapAuthError(err instanceof Error ? err.message : String(err)));
+      setErrorMessage(mapAuthError(err));
     } finally {
       setPendingAction(null);
     }
@@ -115,14 +99,18 @@ export default function SignInScreen() {
           return;
         }
 
-        // Issue #70: Supabase's server-side leaked-password check (HaveIBeenPwned) is
-        // Pro-plan-gated (402 on this project's free plan), so it's reimplemented here
-        // client-side via HIBP's keyless range API — see lib/hibp.ts for the full mitigation
-        // list. Runs on submit only (never onChangeText, which would hammer HIBP into a
-        // rate-limit/challenge that degrades to always-`safe`) and strictly before
-        // supabase.auth.signUp, so no account is ever created with a breached password.
+        // Issue #70: Supabase's server-side leaked-password check (HaveIBeenPwned) is now
+        // enabled and is the authority (org on Pro, `password_hibp_enabled = true` since
+        // 2026-07-12). This client-side pre-check against HIBP's keyless range API — see
+        // lib/hibp.ts for the full mitigation list — stays as a fast, inline pre-check plus
+        // defense-in-depth; the server rejection is handled by `mapAuthError` (lib/auth-errors.ts)
+        // below via the catch block if this pre-check ever misses one. Runs on submit only
+        // (never onChangeText, which would hammer HIBP into a rate-limit/challenge that
+        // degrades to always-`safe`) and strictly before supabase.auth.signUp, so a breached
+        // password is caught before the round-trip whenever this check is available.
         // `unavailable` (timeout, network error, third-party outage) fails open — a bypassable
-        // client-side check must never block signup on its own unavailability.
+        // client-side check must never block signup on its own unavailability; the server-side
+        // rejection above is what still catches it.
         const breachCheck = await checkPasswordBreached(password);
         if (breachCheck.status === 'breached') {
           setErrorMessage(Copy.auth.error.passwordBreached);
@@ -157,7 +145,7 @@ export default function SignInScreen() {
         if (error) throw error;
       }
     } catch (err) {
-      setErrorMessage(mapAuthError(err instanceof Error ? err.message : String(err)));
+      setErrorMessage(mapAuthError(err));
     } finally {
       setPendingAction(null);
     }

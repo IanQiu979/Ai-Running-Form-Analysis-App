@@ -135,3 +135,44 @@ This adds an outbound request to a third party (Cloudflare-fronted `api.pwnedpas
 signup. Under k-anonymity only 5 hex characters of a SHA-1 hash are sent — not the password, not
 the full hash, and no user identifier or email. `Add-Padding: true` defeats response-size
 traffic analysis. To be recorded in `docs/privacy-checklist-m7.md`.
+
+## Outcome — 2026-07-12 update: issue #70 closed, this is no longer the enforcement point
+
+Everything above is preserved as the historical record of why this file was built and how; it
+stayed accurate right up until the org's plan changed. What follows is the update.
+
+The blocker this whole document opens with — "Supabase's built-in leaked-password protection...
+is Pro-plan-gated... rejected with HTTP 402" — is gone. The org (`Echo_Running_Final`) moved to
+the **Pro plan**, and `password_hibp_enabled = true` was applied live via the same Management
+API PATCH mechanism (`/v1/projects/vputdomdlknvthnzritt/config/auth`) that had returned 402 on
+2026-07-11. Verified live: a breached password now hard-fails `signUp` server-side with HTTP
+422, `error_code: 'weak_password'`, `reasons: ['pwned']`; the
+`auth_leaked_password_protection` security-advisor finding is gone, and the project's advisor
+list is now completely empty. **Issue #70 is closed** — see `docs/blocked-on-apple.md`'s
+resolved-issues table and `docs/architecture.md`'s "Current — Supabase config" section for the
+full record.
+
+This changes what `lib/hibp.ts` *is*, not whether it ships. Limit (1) above — "bypassable" — is
+exactly why the server-side setting was always the real fix and this was always documented as a
+mitigation, not a replacement. Now that the server enforces the rule, `lib/hibp.ts` is
+deliberately **kept** (Ian's call) but demoted: no longer the enforcement point, only (a) a fast
+inline pre-check giving feedback before the `signUp` round-trip, and (b) defense-in-depth if
+`password_hibp_enabled` is ever flipped off again (a billing lapse or a stray Dashboard toggle —
+the setting is still Pro-plan-gated, so a downgrade silently disables it, and this function still
+fails open by design, so it would not catch that on its own; `.github/workflows/hibp-canary.yml`
+now asserts `password_hibp_enabled` directly, daily, for that reason — see its
+"Assert server-side leaked-password protection is still enabled" step).
+
+The "Adjacent fix" section's `mapAuthError` — originally inline in `sign-in.tsx` — is now
+`lib/auth-errors.ts`, extracted so this security-relevant mapping gets real unit-test coverage
+(`lib/__tests__/auth-errors.test.ts`). It takes the raw caught `unknown`, not a message string,
+because telling the server's typed breach rejection (`reasons: ['pwned']`) apart from an
+ordinary too-short one (`reasons: ['length']`) needs supabase-js's typed
+`AuthWeakPasswordError.reasons` array — both throw the identical error class, and GoTrue
+**accumulates** `reasons` rather than picking one, so a password that is both too short and
+breached returns `['length', 'pwned']` together (verified live with `"abc123"`). `length` is
+checked before `pwned` so the more actionable message wins.
+
+Limit (2), signup-only, is unchanged and still open: there is still no password-reset or
+change-password flow in the app, so this remains the only call site for both the client
+pre-check and the server-side setting today.

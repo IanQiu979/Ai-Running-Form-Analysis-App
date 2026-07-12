@@ -7,6 +7,47 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Issue #70 is genuinely fixed, not just mitigated: server-side HaveIBeenPwned leaked-password
+  rejection is now enabled and is the authority.** The blocker was the org (`Echo_Running_Final`)
+  sitting on the Free plan — enabling `password_hibp_enabled` returned HTTP 402 during the M1
+  security audit (2026-07-11). The org is now on the **Pro plan**, which removed the gate.
+  - Set `password_hibp_enabled = true` on the hosted project (`vputdomdlknvthnzritt`) via a
+    Management API PATCH to `/v1/projects/{ref}/config/auth`. Returned HTTP 200.
+  - **Verified live**: a breached password now hard-fails at `signUp` with HTTP 422,
+    `error_code: 'weak_password'`, `reasons: ['pwned']`; a strong password still succeeds. The
+    `auth_leaked_password_protection` security-advisor lint is gone — **the project's security
+    advisor list is now completely empty (zero findings)**.
+  - **`lib/hibp.ts` is deliberately KEPT (Ian's call)**, but its role changes: it is no longer
+    the enforcement point, the server is. It stays as (1) a fast inline pre-check for UX —
+    instant feedback before the `signUp` round-trip — and (2) defense-in-depth if
+    `password_hibp_enabled` is ever flipped off again. It remains client-side, bypassable, and
+    fails open on a HIBP timeout/outage, same as before; that is no longer a coverage gap, since
+    the server backstops it.
+  - New `lib/auth-errors.ts` — `mapAuthError` extracted out of `app/(auth)/sign-in.tsx`'s catch
+    block so this security-relevant mapping gets real unit-test coverage (screens aren't
+    unit-tested by convention). It takes the raw caught `unknown`, not just a message string,
+    because the new branch needs supabase-js's typed `AuthWeakPasswordError.reasons` array to
+    tell a server-side breach rejection apart from a plain too-short password — both throw the
+    same error class. Covered by new `lib/__tests__/auth-errors.test.ts` (8 tests,
+    mutation-verified).
+  - **A GoTrue subtlety worth recording**: `reasons` is a set, not a tag — it accumulates, so a
+    password that is both too short and breached returns `['length', 'pwned']` (verified live
+    with `"abc123"`). `mapAuthError` therefore checks `length` before `pwned`: the more
+    actionable message wins, so a user isn't told only "breached" and left never learning the
+    8-character rule.
+  - `.github/workflows/hibp-canary.yml` gained a second, read-only assertion that
+    `password_hibp_enabled` is still `true` on every daily run, filing a distinct
+    `security`-labelled issue if it ever reverts (self-healing on recovery, same as the
+    existing canary). Rationale: the control is Pro-plan-gated, so a billing lapse or a
+    Dashboard toggle could silently disable it, and `lib/hibp.ts` fails open, so it would NOT
+    catch that on its own. **This assertion needs a `SUPABASE_ACCESS_TOKEN` repo secret, which
+    does not exist yet** — until Ian adds it, the step fails loudly (rather than passing green)
+    so an unarmed monitor can't be mistaken for coverage.
+  - `docs/status.md`, `docs/architecture.md`, and `docs/blocked-on-apple.md` updated: #70 moves
+    from "mitigated, blocked on Supabase Pro" to resolved; the Known Issue about the client-side
+    check being the only line of defense is rewritten to reflect that the server now backstops
+    it.
+  - Verification: `npm run typecheck && npm run lint && npm test` all clean (116 tests).
 - **Frame uploads move server-side, after the model call — contract settled, migration written
   but NOT applied to the live project (issue #88).** The old contract was both unbuildable and
   leaking: `reserve_analysis` minted the analysis id server-side yet took `p_media_paths` as an

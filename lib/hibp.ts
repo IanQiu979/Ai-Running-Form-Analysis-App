@@ -1,11 +1,20 @@
 /**
  * Client-side HaveIBeenPwned leaked-password check (issue #70).
  *
- * Supabase's built-in leaked-password protection (the same HIBP data) is Pro-plan-gated —
- * enabling it on this project's free-plan org returns HTTP 402. This reimplements the check
- * ourselves against HIBP's free, keyless Pwned Passwords **range API**, which is built on
- * k-anonymity: only the first 5 hex characters of the password's SHA-1 hash ever leave the
- * device. The plaintext password and the full 40-char hash never do. `Add-Padding: true`
+ * Supabase's built-in server-side leaked-password protection (the same HIBP data) is now
+ * ENABLED and is the authority: the org moved to the Pro plan and `password_hibp_enabled` was
+ * turned on for this project (`vputdomdlknvthnzritt`) on 2026-07-12 — confirmed live
+ * (`password_hibp_enabled = true`; the security advisor's `auth_leaked_password_protection`
+ * lint is gone). A breached password is now hard-rejected server-side on `signUp` with HTTP
+ * 422, `error_code: 'weak_password'`, `reasons: ['pwned']` — see `lib/auth-errors.ts`'s
+ * `mapAuthError`, which maps that rejection to `Copy.auth.error.passwordBreached`.
+ *
+ * This function stays for two reasons now that the server enforces the real rule: (1) it gives
+ * instant inline feedback on submit, before the `signUp` round-trip, which the server-only path
+ * can't; and (2) it's defense-in-depth if `password_hibp_enabled` is ever flipped off again. It
+ * reimplements the check against HIBP's free, keyless Pwned Passwords **range API**, which is
+ * built on k-anonymity: only the first 5 hex characters of the password's SHA-1 hash ever leave
+ * the device. The plaintext password and the full 40-char hash never do. `Add-Padding: true`
  * asks the API to pad its response with decoy rows so response size can't be used to infer
  * the true match count via traffic analysis.
  *
@@ -21,8 +30,9 @@
  *      breadcrumbs, and a hash prefix or timing detail logged here becomes a durable record.
  *   2. Never throw with context. Every path returns the `BreachCheck` union; every unexpected
  *      failure is caught and folded into `unavailable`. A thrown `Error` carrying any part of
- *      the hash would be one careless `err.message` log away from disclosure — and
- *      `sign-in.tsx`'s `mapAuthError` does exactly that with caught auth errors today.
+ *      the hash would be one careless `err.message` log away from disclosure. (`mapAuthError` in
+ *      `lib/auth-errors.ts` *reads* `err.message` to match against, but only ever returns fixed
+ *      `Copy.auth.error.*` strings — it never surfaces the raw message. Keep it that way.)
  *   3. Never cache or memoize keyed by the plaintext password. A `Map<password, result>` (or
  *      any structure keyed the same way) would pin the plaintext in memory for the process
  *      lifetime, defeating the entire point of hashing it first.

@@ -64,6 +64,21 @@ milestone "done" criteria.
   `observability-setup` work happens, and **Sentry is actively contraindicated** there (its
   breadcrumbs would fingerprint the passwords `lib/hibp.ts` protects). See
   `docs/architecture.md`'s "Current — CI" section.
+- **Issue #70 closed 2026-07-12 — server-side leaked-password protection is genuinely fixed, not
+  just mitigated.** The blocker (org on the Supabase Free plan; enabling
+  `password_hibp_enabled` returned HTTP 402 during the M1 audit) is gone — `Echo_Running_Final`
+  is now on the **Pro plan**, and `password_hibp_enabled = true` was applied live and verified: a
+  breached password hard-fails `signUp` with HTTP 422 / `reasons: ['pwned']`, a strong one still
+  succeeds, and **the project's security advisor list is now completely empty (zero findings)** —
+  the `auth_leaked_password_protection` lint that was the project's one remaining finding is
+  gone. `lib/hibp.ts` (the client-side k-anonymity pre-check) is **deliberately kept**, but its
+  role changed: it's a fast UX pre-check and defense-in-depth now, not the enforcement point —
+  the server is. New `lib/auth-errors.ts` (`mapAuthError`, extracted from `sign-in.tsx` for real
+  unit-test coverage, 8 tests) maps the server's typed rejection to
+  `Copy.auth.error.passwordBreached`. The `hibp-canary` workflow gained a second assertion that
+  `password_hibp_enabled` stays `true` — currently **unarmed pending a `SUPABASE_ACCESS_TOKEN`
+  repo secret**, so it fails loudly rather than silently passing. See `docs/architecture.md`'s
+  "Current — Supabase config" section and `docs/blocked-on-apple.md`'s resolved-issues table.
 - Full dated history: [`docs/change_log.md`](change_log.md).
 
 ## Known issues
