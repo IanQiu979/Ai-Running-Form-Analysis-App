@@ -56,6 +56,92 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     clean `npx expo export -p ios` bundle (1456 modules, zero errors).
   - `npm run typecheck && npm run lint && npm test` clean (340 Jest + 29 Deno tests, up from 309 +
     29).
+- **The grounded `analyze-form` prompt, the tier verbosity dial, and the structured-output
+  contract (issue #41 — M4's blocker; #44 and #45 can now start).** New:
+  `supabase/functions/_shared/analyze-form-prompt.ts` (pure, injectable, never calls Anthropic —
+  same pure/client split as `ai-guard.ts`) plus 28 Deno tests. **No live model call was made** and
+  no function was deployed. Full detail in `docs/architecture.md` → "Current — the `analyze-form`
+  prompt".
+  - **Grounding**: the three certified `knowledge/*.md` files are injected **verbatim** from
+    `knowledge.generated.ts` (#90) and asserted present **byte-for-byte** in the assembled prompt.
+  - **Tier dial**: one prompt, one parameter (`TIER_VERBOSITY`). It moves depth and only depth —
+    the not-assessed, medical-boundary, timestamp, and input-channel rules are assembled *outside*
+    the dial and are byte-identical at every tier, so a paid tier can buy more words but never more
+    confidence. Tested as a property across all three tiers.
+  - **Issue #112 honored**: frame timestamps are the **requested** times, not the decoded ones, so
+    every rendered time and interval is explicitly approximate, the error bar (hundreds of ms) is
+    stated, precise SPM/GCT/VO figures are forbidden **at every tier including Elite**, and Cadence
+    and Elasticity are steered onto timestamp-*independent* evidence (the overstriding signature;
+    the visible quality of the landing) — which `pace_framework.md` already calls the most important
+    thing you can see, and which needs no clock.
+  - **Contract**: a forced, `strict: true` `submit_pace_analysis` tool whose `input_schema` **is**
+    `PaceResult` (#43) — no parallel shape, no adapter. A round-trip test proves schema-shaped
+    responses (including the photo case, where Cadence and Elasticity are honestly `null`) satisfy
+    `isPaceResult`, so #45 can never reject an obedient model.
+  - **Call config**: `thinking: {type: 'adaptive'}` (ON — this is a multi-step vision-reasoning
+    task and the one call the product exists to make; running it with thinking off would be a
+    material quality regression), `output_config: {effort: 'medium'}` (exported as
+    `ANALYZE_FORM_EFFORT` for #42 to sweep — `medium` because `max_tokens` is a tight 4–8k that
+    thinking counts against, Anthropic names "drop to medium" as the direct remedy for a
+    mostly-thinking truncated answer, and Sonnet 5 at medium ≈ Sonnet 4.6 at high), and
+    `tool_choice: auto`. `thinking` and `tool_choice` are **independent** options — no coupling.
+    The docs state (with no platform scoping) that a *forced* `tool_choice` is incompatible with
+    thinking; a credible report scopes that to Amazon Bedrock only, which could not be confirmed.
+    `auto` is correct under both readings, so it is the default, and `strict: true` + a prompt that
+    demands the tool call + #45's fallback carry the shape guarantee. #44 should confirm on its
+    first live call whether `forceToolCall: true` works alongside adaptive thinking.
+  - **Corrected two stale architecture claims that would have shipped as bugs.** (1) Step 6 asserted
+    the frames carry their *actual* sampled timestamps; they do not (#112) — corrected. (2) Step 8
+    specified a forced tool call **and** an explicit thinking config, without saying which thinking
+    config — rewritten to state the real contract, the forced-tool/thinking open question, and the
+    fact that `max_tokens` bounds thinking + text together. Also verified: this model rejects any
+    non-default `temperature`/`top_p`/`top_k`, so the request sets none — determinism comes from
+    `strict: true`, not from a sampling parameter.
+  - **Fixed an under-reserving spend gate (`ai-pricing.ts`, #91).** `SYSTEM_PROMPT_TOKENS_ESTIMATE`
+    shipped at `6000` as an admitted placeholder for a prompt that did not exist yet. The real
+    prompt is ~57k characters at Elite (system + user text + a ~13k-character tool schema, billed as
+    input) **and Claude Sonnet 5's new tokenizer produces ~30% more tokens for the same text**, so
+    the usual ~3.5–4 chars/token heuristic under-counts: at ~2.7 chars/token the worst case is
+    **~21.5k** tokens. `gate_ai_call` was reserving ~3.5x too little on every call — on a hard
+    credit ceiling with auto-reload off, that is how you run out mid-analysis. Raised to `24000`
+    (still conservative: priced as uncached, though the knowledge + tool prefix is cached at 0.1x),
+    with a test that re-measures the prompt at the Sonnet-5 ratio and fails if it outgrows the
+    constant. The **output** reservation needed no change and is not exposed by thinking: thinking
+    bills as output, but `max_tokens` caps thinking + text together and equals the reserved
+    `outputTokens`, so billed output ≤ reserved output — asserted by a test.
+- **`GET /functions/v1/quota-status` built (issue #50), the server-authoritative read that #54
+  (Home's quota display) must replace its client-side count query with.** `app/(tabs)/index.tsx`
+  currently derives quota itself via a `subscriptions` + `analyses` count query, which CLAUDE.md's
+  "no business rules in the client" rule forbids and which cannot even be completed for Pro/Elite
+  (`pace_current_period`'s `EXECUTE` is revoked from `authenticated`). Built and Deno-tested on
+  `fix/50`; **not deployed**. See `docs/architecture.md`'s "Current — `GET
+  /functions/v1/quota-status` (issue #50)" section for the full design.
+  - **Added** `supabase/migrations/20260712233000_quota_status_function.sql`: a new, read-only,
+    `SECURITY DEFINER` function, `pace_quota_status(p_user_id, p_as_of)`, granted to
+    `service_role` only — **WRITTEN, NOT APPLIED** to any database (issue #50's hard constraint).
+    Calls the exact same `pace_current_period`/`pace_is_farming_signal` functions the live
+    `reserve_analysis` calls (verified via `pg_get_functiondef` against project
+    `vputdomdlknvthnzritt` before writing this file), so period math and farming-signal
+    classification cannot drift between the two. Does not `create or replace` `reserve_analysis`,
+    `settle_analysis`, or `release_analysis`. The one unavoidable duplication — the literal tier
+    -> limit/frame_cap table `reserve_analysis` inlines rather than exposing as a helper — is
+    copied verbatim with a loud "keep in sync" comment, since closing it fully would require
+    editing `reserve_analysis`'s own body, out of scope here.
+  - **Added** `supabase/functions/quota-status/index.ts`, `_shared/quota-status.ts` (pure
+    orchestration), `_shared/quota-status-client.ts` (service-role client factory, same
+    `ai-guard-client.ts`/`delete-analysis-client.ts` split). The response represents the issue #6
+    anti-farm block as a state independent of quota — `blocked`/`blockedReason`/`blockedUntil`
+    can be true/set even while `remaining > 0`, so a rate-limited-but-not-out-of-quota user is
+    never shown a plain "1 analysis left."
+  - **Added** `supabase/functions/_shared/__tests__/quota-status.deno.test.ts` (18 tests): RPC
+    response-shaping tests (free lifetime exhaustion, paid period windowing, the
+    blocked-with-quota-remaining case) against an injected fake `RpcClient`, plus migration-text
+    invariant tests proving the migration's counting queries never filter on `deleted_at` (a
+    soft-deleted analysis keeps counting, matching `reserve_analysis`) and that its tier -> limit
+    table matches the live `reserve_analysis`'s literal values. No live/local database was
+    available or permitted to integration-test against — see the architecture doc section above
+    for the honest scope of what this proves.
+
 - **Client-side soft-delete bypass around #57's delete endpoint closed (found by #57's agent,
   fixed alongside #6, migration written, not yet applied to the live project).** #2's soft-delete
   `UPDATE(deleted_at)` grant + policy on `public.analyses` was the intended client delete path
