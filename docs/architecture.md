@@ -794,6 +794,26 @@ public.analyses to authenticated` — verified live via `has_table_privilege`: `
 no longer INSERT, DELETE, or TRUNCATE this table at all, and the one column it can UPDATE is
 `deleted_at`. `anon` gets nothing on this table, as before.
 
+**Planned — the soft-delete UPDATE grant/policy above is itself being removed (issue #6's
+follow-up, migration written 2026-07-12, NOT yet applied).** #57's agent, building the
+server-side `DELETE /functions/v1/analysis/:id` edge function in a sibling worktree, found that
+#2's client-facing soft-delete path is now a bypass around that endpoint: a client can PATCH
+`deleted_at` directly, which fires the redaction trigger (wiping `media_paths`) without ever
+purging the Storage objects it named — issue #3 (deleted media never actually purged)
+reintroduced through the door #2 opened, exactly what CLAUDE.md forbids. Not exploited today (0
+`analyses` rows live, and a repo-wide grep of `app/`/`lib`/`components/` found no client code that
+writes `deleted_at`).
+`supabase/migrations/20260712230000_analyses_client_delete_removed.sql` revokes `authenticated`'s
+`update (deleted_at)` grant and drops the soft-delete policy; the `deleted_at` column, the
+redaction trigger, and the three quota RPCs are untouched — `service_role` (which the future
+delete edge function runs as) holds its own separate, unrevoked grant set and bypasses RLS
+regardless, so it is unaffected. Once applied, the **resulting matrix on `public.analyses`** is:
+`anon` — nothing; `authenticated` — `SELECT` only, table-level, one policy ("Users can view their
+own analyses"), no INSERT/UPDATE/DELETE/TRUNCATE at all; `service_role` — unchanged, full access.
+Delete becomes exclusively server-side. This migration is independent of and composes cleanly
+with issue #6's other pending migration (`20260712220000`, the anti-farm fix above) — neither
+touches a statement the other one wrote.
+
 **Media privacy, as deployed**: the private `media` bucket (5MB/object cap, `image/jpeg` only)
 originally had owner-scoped `storage.objects` RLS for insert/select/delete — first path segment
 must equal `(select auth.uid())::text` — and deliberately **no UPDATE policy** (frames are

@@ -105,33 +105,47 @@ describe('net effect on public.analyses policies across the full migration seque
     expect(deletePolicies).toEqual([]);
   });
 
-  it('exactly one SELECT and one UPDATE policy remain, both owner-scoped', () => {
+  // NOTE ON THESE TWO TESTS (updated by 20260712230000_analyses_client_delete_removed.sql):
+  // simulateAnalysesPolicies() scans the FULL migrations directory chronologically, so it
+  // reflects whatever migration files exist at test-run time, not just this file's own effect.
+  // #57's agent found that this migration's soft-delete UPDATE policy — the fix for #2 at the
+  // time, before a server-side delete endpoint existed — was itself a bypass around that now-built
+  // endpoint that orphans Storage frames (issue #3 reintroduced). 20260712230000 drops the policy
+  // entirely; delete is now exclusively server-side (service_role, which bypasses RLS and is
+  // unaffected by any policy on this table). That is not a regression of #2's fix — #2's actual
+  // goal (a client can no longer reset the quota/anti-farm counters by deleting a row) is preserved
+  // a fortiori: the client now has no write path to this table at all, not even a restricted one.
+  it('exactly one SELECT policy remains, owner-scoped — no UPDATE policy survives the full sequence', () => {
     const policies = simulateAnalysesPolicies();
     const byCmd = (cmd: string) => policies.filter((p) => p.cmd === cmd);
 
     expect(byCmd('select')).toHaveLength(1);
-    expect(byCmd('update')).toHaveLength(1);
+    // The soft-delete UPDATE policy this migration introduced is gone by the end of the full
+    // migration sequence — dropped by 20260712230000 once #57's server-side delete function made
+    // it a dangerous bypass rather than a legitimate fallback. See the note above.
+    expect(byCmd('update')).toHaveLength(0);
     // No insert policy for the client either — rows are only ever created by reserve_analysis.
     expect(byCmd('insert')).toHaveLength(0);
+    // No delete policy either (the original exploit this file's own fix closed).
+    expect(byCmd('delete')).toHaveLength(0);
 
-    for (const p of [...byCmd('select'), ...byCmd('update')]) {
+    for (const p of byCmd('select')) {
       expect(p.sql).toMatch(/auth\.uid\(\)\)?\s*=\s*user_id/);
     }
   });
 
-  it('the surviving UPDATE policy only permits the not-deleted -> deleted transition', () => {
-    const policies = simulateAnalysesPolicies();
-    const softDelete = policies.find((p) => p.cmd === 'update');
-    expect(softDelete).toBeDefined();
-
-    // USING must exclude already-deleted rows (so a soft-deleted row becomes immutable) — split
-    // on "with check" first so each half is checked against the right clause, since the USING
-    // clause itself contains a nested `(select auth.uid())` paren group that defeats a naive
-    // single-level `[^)]*` match.
-    const [usingClause, withCheckClause] = softDelete!.sql.split(/with check/i);
+  it('this file still introduces a real, correctly-shaped soft-delete UPDATE policy (checked directly against this migration, independent of later supersession)', () => {
+    // Unlike the test above (which reflects the END state across every migration file present),
+    // this asserts what THIS migration's own text says — proof #2's fix was correct when it
+    // shipped, regardless of what a later migration does to it.
+    const sql = readMigration(FIX_MIGRATION);
+    const policyMatch = sql.match(
+      /create policy\s+"Users can soft-delete their own analyses"\s+on\s+public\.analyses\s+for\s+update([\s\S]*?);/i
+    );
+    expect(policyMatch).not.toBeNull();
+    const [usingClause, withCheckClause] = policyMatch![1].split(/with check/i);
     expect(usingClause).toMatch(/using/i);
     expect(usingClause).toMatch(/deleted_at is null/i);
-    // WITH CHECK must require the row to end up deleted (no un-delete, no silent no-op update).
     expect(withCheckClause).toBeDefined();
     expect(withCheckClause).toMatch(/deleted_at is not null/i);
   });

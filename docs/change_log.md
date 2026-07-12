@@ -7,6 +7,44 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-12
 
+- **Client-side soft-delete bypass around #57's delete endpoint closed (found by #57's agent,
+  fixed alongside #6, migration written, not yet applied to the live project).** #2's soft-delete
+  `UPDATE(deleted_at)` grant + policy on `public.analyses` was the intended client delete path
+  before a server-side delete endpoint existed; now that #57's `DELETE
+  /functions/v1/analysis/:id` edge function exists (built in a sibling worktree), that path is a
+  bypass — a client can PATCH `deleted_at` directly, firing #2's redaction trigger (which wipes
+  `media_paths`) without ever purging the Storage objects it named. That is issue #3 (deleted
+  media never actually purged) reintroduced through the door #2 opened. Not exploited today:
+  verified live (project `vputdomdlknvthnzritt`) that `public.analyses` has 0 rows, and a
+  repo-wide grep of `app/`, `lib/`, `components/` found zero client code writing `deleted_at` or
+  calling `.update()` against `analyses` — the only client reference to the table is the
+  read-only quota-count `SELECT` in `app/(tabs)/index.tsx`. Revoking this breaks nothing live
+  today.
+  - **Added** `supabase/migrations/20260712230000_analyses_client_delete_removed.sql`: revokes
+    `authenticated`'s `update (deleted_at)` column grant and drops the "Users can soft-delete
+    their own analyses" policy. Leaves the `deleted_at` column, the redaction trigger, and all
+    three quota RPCs (`reserve_analysis`/`settle_analysis`/`release_analysis`) untouched —
+    `service_role` (which the delete edge function runs as) holds its own separate, unrevoked
+    grant set and bypasses RLS regardless, confirmed by reading
+    `information_schema.column_privileges` live rather than assumed. Resulting matrix on
+    `public.analyses`: `anon` — nothing; `authenticated` — `SELECT` only (one policy, no
+    INSERT/UPDATE/DELETE/TRUNCATE); `service_role` — unchanged, full access. Delete is now
+    exclusively server-side. Composes cleanly with this same branch's other pending migration
+    (`20260712220000`, the anti-farm fix below) — timestamped later, touches no statement the
+    other one wrote (policies/grants only here; a function body and a CHECK constraint only
+    there).
+  - **Added** `supabase/migrations/__tests__/analyses_client_delete_removed.test.ts` (13 tests)
+    and **updated** `supabase/migrations/__tests__/analyses_quota_soft_delete.test.ts`'s two
+    cross-migration policy-simulation assertions — that suite dynamically scans every migration
+    file's `CREATE`/`DROP POLICY` statements to compute the net-effect policy set, so adding this
+    migration correctly changes its computed end state from "one SELECT + one UPDATE policy
+    survive" to "one SELECT policy survives, zero UPDATE"; a new test was added alongside it that
+    checks the soft-delete policy's shape directly against #2's own migration file (independent of
+    later supersession), so #2's fix is still provably correct as originally written even though a
+    later migration removes what it added.
+  - **Updated** `docs/architecture.md`'s `analyses`'s RLS section with a new "Planned" paragraph;
+    not yet applied to the live project, same not-yet-live footing as #6's anti-farm migration.
+
 - **Anti-farming cap now distinguishes our infrastructure failures from genuine abuse (fixes
   #6, HIGH — migration written, not yet applied to the live project).** `reserve_analysis`
   counted every `status = 'released'` row toward its 3-failed-attempt anti-farming cap
