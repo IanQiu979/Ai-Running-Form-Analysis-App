@@ -16,6 +16,7 @@
  * only runs once the promise resolves.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import type { TestInstance } from 'test-renderer';
 
 import { ConsentGate } from '../consent-gate';
 import { Copy } from '@/constants/copy';
@@ -33,6 +34,21 @@ async function renderGate() {
   const onCancel = jest.fn();
   await render(<ConsentGate onConsented={onConsented} onCancel={onCancel} />);
   return { onConsented, onCancel };
+}
+
+// Walks up from a host element to the nearest ancestor Pressable's own `onPress` prop, reading
+// it off the underlying fiber (test-renderer's `unstable_fiber`, the same field fireEvent.press
+// itself resorts to internally). Used only by the race test below, and only for the press that
+// must NOT go through fireEvent.press's own act()-wrapping — see that test for why.
+function getOnPress(instance: TestInstance): () => void {
+  let fiber = instance.unstable_fiber;
+  while (fiber) {
+    if (typeof fiber.memoizedProps?.onPress === 'function') {
+      return fiber.memoizedProps.onPress;
+    }
+    fiber = fiber.return;
+  }
+  throw new Error(`no onPress handler found above ${String(instance.type)}`);
 }
 
 beforeEach(() => {
@@ -92,6 +108,46 @@ it('cancels without recording anything', async () => {
 
   expect(onCancel).toHaveBeenCalledTimes(1);
   expect(mockGrantConsent).not.toHaveBeenCalled();
+});
+
+// Finding 1: a cancel-mid-write race must not fire both callbacks. Per this component's own
+// contract, onCancel() unmounts/replaces the gate — but the in-flight grantConsent() write
+// keeps running underneath and, unguarded, its resolution would call onConsented() from a
+// stale closure, advancing a user into upload right after they cancelled.
+it('never calls onConsented if Cancel is pressed while the grant write is still pending', async () => {
+  // A controlled promise standing in for the network round-trip: it does not resolve until this
+  // test calls `resolveGrant()`, which is what lets us press Cancel WHILE the write is in flight.
+  let resolveGrant: () => void = () => {};
+  mockGrantConsent.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveGrant = resolve;
+      })
+  );
+  const { onConsented, onCancel } = await renderGate();
+
+  await fireEvent.press(screen.getByTestId('consent-checkbox'));
+
+  // Deliberately not awaited: `fireEvent.press` wraps the press in `act()`, and because
+  // `handleConsent` is async and doesn't settle until grantConsent's still-pending promise
+  // resolves, awaiting this here would hang the test on the very thing we're trying to
+  // interrupt with Cancel.
+  const primaryPress = fireEvent.press(screen.getByTestId('consent-cta-primary'));
+
+  // Press Cancel while that write is still in flight — but via the raw handler, not another
+  // `fireEvent.press`. A second `fireEvent.press` would open its own `act()` scope before the
+  // first (still-pending) one closes, which React disallows ("overlapping act() calls") and
+  // which corrupts every test that runs after this one. Calling the handler directly is safe
+  // here because it performs no React state update (see the component: it only flips a ref and
+  // calls the `onCancel` prop) — there's nothing for `act()` to flush.
+  getOnPress(screen.getByTestId('consent-cta-secondary'))();
+  expect(onCancel).toHaveBeenCalledTimes(1);
+
+  // The write resolves only now — after the user already cancelled.
+  resolveGrant();
+  await primaryPress;
+
+  expect(onConsented).not.toHaveBeenCalled();
 });
 
 // The checkbox label names the health processing and Anthropic by name. That naming is what

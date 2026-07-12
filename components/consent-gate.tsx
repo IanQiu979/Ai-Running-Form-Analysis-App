@@ -9,7 +9,7 @@
  * This is a component, not a route. M2 owns whether it presents as a modal or a screen, and where
  * it intercepts the source-picker → capture handoff.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Copy } from '@/constants/copy';
@@ -23,6 +23,7 @@ import {
   HitTarget,
   Opacity,
   Radius,
+  Score,
   Spacing,
   type ColorScheme,
   type ThemeColors,
@@ -31,7 +32,15 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { grantConsent, UPLOAD_HEALTH_CONSENT } from '@/lib/consent';
 
 type Props = {
-  /** Consent is recorded and the caller may proceed into capture/upload. */
+  /**
+   * Consent is recorded and the caller may proceed into capture/upload.
+   *
+   * Contract: the host MUST unmount or replace this gate when this fires. `pending` is
+   * intentionally never reset after a successful grant (see the handler below) — that's what
+   * stops a second press from ever re-granting — so a host that leaves the gate mounted instead
+   * of unmounting/replacing it on this callback will find it permanently inert (spinner, no
+   * further interaction) rather than double-granting.
+   */
   onConsented: () => void;
   /** Dismissed without consenting. Nothing was recorded and nothing may be uploaded. */
   onCancel: () => void;
@@ -40,11 +49,16 @@ type Props = {
 export function ConsentGate({ onConsented, onCancel }: Props) {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createStyles(colors, scheme), [colors, scheme]);
 
   const [checked, setChecked] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Flipped the instant Cancel is pressed, including mid-write. Unmounting (what the host does
+  // on cancel, per this component's contract) does not cancel the in-flight grantConsent()
+  // promise below — without this, a late resolve/reject would still call onConsented() (or touch
+  // state) from this stale closure after the user already backed out.
+  const cancelledRef = useRef(false);
 
   const canProceed = checked && !pending;
 
@@ -56,13 +70,20 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
 
     try {
       await grantConsent(UPLOAD_HEALTH_CONSENT);
+      if (cancelledRef.current) return;
       onConsented();
     } catch {
+      if (cancelledRef.current) return;
       // Fail closed: the gate stays up, nothing is uploaded, and we say so plainly. We do not
       // advance on the assumption the write probably worked — an unprovable consent is no consent.
       setError(Copy.consent.upload.error.record);
       setPending(false);
     }
+  }
+
+  function handleCancel() {
+    cancelledRef.current = true;
+    onCancel();
   }
 
   return (
@@ -86,7 +107,11 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
 
       <Text style={styles.privacyLink}>{Copy.consent.upload.link.privacy}</Text>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <Text style={styles.error} accessibilityLiveRegion="polite">
+          {error}
+        </Text>
+      ) : null}
 
       <Pressable
         testID="consent-cta-primary"
@@ -104,8 +129,10 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
 
       <Pressable
         testID="consent-cta-secondary"
-        onPress={onCancel}
+        onPress={handleCancel}
+        disabled={pending}
         accessibilityRole="button"
+        accessibilityState={{ disabled: pending }}
         style={styles.secondaryCta}>
         <Text style={styles.secondaryCtaLabel}>{Copy.consent.upload.cta.secondary}</Text>
       </Pressable>
@@ -113,7 +140,7 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
   );
 }
 
-function createStyles(colors: ThemeColors) {
+function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
     container: {
       backgroundColor: colors.surface.base,
@@ -166,8 +193,13 @@ function createStyles(colors: ThemeColors) {
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.xs,
     },
+    // No dedicated "error"/"danger" token exists in constants/theme.ts yet — score.low's text
+    // role (clay red-orange, AA-proven in constants/__tests__/theme-contrast.test.ts) is the
+    // closest available token-only "negative" hue, so it's reused here rather than hardcoding a
+    // new color. Same precedent as app/(auth)/sign-in.tsx's errorText. Worth design-system
+    // adding a real semantic error token later.
     error: {
-      color: colors.text.primary,
+      color: Score.low[scheme].text,
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.sm,
     },
