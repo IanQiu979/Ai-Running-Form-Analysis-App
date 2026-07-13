@@ -5,6 +5,7 @@ import 'react-native-url-polyfill/auto';
 
 import { createClient } from '@supabase/supabase-js';
 
+import type { Database } from './database.types';
 import { secureSessionStorage } from './secure-storage';
 
 // Static dot access only (never destructured) — the expo/no-dynamic-env-var lint rule
@@ -21,7 +22,10 @@ if (!supabaseUrl || !supabasePublishableKey) {
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
+// The `Database` generic (lib/database.types.ts, generated from the live schema — issue #32)
+// is what makes every `.from(...)`/`.rpc(...)` call below get checked against the real
+// column/RPC shapes at compile time, instead of resolving to `any` and only failing at runtime.
+export const supabase = createClient<Database>(supabaseUrl, supabasePublishableKey, {
   auth: {
     // SecureStore-backed (Keychain/Keystore), not plaintext AsyncStorage — issue #38,
     // docs/status.md Known Issue #13. See lib/secure-storage.ts for the "LargeSecureStore"
