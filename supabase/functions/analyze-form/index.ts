@@ -18,6 +18,7 @@
 // `service_role`-only — so a user id read from the body would forge reservations into someone
 // else's quota and settle results into their history (`docs/status.md` Known Issue #14).
 import { createClient } from 'npm:@supabase/supabase-js@2.110.2';
+import { errorClassOf, hashUserId, logEvent, newRequestId } from '../_shared/log.ts';
 import { runAnalyzeForm } from './flow.ts';
 import { createAnalyzeFormDeps } from './deps.ts';
 
@@ -69,6 +70,12 @@ async function resolveCallerUserId(authHeader: string): Promise<string> {
 }
 
 Deno.serve(async (req) => {
+  // Issue #85 — minted once per invocation, before auth even runs, so it can correlate this
+  // request's log lines regardless of how early it fails. Threaded into `runAnalyzeForm` below so
+  // `flow.ts`'s own structured events (`ai_gate_denied`, `retry_gated_out`,
+  // `honest_partial_fallback`, the final summary, ...) share the same id.
+  const requestId = newRequestId();
+
   if (req.method !== 'POST') {
     return jsonResponse(405, {
       error: 'Only POST is supported on this route.',
@@ -109,6 +116,14 @@ Deno.serve(async (req) => {
       'analyze-form: misconfigured environment',
       err instanceof Error ? err.message : err
     );
+    logEvent({
+      level: 'error',
+      fn: 'analyze-form',
+      event: 'misconfigured',
+      requestId,
+      userId: await hashUserId(callerUserId),
+      errorClass: errorClassOf(err),
+    });
     return jsonResponse(500, {
       error: 'Analysis is not available right now. Please try again shortly.',
       code: 'misconfigured',
@@ -116,7 +131,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { status, body } = await runAnalyzeForm(deps, { callerUserId, rawBody });
+    const { status, body } = await runAnalyzeForm(deps, { callerUserId, rawBody, requestId });
     return jsonResponse(status, body);
   } catch (err) {
     // `runAnalyzeForm` catches everything internally and always resolves — this is the belt to that
@@ -127,6 +142,14 @@ Deno.serve(async (req) => {
       'analyze-form: runAnalyzeForm rejected — this should be unreachable',
       err instanceof Error ? err.message : err
     );
+    logEvent({
+      level: 'error',
+      fn: 'analyze-form',
+      event: 'run_analyze_form_rejected',
+      requestId,
+      userId: await hashUserId(callerUserId),
+      errorClass: errorClassOf(err),
+    });
     return jsonResponse(500, {
       error: 'Something went wrong running that analysis.',
       code: 'internal_error',

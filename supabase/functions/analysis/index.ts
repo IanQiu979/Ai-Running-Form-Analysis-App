@@ -25,6 +25,7 @@ import {
   type LogEvent,
 } from '../_shared/delete-analysis.ts';
 import { createDeleteAnalysisDeps } from '../_shared/delete-analysis-client.ts';
+import { hashUserId, logEvent, newRequestId, type LogLevel } from '../_shared/log.ts';
 
 function getPublishableKey(): string {
   const raw = Deno.env.get('SUPABASE_PUBLISHABLE_KEYS');
@@ -100,7 +101,25 @@ Deno.serve(async (req) => {
   // person's body are still sitting in the bucket after the user asked for them to be deleted.
   // Both are emitted as structured events, and the log sink defaults to a no-op — so without this
   // line the alarm exists but nothing can hear it. Same wiring as delete-account/index.ts.
-  const log: LogEvent = (event) => console.log(JSON.stringify({ fn: 'analysis', ...event }));
+  //
+  // Issue #85: routed through `_shared/log.ts`'s `logEvent()` rather than a bare `console.log`.
+  // `_shared/delete-analysis.ts` (not owned by this issue's lane) builds each event with the raw
+  // `callerUserId` and sometimes its own `level` ('warn'/'error' on the orphan-catching paths) —
+  // this wrapper swaps the raw id for the pre-computed hash and normalizes the level, without
+  // changing what `deleteAnalysis` itself decides to log or when.
+  const requestId = newRequestId();
+  const userIdHash = await hashUserId(callerUserId);
+  const log: LogEvent = (event) => {
+    const { userId, level, event: eventName, ...rest } = event;
+    logEvent({
+      level: (typeof level === 'string' ? level : 'info') as LogLevel,
+      fn: 'analysis',
+      requestId,
+      userId: typeof userId === 'string' ? userIdHash : null,
+      ...rest,
+      event: typeof eventName === 'string' ? eventName : 'delete_analysis.unknown',
+    });
+  };
   const result = await deleteAnalysis(analyses, storage, { analysisId: id, callerUserId, log });
 
   return jsonResponse(httpStatusForOutcome(result.outcome), responseBodyForOutcome(result));

@@ -10,14 +10,23 @@
  * ends at a valid, budget-compliant `PaceFrameSet` in memory (the M2 gate: "Both sources hand a
  * valid, budget-compliant frame set to the analysis step on iOS").
  *
- * WHERE THE FRAME SET GOES: nowhere yet. `analyze-form` (M4, issue #44) and the Analyzing wait
- * screen it needs (issue #80) don't exist. Rather than invent a fake next screen, the "ready"
- * state below is a genuine, honest stopping point — `Copy.upload.ready.*`, new copy, not a
- * placeholder string implying more exists — and "Done" (the deck's own `shared.cta.done`:
- * "Dismisses a screen with no further action needed", exactly true today) returns to Home. M4
- * replaces this ready-state branch with the real handoff; the extraction + progress + error
- * handling above it does not change.
+ * WHERE THE FRAME SET GOES (issue #135): the "ready" state hands off to `/analyzing` — the ONE
+ * control on that screen mints an idempotency key, builds the wire-shaped `AnalyzeFormRequest`
+ * (`lib/analyze-form.ts`'s `toAnalyzeFormRequest`) from the just-extracted `PaceFrameSet`, stages
+ * it on that file's one-shot module-level mailbox (`setPendingAnalyzeFormRequest`), and
+ * `router.replace`s to `/analyzing`, which already reads that mailbox on mount (issue #80). NOT
+ * route params: a request carries multi-megabyte base64 frame data
+ * (`PACE_MAX_REQUEST_BODY_BYTES` — up to 5MB), and expo-router search params are serialized into
+ * the URL — sound for the small scalar fields this screen already receives via route params
+ * (`uri`/`durationMs`/`width`/`height`), not for a payload two to three orders of magnitude
+ * larger. The mailbox is the documented seam for exactly this handoff (see this file's own header
+ * before this rewrite, `lib/analyze-form.ts`'s module comment, and `docs/architecture.md`'s
+ * "Current — the Analyzing screen" section) — a plain module holding one piece of state, the same
+ * shape as the existing `lib/consent.ts`/`lib/session-provider.tsx` precedent, not a new
+ * dependency. The extraction + progress + error handling above the "ready" branch does not
+ * change.
  */
+import * as Crypto from 'expo-crypto';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -40,7 +49,8 @@ import {
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { extractFrames, FrameBudgetExceededError, type PaceMediaInput } from '@/lib/frames';
+import { setPendingAnalyzeFormRequest, toAnalyzeFormRequest } from '@/lib/analyze-form';
+import { extractFrames, FrameBudgetExceededError, type PaceFrameSet, type PaceMediaInput } from '@/lib/frames';
 import { checkMediaCaps, type MediaCapViolation } from '@/lib/media-caps';
 import { readFileSizeBytes } from '@/lib/media-file-size';
 import { parseCaptureParams } from '@/lib/parse-capture-params';
@@ -57,7 +67,9 @@ const EXTRACTION_TIER: PaceTier = 'free';
 
 type ExtractState =
   | { status: 'extracting'; done: number; total: number }
-  | { status: 'ready'; frameCount: number }
+  // Carries the full PaceFrameSet, not just a count — goToAnalyzing needs the actual frames to
+  // build the AnalyzeFormRequest; frameCount for display is just `frameSet.frames.length`.
+  | { status: 'ready'; frameSet: PaceFrameSet }
   | { status: 'error'; kind: 'budgetExceeded' }
   | { status: 'error'; kind: 'extractionFailed' }
   | { status: 'error'; kind: 'capViolation'; violation: MediaCapViolation };
@@ -107,7 +119,7 @@ export default function ExtractingScreen() {
       if (!cancelled) setState({ status: 'extracting', done, total: framesTotal });
     })
       .then((frameSet) => {
-        if (!cancelled) setState({ status: 'ready', frameCount: frameSet.frames.length });
+        if (!cancelled) setState({ status: 'ready', frameSet });
       })
       .catch((error) => {
         if (cancelled) return;
@@ -130,8 +142,20 @@ export default function ExtractingScreen() {
     router.replace('/capture');
   }
 
-  function goToHome() {
-    router.replace('/(tabs)');
+  // The one control on the "ready" state (issue #135). Mints a fresh idempotency key for THIS
+  // analysis attempt — `analyze-form` is idempotent on `(user_id, idempotencyKey)`, and every
+  // retry of THIS submission inside app/analyzing.tsx reuses it; a new key here is correct because
+  // tapping this button is a genuinely new, user-initiated submission, not a retry of one.
+  // `Crypto.randomUUID()` (expo-crypto, already a dependency — no new one added) matches this
+  // project's existing WebCrypto usage (lib/crypto-polyfill.ts, lib/secure-storage.ts).
+  function goToAnalyzing() {
+    if (!media || state.status !== 'ready') return;
+    const idempotencyKey = Crypto.randomUUID();
+    const request = toAnalyzeFormRequest(media.mediaType, state.frameSet, idempotencyKey);
+    // Staged on lib/analyze-form.ts's one-shot mailbox, not route params — see this file's header
+    // for why route params are the wrong mechanism for multi-megabyte base64 frame data.
+    setPendingAnalyzeFormRequest(request);
+    router.replace('/analyzing');
   }
 
   return (
@@ -159,11 +183,11 @@ export default function ExtractingScreen() {
         {state.status === 'ready' && (
           <View style={styles.centered}>
             <Text style={styles.resultTitle}>{Copy.upload.ready.title}</Text>
-            <Text style={styles.caption}>{Copy.upload.ready.body(state.frameCount)}</Text>
+            <Text style={styles.caption}>{Copy.upload.ready.body(state.frameSet.frames.length)}</Text>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={Copy.upload.ready.cta}
-              onPress={goToHome}
+              onPress={goToAnalyzing}
               style={({ pressed }) => [styles.primaryCta, pressed && styles.pressedOpacity]}>
               <Text style={styles.primaryCtaText}>{Copy.upload.ready.cta}</Text>
             </Pressable>

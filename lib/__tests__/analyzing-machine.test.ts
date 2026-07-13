@@ -108,7 +108,70 @@ describe('analyzingReducer', () => {
 
   it('moves to failed on a matching-attempt failure', () => {
     const next = analyzingReducer(INITIAL_ANALYZING_STATE, { type: 'failed', attempt: 1 });
-    expect(next).toEqual({ phase: 'failed', attempt: 1 });
+    expect(next).toEqual({ phase: 'failed', attempt: 1, code: undefined });
+  });
+
+  // Issue #136: AnalyzeFormError.code must survive into state, distinguishably, so
+  // app/analyzing.tsx can route a quota_exceeded failure to the paywall instead of rendering the
+  // generic retryable error panel — see AnalyzingState's 'failed' doc comment.
+  describe('failed carries the server code through (issue #136)', () => {
+    it('moves to failed with the quota_exceeded code on a matching-attempt failure', () => {
+      const next = analyzingReducer(INITIAL_ANALYZING_STATE, {
+        type: 'failed',
+        attempt: 1,
+        code: 'quota_exceeded',
+      });
+      expect(next).toEqual({ phase: 'failed', attempt: 1, code: 'quota_exceeded' });
+    });
+
+    it('a quota_exceeded failure is distinguishable in state from a generic (undefined-code) failure', () => {
+      const genericFailure = analyzingReducer(INITIAL_ANALYZING_STATE, { type: 'failed', attempt: 1 });
+      const quotaFailure = analyzingReducer(INITIAL_ANALYZING_STATE, {
+        type: 'failed',
+        attempt: 1,
+        code: 'quota_exceeded',
+      });
+
+      expect(genericFailure).not.toEqual(quotaFailure);
+      expect(genericFailure.phase === 'failed' && genericFailure.code).toBeUndefined();
+      expect(quotaFailure.phase === 'failed' && quotaFailure.code).toBe('quota_exceeded');
+    });
+
+    it('carries a non-quota documented code through unchanged (e.g. validation_failed)', () => {
+      const next = analyzingReducer(INITIAL_ANALYZING_STATE, {
+        type: 'failed',
+        attempt: 1,
+        code: 'validation_failed',
+      });
+      expect(next).toEqual({ phase: 'failed', attempt: 1, code: 'validation_failed' });
+    });
+
+    // The "MAY reject (throw)" case (lib/analyze-form.ts's AnalyzeFormClient doc comment) has no
+    // server-authored code at all — app/analyzing.tsx's .catch() dispatches 'failed' with no
+    // `code` field, which must behave exactly like today's generic failure, not crash or coerce
+    // to some fabricated value.
+    it('a failure with no code at all still moves to the generic failed phase', () => {
+      const next = analyzingReducer(INITIAL_ANALYZING_STATE, { type: 'failed', attempt: 1 });
+      expect(next.phase).toBe('failed');
+      expect(next.phase === 'failed' && next.code).toBeUndefined();
+    });
+
+    // Both directions (issue #136's own wording): a generic failure must STILL be retryable —
+    // carrying `code` through must not disturb the existing failed -> retry -> waiting transition,
+    // for either a coded or an uncoded failure.
+    it('a generic (uncoded) failed state is still retryable', () => {
+      const failed = analyzingReducer(INITIAL_ANALYZING_STATE, { type: 'failed', attempt: 1 });
+      expect(analyzingReducer(failed, { type: 'retry' })).toEqual({ phase: 'waiting', attempt: 2 });
+    });
+
+    it('a quota_exceeded failed state is still retryable at the machine level (routing away is app/analyzing.tsx\'s job, not this reducer\'s)', () => {
+      const failed = analyzingReducer(INITIAL_ANALYZING_STATE, {
+        type: 'failed',
+        attempt: 1,
+        code: 'quota_exceeded',
+      });
+      expect(analyzingReducer(failed, { type: 'retry' })).toEqual({ phase: 'waiting', attempt: 2 });
+    });
   });
 
   it('moves to timedOut on a matching-attempt timeout', () => {
@@ -223,6 +286,32 @@ describe('analyzingReducer', () => {
     it('ignores a retry event from the released phase (no working retry exists for a released row)', () => {
       const released: AnalyzingState = { phase: 'released', analysisId: 'analysis-4' };
       expect(analyzingReducer(released, { type: 'retry' })).toBe(released);
+    });
+  });
+
+  // Issue #93 — the pre-flight offline gate. Its own phase rather than a fold into `failed`,
+  // because the screen must be able to say "nothing has been sent yet", which is true here only
+  // because submit() is never called. Unlike `released`, this one IS genuinely retryable: no
+  // request was ever made, so retrying is a real attempt, not a resubmit of a settled key.
+  describe('offline (issue #93)', () => {
+    it('moves a matching-attempt offline reading to the offline phase', () => {
+      const next = analyzingReducer(INITIAL_ANALYZING_STATE, { type: 'offline', attempt: 1 });
+      expect(next).toEqual({ phase: 'offline', attempt: 1 });
+    });
+
+    it('retry from offline starts a new, incremented attempt back in waiting', () => {
+      const offline: AnalyzingState = { phase: 'offline', attempt: 2 };
+      expect(analyzingReducer(offline, { type: 'retry' })).toEqual({ phase: 'waiting', attempt: 3 });
+    });
+
+    it('drops a stale offline event from an old attempt after a Retry has already started a new one', () => {
+      const retried: AnalyzingState = { phase: 'waiting', attempt: 2 };
+      expect(analyzingReducer(retried, { type: 'offline', attempt: 1 })).toBe(retried);
+    });
+
+    it('ignores an offline event once the attempt has already succeeded', () => {
+      const succeeded: AnalyzingState = { phase: 'succeeded', outcome: mockOutcome, analysisId: 'a' };
+      expect(analyzingReducer(succeeded, { type: 'offline', attempt: 1 })).toBe(succeeded);
     });
   });
 });

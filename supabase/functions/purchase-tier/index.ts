@@ -76,6 +76,7 @@
 // allowlist above is ever checked against). On an endpoint that hands out paid tiers for free, this
 // is the difference between "grant myself elite" and "grant anyone elite".
 import { createClient } from 'npm:@supabase/supabase-js@2.110.2';
+import { errorClassOf, hashUserId, logEvent, newRequestId } from '../_shared/log.ts';
 import {
   checkDeploymentGate,
   httpStatusForPurchase,
@@ -160,6 +161,8 @@ async function resolveCallerUserId(authHeader: string): Promise<string> {
 
 Deno.serve(async (req) => {
   const startedAt = Date.now();
+  // Issue #85 — correlates every log line below for this one invocation.
+  const requestId = newRequestId();
 
   // Gate check FIRST — before the HTTP method, before the Authorization header, before anything
   // about this specific request is inspected. If the master flag is off, this route must behave
@@ -191,14 +194,14 @@ Deno.serve(async (req) => {
   // caller cannot tell "the feature is off entirely" apart from "it's on but you're not a tester".
   const gateDecision = checkDeploymentGate(gateConfig, callerUserId);
   if (!gateDecision.allowed) {
-    console.log(
-      JSON.stringify({
-        fn: 'purchase-tier',
-        event: 'purchase_gate_denied',
-        userId: callerUserId,
-        reason: 'not_on_allowlist',
-      })
-    );
+    logEvent({
+      level: 'warn',
+      fn: 'purchase-tier',
+      event: 'purchase_gate_denied',
+      requestId,
+      userId: await hashUserId(callerUserId),
+      reason: 'not_on_allowlist',
+    });
     return notFoundResponse();
   }
 
@@ -219,37 +222,40 @@ Deno.serve(async (req) => {
   const { tier, source } = validation.request;
 
   // Structured log at the boundary — a tier grant is the single most security-relevant write in
-  // this app, and a silent one is unauditable. Never log the token or the raw body.
-  console.log(
-    JSON.stringify({
-      fn: 'purchase-tier',
-      event: 'purchase_requested',
-      userId: callerUserId,
-      tier,
-      source,
-    })
-  );
+  // this app, and a silent one is unauditable. Never log the token or the raw body. Routed through
+  // `_shared/log.ts` (issue #85): `userId` is now the hashed pseudonym, not the raw `auth.uid`,
+  // and `requestId` ties this line to whichever of `purchase_completed`/`purchase_rate_limited`/
+  // `purchase_failed` follows below.
+  logEvent({
+    level: 'info',
+    fn: 'purchase-tier',
+    event: 'purchase_requested',
+    requestId,
+    userId: await hashUserId(callerUserId),
+    tier,
+    source,
+  });
 
   try {
     const result = await purchaseTier(createPurchaseTierClient(), callerUserId, tier);
 
-    console.log(
-      JSON.stringify({
-        fn: 'purchase-tier',
-        event: result.outcome === 'rate_limited' ? 'purchase_rate_limited' : 'purchase_completed',
-        userId: callerUserId,
-        tier: result.tier,
-        // `outcome` is the repurchase/idempotency signal — 'unchanged' means this was a replay and
-        // the period anchor was (correctly) left alone; 'rate_limited' means this call was refused
-        // outright. Logged, never returned as-is in a 200: the V2.2 success contract is exactly
-        // three fields, and a rate-limited response gets its own error-shaped body instead.
-        outcome: result.outcome,
-        purchasedAt: result.purchasedAt,
-        periodStart: result.periodStart,
-        periodEnd: result.periodEnd,
-        durationMs: Date.now() - startedAt,
-      })
-    );
+    logEvent({
+      level: result.outcome === 'rate_limited' ? 'warn' : 'info',
+      fn: 'purchase-tier',
+      event: result.outcome === 'rate_limited' ? 'purchase_rate_limited' : 'purchase_completed',
+      requestId,
+      userId: await hashUserId(callerUserId),
+      tier: result.tier,
+      // `outcome` is the repurchase/idempotency signal — 'unchanged' means this was a replay and
+      // the period anchor was (correctly) left alone; 'rate_limited' means this call was refused
+      // outright. Logged, never returned as-is in a 200: the V2.2 success contract is exactly
+      // three fields, and a rate-limited response gets its own error-shaped body instead.
+      outcome: result.outcome,
+      purchasedAt: result.purchasedAt,
+      periodStart: result.periodStart,
+      periodEnd: result.periodEnd,
+      durationMs: Date.now() - startedAt,
+    });
 
     return jsonResponse(httpStatusForPurchase(result), responseBodyForPurchase(result));
   } catch (err) {
@@ -257,16 +263,21 @@ Deno.serve(async (req) => {
     // its migration is applied — see this file's header) is never the caller's fault, and never a
     // 4xx. Never leak the raw Postgres/network error message to the client: it is the only thing
     // here that could disclose schema internals.
-    console.error(
-      JSON.stringify({
-        fn: 'purchase-tier',
-        event: 'purchase_failed',
-        userId: callerUserId,
-        tier,
-        durationMs: Date.now() - startedAt,
-        message: err instanceof Error ? err.message : String(err),
-      })
-    );
+    //
+    // Issue #85: this log line used to carry `message: err.message` — a raw Postgres error can
+    // echo the offending value of a violated constraint (e.g. a unique-constraint message names
+    // the duplicate key), which is exactly the kind of accidental PII leak this issue exists to
+    // close. `errorClass` (the error's constructor name only) replaces it.
+    logEvent({
+      level: 'error',
+      fn: 'purchase-tier',
+      event: 'purchase_failed',
+      requestId,
+      userId: await hashUserId(callerUserId),
+      tier,
+      durationMs: Date.now() - startedAt,
+      errorClass: errorClassOf(err),
+    });
     return jsonResponse(500, {
       error: 'Could not complete your purchase. Please try again shortly.',
       code: 'purchase_unavailable',

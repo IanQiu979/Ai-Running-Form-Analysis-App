@@ -15,6 +15,8 @@
  */
 import type { PaceAnalysisOutcome } from '@shared/pace';
 
+import type { AnalyzeFormError } from './analyze-form';
+
 // -------------------------------------------------------------------------------------------
 // Wait-state pacing — docs/design/motion-consult.md "The wait state — V2.2's honesty mechanic,
 // restated". Issue #61 owns the motion/reduced-motion spec these constants and
@@ -110,20 +112,44 @@ export function captionPhaseForElapsed(elapsedMs: number): AnalyzingCaptionPhase
  * "otherwise spin forever" case the issue calls out — this phase carries no `attempt`, and the
  * reducer's `retry` case (below) does not list it, so a stray Retry tap from here is a no-op by
  * construction rather than a dead-end resubmit.
+ *
+ * `failed`'s `code` (issue #136): the exact `AnalyzeFormError['code']` the server sent, when the
+ * failure came from a documented non-2xx response — `undefined` for the "MAY reject (throw)"
+ * case `lib/analyze-form.ts`'s `AnalyzeFormClient` doc comment describes (no response was ever
+ * received, so there is no server-authored code to carry). This machine does not special-case any
+ * particular code value — it only has to carry whatever the server said through to the state
+ * untouched, so `app/analyzing.tsx` can route on it (`code === 'quota_exceeded'` -> `/paywall`,
+ * issue #52) without adding client-side quota logic. That routing decision, like every other
+ * quota/tier decision, belongs to the screen reading server state, never to this reducer.
  */
 export type AnalyzingState =
   | { phase: 'waiting'; attempt: number }
   | { phase: 'succeeded'; outcome: PaceAnalysisOutcome; analysisId: string }
-  | { phase: 'failed'; attempt: number }
+  | { phase: 'failed'; attempt: number; code?: AnalyzeFormError['code'] }
   | { phase: 'timedOut'; attempt: number }
+  | { phase: 'offline'; attempt: number }
   | { phase: 'released'; analysisId: string };
 
 export const INITIAL_ANALYZING_STATE: AnalyzingState = { phase: 'waiting', attempt: 1 };
 
 export type AnalyzingEvent =
   | { type: 'succeeded'; attempt: number; outcome: PaceAnalysisOutcome; analysisId: string }
-  | { type: 'failed'; attempt: number }
+  /**
+   * `code` (issue #136): threaded straight from `AnalyzeFormClientResult`'s `error.code` — see
+   * `AnalyzingState`'s `failed` doc comment above for what carries it and what doesn't, and why
+   * this reducer never inspects the value itself.
+   */
+  | { type: 'failed'; attempt: number; code?: AnalyzeFormError['code'] }
   | { type: 'timedOut'; attempt: number }
+  /**
+   * Issue #93: dispatched by `app/analyzing.tsx`'s submit effect when its pre-flight
+   * `checkConnectivity()` read comes back offline — BEFORE `analyzeFormClient.submit()` is ever
+   * called and before the client-side timeout timer starts. Kept as its own phase rather than
+   * folded into `failed` so the screen can show `offline.blocked.*`, whose "nothing has been sent
+   * yet" is true here BY CONSTRUCTION (no call was attempted), instead of the generic
+   * `analyzing.error.failed.*`. Retriable exactly like `failed`/`timedOut` — see `retry` below.
+   */
+  | { type: 'offline'; attempt: number }
   | { type: 'retry' }
   /**
    * Issue #64: dispatched by `app/analyzing.tsx` when a foreground-triggered reconciliation read
@@ -153,9 +179,13 @@ export function analyzingReducer(state: AnalyzingState, event: AnalyzingEvent): 
         ? { phase: 'succeeded', outcome: event.outcome, analysisId: event.analysisId }
         : state;
     case 'failed':
-      return isCurrentAttempt(state, event.attempt) ? { phase: 'failed', attempt: event.attempt } : state;
+      return isCurrentAttempt(state, event.attempt)
+        ? { phase: 'failed', attempt: event.attempt, code: event.code }
+        : state;
     case 'timedOut':
       return isCurrentAttempt(state, event.attempt) ? { phase: 'timedOut', attempt: event.attempt } : state;
+    case 'offline':
+      return isCurrentAttempt(state, event.attempt) ? { phase: 'offline', attempt: event.attempt } : state;
     case 'reconciledReleased':
       // Same staleness guard as every other attempt-tagged event: a reconciliation read that was
       // already in flight when a Retry (or an earlier reconcile) moved the machine off this
@@ -169,7 +199,7 @@ export function analyzingReducer(state: AnalyzingState, event: AnalyzingEvent): 
       // stray 'retry' from `waiting`/`succeeded`. `'released'` is deliberately excluded too — see
       // that phase's own doc comment above for why a Retry from there would silently do nothing
       // useful rather than actually retry.
-      return state.phase === 'failed' || state.phase === 'timedOut'
+      return state.phase === 'failed' || state.phase === 'timedOut' || state.phase === 'offline'
         ? { phase: 'waiting', attempt: state.attempt + 1 }
         : state;
     default:

@@ -18,6 +18,7 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.1
 import type { RpcClient } from '../_shared/ai-guard.ts';
 import type { AnalyzeFormRequest } from '../_shared/analyze-form-prompt.ts';
 import type { AnthropicMessageResponse } from '../_shared/analyze-form-validation.ts';
+import { logEvent, type LogLevel } from '../_shared/log.ts';
 import type {
   AnalyzeFormDeps,
   ConsentReader,
@@ -221,9 +222,26 @@ export function createAnalyzeFormDeps(): AnalyzeFormDeps {
     storage,
     model: createModelCaller(apiKey),
     log: (event) => {
-      // One structured line per request — model/tier/tokens/latency/retried/fell-back. Emitted as
-      // JSON so Supabase's log explorer can filter on the fields rather than on a regex over prose.
-      console.log(JSON.stringify(event));
+      // One structured line per request — model/tier/tokens/latency/retried/fell-back. Routed
+      // through `_shared/log.ts`'s `logEvent()` (issue #85) rather than a bare `console.log`: the
+      // event's `userId` already arrived pre-hashed from `flow.ts` (`hashUserId()`), and
+      // `redact()` runs over every field here too, as a second line of defense if this event's
+      // shape ever grows a field that shouldn't be logged. Severity is derived from the HTTP
+      // status actually returned, so a 5xx surfaces as `console.error` in Supabase's log explorer
+      // without every caller having to compute that themselves.
+      logEvent({ ...event, level: levelForStatus(event.status), fn: 'analyze-form' });
     },
   };
+}
+
+/** 5xx is server-fault and must be visibly loud; 4xx is an ordinary refusal (bad input, quota,
+ * consent) and is worth keeping but not alarming on; 2xx is the happy path. */
+function levelForStatus(status: number): LogLevel {
+  if (status >= 500) {
+    return 'error';
+  }
+  if (status >= 400) {
+    return 'warn';
+  }
+  return 'info';
 }

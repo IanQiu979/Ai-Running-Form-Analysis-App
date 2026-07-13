@@ -79,15 +79,23 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
   (#44) are built against, and as of 2026-07-12 it is **live**: the migration
   (`supabase/migrations/20260712123606_frame_upload_ordering.sql`) was applied to the production
   project via `supabase db push` and verified — `storage.objects` carries zero INSERT and zero
-  DELETE policies, only the owner-scoped SELECT. **The grant-level gap this paragraph used to
-  describe is fixed IN THE REPO but NOT YET APPLIED to production**: as of 2026-07-13,
-  `supabase/migrations/20260713153000_grant_hardening.sql` revokes the bucket's leftover
-  table-level grant-all (including TRUNCATE, which no RLS policy can filter) and re-grants
-  `authenticated` only `SELECT` — but that migration has not been pushed. Until it is, the
-  production project is exactly as before: the client is blocked only by the missing RLS policy,
-  not by privilege — no defense in depth. Do not treat production as hardened until `supabase
-  migration list` / `supabase db push` confirms this migration (and its siblings — see
-  `docs/status.md` Known Issue #29) is live. See `docs/status.md` Known Issue #18 (issue #100).
+  DELETE policies, only the owner-scoped SELECT.
+- **The `storage.objects` grant-all is PERMANENT and cannot be fixed by a migration. Stop trying.**
+  Re-verified live 2026-07-13 (issue #100). `20260713153000_grant_hardening.sql` and
+  `20260713160000_media_guard_execute_revoke.sql` are both **applied to production** — an earlier
+  version of this file said they were unpushed, which was wrong and sent several agents chasing a
+  phantom. What is true: the revoke on `storage.objects` **applied cleanly and did nothing**.
+  Postgres only lets the *grantor* revoke, `storage.objects` is owned and granted by
+  `supabase_storage_admin`, and every migration runs as `postgres` — which holds neither
+  membership nor usage of that role. So `REVOKE` silently no-ops instead of erroring. `anon` and
+  `authenticated` still hold full `GRANT ALL` there, **including TRUNCATE**, which no RLS policy
+  can filter. It is not reachable (the `storage` schema is not PostgREST-exposed and neither role
+  gets a direct Postgres connection), and the **control of record is the `pace_media_object_guard`
+  BEFORE INSERT trigger**, which even `service_role` cannot bypass. `public.analyses` is a
+  different case — owned by `postgres`, genuinely hardened (`authenticated` = SELECT only, `anon` =
+  nothing). **Verify any privilege claim live (`has_table_privilege`), never with a text-level test
+  over migration contents** — a text test passes while the privilege is fully intact. See
+  `docs/status.md` Known Issue #18 (issue #100).
 
 ## Git etiquette
 
