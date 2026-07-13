@@ -47,6 +47,21 @@ export const Copy = {
       link: 'New here? Create an account',
     },
     error: {
+      // --- issue #17 NEW keys start — NOT in docs/design/copy-deck.md, NOT copy-certified.
+      // `handleEmailSubmit` (app/(auth)/sign-in.tsx) previously collapsed every purely
+      // client-side validation failure (empty email, empty password, malformed email) into
+      // `generic` below — "Sign-in didn't go through. Try again." That is a lie: nothing was
+      // ever sent, so "didn't go through" claims a network round-trip that never happened, and
+      // "Try again" gives the user nothing to act on. It also said "Sign-in" even in signUp
+      // mode, where the user wasn't signing in at all. These three keys are field-specific,
+      // honest about being a local problem (no "try again", no implication a server rejected
+      // anything), and mode-neutral so they read correctly in both signIn and signUp — see
+      // `validateSignInForm` in lib/auth-errors.ts, the ONLY place these are produced. Mirror
+      // into copy-deck.md § Screen 1 once reviewed, same as every other NEW block in this file.
+      emailRequired: 'Enter your email.',
+      emailInvalid: 'Enter a valid email address.',
+      passwordRequired: 'Enter your password.',
+      // --- issue #17 NEW keys end ---
       // No "or reset your password" — there is no forgot-password link, reset screen, or
       // resetPasswordForEmail call anywhere in the app (issue #18). Only re-add that clause
       // in the same change that ships the route it points at.
