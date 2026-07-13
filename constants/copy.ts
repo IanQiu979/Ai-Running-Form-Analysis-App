@@ -565,4 +565,26 @@ export const Copy = {
       cta: 'Done',
     },
   },
+  // Cross-cutting — Offline (issue #93). Lifted verbatim from copy-deck.md's own "Cross-cutting —
+  // Offline" section, NOT from Screen 5's `upload.offline.*` table — that table is explicitly
+  // marked "Not implemented" (the #36 update note: there is no client-upload network step left to
+  // drop offline mid-way through, issue #88). These are the two states that DO have a live
+  // implementation: `banner` for `components/offline-banner.tsx` (mounted globally,
+  // `app/_layout.tsx`), and `blocked` for the pre-flight gate a network-dependent action (an
+  // `analyze-form` submit) shows instead of attempting the call while offline. `blocked.body`'s
+  // "nothing has been sent yet" is load-bearing copy, not decoration — brief §5's rule is "never
+  // claim 'saved' when it isn't," and this is the one state guaranteed to be shown BEFORE any
+  // network attempt, so it's the one place that claim is always true by construction.
+  offline: {
+    banner: "You're offline — capture still works, but upload and analysis need a connection.",
+    blocked: {
+      title: "You're offline",
+      body: 'This needs an internet connection. Reconnect and try again — nothing has been sent yet.',
+      // Deck says "Reuse shared.cta.retry" — no Copy.shared namespace exists (see the note at
+      // `analyzing.error.cta` above); every other reuse of this string duplicates it by value
+      // instead, so this matches that established convention rather than introducing the first
+      // shared namespace here.
+      cta: 'Retry',
+    },
+  },
 } as const;
