@@ -448,6 +448,70 @@ export const Copy = {
     },
     // --- issue #55 NEW keys end ---
   },
+  // Screen 9 — Compare (Elite, minimal) (issue #60, Ruling 13 — docs/status.md, 2026-07-10:
+  // "two stored results side by side, per-pillar deltas... resist growing it into a
+  // trends/progress feature"). Lifted verbatim by key from docs/design/copy-deck.md § Screen 9,
+  // same convention as every namespace above. `history.compare.*` (the entry-point keys under §
+  // Screen 8 — "Compare two analyses" / the locked-tier banner) are deliberately NOT added here:
+  // they live under the `history` namespace, which is another lane's file lane for this issue
+  // (app/(tabs)/history.tsx) — see this change's own HANDOFF note for the exact patch that lane
+  // needs, including the copy.ts diff for those specific keys.
+  compare: {
+    title: 'Compare',
+    picker: {
+      prompt: 'Pick two analyses to compare.',
+      cta: 'Compare',
+    },
+    empty: {
+      title: 'Not enough analyses yet',
+      body: 'Save two analyses to compare them side by side.',
+    },
+    vs: 'vs',
+    delta: {
+      positive: '+{n} {pillar}',
+      // U+2212 MINUS SIGN, not a hyphen-minus — the deck is explicit ("Use the minus sign (−,
+      // U+2212), not a hyphen") because a screen reader can pronounce the two differently.
+      negative: '−{n} {pillar}',
+      none: 'No change',
+      a11yLabel: '{pillar} changed by {delta} points, from {oldScore} to {newScore}.',
+      // --- issue #60 NEW keys start — NOT in docs/design/copy-deck.md. The deck's three delta
+      // strings above (positive/negative/none) all assume both sides of the comparison carry a
+      // real score; they have no string for "one or both sides is honestly not-assessed." That
+      // is exactly the trap issue #60 calls out by name: rendering a null-vs-scored pillar as a
+      // delta of zero would be a fabricated number, the same "never stringify null as a score"
+      // rule `result.pillar.notAssessed.*` and `history.item.a11yLabelNotAssessed` both exist to
+      // prevent for their own screens. These two keys are this screen's version of that rule.
+      notAssessed: 'Not assessed in one or both analyses',
+      notAssessedA11yLabel: '{pillar}, not assessed in one or both analyses.',
+      // --- issue #60 NEW keys end ---
+    },
+    // --- issue #60 NEW keys start — NOT in the deck. §5's states checklist and § Screen 9's own
+    // table cover the picker's empty state but not a plan/list fetch failure, or the locked-tier
+    // gate this screen must independently show (Elite tier is read fresh from `quota-status` on
+    // this screen too, not trusted from how the user navigated here — CLAUDE.md: "the client ...
+    // is never the authority"). Mirrors `history.error.*` / `result.error.*`'s identical
+    // additions for their own screens.
+    loading: 'Loading your analyses…',
+    error: {
+      loadFailed: "Couldn't load your past analyses.",
+      retry: 'Retry',
+    },
+    // Duplicated BY VALUE from the deck's `history.compare.locked.*` (§ Screen 8) rather than
+    // imported across namespaces — matching this file's own established convention for a string
+    // the deck marks "Reuse ..." but this codebase has no Copy.shared namespace for (see e.g.
+    // `analyzing.error.cta`'s identical note). Shown when this screen's own fresh tier read comes
+    // back non-Elite, independent of whichever entry point got the user here.
+    locked: {
+      title: 'Compare is an Elite feature',
+      body: 'Upgrade to Elite to compare two of your analyses side by side.',
+      cta: 'See plans',
+    },
+    // Reuses `settings.back`/`paywall.back`'s exact wording, by value, same no-Copy.shared
+    // convention. Also doubles as "back to picker" while two analyses are already selected — see
+    // app/compare.tsx.
+    back: 'Back',
+    // --- issue #60 NEW keys end ---
+  },
   // Screen 11 — Settings (issue #53, which also closes #27). Lifted verbatim by key from
   // docs/design/copy-deck.md § Screen 11, same convention as every namespace above. Keys the deck
   // defines but this screen does NOT render are deliberately absent rather than added unused:
