@@ -119,6 +119,11 @@ function RootLayoutNav() {
                 top-level screen. It was reachable via file-based routing the moment #52 landed;
                 this is what actually puts it behind the session. */}
             <Stack.Screen name="paywall" options={{ headerShown: false }} />
+            {/* Screen 9 — Compare (issue #60). Declared inside this guard for the same
+                load-bearing reason as settings/paywall above: an undeclared route file is an
+                always-available, unguarded top-level screen, and this one reads the user's own
+                stored analyses. */}
+            <Stack.Screen name="compare" options={{ headerShown: false }} />
           </Stack.Protected>
           <Stack.Protected guard={!session || isPasswordRecovery}>
             <Stack.Screen name="(auth)" options={{ headerShown: false }} />

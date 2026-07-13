@@ -127,6 +127,7 @@ export type AnalyzingState =
   | { phase: 'succeeded'; outcome: PaceAnalysisOutcome; analysisId: string }
   | { phase: 'failed'; attempt: number; code?: AnalyzeFormError['code'] }
   | { phase: 'timedOut'; attempt: number }
+  | { phase: 'offline'; attempt: number }
   | { phase: 'released'; analysisId: string };
 
 export const INITIAL_ANALYZING_STATE: AnalyzingState = { phase: 'waiting', attempt: 1 };
@@ -140,6 +141,15 @@ export type AnalyzingEvent =
    */
   | { type: 'failed'; attempt: number; code?: AnalyzeFormError['code'] }
   | { type: 'timedOut'; attempt: number }
+  /**
+   * Issue #93: dispatched by `app/analyzing.tsx`'s submit effect when its pre-flight
+   * `checkConnectivity()` read comes back offline — BEFORE `analyzeFormClient.submit()` is ever
+   * called and before the client-side timeout timer starts. Kept as its own phase rather than
+   * folded into `failed` so the screen can show `offline.blocked.*`, whose "nothing has been sent
+   * yet" is true here BY CONSTRUCTION (no call was attempted), instead of the generic
+   * `analyzing.error.failed.*`. Retriable exactly like `failed`/`timedOut` — see `retry` below.
+   */
+  | { type: 'offline'; attempt: number }
   | { type: 'retry' }
   /**
    * Issue #64: dispatched by `app/analyzing.tsx` when a foreground-triggered reconciliation read
@@ -174,6 +184,8 @@ export function analyzingReducer(state: AnalyzingState, event: AnalyzingEvent): 
         : state;
     case 'timedOut':
       return isCurrentAttempt(state, event.attempt) ? { phase: 'timedOut', attempt: event.attempt } : state;
+    case 'offline':
+      return isCurrentAttempt(state, event.attempt) ? { phase: 'offline', attempt: event.attempt } : state;
     case 'reconciledReleased':
       // Same staleness guard as every other attempt-tagged event: a reconciliation read that was
       // already in flight when a Retry (or an earlier reconcile) moved the machine off this
@@ -187,7 +199,7 @@ export function analyzingReducer(state: AnalyzingState, event: AnalyzingEvent): 
       // stray 'retry' from `waiting`/`succeeded`. `'released'` is deliberately excluded too — see
       // that phase's own doc comment above for why a Retry from there would silently do nothing
       // useful rather than actually retry.
-      return state.phase === 'failed' || state.phase === 'timedOut'
+      return state.phase === 'failed' || state.phase === 'timedOut' || state.phase === 'offline'
         ? { phase: 'waiting', attempt: state.attempt + 1 }
         : state;
     default:

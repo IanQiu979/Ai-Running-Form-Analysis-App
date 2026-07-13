@@ -81,6 +81,9 @@ import {
   type AnalyzingCaptionPhase,
 } from '@/lib/analyzing-machine';
 import { onAppForeground } from '@/lib/app-state';
+import { checkConnectivity } from '@/lib/connectivity';
+import { clearPendingAnalysisMarker, setPendingAnalysisMarker } from '@/lib/pending-analysis';
+import { useSession } from '@/lib/session-provider';
 import { supabase } from '@/lib/supabase';
 import { isPaceAnalysisOutcome } from '@shared/pace';
 
@@ -100,6 +103,7 @@ export default function AnalyzingScreen() {
   const [state, dispatch] = useReducer(analyzingReducer, INITIAL_ANALYZING_STATE);
   const [captionPhase, setCaptionPhase] = useState<AnalyzingCaptionPhase>(() => captionPhaseForElapsed(0));
   const longWaitOpacity = useRef(new Animated.Value(0)).current;
+  const { session } = useSession();
 
   // Defensive bail-out: a direct or cold navigation to this route with nothing staged (module
   // state does not survive a process kill, so this is also what a relaunch mid-analysis looks
@@ -115,43 +119,79 @@ export default function AnalyzingScreen() {
     router.replace('/');
   }, [request, router]);
 
+  // Issue #140: persist a marker of this analysis (keyed by idempotency key) the moment a real
+  // request exists, so a process KILL during the wait can still be reconciled on the next cold
+  // launch — see lib/pending-analysis.ts and the startup check in app/(tabs)/index.tsx. The
+  // foreground reconciliation below (#64) only covers a background/foreground cycle while this
+  // screen stays mounted; a genuine kill needs a marker that outlives the JS process, which
+  // lib/analyze-form.ts's module-state mailbox cannot be. Fire-and-forget: nothing here blocks the
+  // submit() call below, and losing the race to an extremely early kill is no worse than the
+  // unmarked behavior it replaces.
+  useEffect(() => {
+    if (!request || !session?.user.id) return;
+    setPendingAnalysisMarker({ idempotencyKey: request.idempotencyKey, userId: session.user.id });
+  }, [request, session]);
+
   // Drives the reducer: fires the submit call for the current attempt, races it against the
   // client-side timeout, and dispatches whichever settles first. Re-runs whenever `state`
   // transitions into a new `waiting` attempt (a fresh mount, or a Retry); the guard below makes
   // every other transition a no-op cleanup.
+  //
+  // Issue #93's pre-flight gate runs FIRST, immediately before the call — not once on mount —
+  // because connectivity changes while this screen sits on `waiting` (time passing in a dead zone)
+  // and again on a Retry (the user walked back into signal). An offline reading dispatches
+  // 'offline' and returns WITHOUT ever calling submit() or starting the timeout timer, so the user
+  // sees `offline.blocked.*` — whose "nothing has been sent yet" is true by construction here —
+  // rather than a spinner that can only ever resolve into the generic failure copy.
   useEffect(() => {
     if (state.phase !== 'waiting' || !request) {
       return;
     }
     const attempt = state.attempt;
+    let cancelled = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
-    analyzeFormClient
-      .submit(request)
-      .then((result) => {
-        if (result.ok) {
-          dispatch({
-            type: 'succeeded',
-            attempt,
-            outcome: { result: result.data.result, isFallback: result.data.isFallback },
-            analysisId: result.data.analysisId,
-          });
-        } else {
+    checkConnectivity().then((online) => {
+      if (cancelled) return;
+
+      if (!online) {
+        dispatch({ type: 'offline', attempt });
+        return;
+      }
+
+      analyzeFormClient
+        .submit(request)
+        .then((result) => {
+          if (result.ok) {
+            dispatch({
+              type: 'succeeded',
+              attempt,
+              outcome: { result: result.data.result, isFallback: result.data.isFallback },
+              analysisId: result.data.analysisId,
+            });
+          } else {
+            // Issue #136: carry the server's code through, so a 402 quota_exceeded can open the
+            // paywall below instead of offering a Retry that would resubmit into the same
+            // exhausted quota.
+            dispatch({ type: 'failed', attempt, code: result.error.code });
+          }
+        })
+        .catch(() => {
+          // Folded into the same failure copy as a documented error — every analyze-form failure
+          // path releases the reservation before returning (docs/architecture.md step 9), so "this
+          // one wasn't counted against your quota" holds regardless of *why* the call failed. No
+          // `code` here: no response was ever received, so there is no server-authored code.
           dispatch({ type: 'failed', attempt });
-        }
-      })
-      .catch(() => {
-        // Folded into the same failure copy as a documented error — every analyze-form failure
-        // path releases the reservation before returning (docs/architecture.md step 9), so "this
-        // one wasn't counted against your quota" holds regardless of *why* the call failed.
-        dispatch({ type: 'failed', attempt });
-      });
+        });
 
-    const timeoutHandle = setTimeout(() => {
-      dispatch({ type: 'timedOut', attempt });
-    }, ANALYZING_TIMEOUT_MS);
+      timeoutHandle = setTimeout(() => {
+        dispatch({ type: 'timedOut', attempt });
+      }, ANALYZING_TIMEOUT_MS);
+    });
 
     return () => {
-      clearTimeout(timeoutHandle);
+      cancelled = true;
+      if (timeoutHandle) clearTimeout(timeoutHandle);
     };
   }, [state, request]);
 
@@ -206,6 +246,9 @@ export default function AnalyzingScreen() {
         }
 
         if (data.status === 'released') {
+          // Issue #140: a terminal outcome — clear the cross-restart marker here, the only path
+          // that ever reaches the 'released' phase, so a later cold start cannot resurrect it.
+          clearPendingAnalysisMarker();
           dispatch({ type: 'reconciledReleased', attempt, analysisId: data.id });
         }
         // status === 'reserved': still genuinely in flight — intentionally no-op.
@@ -266,10 +309,24 @@ export default function AnalyzingScreen() {
   // what #56/#61's first-reveal-vs-reopen animation trigger is specified to key off.
   useEffect(() => {
     if (state.phase !== 'succeeded') return;
+    // Issue #140: clear the marker on the way out. Without this, a NORMAL (non-killed) analysis
+    // would leave a stale 'delivered' marker behind, and the next cold start — for any reason at
+    // all — would silently reroute the user to this same, already-viewed result.
+    clearPendingAnalysisMarker();
     router.replace({
       pathname: '/result/[id]',
       params: { id: state.analysisId, justAnalyzed: '1' },
     } as Href);
+  }, [state, router]);
+
+  // Issue #136: a real 402 quota_exceeded opens the paywall rather than the generic retryable
+  // error panel — a Retry there would only resubmit into the same exhausted quota, a dead-end
+  // loop. Routed from an effect, mirroring the 'succeeded' effect above, so the `failed` render
+  // branch (guarded to skip this code) never flashes first. `app/paywall.tsx` re-reads live quota
+  // on mount, so no params are needed.
+  useEffect(() => {
+    if (state.phase !== 'failed' || state.code !== 'quota_exceeded') return;
+    router.replace('/paywall');
   }, [state, router]);
 
   function handleRetry() {
@@ -278,6 +335,11 @@ export default function AnalyzingScreen() {
 
   function handleCancel() {
     // Copy deck: "returns to Home. Retry/Cancel must never trap the user."
+    // Issue #140: the user chose to stop watching, so nothing should resurface on a later launch.
+    // Deliberately NOT cleared on `failed`/`timedOut` themselves — a client-perceived timeout does
+    // not prove the server-side call stopped, so the marker must survive until either the user
+    // walks away (here) or a later check learns the truth.
+    clearPendingAnalysisMarker();
     router.replace('/');
   }
 
@@ -307,7 +369,9 @@ export default function AnalyzingScreen() {
           </ScreenCenter>
         )}
 
-        {state.phase === 'failed' && (
+        {/* Issue #136: `quota_exceeded` is excluded here — the effect above routes it to /paywall.
+            Rendering a Retry for it would resubmit into the same exhausted quota. */}
+        {state.phase === 'failed' && state.code !== 'quota_exceeded' && (
           <ErrorPanel
             styles={styles}
             title={Copy.analyzing.error.failed.title}
@@ -322,6 +386,21 @@ export default function AnalyzingScreen() {
             styles={styles}
             title={Copy.analyzing.error.timeout.title}
             body={Copy.analyzing.error.timeout.body}
+            onRetry={handleRetry}
+            onCancel={handleCancel}
+          />
+        )}
+
+        {/* Issue #93's pre-flight gate: the connectivity read in the submit effect came back
+            offline BEFORE analyzeFormClient.submit() was ever called, so `offline.blocked.body`'s
+            "nothing has been sent yet" is literally true here rather than a hopeful claim. Retry
+            re-runs the same effect (a fresh checkConnectivity() read); Cancel exits to Home — the
+            same exit every other error phase on this screen offers. */}
+        {state.phase === 'offline' && (
+          <ErrorPanel
+            styles={styles}
+            title={Copy.offline.blocked.title}
+            body={Copy.offline.blocked.body}
             onRetry={handleRetry}
             onCancel={handleCancel}
           />

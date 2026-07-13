@@ -288,4 +288,30 @@ describe('analyzingReducer', () => {
       expect(analyzingReducer(released, { type: 'retry' })).toBe(released);
     });
   });
+
+  // Issue #93 — the pre-flight offline gate. Its own phase rather than a fold into `failed`,
+  // because the screen must be able to say "nothing has been sent yet", which is true here only
+  // because submit() is never called. Unlike `released`, this one IS genuinely retryable: no
+  // request was ever made, so retrying is a real attempt, not a resubmit of a settled key.
+  describe('offline (issue #93)', () => {
+    it('moves a matching-attempt offline reading to the offline phase', () => {
+      const next = analyzingReducer(INITIAL_ANALYZING_STATE, { type: 'offline', attempt: 1 });
+      expect(next).toEqual({ phase: 'offline', attempt: 1 });
+    });
+
+    it('retry from offline starts a new, incremented attempt back in waiting', () => {
+      const offline: AnalyzingState = { phase: 'offline', attempt: 2 };
+      expect(analyzingReducer(offline, { type: 'retry' })).toEqual({ phase: 'waiting', attempt: 3 });
+    });
+
+    it('drops a stale offline event from an old attempt after a Retry has already started a new one', () => {
+      const retried: AnalyzingState = { phase: 'waiting', attempt: 2 };
+      expect(analyzingReducer(retried, { type: 'offline', attempt: 1 })).toBe(retried);
+    });
+
+    it('ignores an offline event once the attempt has already succeeded', () => {
+      const succeeded: AnalyzingState = { phase: 'succeeded', outcome: mockOutcome, analysisId: 'a' };
+      expect(analyzingReducer(succeeded, { type: 'offline', attempt: 1 })).toBe(succeeded);
+    });
+  });
 });
