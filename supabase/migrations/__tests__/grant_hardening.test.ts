@@ -76,10 +76,35 @@ describe('grant hardening migration exists and is ordered last among its known d
   });
 });
 
-describe('storage.objects — the real fix (issue #100\'s sharper edge)', () => {
+/**
+ * ⚠️ READ THIS BEFORE TRUSTING ANYTHING BELOW.
+ *
+ * Every assertion in this block PASSED, the migration APPLIED CLEANLY to production on
+ * 2026-07-13 — and the revoke DID NOTHING. Verified after the push: `anon` and `authenticated`
+ * still hold DELETE/INSERT/REFERENCES/SELECT/TRIGGER/TRUNCATE/UPDATE on storage.objects.
+ *
+ * WHY: storage.objects is owned by `supabase_storage_admin`, and its ACL reads
+ * `anon=arwdDxtm/supabase_storage_admin` — that role is the GRANTOR. Migrations run as
+ * `postgres`. PostgreSQL's REVOKE only removes grants made BY the current role, and it does NOT
+ * error when there is nothing it may revoke. `postgres` is not a member of
+ * `supabase_storage_admin`, so it can neither SET ROLE to it nor use `REVOKE ... GRANTED BY`.
+ * The statement is correct SQL, it is accepted, and it is inert. A platform constraint, not a
+ * bug in the migration — see `20260713160000_media_guard_execute_revoke.sql`'s header.
+ *
+ * THE LESSON, which is the reason this comment is long: these are TEXT-LEVEL assertions. They
+ * prove the migration FILE says the right thing. They can never prove Postgres DID the right
+ * thing — and here that gap was not academic, it was the entire fix. `analyses_quota_soft_delete.
+ * test.ts`'s header warned about exactly this class of blind spot; this is it, in the wild.
+ *
+ * DO NOT delete these assertions and DO NOT reword the REVOKE to try to make it "work" — it is
+ * already correct. The real defense that DID land is the `pace_media_object_guard` BEFORE INSERT
+ * trigger (issue #7), which every writer hits including `service_role` — a role that bypasses RLS
+ * but cannot bypass a trigger. Issue #100 is REOPENED, not closed.
+ */
+describe("storage.objects — the revoke that applies cleanly and does nothing (issue #100)", () => {
   const sql = readMigration(FIX_MIGRATION);
 
-  it('revokes the blanket grant on storage.objects from both client-facing roles', () => {
+  it('still ATTEMPTS the revoke — correct SQL, inert at runtime; see this block\'s header', () => {
     expect(sql).toMatch(/revoke all on storage\.objects from authenticated,\s*anon/i);
   });
 

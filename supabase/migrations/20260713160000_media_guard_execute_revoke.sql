@@ -1,0 +1,70 @@
+-- ============================================================================
+-- Follow-up to the 2026-07-13 push. Two things, both discovered by VERIFYING the
+-- push against the live database instead of trusting that it did what it said.
+--
+-- ---------------------------------------------------------------------------
+-- 1. THE FIX: revoke EXECUTE on pace_enforce_media_object_guard()
+-- ---------------------------------------------------------------------------
+-- `20260713152000_storage_user_budget.sql` (issue #7) created this function as
+-- SECURITY DEFINER, which is correct — it is a BEFORE INSERT trigger on
+-- storage.objects and must read public.analyses regardless of the caller.
+--
+-- But it inherited the default `EXECUTE` grant to PUBLIC, and it lives in the
+-- `public` schema, which PostgREST exposes. So it became callable by `anon` and
+-- `authenticated` as `POST /rest/v1/rpc/pace_enforce_media_object_guard`.
+-- Supabase's own security advisor flagged it (lints 0028/0029) the moment it
+-- landed.
+--
+-- The practical blast radius is small — plpgsql refuses to run a trigger
+-- function outside a trigger context ("trigger functions can only be called as
+-- triggers"), so a direct RPC call errors out. But a SECURITY DEFINER function
+-- reachable by an anonymous caller is not something to leave standing on the
+-- strength of "the error message saves us". Revoke it.
+--
+-- ---------------------------------------------------------------------------
+-- 2. THE THING WE CANNOT FIX, RECORDED SO NOBODY RE-LITIGATES IT
+-- ---------------------------------------------------------------------------
+-- `20260713153000_grant_hardening.sql` (issues #100/#4) contains:
+--
+--     revoke all on storage.objects from authenticated, anon;
+--
+-- That statement APPLIED CLEANLY AND DID NOTHING. Verified against production
+-- after the push: `anon` and `authenticated` still hold
+-- DELETE/INSERT/REFERENCES/SELECT/TRIGGER/TRUNCATE/UPDATE on storage.objects.
+--
+-- WHY: storage.objects is owned by `supabase_storage_admin`, and its ACL reads
+-- `anon=arwdDxtm/supabase_storage_admin` — i.e. supabase_storage_admin is the
+-- GRANTOR. Migrations run as `postgres`. In PostgreSQL, REVOKE only removes
+-- grants made BY the current role (or a role it belongs to), and it does NOT
+-- error when there is nothing it is entitled to revoke. `postgres` is not a
+-- member of `supabase_storage_admin` (checked pg_auth_members), so it can
+-- neither SET ROLE to it nor use `REVOKE ... GRANTED BY`.
+--
+-- So this is a PLATFORM CONSTRAINT, not a bug in our SQL. It cannot be fixed by
+-- any migration, nor from the Dashboard SQL editor (which also runs as
+-- postgres). Do not "fix" 20260713153000 by rewording the REVOKE — it is
+-- already correct, and it is already inert.
+--
+-- WHY IT IS NOT AN OPEN WOUND, and what actually defends the bucket:
+--   a. The `storage` schema is NOT in PostgREST's exposed schemas, so anon and
+--      authenticated have no route to issue SQL against storage.objects at all.
+--      They never hold a raw Postgres connection; PostgREST/Storage mediate.
+--   b. RLS is ON with exactly ONE policy — an owner-scoped SELECT. There is no
+--      INSERT, UPDATE or DELETE policy for a client role (issue #88).
+--   c. The real defense in depth is the TRIGGER this file's sibling installed:
+--      `pace_media_object_guard` runs BEFORE INSERT for EVERY writer, including
+--      `service_role`, which bypasses RLS but cannot bypass a trigger. That is
+--      the control that actually holds, and it is live.
+--
+-- The residual is TRUNCATE, which RLS genuinely does not filter — but reaching
+-- it requires a direct SQL connection as anon/authenticated, which does not
+-- exist. Tracked on issue #100, reopened rather than closed on a false premise.
+-- ============================================================================
+
+revoke execute on function public.pace_enforce_media_object_guard() from public;
+revoke execute on function public.pace_enforce_media_object_guard() from anon;
+revoke execute on function public.pace_enforce_media_object_guard() from authenticated;
+
+-- The trigger itself keeps working: a trigger fires as the table owner's
+-- responsibility, not the calling role's EXECUTE privilege. Revoking EXECUTE
+-- does not disarm `pace_media_object_guard` — verified after applying.
