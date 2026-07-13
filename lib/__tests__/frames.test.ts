@@ -21,7 +21,7 @@
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
-import { PACE_FRAME_CAP } from '@shared/pace';
+import { PACE_FRAME_CAP, type PaceTier } from '@shared/pace';
 
 import { extractFrames, FrameBudgetExceededError, sampleTimestamps } from '../frames';
 
@@ -97,6 +97,26 @@ describe('sampleTimestamps', () => {
 
   it('throws for a non-positive count', () => {
     expect(() => sampleTimestamps(10_000, 0)).toThrow(RangeError);
+  });
+
+  // Case 3b (Pro tier, PACE_FRAME_CAP.pro === 5): an independent, hand-computed pin for the one
+  // real per-tier count cases 1-3 don't already cover directly (they lock 1, 2, and 8). Uses the
+  // same duration as the count=8 case above so the two are easy to cross-check by eye.
+  it('spaces count = 5 (Pro tier) evenly across the window, ascending', () => {
+    expect(sampleTimestamps(20_000, 5)).toEqual([1_000, 5_500, 10_000, 14_500, 19_000]);
+  });
+
+  // Case: the OTHER failure mode a bad `count` can take, distinct from "throws for a non-positive
+  // count" above. `PACE_FRAME_CAP[tier]` (`@shared/pace`) is a plain object index, not a
+  // exhaustively-checked switch — an unrecognized tier reaching it at runtime (impossible through
+  // `extractFrames`'s own `PaceTier`-typed signature, but not impossible for a caller that
+  // bypasses TypeScript) yields `undefined`, not `0`. `undefined <= 0` is `false`, so the
+  // non-positive guard above does NOT catch it, and this is the path it actually falls through to
+  // instead: zero timestamps, never a NaN-laced or fallback-sized array. This is the client-side
+  // half of the "disagreement fails safe" property the "tier-cap agreement" suite below tests
+  // end-to-end.
+  it('returns zero timestamps — never a fallback count — when count is not a usable number', () => {
+    expect(sampleTimestamps(10_000, undefined as unknown as number)).toEqual([]);
   });
 });
 
@@ -276,5 +296,44 @@ describe('extractFrames — budget check', () => {
     const result = await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 100, height: 100 }, 'free');
 
     expect(result.totalBytes).toBe(4);
+  });
+});
+
+describe('extractFrames — client/server tier-cap agreement (reserve_analysis authority)', () => {
+  // Case: THE agreement lock. `PACE_FRAME_CAP` (`@shared/pace`) is the only description this file
+  // has of what each tier is allowed to send; `reserve_analysis` — the SQL `SECURITY DEFINER`
+  // function that is the ACTUAL enforcement point (CLAUDE.md: "No business rules in the client";
+  // this file's own header: "a build that sent more frames than its tier allows would still be
+  // rejected there, not here") — hardcodes its own, independently-maintained copy of the same
+  // numbers (`supabase/migrations/20260711150400_quota_reserve_settle_release.sql`: `v_frame_cap
+  // := case v_tier when 'free' then 1 when 'pro' then 5 when 'elite' then 8 end;`, reasserted
+  // byte-for-byte in every migration that has since replaced `reserve_analysis`'s body). Nothing
+  // makes a TypeScript object literal and a Postgres CASE expression stay equal automatically —
+  // this test is that guarantee for the repo's two source files. If it fails, the two have
+  // drifted: either `reserve_analysis` now rejects a tier's honestly-built submission with
+  // `frame_cap_exceeded`, or the client is under-using a tier the user paid for.
+  it("matches reserve_analysis's hardcoded per-tier frame caps exactly (free:1 / pro:5 / elite:8)", () => {
+    expect(PACE_FRAME_CAP).toEqual({ free: 1, pro: 5, elite: 8 });
+  });
+
+  // Case: THE fail-safe-DIRECTION lock. `extractVideoFrames` has no ceiling of its own — it
+  // trusts `PACE_FRAME_CAP[tier]` completely (case 9's "not a locally redeclared cap"). So the one
+  // place a real client-side disagreement could still show up is an unrecognized tier reaching
+  // `PACE_FRAME_CAP[tier]` at runtime — impossible through `extractFrames`'s own `PaceTier`-typed
+  // signature, but not impossible for a caller that bypasses TypeScript (e.g. an unvalidated tier
+  // string read back from storage). `PACE_FRAME_CAP[tier]` is then `undefined`, and — per the
+  // `sampleTimestamps` case of the same name above — that resolves to REQUESTING ZERO FRAMES, not
+  // falling back to some other (and specifically not a LARGER) count. A zero-frame submission is
+  // one `reserve_analysis` cleanly rejects too (`p_frame_count < 1` -> `invalid_frame_count`), so
+  // the failure stays a clean rejection end to end. This is the property the issue asks for:
+  // disagreement fails toward fewer frames, never more.
+  it('requests zero frames — never a fallback or inflated count — for a tier PACE_FRAME_CAP does not recognize', async () => {
+    const unknownTier = 'legacy-tier' as unknown as PaceTier;
+
+    const result = await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs: 10_000 }, unknownTier);
+
+    expect(result).toEqual({ frames: [], totalBytes: 0 });
+    expect(mockGetThumbnailAsync).not.toHaveBeenCalled();
+    expect(mockManipulate).not.toHaveBeenCalled();
   });
 });
