@@ -88,6 +88,75 @@ export const Copy = {
       // no session and no explanation.
       signInExpired: 'Sign-in expired before it could finish. Try again.',
     },
+    // Issue #81: password-reset flow. `reset.cta.forgotPassword` is the link
+    // app/(auth)/sign-in.tsx needs (see that screen's owning agent's HANDOFF for the exact
+    // snippet — not wired in from this file alone). `reset.request.*` is
+    // app/(auth)/reset-password.tsx (the "enter your email" screen);
+    // `reset.update.*` is app/(auth)/update-password.tsx (the "set a new password" screen
+    // reached from the emailed link). Every runtime value is `{braced}` and substituted by the
+    // calling screen via `.replace()`, matching lib/pace-readout.ts's existing convention —
+    // never templated into the string at definition time the way `PASSWORD_MIN_LENGTH` is above,
+    // since an email address isn't known until the user types it.
+    reset: {
+      cta: {
+        forgotPassword: 'Forgot password?',
+      },
+      request: {
+        title: 'Reset your password',
+        body: "Enter your email and we'll send you a link to reset it.",
+        cta: {
+          send: 'Send reset link',
+          backToSignIn: 'Back to sign in',
+        },
+        // Identical whether or not `{email}` has an account — the whole point of issue #81's
+        // enumeration-safety requirement. lib/password-reset.ts's `requestPasswordReset` is what
+        // actually guarantees this (see its own header): this is the ONLY success copy, never
+        // branched on account existence.
+        success: {
+          title: 'Check your email',
+          body: "If an account exists for {email}, we've sent a link to reset your password.",
+        },
+        error: {
+          // Not an enumeration risk despite being a distinct message: `auth.rate_limit.email_sent`
+          // (supabase/config.toml) is a per-project/IP limit, not a per-account one, so hitting it
+          // says nothing about whether `{email}` itself has an account.
+          rateLimited: 'Too many attempts. Wait a few minutes and try again.',
+          generic: "We couldn't send that email. Check your connection and try again.",
+        },
+      },
+      update: {
+        title: 'Set a new password',
+        password: {
+          placeholder: 'New password',
+        },
+        cta: {
+          submit: 'Update password',
+          continue: 'Continue',
+        },
+        // Shown while app/(auth)/update-password.tsx is waiting to confirm the recovery link
+        // (the `PASSWORD_RECOVERY` auth event) — a bounded wait, not a spinner-forever, per the
+        // same "no fake progress, no spinner-forever" rule `analyzing.longWait` follows.
+        checking: 'Confirming your link…',
+        success: {
+          title: 'Password updated',
+          body: "You're all set — signed in with your new password.",
+        },
+        error: {
+          // Covers both a link Supabase reports as expired/already-used AND a link with no
+          // recovery params at all (e.g. opened directly, not via the emailed link) — both are
+          // honestly the same actionable state: nothing here can be recovered, request a new one.
+          expiredLink: {
+            title: 'This link has expired',
+            body: 'Password reset links only work once and expire after a while. Request a new one.',
+            cta: 'Request a new link',
+          },
+          // `mapAuthError`'s generic fallback (`Copy.auth.error.generic`) says "Sign-in didn't go
+          // through" — wrong frame for a failed password *update*, so this gets its own string
+          // rather than reusing that one.
+          generic: "We couldn't update your password. Try again.",
+        },
+      },
+    },
   },
   home: {
     // No `home.title` key exists in the copy deck — §Screen 2 defines no title key for the
