@@ -51,6 +51,19 @@ describe('attach_media_paths: the namespace guard is replicated, not assumed', (
     // would hide both. The guard returns, it does not `continue`.
     expect(attachBody()).toMatch(/return jsonb_build_object\('ok',\s*false,\s*'reason',\s*'invalid_media_path'\)/);
   });
+
+  it('actually performs the namespace comparison, not just builds a prefix', () => {
+    // Without this, the whole guard could be gutted (delete the foreach, keep v_prefix, stub in
+    // a dead `if false then ... end if`) and every other assertion in this describe block would
+    // still pass while the RPC accepted any path from any user's namespace. Pin the loop and
+    // every term of the actual comparison, not just its existence.
+    const body = attachBody();
+    expect(body).toMatch(/foreach\s+v_path\s+in\s+array\s+coalesce\(p_media_paths,\s*'\{\}'\)/);
+    expect(body).toMatch(/position\(v_prefix\s+in\s+v_path\)\s*<>\s*1/);
+    expect(body).toMatch(/length\(v_path\)\s*<=\s*length\(v_prefix\)/);
+    expect(body).toMatch(/v_path\s+is\s+null/);
+    expect(body).not.toMatch(/\braise\b/i); // refusals RETURN, never RAISE
+  });
 });
 
 describe('attach_media_paths: it can only ever fill in a delivered row, once', () => {
@@ -58,6 +71,10 @@ describe('attach_media_paths: it can only ever fill in a delivered row, once', (
     // Paths can never be attached to a 'reserved' row (that would break THE INVARIANT) or to a
     // 'released' one (that would name frames on a row the sweep just reclaimed).
     expect(attachBody()).toMatch(/status\s*=\s*'delivered'/);
+  });
+
+  it('refuses a soft-deleted row — the redaction trigger only fires on the delete transition', () => {
+    expect(attachBody()).toMatch(/deleted_at is null/);
   });
 
   it('is write-once: it refuses a row whose media_paths is already populated', () => {

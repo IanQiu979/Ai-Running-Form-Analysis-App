@@ -51,9 +51,18 @@
 --      path rejects the WHOLE call; it is never silently dropped, because a caller passing one is a
 --      bug or an attack and swallowing it would hide both.
 --
---   2. status = 'delivered'. Paths cannot be attached to a 'reserved' row (that would violate the
---      invariant this whole file exists to establish) nor to a 'released' one (that would name
---      frames on a row the sweep just reclaimed).
+--   2. status = 'delivered' AND deleted_at is null. Paths cannot be attached to a 'reserved' row
+--      (that would violate the invariant this whole file exists to establish) nor to a
+--      'released' one (that would name frames on a row the sweep just reclaimed). The
+--      `deleted_at is null` half exists because a soft-deleted row can otherwise still match
+--      every other condition here: markDeleted only sets `deleted_at` (status stays 'delivered'
+--      by design, so quota keeps counting the row), and redact_analyses_on_soft_delete
+--      (20260712040000_analyses_quota_soft_delete.sql) has already wiped media_paths back to
+--      '{}' on that same transition — which re-arms guard 3's write-once check instead of
+--      blocking it. That trigger only fires on the null -> non-null deleted_at transition, so it
+--      will NOT re-fire if this function writes media_paths afterward; refusing here is the only
+--      thing standing between a user's delete and this RPC silently un-redacting the row with
+--      live pointers into the private frame bucket.
 --
 --   3. WRITE-ONCE (cardinality(media_paths) = 0). A replay or a second call cannot rewrite the
 --      display list of an already-complete analysis. Deliberate consequence: a partial upload can
@@ -96,6 +105,7 @@ begin
   where id = p_analysis_id
     and user_id = p_user_id
     and status = 'delivered'
+    and deleted_at is null
     and cardinality(coalesce(media_paths, '{}')) = 0
   returning * into v_row;
 
