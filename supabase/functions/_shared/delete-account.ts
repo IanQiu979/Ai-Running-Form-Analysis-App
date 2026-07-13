@@ -52,6 +52,61 @@
  * it comes back empty**. One implementation, two callers, one place it can ever be wrong.
  *
  * ═══════════════════════════════════════════════════════════════════════════════════════════════
+ * THE HEAVY-ACCOUNT SWEEP: BOUNDED CONCURRENCY OVER ANALYSIS PREFIXES — issue #125.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════
+ * `purgePrefix()` above is UNMODIFIED and stays the only implementation of the recursive,
+ * paginated, verified per-prefix purge — the "one place it can ever be wrong" property just above
+ * is not touched by any of this. What changes here is who calls it, and how many calls are allowed
+ * to be in flight at once, for an ACCOUNT prefix specifically.
+ *
+ * The original account sweep handed the whole `{userId}/` prefix to a single `purgePrefix()` call,
+ * whose internal recursion (`collectFiles()` in `delete-analysis.ts`) walks every `{analysis_id}/`
+ * sub-prefix ONE AT A TIME, sequentially `await`ing each `list()` before starting the next. That is
+ * fine for `delete-analysis.ts`'s own callers (one analysis, capped at 8 frames, one sub-prefix)
+ * but an ACCOUNT spans every analysis the user has ever run: a long-lived Elite account (30
+ * analyses/period, per `purchase-tier.ts`) accumulates hundreds of sub-prefixes over a couple of
+ * years. Hundreds of sequential network round trips in one edge-function invocation is exactly the
+ * "runs fine for months, then times out permanently with no code change" cliff #125 exists to
+ * remove — and because the purge is deliberately BLOCKING (see below), a sweep that times out
+ * deletes NOTHING. The account is not partially deleted, it is not deleted, and the users who trip
+ * this are precisely the ones with the most data — i.e. the ones with the strongest claim to
+ * erasure. `purgeAccountPrefix()` below fixes this without touching `delete-analysis.ts`:
+ *
+ *   1. Lists the account root itself — one paginated level, the one bit of walking duplicated here
+ *      rather than reused, because `delete-analysis.ts`'s recursion has no seam to inject
+ *      concurrency into and is out of scope for this fix (nine other agents share that file's
+ *      surface) — to discover the sibling `{analysis_id}/` sub-prefixes.
+ *   2. Purges each sub-prefix with the unchanged `purgePrefix()` (still doing its own recursion,
+ *      removal, and post-remove verification), dispatched through `mapWithConcurrency()` at a
+ *      bounded fan-out (`ACCOUNT_PURGE_CONCURRENCY` — see its own comment for the number and why).
+ *      Round-trip COUNT is not reduced — Storage's `list()` is a hierarchical, one-level-at-a-time
+ *      API, not a flat recursive walk, so there is no single call that replaces N per-prefix
+ *      listings. What changes is how many of those round trips are in flight simultaneously, which
+ *      is what actually determines wall-clock time: network latency, not bandwidth, is the
+ *      bottleneck for a sweep this shape, so overlapping requests cuts elapsed time by roughly the
+ *      concurrency factor even though the total call count is unchanged.
+ *   3. A soft wall-clock budget (`ACCOUNT_PURGE_DEADLINE_MS`) is checked before every new sub-prefix
+ *      purge is dispatched. Once it is spent, no NEW purge starts — in-flight ones are allowed to
+ *      finish, since their `remove()` calls already went out and are real, not something to race
+ *      against — and the whole sweep fails closed with the SAME `purge_failed` outcome any other
+ *      purge failure produces (a real 503, retryable; no new outcome, no drift in the contract
+ *      `lib/delete-account.ts` — out of scope for this fix — already hand-mirrors). The platform's
+ *      own kill is not something this function can catch or respond to at all; a soft deadline means
+ *      the caller gets a structured, logged, retryable answer instead of a bare connection drop.
+ *
+ * CHECKPOINTING IS FREE, NOT BUILT. Each sub-prefix purge is independently list → remove → verify.
+ * When one succeeds, its objects are REALLY gone from Storage — durably, with no bookkeeping of our
+ * own — before the next one even starts. A retry after a timeout re-lists the account root and
+ * finds FEWER sub-prefixes, because an emptied `{analysis_id}/` no longer exists as a
+ * pseudo-directory at all once nothing lives under it — so the retry does strictly less work than
+ * the attempt before it, for free. The retry key is still the user id (unchanged — see
+ * AUTHORIZATION below), and Storage itself is the checkpoint: no new table, no new column, no new
+ * failure mode of its own to keep consistent with the purge. This is the cheapest fix that removes
+ * the cliff, chosen over a persisted checkpoint row because the property a checkpoint would buy — a
+ * retry does less work than the attempt before it — already falls out of purging sub-prefixes
+ * independently rather than collecting the whole account before removing anything.
+ *
+ *  * ═══════════════════════════════════════════════════════════════════════════════════════════════
  * BLOCKING PURGE, not best-effort cleanup, and not orphan reconciliation. Deliberate.
  * ═══════════════════════════════════════════════════════════════════════════════════════════════
  * If the Storage purge fails, we STOP. No rows are deleted, the auth user is NOT deleted, and the
@@ -229,6 +284,26 @@ export interface DeleteAccountParams {
   pageSize?: number;
   /** Test-only seam — production callers should never pass this. See REMOVE_BATCH_SIZE. */
   removeBatchSize?: number;
+  /**
+   * Test-only seam — production callers should never pass this. Caps how many analysis-prefix
+   * purges run at once during the account-level sweep. See ACCOUNT_PURGE_CONCURRENCY.
+   */
+  listConcurrency?: number;
+  /**
+   * Test-only seam — production callers should never pass this. Overrides the storage-purge
+   * phase's soft wall-clock budget. See ACCOUNT_PURGE_DEADLINE_MS.
+   */
+  purgeDeadlineMs?: number;
+  /**
+   * Test-only seam — production callers should never pass this. Overrides the post-delete
+   * sweep's soft wall-clock budget. See ACCOUNT_POST_DELETE_SWEEP_DEADLINE_MS.
+   */
+  postDeleteSweepDeadlineMs?: number;
+  /**
+   * Test-only seam — production callers should never pass this. Injects a fake clock so
+   * budget-exceeded tests are deterministic instead of racing a real timer. Defaults to `Date.now`.
+   */
+  now?: () => number;
   /** Optional structured log sink; defaults to a no-op so tests stay silent unless they opt in. */
   log?: LogEvent;
 }
@@ -278,6 +353,227 @@ export function batchedRemove(storage: StorageBucket, batchSize: number = REMOVE
   };
 }
 
+/**
+ * Max analysis-prefix purges allowed in flight at once during the account-level sweep — issue
+ * #125. Bounded on purpose: the issue is explicit that an unbounded `Promise.all` over every
+ * sub-prefix would just trade one failure mode (a purge that times out) for another (a burst of
+ * simultaneous requests large enough to trip Storage's own rate limiting, or exhaust the edge
+ * function's outbound connection pool) — "do not fire unbounded parallelism at Storage."
+ *
+ * 8 is a modest, single-digit fan-out: enough to cut wall-clock time by close to an order of
+ * magnitude for the realistic worst case this issue names (a multi-year Elite account with a few
+ * hundred analyses — see the header's "THE HEAVY-ACCOUNT SWEEP" section for the arithmetic), while
+ * keeping the number of simultaneous in-flight requests low enough that it reads as normal traffic
+ * to Storage rather than a burst. It is a different axis from `REMOVE_BATCH_SIZE` (which bounds the
+ * SIZE of one call's payload) — this bounds how many calls are outstanding at once — and the two are
+ * deliberately independent constants, not derived from one another.
+ */
+export const ACCOUNT_PURGE_CONCURRENCY = 8;
+
+/**
+ * Soft wall-clock budget, in ms, for the STORAGE-PURGE PHASE (step 1) of an account delete —
+ * issue #125. `analyze-form/flow.ts`'s `ANALYZE_FORM_DEADLINE_MS` (105s) is sized against a
+ * documented external ceiling (the client's own polling timeout); this function has no equivalent
+ * client-side constraint to size against, and this repo does not pin an exact number for the
+ * Supabase edge runtime's own wall-clock limit. So this budget is deliberately conservative rather
+ * than tuned to a known ceiling: 60s is enough, at `ACCOUNT_PURGE_CONCURRENCY`-way fan-out, to clear
+ * several hundred analysis prefixes in one invocation (comfortably past the realistic worst case —
+ * see the header), while leaving large headroom under any plausible platform limit for the fast,
+ * bounded work that follows (row deletes, the auth-user delete, and the response itself). Revisit
+ * once the actual platform ceiling for this project is confirmed.
+ *
+ * A spent budget does NOT fail differently from any other purge failure — see `purgeAccountPrefix`
+ * below: it throws a plain `Error`, caught by the same `try/catch` in `deleteAccount()` that handles
+ * a real Storage outage, producing the same `purge_failed` outcome (503, retryable, nothing
+ * deleted). This is deliberate: adding a distinct outcome would mean a new member on
+ * `DeleteAccountResult`/`DeleteAccountErrorCode`, which `lib/delete-account.ts` hand-mirrors and
+ * this fix is barred from touching (see the header) — so it would silently fall back to that
+ * client's generic `'unknown'` bucket instead of the specific, already-correct `purge_failed` copy.
+ * Reusing the existing outcome keeps the response contract, and every existing caller of it, exactly
+ * as it was.
+ */
+export const ACCOUNT_PURGE_DEADLINE_MS = 60_000;
+
+/**
+ * Soft wall-clock budget, in ms, for the POST-DELETE SWEEP (step 4) — issue #125. Deliberately
+ * smaller than `ACCOUNT_PURGE_DEADLINE_MS`: by the time step 4 runs, every `{analysis_id}/`
+ * sub-prefix step 1 emptied has already vanished from the account root's listing (Storage does not
+ * keep an empty pseudo-directory around), so step 4's own top-level list only ever finds whatever
+ * reappeared from a concurrent `analyze-form` upload racing the delete — normally zero, occasionally
+ * a small handful, never "every analysis again." 20s is generous for that shape of work while still
+ * failing closed quickly if Storage itself is unhealthy at exactly the wrong moment.
+ */
+export const ACCOUNT_POST_DELETE_SWEEP_DEADLINE_MS = 20_000;
+
+/**
+ * Runs `fn` over `items` with at most `limit` calls in flight at once — the primitive
+ * `purgeAccountPrefix` uses to turn N sequential per-analysis `purgePrefix()` calls into N/`limit`
+ * sequential ROUNDS instead. Neither of the two obvious alternatives is right here: one call at a
+ * time is the bug this file exists to fix, and `Promise.all(items.map(fn))` fires every call at
+ * once regardless of `items.length` — exactly the unbounded parallelism issue #125 warns against.
+ *
+ * Fails fast: once any call rejects, no NEW call is started (each worker stops pulling from the
+ * shared cursor before its next item), but calls already in flight are allowed to run to
+ * completion rather than abandoned — a Storage `remove()` that already went out is a real side
+ * effect, not something to race against or pretend didn't happen. The FIRST rejection observed is
+ * what this function throws once every worker has settled; nothing is left unawaited, so an
+ * unhandled-rejection warning from a later, discarded failure is not possible.
+ *
+ * Generic and dependency-free on purpose — exported so its concurrency-bound and ordering
+ * properties get their own direct unit tests, independent of the Storage-specific fakes the rest of
+ * this file's tests use.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  if (items.length === 0) {
+    return results;
+  }
+
+  let nextIndex = 0;
+  let firstError: unknown;
+  let hasError = false;
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      if (hasError) {
+        return;
+      }
+      const i = nextIndex;
+      nextIndex += 1;
+      if (i >= items.length) {
+        return;
+      }
+      try {
+        results[i] = await fn(items[i], i);
+      } catch (err) {
+        if (!hasError) {
+          hasError = true;
+          firstError = err;
+        }
+        return;
+      }
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  if (hasError) {
+    throw firstError;
+  }
+  return results;
+}
+
+/**
+ * The account-level storage sweep — issue #125. See the header's "THE HEAVY-ACCOUNT SWEEP" section
+ * for the full design; this is the implementation of the three-part fix described there: enumerate
+ * the account root's own sub-prefixes, purge them through `purgePrefix()` (unchanged, imported from
+ * `delete-analysis.ts`) at a bounded concurrency, and fail closed on a spent time budget rather than
+ * risk being killed mid-sweep with no response at all.
+ *
+ * Any thrown error here — a real Storage failure, a verification failure (something survived the
+ * purge), or a spent time budget — is indistinguishable to the caller: `deleteAccount()` catches it
+ * exactly as it always did and returns `purge_failed`. Nothing beyond Storage is ever touched by
+ * this function; rows and the auth user are the caller's job, strictly after this resolves.
+ */
+async function purgeAccountPrefix(
+  storage: StorageBucket,
+  userId: string,
+  pageSize: number,
+  concurrencyLimit: number,
+  deadline: number,
+  now: () => number
+): Promise<number> {
+  const prefix = `${userId}/`;
+
+  // ── Enumerate the account root's own level ─────────────────────────────────────────────────
+  // One paginated level, mirroring `collectFiles()`'s own top-level loop in `delete-analysis.ts`
+  // (duplicated, not reused — see the header for why). Every folder entry is a sibling
+  // `{analysis_id}/` prefix to purge independently; a bare file directly at the account root is
+  // not expected by the real `{user_id}/{analysis_id}/frame.jpg` layout, but is still collected
+  // and removed rather than silently ignored, so an unexpected object never survives a "successful"
+  // delete.
+  const subPrefixes: string[] = [];
+  const topLevelFiles: string[] = [];
+  let offset = 0;
+  for (;;) {
+    if (now() > deadline) {
+      throw new Error(
+        `Storage purge for "${prefix}" exceeded its time budget while still enumerating the account ` +
+          `root — nothing was removed yet; retry to resume from the start.`
+      );
+    }
+    const entries = await storage.list(prefix, { limit: pageSize, offset });
+    for (const entry of entries) {
+      if (entry.isFolder) {
+        subPrefixes.push(`${prefix}${entry.name}/`);
+      } else {
+        topLevelFiles.push(`${prefix}${entry.name}`);
+      }
+    }
+    if (entries.length < pageSize) {
+      break;
+    }
+    offset += pageSize;
+  }
+
+  let purgedCount = 0;
+
+  if (topLevelFiles.length > 0) {
+    const { error } = await storage.remove(topLevelFiles);
+    if (error) {
+      throw new Error(`Failed to remove ${topLevelFiles.length} object(s) directly under "${prefix}": ${error}`);
+    }
+    purgedCount += topLevelFiles.length;
+  }
+
+  // ── Purge every sub-prefix, bounded-concurrently ───────────────────────────────────────────
+  // Each `purgePrefix()` call is independently list → remove → verify (unchanged behavior). A
+  // failure partway through — including a spent time budget, checked here before every new
+  // dispatch — leaves whatever already succeeded durably removed and everything else untouched,
+  // which is exactly the free checkpointing property the header describes: a retry re-enumerates
+  // the account root and finds only what is left.
+  let processedPrefixes = 0;
+  await mapWithConcurrency(subPrefixes, concurrencyLimit, async (subPrefix) => {
+    if (now() > deadline) {
+      throw new Error(
+        `Storage purge for "${prefix}" exceeded its time budget after removing ${purgedCount} ` +
+          `object(s) across ${processedPrefixes}/${subPrefixes.length} analysis prefixes — the rest ` +
+          `are UNCHANGED and durably intact (nothing partially deleted), and every prefix already ` +
+          `cleared will not be re-listed on retry.`
+      );
+    }
+    const count = await purgePrefix(storage, subPrefix, pageSize);
+    purgedCount += count;
+    processedPrefixes += 1;
+    return count;
+  });
+
+  // ── Final verification across the whole account root ───────────────────────────────────────
+  // Mirrors `purgePrefix()`'s own discipline: refuse to report success unless a fresh list of the
+  // ENTIRE prefix (not just the sub-prefixes we knew about going in) comes back empty. This is what
+  // catches a sub-prefix that reappeared from a concurrent upload after this function had already
+  // listed it as done — the same race the caller's own step-4 post-delete sweep exists to close one
+  // layer up.
+  if (now() > deadline) {
+    throw new Error(
+      `Storage purge for "${prefix}" exceeded its time budget right after clearing all ` +
+        `${subPrefixes.length} analysis prefixes (${purgedCount} object(s) removed) — retry to ` +
+        `finish verification and continue.`
+    );
+  }
+  const remaining = await storage.list(prefix, { limit: 1, offset: 0 });
+  if (remaining.length > 0) {
+    throw new Error(`Storage prefix "${prefix}" still has objects after purge — refusing to proceed.`);
+  }
+
+  return purgedCount;
+}
+
 export async function deleteAccount(
   rows: AccountRows,
   rawStorage: StorageBucket,
@@ -286,9 +582,11 @@ export async function deleteAccount(
 ): Promise<DeleteAccountResult> {
   const { userId } = params;
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+  const listConcurrency = params.listConcurrency ?? ACCOUNT_PURGE_CONCURRENCY;
+  const now = params.now ?? Date.now;
   const log: LogEvent = params.log ?? (() => {});
   const prefix = `${userId}/`;
-  const startedAt = Date.now();
+  const startedAt = now();
 
   // Bound the removes here, not at the call site, so the bound holds no matter who calls this.
   const storage = batchedRemove(rawStorage, params.removeBatchSize ?? REMOVE_BATCH_SIZE);
@@ -296,15 +594,24 @@ export async function deleteAccount(
   log({ event: 'delete_account.started', userId });
 
   // ── 1. STORAGE OBJECTS ───────────────────────────────────────────────────────────────────────
-  // Blocking. A failure here ends the request with nothing deleted — see the header. `purgePrefix`
-  // recurses into every `{analysis_id}/` sub-prefix, paginates each level, and re-lists afterwards
-  // to prove the prefix is empty; it throws unless it is.
+  // Blocking. A failure here ends the request with nothing deleted — see the header. `purgeAccountPrefix`
+  // (issue #125) enumerates the account root, then purges every `{analysis_id}/` sub-prefix through
+  // the unchanged, unmodified `purgePrefix()` at a bounded concurrency, and fails closed — the same
+  // `purge_failed` outcome as any other Storage failure — if its soft wall-clock budget runs out
+  // before every sub-prefix is cleared. See ACCOUNT_PURGE_CONCURRENCY/ACCOUNT_PURGE_DEADLINE_MS.
   let purgedObjectCount: number;
   try {
-    purgedObjectCount = await purgePrefix(storage, prefix, pageSize);
+    purgedObjectCount = await purgeAccountPrefix(
+      storage,
+      userId,
+      pageSize,
+      listConcurrency,
+      startedAt + (params.purgeDeadlineMs ?? ACCOUNT_PURGE_DEADLINE_MS),
+      now
+    );
   } catch (err) {
     const reason = errorMessage(err);
-    log({ event: 'delete_account.purge_failed', userId, reason, durationMs: Date.now() - startedAt });
+    log({ event: 'delete_account.purge_failed', userId, reason, durationMs: now() - startedAt });
     return { outcome: 'purge_failed', reason };
   }
   log({ event: 'delete_account.storage_purged', userId, purgedObjectCount });
@@ -326,7 +633,7 @@ export async function deleteAccount(
     log({ event: 'delete_account.rows_deleted', userId, profileExisted });
   } catch (err) {
     const reason = errorMessage(err);
-    log({ event: 'delete_account.rows_failed', userId, reason, durationMs: Date.now() - startedAt });
+    log({ event: 'delete_account.rows_failed', userId, reason, durationMs: now() - startedAt });
     return { outcome: 'rows_failed', reason, purgedObjectCount };
   }
 
@@ -337,7 +644,7 @@ export async function deleteAccount(
     await auth.deleteUser(userId);
   } catch (err) {
     const reason = errorMessage(err);
-    log({ event: 'delete_account.auth_delete_failed', userId, reason, durationMs: Date.now() - startedAt });
+    log({ event: 'delete_account.auth_delete_failed', userId, reason, durationMs: now() - startedAt });
     return { outcome: 'auth_delete_failed', reason, purgedObjectCount };
   }
   log({ event: 'delete_account.auth_user_deleted', userId });
@@ -347,7 +654,14 @@ export async function deleteAccount(
   // steps 1-3 can upload frames into a prefix we already swept. Re-running the (idempotent) purge
   // costs one `list()` when nothing reappeared, which is the overwhelmingly common case.
   try {
-    const sweptAfter = await purgePrefix(storage, prefix, pageSize);
+    const sweptAfter = await purgeAccountPrefix(
+      storage,
+      userId,
+      pageSize,
+      listConcurrency,
+      now() + (params.postDeleteSweepDeadlineMs ?? ACCOUNT_POST_DELETE_SWEEP_DEADLINE_MS),
+      now
+    );
     if (sweptAfter > 0) {
       log({ event: 'delete_account.post_delete_sweep_removed_objects', userId, sweptAfter, level: 'warn' });
     }
@@ -357,7 +671,7 @@ export async function deleteAccount(
     // client — it needs a human. Loud, structured, error-level, and naming the exact prefix: this
     // log is the ONLY alarm for this outcome, since the HTTP response is (correctly) a 200 with no
     // retry affordance — see accountResponseBodyForOutcome's doc comment for why.
-    log({ event: 'delete_account.orphans_remaining', userId, prefix, reason, level: 'error', durationMs: Date.now() - startedAt });
+    log({ event: 'delete_account.orphans_remaining', userId, prefix, reason, level: 'error', durationMs: now() - startedAt });
     return { outcome: 'orphans_remaining', reason, purgedObjectCount, consentEventsPurged };
   }
 
@@ -367,7 +681,7 @@ export async function deleteAccount(
     purgedObjectCount,
     consentEventsPurged,
     profileExisted,
-    durationMs: Date.now() - startedAt,
+    durationMs: now() - startedAt,
   });
   return { outcome: 'deleted', purgedObjectCount, consentEventsPurged, profileExisted };
 }
