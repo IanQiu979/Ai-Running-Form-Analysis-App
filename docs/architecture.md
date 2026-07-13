@@ -1018,13 +1018,26 @@ the original video (see "Media pipeline" below).
    errored) and the real token usage from the response — this is what feeds `actual_usd` and the
    circuit breaker; skipping it on any exit path leaves that call's reservation stuck as
    `'pending'` until `pending_timeout_seconds` ages it out on its own.
-10. **Upload, then settle** — on a success or honest-partial, the function uploads the frames
-    itself (service-role) to `{user_id}/{analysis_id}/frame-{NN}.jpg` — the row already exists, so
-    no object can ever be orphaned — then marks the reservation delivered, persisting the result
-    to `analyses` (`result` JSONB, `media_paths`, `tier_at_run`, `frame_count`, `is_fallback`) and
-    returning `{ result, analysisId, isFallback }`. A frame that fails to upload does **not** fail
-    the request: settle records only the paths that landed, so `media_paths` never names an object
-    that doesn't exist. On a release path nothing is uploaded at all.
+10. **Settle, then upload** — on a success or honest-partial, the function first marks the
+    reservation delivered, persisting the result to `analyses` (`result` JSONB, `tier_at_run`,
+    `frame_count`, `is_fallback`) with **no** `media_paths`. Only then does it upload the frames
+    itself (service-role) to `{user_id}/{analysis_id}/frame-{NN}.jpg`, and record where they went
+    via `attach_media_paths` — the second, and only other, writer of `media_paths`. This order
+    (#130) establishes the invariant that **a `'reserved'` row can never have frames**: a row
+    stranded by a killed invocation, or released by a refused settle, has nothing under its prefix,
+    so `sweep_stale_reservations()` (#47) has nothing to purge and needs no Storage access.
+    Everything after the settle is non-fatal — the analysis is already delivered and the quota
+    already spent — so a frame that fails to upload, or an `attach_media_paths` that refuses, does
+    **not** fail the request: it only shortens the Past Analyses frame strip. `media_paths` is the
+    display list, never the deletion authority; purge walks the prefix. On a release path nothing
+    is uploaded at all.
+
+    **What this order does not fix.** A `'delivered'` row is *deletable* while frames are still
+    uploading. If the attach lands after a delete marked the row, `attach_media_paths` refuses with
+    `row_deleted`/`not_found` and the function purges the prefix it just wrote. But
+    `deleteAnalysis` (#57) purges Storage *before* it marks the row, so an attach committing in the
+    gap between those two steps still succeeds and nothing purges — those frames strand. Narrowed,
+    not closed: see `docs/status.md` Known Issue #26 for the residual race and its known fix.
 
 ## Planned — media pipeline
 
@@ -1043,10 +1056,10 @@ function was told to upload media it never receives).
   analysis is the job of `DELETE /functions/v1/analysis/:id` (#57), which removes the row and
   purges the storage prefix together.
 - **Purge deletes by prefix** `{user_id}/{analysis_id}/`, never by iterating `media_paths`.
-  Reachability comes from the row existing, not from `media_paths` being populated — a crash
-  between the upload and the settle leaves objects under a prefix whose row is still `reserved`
-  with an empty `media_paths`. `media_paths` is the frame-strip display list, not the deletion
-  authority. #47/#57/#58 all inherit this rule.
+  Reachability comes from the row existing, not from `media_paths` being populated — since #130 the
+  function settles *before* it uploads, so an invocation killed mid-upload leaves a `'delivered'`
+  row with an empty or short `media_paths` and real objects under its prefix. `media_paths` is the
+  frame-strip display list, not the deletion authority. #47/#57/#58 all inherit this rule.
 - **The original full-resolution video is never uploaded or stored** — it stays on the device.
   This keeps the free-plan 1GB bucket viable (a few hundred KB per analysis instead of
   60–130MB) and needs no video player (`expo-video` is not installed).
@@ -1360,7 +1373,8 @@ a `{p_user_id}/{p_analysis_id}/` namespace guard).
 
 - **`reserve_analysis(p_user_id, p_idempotency_key, p_media_type, p_frame_count)`**
   — the sole write path for new `analyses` rows (4 args as of #88 — the row is minted with an
-  empty `media_paths`, which `settle_analysis` fills in after the upload). Serializes concurrent
+  empty `media_paths`, which `attach_media_paths` fills in after the upload, which in turn happens
+  after the settle as of #130). Serializes concurrent
   calls for one user via `pg_advisory_xact_lock(hashtext(p_user_id || ':analysis_reserve'))` (a
   bare count-then-insert does not close the race on its own — see the migration's own comment for
   why); `UNIQUE (user_id, idempotency_key)` is a second, unconditional backstop against a lock-
@@ -1378,11 +1392,24 @@ a `{p_user_id}/{p_analysis_id}/` namespace guard).
   counting query is **unaffected by #2's soft-delete** (below) — it never filters on
   `deleted_at`, so a soft-deleted row keeps counting exactly as before.
 - **`settle_analysis(p_user_id, p_analysis_id, p_result, p_is_fallback, p_media_paths)`** — marks
-  a `'reserved'` row `'delivered'` with its result and the frame paths that actually landed (5
-  args as of #88 — every path must sit under the row's own `{p_user_id}/{p_analysis_id}/`
-  namespace, or the whole call is rejected with `invalid_media_path`); guarded to only affect a
-  still-`'reserved'` row, so a duplicate/late call is a safe no-op rather than overwriting an
-  already-delivered result.
+  a `'reserved'` row `'delivered'` with its result (5 args as of #88 — every path must sit under
+  the row's own `{p_user_id}/{p_analysis_id}/` namespace, or the whole call is rejected with
+  `invalid_media_path`); guarded to only affect a still-`'reserved'` row, so a duplicate/late call
+  is a safe no-op rather than overwriting an already-delivered result. **As of #130 `analyze-form`
+  calls this with four args**: the frames have not been uploaded yet, so there are no paths to pass
+  and `p_media_paths` takes its `'{}'` default. The parameter itself is unchanged — nothing was
+  migrated away — and the paths arrive afterwards via `attach_media_paths`.
+- **`attach_media_paths(p_user_id, p_analysis_id, p_media_paths)`** (issue #130,
+  `20260713140000_attach_media_paths.sql` — **written, NOT applied**) — records the frame paths that
+  actually landed, on an already-`'delivered'` row. The second, and only other, writer of
+  `media_paths`, so it carries the same namespace guard `settle_analysis` does, plus `status =
+  'delivered' and deleted_at is null` (a soft-deleted row must never be silently un-redacted with
+  live pointers into the private bucket) and write-once (`cardinality(media_paths) = 0`). Guards live
+  in the UPDATE's WHERE clause, not in a check-then-write. It **returns** its refusals rather than
+  raising — `invalid_media_path`, `not_found`, `row_deleted`, `not_delivered`, `already_attached` —
+  because its caller runs after the analysis is already delivered and charged, and the four are kept
+  distinct because two of them (`not_found`, `row_deleted`) mean the caller must purge the frames it
+  just uploaded and one (`already_attached`) means it must not.
 - **`release_analysis(p_user_id, p_analysis_id, p_reason)`** — the compensating release: a
   `'reserved'` row that never gets settled (the vision call errored after its one retry, or the
   response was a clean failure) moves to `'released'` so it stops counting toward quota, while
@@ -1458,8 +1485,9 @@ policy is ever carelessly re-added, or RLS disabled on this table. Tracked as is
 
 `supabase/migrations/20260713130000_stale_reservation_sweep.sql` exists in the repo but is
 **not** applied to the live project (confirmed via `supabase migration list`, 2026-07-13 — its
-`remote` column is empty, same footing as `pace_quota_status`'s, 20260712233000, and
-`pace_purchase_tier`'s, 20260713120000). It is the backstop `docs/status.md` Known Issue #14
+`remote` column is empty, same footing as `pace_quota_status`'s, 20260712233000,
+`pace_purchase_tier`'s, 20260713120000, and `attach_media_paths`'s, 20260713140000; the repo is
+now **four** migrations ahead of production, tracked by issue #131). It is the backstop `docs/status.md` Known Issue #14
 asked for: reclaiming a `'reserved'` row when the `analyze-form` invocation that created it is
 killed (timeout/OOM/deploy) before its own `finally` block can reach `release_analysis`.
 
@@ -1488,9 +1516,16 @@ killed (timeout/OOM/deploy) before its own `finally` block can reach `release_an
   loss. `p_batch_limit` (default 500) bounds how many rows one sweep run can lock and rewrite, so
   an incident leaving many rows stale at once can't make a single run try to process an unbounded
   number.
-- **This migration reclaims the DB row only — it does NOT purge the swept row's Storage
-  prefix.** `docs/status.md` Known Issue #16 asked for both halves; the storage-purge half
-  remains open.
+- **This migration reclaims the DB row only, and — since #130 — that is provably all it needs to
+  do.** Known Issue #16 asked for a Storage purge here too. `analyze-form` now settles *before* it
+  uploads, so a `'reserved'` row can never have frames: a swept row has zero objects under its
+  prefix by construction, a purge here would list an always-empty prefix on every cron tick, and
+  the `pg_net`/Vault/edge-function wiring Design Decision 3 declined to introduce stays off the
+  table. Recorded as **Design Decision 5** in the migration's own header, so the next reader
+  holding #130 does not add one back. Note this does not make every orphan impossible — the
+  delete-during-upload race (Known Issue #26) is narrowed, not closed, and its fix belongs in
+  `delete-analysis.ts`: those rows are `'delivered'`, never `'reserved'`, so this sweep would not
+  see them even if it purged.
 - **24 new Deno tests** (`_shared/__tests__/stale-reservation-sweep.deno.test.ts`): a TypeScript
   model of the sweep's contract (fresh/stale/settled/released rows, the race with a concurrent
   settle in both directions) plus migration-text invariant tests that read the actual SQL to
@@ -1944,12 +1979,14 @@ Three files, the same three-way split as `analysis/index.ts` (#57):
   system will ever clean them up. Asserted by a test on the observed call order.
 - **Purge by prefix, never by `media_paths` and never by walking `analyses` rows.** The sweep
   target is the single prefix `{user_id}/`, built from the JWT-verified caller id alone. That is
-  strictly stronger than any row-driven purge and closes three orphan sources without
-  special-casing any: rows whose `media_paths` is empty because `analyze-form` crashed before
-  `settle_analysis` (#88's write-side bug, reintroduced if the read side is row-driven); rows
-  **soft-deleted** through #2's client `deleted_at` UPDATE policy, whose `media_paths` the redact
-  trigger has since blanked (**Known Issue #19** — a row-driven sweep misses these, this one
-  cannot); and objects under a prefix with no row at all, from any cause.
+  strictly stronger than any row-driven purge and closes four orphan sources without
+  special-casing any: rows whose `media_paths` is empty or short because `analyze-form` was killed
+  mid-upload, after its settle (#88's write-side bug, reintroduced if the read side is row-driven);
+  rows **soft-deleted** through #2's client `deleted_at` UPDATE policy, whose `media_paths` the
+  redact trigger has since blanked (**Known Issue #19** — a row-driven sweep misses these, this one
+  cannot); frames stranded by the delete-during-upload race (**Known Issue #26**, where this
+  account-level sweep is currently the *only* thing that would ever reach them); and objects under a
+  prefix with no row at all, from any cause.
 - **The nested-prefix trap is reused, not re-implemented.** `purgePrefix()` in
   `_shared/delete-analysis.ts` (#57) is now exported and called by both delete paths. It
   recurses into every `{analysis_id}/` sub-prefix, paginates each level, and **re-lists the
@@ -2179,9 +2216,17 @@ The model is a **fake queue** in every test. The suite makes **zero Anthropic ca
 **The order, as built:**
 
 ```
-auth → consent → AI gate → idempotency + reserve → prompt → call (+1 retry) → upload → settle
-                                                                            ↘ (any failure) release
+auth → consent → AI gate → idempotency + reserve → prompt → call (+1 retry)
+     → settle → upload → attach_media_paths          ↘ (any failure before the settle) release
 ```
+
+**Settle before upload (#130).** The last three steps used to run `upload → settle`. They were
+inverted so that a `'reserved'` row can never have frames — see step 10 of the call-ordering list
+above for the full reasoning, and Known Issue #26 in `docs/status.md` for the one orphan window this
+narrows but does not close. Everything after the settle is non-fatal (`safeAttachFrames` cannot
+throw): the analysis is delivered and the quota is spent by then, so a bookkeeping miss must never
+become a 500. When the attach refuses with `row_deleted`/`not_found` — the row was deleted while we
+were uploading — the function purges the prefix it just wrote.
 
 **How the five binding contract rules are discharged:**
 

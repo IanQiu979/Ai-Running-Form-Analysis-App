@@ -171,6 +171,44 @@
 -- human being paged if the sweep starts firing constantly, which would mean analyze-form is
 -- crashing far more than expected) — that is `uptime-healthcheck`/`observability-setup` territory
 -- per AGENTS.md's routing table, out of scope for this issue, and worth its own follow-up.
+--
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+-- DESIGN DECISION 5 — WHY THIS SWEEP NEVER TOUCHES STORAGE (issue #130). DO NOT "FIX" THIS.
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+--
+-- Issue #130 asked for this sweep to also purge the swept row's `{user_id}/{analysis_id}/` Storage
+-- prefix, on the reasoning that a run which uploads its frames and then dies before settling
+-- strands both a 'reserved' row AND its frames. That reasoning was correct about the OLD ordering,
+-- and #130 was addressed by changing the ordering instead — see
+-- `docs/superpowers/specs/2026-07-13-stale-frame-orphan-design.md`.
+--
+-- analyze-form now SETTLES BEFORE IT UPLOADS (`flow.ts`, section 9; the paths are recorded
+-- afterwards by `public.attach_media_paths`, 20260713140000_attach_media_paths.sql). That
+-- establishes an invariant this function gets to rely on for free:
+--
+--   A 'reserved' row can never have frames.
+--
+-- This sweep only ever touches rows still stuck in 'reserved'. So a swept row has, by construction,
+-- ZERO objects under its prefix — there is nothing to purge, and a purge here would be dead code
+-- that lists an always-empty prefix on every cron tick.
+--
+-- That is also why this migration needs no `pg_net`, no Supabase Vault secret, and no scheduled
+-- edge function to reach Storage's HTTP API — the exact wiring Design Decision 3 above declined to
+-- introduce, and which #130 would otherwise have forced back onto the table.
+--
+-- IF YOU ARE ABOUT TO ADD A STORAGE PURGE HERE: first check that `flow.ts` still settles before it
+-- uploads. If someone has inverted that back, the invariant is gone and the orphan is real again —
+-- and the fix is to restore the ordering, not to bolt a purge onto this sweep. (A purge here could
+-- never have been sufficient anyway: the same old ordering leaked frames on a REFUSED settle too,
+-- which releases the row through `release_analysis` and so is never seen by this sweep at all.)
+--
+-- NOT CLOSED BY THE ABOVE, and NOT this sweep's job either: the delete-during-upload race
+-- (`docs/status.md` Known Issue #26). A 'delivered' row is deletable while analyze-form is still
+-- uploading its frames, and `deleteAnalysis` (#57) purges Storage BEFORE it marks the row deleted —
+-- so frames written into that gap can strand under a deleted analysis's already-walked prefix.
+-- Those rows are 'delivered', never 'reserved', so this sweep would not see them even if it did
+-- purge. The fix belongs in `delete-analysis.ts` (a second purge after `markDeleted` commits), not
+-- here.
 
 -- ---------------------------------------------------------------------------------------------
 -- 1. Enable pg_cron. Verified live (list_extensions, project vputdomdlknvthnzritt) as available
