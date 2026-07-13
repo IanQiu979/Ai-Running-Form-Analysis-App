@@ -24,6 +24,7 @@ import {
   type AnalysesTable,
   type AnalysisOwnershipRow,
   type DeleteAnalysisResult,
+  type LogEvent,
   type StorageBucket,
   type StorageEntry,
 } from '../delete-analysis.ts';
@@ -68,6 +69,15 @@ class FakeStorage implements StorageBucket {
 
   remainingPaths(): string[] {
     return Array.from(this.objects).sort();
+  }
+
+  /**
+   * Test-only seam for simulating the #132 race: adds an object directly, bypassing `remove()`
+   * bookkeeping, so a `markDeleted` fake can simulate an `attach_media_paths` commit landing in
+   * the gap between the first purge (A) and the row's `deleted_at` transition (B).
+   */
+  injectObject(path: string): void {
+    this.objects.add(path);
   }
 
   list(prefix: string, options: { limit: number; offset: number }): Promise<StorageEntry[]> {
@@ -273,6 +283,155 @@ Deno.test('deleteAnalysis: calling it twice in a row converges both times with n
 });
 
 // ---------------------------------------------------------------------------
+// 5. The second purge (#132) — a frame landing in the gap between the first purge (A) and
+//    markDeleted committing (B) must not survive as an orphan.
+// ---------------------------------------------------------------------------
+
+Deno.test(
+  'deleteAnalysis: a frame that lands between the first purge and markDeleted committing is caught by the second purge (#132)',
+  async () => {
+    const storage = new FakeStorage([`${PREFIX}frame-01.jpg`]);
+    const markDeletedCalls: Array<{ id: string; userId: string }> = [];
+    // Simulates attach_media_paths committing a NEW frame in the A/B gap: this fake "writes" the
+    // late frame as a side effect of markDeleted committing, exactly the race #132 describes —
+    // the row still looked live (`deleted_at IS NULL`) when the write happened.
+    const table: AnalysesTable = {
+      findById: (id) => Promise.resolve({ id, user_id: USER_A, deleted_at: null }),
+      markDeleted: (id, userId) => {
+        markDeletedCalls.push({ id, userId });
+        storage.injectObject(`${PREFIX}frame-late.jpg`);
+        return Promise.resolve({ updated: true });
+      },
+    };
+
+    const result = await deleteAnalysis(table, storage, { analysisId: ANALYSIS_ID, callerUserId: USER_A });
+
+    assertEquals(
+      result,
+      { outcome: 'deleted', alreadyDeleted: false, purgedObjectCount: 2 },
+      'the second purge must count toward the total — the orphan was real and was removed'
+    );
+    assertEquals(
+      storage.remainingPaths(),
+      [],
+      'the late-arriving frame must not survive as an orphan under a prefix already reported purged'
+    );
+    assertEquals(markDeletedCalls, [{ id: ANALYSIS_ID, userId: USER_A }]);
+  }
+);
+
+Deno.test(
+  'deleteAnalysis: logs the caught orphan from the second purge, not just the total count',
+  async () => {
+    const storage = new FakeStorage([]);
+    const table: AnalysesTable = {
+      findById: (id) => Promise.resolve({ id, user_id: USER_A, deleted_at: null }),
+      markDeleted: () => {
+        storage.injectObject(`${PREFIX}frame-late.jpg`);
+        return Promise.resolve({ updated: true });
+      },
+    };
+    const events: Record<string, unknown>[] = [];
+    const log: LogEvent = (event) => events.push(event);
+
+    const result = await deleteAnalysis(table, storage, { analysisId: ANALYSIS_ID, callerUserId: USER_A, log });
+
+    assertTrue(result.outcome === 'deleted', `expected deleted, got ${result.outcome}`);
+    const orphanEvents = events.filter((e) => e.event === 'delete_analysis.second_purge_caught_orphan');
+    assertEquals(orphanEvents.length, 1, 'a non-zero second purge must produce exactly one log event for it');
+    assertEquals(orphanEvents[0].secondPurgeObjectCount, 1);
+    assertEquals(orphanEvents[0].analysisId, ANALYSIS_ID);
+  }
+);
+
+Deno.test(
+  'deleteAnalysis: an empty second purge (the common case) logs nothing extra',
+  async () => {
+    const storage = new FakeStorage([`${PREFIX}frame-01.jpg`]);
+    const table = new FakeAnalysesTable({ id: ANALYSIS_ID, user_id: USER_A, deleted_at: null });
+    const events: Record<string, unknown>[] = [];
+    const log: LogEvent = (event) => events.push(event);
+
+    await deleteAnalysis(table, storage, { analysisId: ANALYSIS_ID, callerUserId: USER_A, log });
+
+    assertEquals(events, [], 'nothing landed in the gap, so the second purge must stay silent');
+  }
+);
+
+Deno.test(
+  'deleteAnalysis: does NOT run a second purge when the row was already deleted (alreadyDeleted) — no fresh A/B gap to close',
+  async () => {
+    const storage = new FakeStorage([]);
+    // The row is already soft-deleted before this call starts (e.g. issue #2's client bypass).
+    // If a second purge ran here anyway, it would catch this injected object; the requirement is
+    // that it must NOT run on this path at all, so the object is left exactly as markDeleted put it.
+    const table: AnalysesTable = {
+      findById: (id) => Promise.resolve({ id, user_id: USER_A, deleted_at: new Date().toISOString() }),
+      markDeleted: () => {
+        storage.injectObject(`${PREFIX}frame-injected-by-markDeleted.jpg`);
+        return Promise.resolve({ updated: false }); // already deleted — no transition happened here
+      },
+    };
+
+    const result = await deleteAnalysis(table, storage, { analysisId: ANALYSIS_ID, callerUserId: USER_A });
+
+    assertEquals(
+      result,
+      { outcome: 'deleted', alreadyDeleted: true, purgedObjectCount: 0 },
+      'purgedObjectCount must reflect only the first purge — the second purge must never have run'
+    );
+    assertEquals(
+      storage.remainingPaths(),
+      [`${PREFIX}frame-injected-by-markDeleted.jpg`],
+      'proves no second purge ran: an object written after the first purge on this path survives untouched'
+    );
+  }
+);
+
+Deno.test(
+  'deleteAnalysis: a second purge that cannot fully clear the prefix reports orphans_remaining, never a false "deleted" success',
+  async () => {
+    const storage = new FakeStorage([`${PREFIX}frame-01.jpg`]);
+    const table: AnalysesTable = {
+      findById: (id) => Promise.resolve({ id, user_id: USER_A, deleted_at: null }),
+      markDeleted: () => {
+        // A late frame lands, AND this time its removal genuinely fails (a real Storage-side
+        // problem, not just a race) — purgePrefix's fail-closed verification must throw rather
+        // than let this be reported as a clean, complete delete.
+        storage.injectObject(`${PREFIX}frame-late.jpg`);
+        storage.failRemoveWith = 'simulated storage outage on the second purge';
+        return Promise.resolve({ updated: true });
+      },
+    };
+    const events: Record<string, unknown>[] = [];
+    const log: LogEvent = (event) => events.push(event);
+
+    const result = await deleteAnalysis(table, storage, { analysisId: ANALYSIS_ID, callerUserId: USER_A, log });
+
+    assertTrue(result.outcome === 'orphans_remaining', `expected orphans_remaining, got ${result.outcome}`);
+    if (result.outcome === 'orphans_remaining') {
+      assertEquals(result.purgedObjectCount, 1, 'the first purge still counts — only the second purge failed');
+      assertTrue(result.reason.length > 0, 'a human-readable reason must be carried on the outcome');
+    }
+    assertEquals(
+      storage.remainingPaths(),
+      [`${PREFIX}frame-late.jpg`],
+      'the row is already deleted; the surviving orphan is reported, not silently claimed as purged'
+    );
+    const failedEvents = events.filter((e) => e.event === 'delete_analysis.second_purge_failed');
+    assertEquals(failedEvents.length, 1, 'a failed second purge must be logged at error level as the sole alarm');
+    assertEquals(failedEvents[0].level, 'error');
+
+    assertEquals(httpStatusForOutcome(result.outcome), 200, 'orphans_remaining is still a 200 — the row really is gone');
+    assertEquals(
+      responseBodyForOutcome(result),
+      { deleted: true, orphansRemaining: true },
+      'the response body must stay in the success shape, never mixed with an error code'
+    );
+  }
+);
+
+// ---------------------------------------------------------------------------
 // The nested-prefix trap (docs/privacy-checklist-m7.md) — recursion + pagination
 // ---------------------------------------------------------------------------
 
@@ -334,6 +493,7 @@ Deno.test("DEFAULT_PAGE_SIZE matches Supabase Storage list()'s real maximum page
 Deno.test('httpStatusForOutcome maps every outcome to the documented status', () => {
   const cases: Array<[DeleteAnalysisResult['outcome'], number]> = [
     ['deleted', 200],
+    ['orphans_remaining', 200],
     ['not_found', 404],
     ['not_yours', 403],
     ['purge_failed', 503],
