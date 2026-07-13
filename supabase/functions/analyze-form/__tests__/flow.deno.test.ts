@@ -64,6 +64,7 @@ class FakeRpc implements RpcClient {
       error: null,
     }),
     settle_analysis: () => ({ data: { ok: true }, error: null }),
+    attach_media_paths: () => ({ data: { ok: true }, error: null }),
     release_analysis: () => ({ data: { ok: true }, error: null }),
   };
 
@@ -88,6 +89,7 @@ class FakeRpc implements RpcClient {
 
 class FakeStorage {
   readonly uploads: { path: string; bytes: number }[] = [];
+  readonly removed: string[] = [];
   failOn: (path: string) => boolean = () => false;
 
   // deno-lint-ignore require-await
@@ -96,6 +98,21 @@ class FakeStorage {
       return { error: 'storage exploded' };
     }
     this.uploads.push({ path, bytes: bytes.length });
+    return { error: null };
+  }
+
+  // `purgePrefix` lists, then removes, then re-lists to VERIFY the prefix is empty. This fake must
+  // honour that contract or the verification pass will throw: report what is still present.
+  // deno-lint-ignore require-await
+  async list(prefix: string, _options: { limit: number; offset: number }) {
+    return this.uploads
+      .filter((u) => u.path.startsWith(prefix) && !this.removed.includes(u.path))
+      .map((u) => ({ name: u.path.slice(prefix.length), isFolder: false }));
+  }
+
+  // deno-lint-ignore require-await
+  async remove(paths: string[]) {
+    this.removed.push(...paths);
     return { error: null };
   }
 }
@@ -268,14 +285,14 @@ Deno.test('rule 1: frames are uploaded under the JWT user id, inside the row\'s 
   const h = harness([ok()]);
   await run(h, { ...VIDEO_BODY, userId: ATTACKER_TARGET });
 
-  // `settle_analysis`'s namespace guard rejects the whole call for any path outside
-  // `{p_user_id}/{p_analysis_id}/`, so a mis-namespaced upload would fail the settle — but the
-  // paths must be right in the first place, not merely caught downstream.
+  // `attach_media_paths`'s namespace guard rejects the whole call for any path outside
+  // `{p_user_id}/{p_analysis_id}/` — but the paths must be right in the first place, not merely
+  // caught downstream.
   assertEquals(h.storage.uploads.map((u) => u.path), [
     `${CALLER}/${ANALYSIS_ID}/frame-01.jpg`,
     `${CALLER}/${ANALYSIS_ID}/frame-02.jpg`,
   ]);
-  assertEquals(h.rpc.to('settle_analysis')[0].args.p_media_paths, [
+  assertEquals(h.rpc.to('attach_media_paths')[0].args.p_media_paths, [
     `${CALLER}/${ANALYSIS_ID}/frame-01.jpg`,
     `${CALLER}/${ANALYSIS_ID}/frame-02.jpg`,
   ]);
@@ -475,7 +492,7 @@ Deno.test('rule 3: a truncated response (max_tokens) releases with model_error, 
   assertEquals(releaseReasonFrom(h.rpc), 'model_error');
 });
 
-Deno.test('rule 3: a settle that refuses still releases (the row never silently stays reserved)', async () => {
+Deno.test('rule 3: a settle that refuses still releases — and uploads NOTHING (#130)', async () => {
   const h = harness([ok()]);
   h.rpc.handlers.settle_analysis = () => ({
     data: { ok: false, reason: 'not_reserved_or_not_found' },
@@ -486,6 +503,12 @@ Deno.test('rule 3: a settle that refuses still releases (the row never silently 
 
   assertEquals(res.status, 500);
   assertEquals(releaseReasonFrom(h.rpc), 'internal_error');
+  // THE #130 REGRESSION LOCK — the orphan that needed no crash. Under the old upload-then-settle
+  // order the frames were already in the bucket by the time the settle refused (a late replay or a
+  // concurrent duplicate is enough), and the released row never named them: a permanent orphan that
+  // no sweep-side purge could ever have reached, because the sweep only touches 'reserved' rows.
+  assertEquals(h.storage.uploads.length, 0);
+  assertEquals(h.rpc.to('attach_media_paths').length, 0);
 });
 
 Deno.test('rule 3: an UNEXPECTED throw mid-flight still releases — the case a catch-chain always misses', async () => {
@@ -502,8 +525,8 @@ Deno.test('rule 3: an UNEXPECTED throw mid-flight still releases — the case a 
 });
 
 Deno.test('rule 3: a storage outage does NOT fail the request, and does NOT release', async () => {
-  // The analysis is done and correct. Refusing to deliver it because a thumbnail did not persist
-  // would be absurd — and releasing would hand back a slot for work we actually did.
+  // The analysis is done, correct, and ALREADY SETTLED. Refusing to deliver it because a thumbnail
+  // did not persist would be absurd — and releasing would hand back a slot for work we did.
   const h = harness([ok()]);
   h.storage.failOn = () => true;
 
@@ -512,9 +535,9 @@ Deno.test('rule 3: a storage outage does NOT fail the request, and does NOT rele
   assertEquals(res.status, 200);
   assertEquals(h.rpc.to('release_analysis').length, 0);
   assertEquals(
-    h.rpc.to('settle_analysis')[0].args.p_media_paths,
-    [],
-    'settle records only the paths that LANDED — media_paths never names an object that does not exist'
+    h.rpc.to('attach_media_paths').length,
+    0,
+    'nothing landed, so nothing is attached — media_paths never names an object that does not exist'
   );
 });
 
@@ -682,7 +705,7 @@ Deno.test('rule 5: the kill switch and the circuit breaker are also 503s', async
   }
 });
 
-Deno.test('rule 5: gate ordering is auth -> consent -> gate -> reserve -> settle', async () => {
+Deno.test('rule 5: gate ordering is auth -> consent -> gate -> reserve -> settle -> attach', async () => {
   const h = harness([ok()]);
   await run(h);
 
@@ -690,6 +713,7 @@ Deno.test('rule 5: gate ordering is auth -> consent -> gate -> reserve -> settle
     'gate_ai_call',
     'reserve_analysis',
     'settle_analysis',
+    'attach_media_paths',
     'record_ai_call',
   ]);
 });
@@ -922,7 +946,10 @@ Deno.test('#88: NOTHING is uploaded when the reserve is denied', async () => {
   assertEquals(h.storage.uploads.length, 0, 'the exact leak #88 exists to close');
 });
 
-Deno.test('#88: the upload happens AFTER the model call and BEFORE the settle', async () => {
+Deno.test('#88/#130: the upload happens AFTER the model call and AFTER the settle', async () => {
+  // #88's rule was "never upload before the reserve" — a rejected or failed analysis must leave
+  // NOTHING in the bucket. #130 tightened it further: never upload before the SETTLE either, so a
+  // 'reserved' row can never have frames. Both still hold; the upload simply moved one step later.
   const order: string[] = [];
   const h = harness([ok()]);
 
@@ -936,6 +963,11 @@ Deno.test('#88: the upload happens AFTER the model call and BEFORE the settle', 
     order.push('settle');
     return baseSettle(args);
   };
+  const baseAttach = h.rpc.handlers.attach_media_paths;
+  h.rpc.handlers.attach_media_paths = (args) => {
+    order.push('attach');
+    return baseAttach(args);
+  };
   h.deps.model = {
     // deno-lint-ignore require-await
     async send() {
@@ -946,16 +978,18 @@ Deno.test('#88: the upload happens AFTER the model call and BEFORE the settle', 
 
   await run(h);
 
-  assertEquals(order, ['model', 'upload', 'upload', 'settle']);
+  assertEquals(order, ['model', 'settle', 'upload', 'upload', 'attach']);
 });
 
-Deno.test('#88: only the frames that LANDED are recorded in media_paths', async () => {
+Deno.test('#88/#130: only the frames that LANDED are recorded in media_paths', async () => {
   const h = harness([ok()]);
   h.storage.failOn = (path) => path.endsWith('frame-01.jpg');
 
   await run(h);
 
-  assertEquals(h.rpc.to('settle_analysis')[0].args.p_media_paths, [
+  // The recording moved from `settle_analysis` to `attach_media_paths`, but the rule did not:
+  // `media_paths` never names an object that is not in the bucket.
+  assertEquals(h.rpc.to('attach_media_paths')[0].args.p_media_paths, [
     `${CALLER}/${ANALYSIS_ID}/frame-02.jpg`,
   ]);
 });
@@ -1196,4 +1230,126 @@ Deno.test('a failed request logs the release reason it actually used', async () 
 
   assertEquals(logs[0].releaseReason, 'validation_failed');
   assertEquals(logs[0].status, 422);
+});
+
+// ===========================================================================
+// ISSUE #130 — THE INVARIANT: a 'reserved' row can never have frames.
+// ===========================================================================
+
+Deno.test('#130: the row is DELIVERED before the first frame is uploaded', async () => {
+  // The whole design in one assertion. If this inverts, orphans come back.
+  const h = harness([ok()]);
+  let uploadsAtSettleTime = -1;
+  const settleOk = h.rpc.handlers.settle_analysis;
+  h.rpc.handlers.settle_analysis = (args) => {
+    uploadsAtSettleTime = h.storage.uploads.length;
+    return settleOk(args);
+  };
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(uploadsAtSettleTime, 0, 'a reserved row must never have frames — settle runs FIRST');
+  assertEquals(h.storage.uploads.length, 2);
+});
+
+Deno.test('#130: settle_analysis is called with NO media paths', async () => {
+  const h = harness([ok()]);
+  await run(h);
+
+  // Not `[]` — absent. There is nothing to pass: the frames do not exist yet. The RPC's own
+  // `p_media_paths text[] default '{}'` covers the omission.
+  assertEquals(h.rpc.to('settle_analysis')[0].args.p_media_paths, undefined);
+});
+
+Deno.test('#130: a THROWING attach_media_paths still delivers 200 and still does not release', async () => {
+  // The analysis is delivered and the quota is SPENT. A throw here used to be impossible (the
+  // settle was last); now it must be caught, or a bookkeeping miss would 500 an analysis the user
+  // already paid for and cannot retry.
+  const h = harness([ok()]);
+  h.rpc.handlers.attach_media_paths = () => {
+    throw new Error('the database fell over mid-attach');
+  };
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(h.rpc.to('release_analysis').length, 0);
+});
+
+Deno.test('#130: a REFUSING attach_media_paths still delivers 200 and still does not release', async () => {
+  const h = harness([ok()]);
+  h.rpc.handlers.attach_media_paths = () => ({
+    data: { ok: false, reason: 'already_attached' },
+    error: null,
+  });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(h.rpc.to('release_analysis').length, 0);
+});
+
+// --- The delete-during-upload window: the frames we wrote after the user's purge already ran ---
+
+Deno.test('#130: row_deleted mid-upload -> we purge the frames we just wrote', async () => {
+  // `deleteAnalysis` purges Storage BEFORE marking the row. Our upload finished after that purge
+  // walked the prefix, so these objects are stranded under a deleted analysis — images of a
+  // person's body, retained after they asked for them to be gone. The refusal is the signal.
+  const h = harness([ok()]);
+  h.rpc.handlers.attach_media_paths = () => ({
+    data: { ok: false, reason: 'row_deleted' },
+    error: null,
+  });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200, 'the analysis was delivered before the delete — that stands');
+  assertEquals(h.rpc.to('release_analysis').length, 0);
+  assertEquals(h.storage.removed, [
+    `${CALLER}/${ANALYSIS_ID}/frame-01.jpg`,
+    `${CALLER}/${ANALYSIS_ID}/frame-02.jpg`,
+  ]);
+});
+
+Deno.test('#130: not_found (hard-deleted row) -> we purge too', async () => {
+  const h = harness([ok()]);
+  h.rpc.handlers.attach_media_paths = () => ({
+    data: { ok: false, reason: 'not_found' },
+    error: null,
+  });
+
+  await run(h);
+
+  assertEquals(h.storage.removed.length, 2);
+});
+
+Deno.test('#130: already_attached -> we purge NOTHING (those objects are live and named)', async () => {
+  // THE INVERSE MISTAKE, and the more dangerous one: a replay refusal means a live row already
+  // names these paths. Purging here would delete a working analysis's frame strip.
+  const h = harness([ok()]);
+  h.rpc.handlers.attach_media_paths = () => ({
+    data: { ok: false, reason: 'already_attached' },
+    error: null,
+  });
+
+  await run(h);
+
+  assertEquals(h.storage.removed, []);
+});
+
+Deno.test('#130: a purge that itself fails still delivers 200 — nothing after the settle can 500', async () => {
+  const h = harness([ok()]);
+  h.rpc.handlers.attach_media_paths = () => ({
+    data: { ok: false, reason: 'row_deleted' },
+    error: null,
+  });
+  h.storage.remove = () => {
+    throw new Error('storage remove exploded');
+  };
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(h.rpc.to('release_analysis').length, 0);
 });

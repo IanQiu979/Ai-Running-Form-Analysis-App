@@ -7,6 +7,46 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-13
 
+- **`analyze-form` now SETTLES BEFORE IT UPLOADS, making a 'reserved' row provably frameless
+  (issue #130) — new migration written, NOT APPLIED to the live project.** `settle_analysis` is
+  called with four args (no `p_media_paths`; the RPC keeps the parameter, we simply have nothing to
+  pass it) as soon as the model returns a deliverable outcome. Only then do the frames go up, and a
+  new `service_role`-only RPC — `public.attach_media_paths`
+  (`supabase/migrations/20260713140000_attach_media_paths.sql`) — records where they went. It carries
+  the same namespace guard `settle_analysis` does (it is the second, and only other, writer of
+  `media_paths`), plus `status = 'delivered' and deleted_at is null` and a write-once
+  (`cardinality(media_paths) = 0`) guard, and it **returns** its four refusal reasons rather than
+  raising.
+  - **Establishes the invariant: a `'reserved'` row can never have frames.** That is what makes
+    `sweep_stale_reservations()` (#47) correct with **no** Storage access — a swept row has nothing
+    under its prefix by construction. No `pg_net`, no Vault secret, no scheduled edge function, which
+    is exactly the wiring that migration's Design Decision 3 declined to introduce. Recorded as
+    **Design Decision 5** in `20260713130000_stale_reservation_sweep.sql` (comment only — its SQL is
+    unchanged) so the next reader holding #130 does not helpfully add a purge back.
+  - **Closes two orphan paths, not one.** The crash case #130 describes (the isolate is killed
+    between the upload and the settle, stranding a `'reserved'` row and its frames), **and** a second
+    one it did not: a **refused** settle. A late replay or concurrent duplicate returns
+    `not_reserved_or_not_found` for a row whose frames were *already* in the bucket; that row is
+    released by `release_analysis`, never by the sweep, so a purge bolted onto the sweep could never
+    have reached those objects. No crash was required to trigger it.
+  - **The delete-during-upload window is NARROWED, NOT CLOSED — see Known Issue #26.** Settling first
+    makes the row `'delivered'` and therefore deletable while frames are still uploading. When the
+    attach lands *after* the delete marks the row, `attach_media_paths` refuses with
+    `row_deleted`/`not_found` and `safeAttachFrames` purges the prefix it just wrote — that half is
+    closed. But `deleteAnalysis` purges Storage **before** it marks the row, and an attach that
+    commits in the gap between those two steps still **succeeds** (the row is not yet marked), so
+    nothing purges, and the redaction trigger then wipes `media_paths` on `markDeleted`. Frames
+    written into that gap are stranded. The known fix — a second `purgePrefix` after `markDeleted`
+    commits — is not implemented.
+  - **`safeAttachFrames` cannot throw.** Everything after the settle is non-fatal: by then the
+    analysis is delivered and the quota is spent, so a bookkeeping miss must never become a 500 the
+    user cannot retry — a failure the old settle-last ordering made structurally impossible and this
+    one has to close by hand.
+  - **Accepted cost, stated rather than hidden**: a `'delivered'` row can now carry an empty or short
+    `media_paths`, which shortens the Past Analyses frame strip (#55) for that analysis. `media_paths`
+    has always been the display list, never the deletion authority — purge walks the prefix.
+  - **Not applied to production.** This is now a **fourth** unapplied migration (#131 tracks the
+    other three).
 - **Stale `'reserved'` analyses rows now have a backstop sweep (issue #47) — migration written,
   NOT APPLIED to the live project (confirmed via `supabase migration list`).**
   New `supabase/migrations/20260713130000_stale_reservation_sweep.sql` adds

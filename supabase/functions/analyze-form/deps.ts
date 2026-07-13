@@ -182,6 +182,37 @@ export function createAnalyzeFormDeps(): AnalyzeFormDeps {
       });
       return { error: error ? error.message : null };
     },
+
+    /**
+     * `list`/`remove` exist for ONE caller: `flow.ts`'s `safeAttachFrames`, which purges the prefix
+     * it just wrote when `attach_media_paths` refuses with `row_deleted`/`not_found` — the user
+     * deleted the analysis while its frames were still uploading, and `deleteAnalysis` purges
+     * Storage BEFORE it marks the row, so our in-flight frames landed under a prefix whose purge
+     * has already run (#130).
+     *
+     * Byte-for-byte the mapping `delete-account-client.ts` already uses against this same bucket,
+     * so `purgePrefix` — which recurses, paginates, and verifies the prefix is empty afterwards —
+     * is reused verbatim rather than reimplemented a third time.
+     */
+    async list(prefix, { limit, offset }) {
+      const { data, error } = await client.storage.from(MEDIA_BUCKET).list(prefix, {
+        limit,
+        offset,
+        sortBy: { column: 'name', order: 'asc' },
+      });
+      if (error) {
+        throw new Error(`Failed to list storage prefix "${prefix}": ${error.message}`);
+      }
+      // Supabase Storage represents a pseudo-directory as an entry with `id: null` — the exact
+      // signal `delete-analysis.ts`'s `purgePrefix` recursion depends on to avoid the nested-prefix
+      // trap. Getting this mapping wrong is how a purge reports success while deleting nothing.
+      return (data ?? []).map((entry) => ({ name: entry.name, isFolder: entry.id === null }));
+    },
+
+    async remove(paths) {
+      const { error } = await client.storage.from(MEDIA_BUCKET).remove(paths);
+      return { error: error ? error.message : null };
+    },
   };
 
   return {

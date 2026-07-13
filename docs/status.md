@@ -263,8 +263,14 @@ milestone "done" criteria.
       `supabase/migrations/20260713130000_stale_reservation_sweep.sql` adds
       `public.sweep_stale_reservations()` on a 5-minute `pg_cron` schedule, 15-minute staleness
       threshold — **written, NOT applied** to the live project (confirmed via `supabase migration
-      list`). It only flips the row's `status`/`release_reason`; it does not purge the row's
-      Storage prefix — see Known Issue #16 below for that still-open half.
+      list`). It only flips the row's `status`/`release_reason` and — since #130 (2026-07-13) —
+      that is provably all it needs to do: `analyze-form` settles the row **before** it uploads any
+      frames, so a `'reserved'` row can never have frames and a swept row has nothing to purge.
+      Known Issue #16's storage-purge half is therefore **resolved by construction** rather than by
+      a second cron job reaching into Storage — no `pg_net`, no Vault secret, no scheduled edge
+      function. This does **not** close every orphan path: the delete-during-upload race is
+      narrowed but still open — see Known Issue #26 below. See
+      `docs/superpowers/specs/2026-07-13-stale-frame-orphan-design.md`.
     - MUST refuse to run for a user with no recorded consent. `public.consents` (added 2026-07-12,
       issue #68) is the record; the check is `select granted from public.consents where user_id =
       <jwt uid> and consent_key = 'upload.health.v1' order by created_at desc limit 1`, and a
@@ -350,11 +356,14 @@ milestone "done" criteria.
       storage `INSERT` at the RLS-policy level — live, though see the grant-level caveat in
       Known Issue #18 below). **Re-scopes #35** (no direct-to-bucket upload left to build). This
       issue's remaining scope is now its two follow-ups: **#47** (the stale-`reserved` sweep must
-      also purge the storage prefix, not just flip the row's status) is **half-built as of
-      2026-07-13** — `supabase/migrations/20260713130000_stale_reservation_sweep.sql` (written,
-      **NOT applied** to the live project) flips the row's `status`/`release_reason` on a 5-minute
-      `pg_cron` schedule, but does **not** purge the swept row's Storage prefix, so this issue's
-      own storage-purge ask is still open — and **#57** (`DELETE /functions/v1/analysis/:id` is now a hard prerequisite for any
+      also purge the storage prefix, not just flip the row's status) is **built, and its
+      storage-purge ask is resolved by construction as of 2026-07-13 (issue #130)** —
+      `supabase/migrations/20260713130000_stale_reservation_sweep.sql` (written, **NOT applied** to
+      the live project) flips the row's `status`/`release_reason` on a 5-minute `pg_cron` schedule
+      and never touches Storage, because `analyze-form` now settles **before** it uploads: a
+      `'reserved'` row can never have frames, so a swept row has nothing to purge. See that
+      migration's Design Decision 5, and Known Issue #26 for the one orphan path that ordering
+      change narrows but does **not** close — and **#57** (`DELETE /functions/v1/analysis/:id` is now a hard prerequisite for any
       user-facing delete, since the client's row `DELETE` is also gone).
 17. **AI spend guardrail contract for #44 — migrations applied and verified; one manual step
     still open (issue #91, 2026-07-12).** The substrate ("Done so far" above) is live:
@@ -603,6 +612,39 @@ milestone "done" criteria.
       is genuinely useful, but on Free that is their one lifetime analysis. Not changed here because
       it would alter what "a valid result" means, which is a product call. (The *fallback* path does
       guard against this: a salvage with no pillar actually scored is a clean failure, refunded.)
+26. **NEW — the delete-during-upload orphan race is NARROWED, NOT CLOSED (issue #130, 2026-07-13;
+    found in review of #130's own fix).** #130 flipped `analyze-form` to settle **before** it
+    uploads, which does close the two orphan paths that motivated it (a killed invocation, and a
+    refused settle — both now leave a frameless row). But settling first makes the row `'delivered'`,
+    and therefore **deletable**, while the function is still uploading frames into its prefix. That
+    opens a new, smaller window, and `safeAttachFrames`'s self-purge does not fully cover it:
+    - **The window.** `deleteAnalysis()` (`supabase/functions/_shared/delete-analysis.ts`) purges
+      Storage **first** and calls `markDeleted` **second** (a binding ordering — reversing it is the
+      privacy defect #3 exists to close). If an in-flight `analyze-form`'s `attach_media_paths`
+      commits in the gap **between** those two steps, the row still has `deleted_at is null`,
+      `status = 'delivered'`, and `media_paths = '{}'` — so every guard passes, the attach
+      **succeeds**, and `safeAttachFrames` sees `ok: true` and therefore does **not** purge. Then
+      `markDeleted` fires the redaction trigger
+      (`20260712040000_analyses_quota_soft_delete.sql`), which wipes `media_paths` back to `'{}'`.
+      Result: frames uploaded after the purge's verification pass are stranded in the bucket under a
+      deleted analysis's prefix whose per-analysis purge has already run and reported it empty.
+      Nothing in the database names them.
+    - **What #130 *did* cover**: the same race when the attach lands **after** `markDeleted` commits
+      — the attach then refuses with `row_deleted` (or `not_found` on a hard delete) and
+      `safeAttachFrames` purges the prefix it just wrote. That is the wider half of the window and it
+      is closed. Only the purge→`markDeleted` gap is left.
+    - **Blast radius.** Small but real, and it is the same class as #3: images of a person's body
+      retained after they asked for them to be gone. Requires a user to delete an analysis in the
+      seconds between its settle and its last frame upload, so it is rare — but it is silent, and
+      per-analysis deletion will never revisit that prefix. Only `delete-account` (#58), which sweeps
+      the whole `{user_id}/` prefix, would ever reach these objects.
+    - **The known fix, not implemented**: a **second** `purgePrefix` call in `deleteAnalysis()`,
+      after `markDeleted` commits — the row is unambiguously deleted by then, so anything found under
+      the prefix on that pass is an orphan by definition and can be removed unconditionally. It costs
+      one extra list against a normally-empty prefix per delete. Not done in #130 (its scope was the
+      settle/upload ordering and the sweep), and it belongs in `delete-analysis.ts`, not in the sweep:
+      these rows are `'delivered'`, never `'reserved'`, so `sweep_stale_reservations()` would not see
+      them even if it purged Storage.
 
 ## Next action
 
