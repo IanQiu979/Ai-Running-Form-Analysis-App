@@ -17,6 +17,7 @@
     "test": "jest && npm run test:edge",
     "test:edge": "npm run verify:knowledge && deno test --config supabase/functions/deno.json --allow-read supabase/functions",
     "test:canary": "jest --config jest.canary.config.js",
+    "eval:grounding": "deno run --config supabase/functions/deno.json --env-file=supabase/functions/.env --allow-env=ANTHROPIC_API_KEY,GITHUB_SHA --allow-net=api.anthropic.com --allow-write=supabase/functions/_shared/evals supabase/functions/_shared/evals/grounding-eval.live.ts",
     "generate:knowledge": "node ./scripts/generate-knowledge-bundle.js",
     "verify:knowledge": "npm run generate:knowledge && git diff --exit-code -- supabase/functions/_shared/knowledge.generated.ts"
   },
