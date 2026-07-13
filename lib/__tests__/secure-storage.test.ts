@@ -421,3 +421,41 @@ describe('createSecureSessionStorage — web fallback (issue #38 platform requir
     expect(createSecureSessionStorage('android')).toBeInstanceOf(LargeSecureStore);
   });
 });
+
+describe('createSecureSessionStorage — SSR/static-export safety (issue #119)', () => {
+  // `expo export --platform web`'s static rendering prerenders every route in Node, where
+  // `window` does not exist. `AsyncStorage`'s web implementation reaches for
+  // `window.localStorage` completely unguarded, so returning it as-is during prerender is what
+  // crashed `SessionProvider` (mounted at the root layout, so every route) with
+  // "ReferenceError: window is not defined" the moment `supabase.auth`'s eager session-recovery
+  // touched storage. `hasWindow` is the injectable stand-in for "is there a real `window`" —
+  // same pattern as the `platformOS` param already used for the ios/android/web branch above —
+  // so this is provable without deleting the jsdom-backed global `window` that `jest-expo`'s
+  // setup installs for every other test in this file.
+  it('never returns bare AsyncStorage when there is no window, even on the web platform', () => {
+    const storage = createSecureSessionStorage('web', false);
+
+    expect(storage).not.toBe(AsyncStorage);
+  });
+
+  it('resolves to a no-op storage (not a throw) on web with no window', async () => {
+    const storage = createSecureSessionStorage('web', false);
+
+    // The load-bearing assertion: none of these touch `window`, so none of them can reproduce
+    // "ReferenceError: window is not defined" during a Node-side prerender.
+    await expect(storage.setItem(KEY, JSON.stringify({ access_token: 'tok' }))).resolves.toBeUndefined();
+    await expect(storage.getItem(KEY)).resolves.toBeNull();
+    await expect(storage.removeItem(KEY)).resolves.toBeUndefined();
+  });
+
+  it('still returns the real, localStorage-backed AsyncStorage on web once a window exists', async () => {
+    const storage = createSecureSessionStorage('web', true);
+
+    expect(storage).toBe(AsyncStorage);
+  });
+
+  it('ios/android are unaffected by the window check — always LargeSecureStore', () => {
+    expect(createSecureSessionStorage('ios', false)).toBeInstanceOf(LargeSecureStore);
+    expect(createSecureSessionStorage('android', false)).toBeInstanceOf(LargeSecureStore);
+  });
+});
