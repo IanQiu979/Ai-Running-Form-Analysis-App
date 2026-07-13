@@ -428,6 +428,58 @@ export const Copy = {
         "The full policy isn't published yet. The summary above is the complete, current description of what we do with your data.",
     },
     // --- issue #53 NEW copy ends ---
+
+    // ----------------------------------------------------------------------------------------
+    // --- issue #124 NEW copy starts — NOT in the copy deck, NOT copy-certified. Needs review. ---
+    //
+    // The delete-account edge function now requires proof of a RECENT real credential (password or
+    // OAuth), not just a valid session, before it will run the purge (server-side gate — see
+    // supabase/functions/_shared/delete-account.ts's "REAUTHENTICATION FRESHNESS" section). These
+    // strings cover the step-up flow that satisfies it: a password re-entry prompt for email/
+    // password accounts, a heads-up before re-running Google sign-in for OAuth accounts, and the
+    // honest failure copy for the cases neither can resolve. Written to the deck's own rules (name
+    // the outcome, no jargon, don't blame the user) but NOT reviewed by ux-copywriter or Ian.
+    // Mirror into copy-deck.md § Screen 11 once approved, same as issue #53's NEW copy above.
+    // ----------------------------------------------------------------------------------------
+    reauth: {
+      passwordPrompt: {
+        title: "Confirm it's you",
+        body: 'For your security, deleting your account needs a recent sign-in. Enter your password to continue.',
+        placeholder: 'Password',
+        cta: {
+          primary: 'Confirm and delete',
+          secondary: 'Cancel',
+        },
+      },
+      googlePrompt: {
+        title: "Confirm it's you",
+        body:
+          "For your security, deleting your account needs a recent sign-in. You'll be asked to sign in with Google again, then your account will be deleted.",
+        cta: {
+          primary: 'Continue with Google',
+          secondary: 'Cancel',
+        },
+      },
+      // The screen has no reauthentication flow for a provider other than password/Google today —
+      // said plainly rather than silently doing nothing when `getReauthProvider` returns 'unknown'.
+      unsupportedProvider: {
+        title: "We can't confirm it's you",
+        body: 'Sign out and sign back in, then try deleting your account again.',
+      },
+      error: {
+        title: "That didn't work",
+        genericBody: "We couldn't confirm it's you. Check your connection and try again.",
+        // Reached only if the RETRY after a successful reauthentication is ALSO rejected as stale
+        // (e.g. clock skew) — distinct from genericBody because the user just did what was asked
+        // and it still didn't take, which deserves its own honest explanation rather than looking
+        // like the same generic failure.
+        stillRequired: {
+          title: "We still couldn't confirm it's you",
+          body: "That didn't go through in time. Wait a moment, then try deleting your account again.",
+        },
+      },
+    },
+    // --- issue #124 NEW copy ends ---
   },
   // Shared tier labels — copy-deck.md § 1 ("Tier labels (shared)"), verbatim. Added by issue #53:
   // Settings is the second screen to need a tier name, which is the condition `home.quota.tier`'s

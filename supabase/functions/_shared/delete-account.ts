@@ -195,9 +195,171 @@
  * an account irreversibly; a caller-supplied id would make that a one-request account-deletion
  * weapon against any user whose UUID an attacker could guess or observe. There is no id parameter
  * on this endpoint at all — the only account anyone can delete is their own.
+ *
+ * A valid JWT is necessary but, as of issue #124, no longer SUFFICIENT — see the "REAUTHENTICATION
+ * FRESHNESS" section below, and `index.ts`, for the second gate that now runs before this function
+ * is ever called.
  */
 
 import { DEFAULT_PAGE_SIZE, purgePrefix, type StorageBucket } from './delete-analysis.ts';
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// REAUTHENTICATION FRESHNESS — issue #124.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// AUTHORIZATION (above) establishes WHO is calling — a verified JWT, always. This section adds a
+// second, independent gate: HOW RECENTLY that identity was actually proven with a real credential
+// (password or OAuth), not just "is the access token currently valid." Those are different
+// questions. A stolen or leaked access token is still a VALID token — `auth.getUser()` verifies it
+// happily — right up until it expires, and `autoRefreshToken: true` (lib/supabase.ts) means a
+// device that silently refreshes in the background keeps producing valid tokens indefinitely
+// without the user ever re-entering a credential. For most endpoints in this app that's exactly
+// the mobile-auth UX you want. It is NOT fine for the one endpoint whose entire job is
+// irreversible, unrecoverable destruction of an account and every stored frame in it (see this
+// file's own header). That is the gap issue #124 closes.
+//
+// THE MECHANISM: Supabase Auth's `amr` (Authentication Methods Reference) JWT claim — an array of
+// `{ method, timestamp }` entries, one per authentication EVENT (not per token). Confirmed against
+// Supabase's own docs (`guides/auth/auth-mfa`'s FAQ, "How do I check when a user went through
+// MFA?"), which recommends exactly this pattern verbatim: "you can mandate that access will only
+// be granted... to users who have recently signed in with a password," read off the most recent
+// `amr` entry's timestamp. Crucially, this is NOT the same signal as the JWT's own `iat`
+// (issued-at): `iat` advances on every silent token refresh (a new access token is minted, with a
+// new `iat`, every time `autoRefreshToken` fires) even though the user did nothing — so an
+// `iat`-based check would be exactly the kind of control this issue explicitly warns against, one
+// that "looks like a control, protects against nothing," since a stolen persisted session can
+// trivially keep producing tokens with a recent `iat` just by refreshing. `amr` timestamps do not
+// move on a refresh; they only move when the user actually re-presents a credential.
+//
+// DEFENSIVE BELT-AND-SUSPENDERS: Supabase's JWT field reference separately lists `token_refresh`
+// as a POSSIBLE `amr.method` value (distinct from the MFA guide's authoritative "currently
+// recognized" list, which does not include it), and this project's own live Supabase project had
+// no populated `auth.mfa_amr_claims` rows to settle, empirically, whether an ordinary silent
+// refresh ever appends one. Rather than depend on that being resolved correctly forever,
+// `token_refresh` entries are explicitly EXCLUDED when computing "how long ago did the user last
+// prove who they are" below (`NON_ASSURANCE_AMR_METHODS`) — so even if a future GoTrue version
+// starts stamping refreshes into `amr`, this check cannot be silently defeated by one.
+//
+// DECODE, NEVER VERIFY, HERE. `decodeJwtPayload` below reads the claims out of the token string
+// WITHOUT checking its signature — that is safe, and only safe, because every caller of
+// `isReauthFresh` is required to call it on the exact same token string `index.ts` already
+// verified via a real round trip to Supabase Auth (`auth.getUser()`, in `resolveCallerUserId`).
+// This module never establishes trust in a token; it only reads claims out of one that's already
+// trusted. Any malformed, empty, or missing `amr` fails CLOSED (`isReauthFresh` returns `false`,
+// forcing reauthentication) — the same fail-closed default every other check in this file uses.
+//
+// WHAT COUNTS AS "RECENT": `REAUTH_FRESHNESS_WINDOW_SECONDS` below. 5 minutes — generous enough
+// that a user who taps "Delete account," is asked to re-enter their password or redo Google
+// sign-in, and does so without excessive fumbling should not see a second rejection, but tight
+// enough that it means what "recent" has to mean for an irreversible action: a credential
+// presented within the last few minutes, not "at some point during a session that could be weeks
+// old."
+//
+// WHAT THIS IS NOT: not a `{ confirm: "DELETE" }` field, not a re-typed email, not a password
+// echoed in the request body. All three protect against nothing here — an attacker holding a
+// stolen token composes the request themselves and sends whatever field is asked for. This gate
+// instead demands something an attacker holding only a token cannot produce: proof, from
+// Supabase Auth itself, that the real credential was presented recently.
+//
+// WHERE THE GATE LIVES: `index.ts`, not `deleteAccount()` itself. It runs BEFORE `deleteAccount()`
+// is ever called — a stale-session request never reaches the purge at all — and is reported as its
+// own 401 (`code: 'reauth_required'`), parallel to the existing `unauthorized` 401s for a missing
+// or invalid token. It is deliberately NOT folded into `DeleteAccountResult`/`DeleteAccountErrorCode`
+// below: those describe outcomes of a purge that has already started; this is a precondition on
+// starting one at all, exactly like the missing-Authorization-header and invalid-JWT checks that
+// already precede it in `index.ts`.
+export interface AmrEntry {
+  method: string;
+  timestamp: number;
+}
+
+/**
+ * `amr.method` values that must NEVER count as evidence of a just-presented credential — see this
+ * section's header. `token_refresh` is excluded defensively even though Supabase's authoritative
+ * "currently recognized" list (the MFA guide FAQ) does not include it: if a future Supabase Auth
+ * version ever does stamp a refresh into `amr`, this set is what keeps that from silently
+ * reintroducing the exact "looks like a control, isn't one" bug issue #124 exists to close.
+ */
+const NON_ASSURANCE_AMR_METHODS = new Set(['token_refresh']);
+
+/**
+ * How recent a real credential presentation (password or OAuth, per `amr`) must be for
+ * `POST /functions/v1/delete-account` to proceed. See this section's header for the reasoning.
+ * Exported so `index.ts` need not hardcode it and a test can assert against the same constant.
+ */
+export const REAUTH_FRESHNESS_WINDOW_SECONDS = 5 * 60;
+
+/**
+ * Decodes (never verifies — see this section's header) the payload segment of a JWT. Returns
+ * `null` for anything that doesn't parse as a three-segment JWT with a JSON-object payload —
+ * callers must treat `null` as "no evidence of anything," which is what makes the overall check
+ * fail closed rather than throw.
+ */
+function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const decoded = atob(padded);
+    const parsed: unknown = JSON.parse(decoded);
+    return parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Narrow, defensive parse of the `amr` claim — never trusts the shape blindly. Malformed entries
+ *  are dropped rather than crashing the whole check. */
+function parseAmrClaims(payload: Record<string, unknown> | null): AmrEntry[] {
+  const raw = payload?.amr;
+  if (!Array.isArray(raw)) return [];
+  const entries: AmrEntry[] = [];
+  for (const item of raw) {
+    if (
+      item !== null &&
+      typeof item === 'object' &&
+      typeof (item as Record<string, unknown>).method === 'string' &&
+      typeof (item as Record<string, unknown>).timestamp === 'number'
+    ) {
+      entries.push({
+        method: (item as { method: string }).method,
+        timestamp: (item as { timestamp: number }).timestamp,
+      });
+    }
+  }
+  return entries;
+}
+
+/**
+ * The most recent `amr` timestamp that counts as a real credential presentation — the max over
+ * every entry EXCEPT `NON_ASSURANCE_AMR_METHODS` (defensive; see this section's header). `null`
+ * when there is nothing usable at all: an undecodable token, no `amr` claim, or an `amr` whose
+ * only entries are excluded methods. Exported for direct unit testing, independent of the
+ * now()/window logic in `isReauthFresh` below.
+ */
+export function extractMostRecentAssuranceTimestamp(jwt: string): number | null {
+  const entries = parseAmrClaims(decodeJwtPayload(jwt)).filter((e) => !NON_ASSURANCE_AMR_METHODS.has(e.method));
+  if (entries.length === 0) return null;
+  return Math.max(...entries.map((e) => e.timestamp));
+}
+
+/**
+ * `true` only if `jwt` carries a real, non-excluded `amr` entry timestamped within
+ * `windowSeconds` of `now()`. Fails CLOSED (`false`) for anything it cannot positively confirm is
+ * recent — an undecodable token, a missing `amr`, or a most-recent timestamp older than the
+ * window — so the caller's default, on any doubt, is to demand reauthentication rather than
+ * assume it.
+ */
+export function isReauthFresh(
+  jwt: string,
+  now: () => number = Date.now,
+  windowSeconds: number = REAUTH_FRESHNESS_WINDOW_SECONDS
+): boolean {
+  const mostRecent = extractMostRecentAssuranceTimestamp(jwt);
+  if (mostRecent === null) return false;
+  const ageSeconds = now() / 1000 - mostRecent;
+  return ageSeconds <= windowSeconds;
+}
 
 /**
  * The row-level surface `deleteAccount()` needs, service-role only (RLS is bypassed; `authenticated`

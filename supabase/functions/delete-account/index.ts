@@ -22,11 +22,24 @@
 // than anywhere else in the codebase: this endpoint is irreversible, so an id read off the body
 // would be a one-request account-deletion weapon against any user whose UUID could be guessed or
 // observed. Same rule the reserve/settle RPCs live under.
+//
+// REAUTHENTICATION FRESHNESS (issue #124): a valid JWT is necessary but no longer sufficient. Right
+// after the JWT is verified, `isReauthFresh` (`_shared/delete-account.ts`) checks that the SAME
+// token also carries proof — via its `amr` claim — that the user presented a real credential
+// (password or OAuth) within the last few minutes, not just that their session hasn't expired yet.
+// A stolen access token is a valid token right up until it expires and can be kept "valid" forever
+// by a silent background refresh, so "valid JWT" alone is not the bar for the single most
+// destructive, least reversible action this product has. This runs BEFORE `createDeleteAccountDeps`
+// / `deleteAccount` — a stale-session request never touches storage, rows, or the auth user at all.
+// See `_shared/delete-account.ts`'s "REAUTHENTICATION FRESHNESS" section for the full reasoning,
+// including why this is NOT a `{ confirm: "DELETE" }`-style body field (those protect against
+// nothing against an attacker who already holds the token).
 import { createClient } from 'npm:@supabase/supabase-js@2.110.2';
 import {
   accountResponseBodyForOutcome,
   deleteAccount,
   httpStatusForAccountOutcome,
+  isReauthFresh,
   type LogEvent,
 } from '../_shared/delete-account.ts';
 import { createDeleteAccountDeps } from '../_shared/delete-account-client.ts';
@@ -104,6 +117,21 @@ Deno.serve(async (req) => {
   } catch {
     log({ event: 'delete_account.unauthorized', reason: 'invalid_or_expired_token' });
     return jsonResponse(401, { error: 'Invalid or expired session.', code: 'unauthorized' });
+  }
+
+  // Issue #124: a valid JWT alone is not enough for the single most destructive action this
+  // product has — see this file's header and `_shared/delete-account.ts`'s "REAUTHENTICATION
+  // FRESHNESS" section. `isReauthFresh` reads the SAME token string just verified above (never a
+  // different one) and fails closed unless it carries a real credential presentation (password or
+  // OAuth, via the `amr` claim) within the freshness window. Nothing is touched below this check
+  // when it fails — no storage list, no row delete, no auth-user delete.
+  const rawToken = authHeader.replace(/^Bearer\s+/i, '');
+  if (!isReauthFresh(rawToken)) {
+    log({ event: 'delete_account.reauth_required', userId: callerUserId });
+    return jsonResponse(401, {
+      error: 'Please confirm this is really you before deleting your account.',
+      code: 'reauth_required',
+    });
   }
 
   const { rows, storage, auth } = createDeleteAccountDeps();
