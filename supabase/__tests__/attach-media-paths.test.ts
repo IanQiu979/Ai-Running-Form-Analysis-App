@@ -29,6 +29,18 @@ function attachBody(): string {
   return sql.slice(start, end);
 }
 
+// Scopes to the UPDATE's WHERE clause specifically, the same way the neighbouring "never writes
+// status, result, is_fallback, or delivered_at" test slices the SET clause. Matching against the
+// whole function body (which includes the comment block above the function) would let a comment
+// that merely MENTIONS a guard satisfy the assertion even after the guard itself is deleted from
+// the WHERE clause — for `deleted_at is null` that gap would hide the exact regression this suite
+// exists to catch (an attach into a soft-deleted row silently un-redacting it).
+function attachWhereClause(): string {
+  const body = attachBody();
+  const update = body.slice(body.indexOf('update public.analyses'));
+  return update.slice(update.indexOf('where'));
+}
+
 describe('attach_media_paths: the namespace guard is replicated, not assumed', () => {
   it('rejects a path outside {p_user_id}/{p_analysis_id}/ before ever touching the row', () => {
     const body = attachBody();
@@ -70,15 +82,15 @@ describe('attach_media_paths: it can only ever fill in a delivered row, once', (
   it('updates only rows already in status = delivered', () => {
     // Paths can never be attached to a 'reserved' row (that would break THE INVARIANT) or to a
     // 'released' one (that would name frames on a row the sweep just reclaimed).
-    expect(attachBody()).toMatch(/status\s*=\s*'delivered'/);
+    expect(attachWhereClause()).toMatch(/status\s*=\s*'delivered'/);
   });
 
   it('refuses a soft-deleted row — the redaction trigger only fires on the delete transition', () => {
-    expect(attachBody()).toMatch(/deleted_at is null/);
+    expect(attachWhereClause()).toMatch(/and\s+deleted_at\s+is\s+null/);
   });
 
   it('is write-once: it refuses a row whose media_paths is already populated', () => {
-    expect(attachBody()).toMatch(/cardinality\(coalesce\(media_paths,\s*'\{\}'\)\)\s*=\s*0/);
+    expect(attachWhereClause()).toMatch(/cardinality\(coalesce\(media_paths,\s*'\{\}'\)\)\s*=\s*0/);
   });
 
   it('reports a refusal rather than throwing, so the caller can log and move on', () => {
