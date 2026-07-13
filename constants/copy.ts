@@ -239,6 +239,68 @@ export const Copy = {
     },
     // --- issue #56 additions end ---
   },
+  // Screen 8 — Past Analyses (issue #55). Lifted verbatim by key from docs/design/copy-deck.md §
+  // Screen 8, same convention as every namespace above. The deck's `history.compare.*` keys
+  // (Elite comparison, §9 "Compare (Elite, minimal)") are deliberately NOT included here — #55's
+  // scope is the list + delete, not the Compare screen, which doesn't exist yet; adding copy for
+  // a route nothing routes to would be exactly the dead key `settings`'s own header comment
+  // above warns against. Add them back in the same change that builds Compare.
+  history: {
+    title: 'Past Analyses',
+    loading: 'Loading your analyses…',
+    empty: {
+      title: 'No analyses yet',
+      body: 'Your analyses will live here.',
+      cta: 'Analyze my form',
+    },
+    item: {
+      a11yLabel: 'Analysis from {date}, overall {score} out of 100, {band}.',
+      // --- issue #55 NEW keys start — NOT in docs/design/copy-deck.md, NOT copy-certified.
+      // `a11yLabelNotAssessed`: an analysis whose overall is honestly null (every pillar not
+      // assessed — `@shared/pace`'s `PaceOverall` doc comment: "never a fabricated overall built
+      // from zero real data") still needs a real VoiceOver sentence, mirroring
+      // `result.pillar.notAssessed.generic`'s same "never stringify null as a score" rule.
+      a11yLabelNotAssessed: 'Analysis from {date}, not assessed.',
+      // `deleteCta`: the deck specs the confirmation dialog a delete opens (`delete.confirm.*`
+      // below) but not a label for the row's own delete trigger — this screen's chosen affordance
+      // is a tappable control per row (design brief §8 offers "swipe/long-press" as alternatives;
+      // a persistent tap target reads correctly to VoiceOver without a gesture to discover).
+      deleteCta: 'Delete',
+      // --- issue #55 NEW keys end ---
+    },
+    delete: {
+      confirm: {
+        title: 'Delete this analysis?',
+        body: "This removes the result and its saved frames. This can't be undone.",
+        cta: {
+          primary: 'Delete analysis',
+          // Deck says "Reuse shared.cta.cancel" — no Copy.shared namespace exists in this
+          // codebase yet (see e.g. `analyzing.error.cta`'s own note above); duplicated by value
+          // instead, same as every other screen so far.
+          secondary: 'Cancel',
+        },
+      },
+      // --- issue #55 NEW keys start — NOT in the deck. The deck covers the confirm dialog but
+      // not a failed delete's own outcome, a real state per CLAUDE.md ("build the states, not
+      // just the happy view").
+      error: {
+        title: "Couldn't delete this analysis",
+        body: 'Check your connection and try again.',
+        // Reuses `settings.alertDismiss`'s wording ("OK") by value, not by reference — same
+        // no-Copy.shared convention as `delete.confirm.cta.secondary` above.
+        dismiss: 'OK',
+      },
+      // --- issue #55 NEW keys end ---
+    },
+    // --- issue #55 NEW keys start — NOT in the deck. §5's states checklist names "Past Analyses
+    // list" as a LOADING state but not a load-FAILURE state; mirrors `result.error.*`'s identical
+    // addition for the single-result screen.
+    error: {
+      loadFailed: "Couldn't load your past analyses.",
+      retry: 'Retry',
+    },
+    // --- issue #55 NEW keys end ---
+  },
   // Screen 11 — Settings (issue #53, which also closes #27). Lifted verbatim by key from
   // docs/design/copy-deck.md § Screen 11, same convention as every namespace above. Keys the deck
   // defines but this screen does NOT render are deliberately absent rather than added unused:
