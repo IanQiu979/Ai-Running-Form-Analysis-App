@@ -529,6 +529,123 @@ export const Copy = {
     pro: 'Pro',
     elite: 'Elite',
   },
+  // Screen 10 — Paywall (dummy) (issue #52). Lifted verbatim by key from docs/design/copy-deck.md
+  // § Screen 10, same convention as every namespace above. Displayed prices are decided (Ian,
+  // 2026-07-11): Pro $6.99/mo, Elite $14.99/mo — the deck's own `{{price}}` placeholders resolve
+  // to these two literal strings, typed directly rather than templated off a shared numeric
+  // constant (CLAUDE.md is explicit these are DISPLAY prices only; real IAP is post-MVP and there
+  // is no numeric price token anywhere in this codebase to template off of). Tier name/price/
+  // detail strings below duplicate `tier.*.name` above BY VALUE rather than referencing it — the
+  // same by-value-reuse convention `home.quota.tier` already established in this file (see that
+  // key's own comment) for a screen that needs a tier label before/without pulling in the whole
+  // `Copy.tier` namespace as a dependency.
+  paywall: {
+    title: 'Choose your plan',
+    // Same string as settings.back / shared.cta.back (deck §0) — reused by value, matching how
+    // every screen before this one has handled shared.cta.* (see settings.back's own comment).
+    back: 'Back',
+    gate: {
+      free: {
+        title: "You've used your free analysis",
+        body: 'Free includes one analysis, ever. Upgrade to Pro or Elite to keep going.',
+      },
+      paid: {
+        title: "You're out of analyses this period",
+        // {limit} and {renewsOn} are always live values read off a fresh quota-status response
+        // (lib/subscription.ts's QuotaStatus.limit / formatRenewalDate(periodEnd)) — never a
+        // constant here, per CLAUDE.md's "never authoritative on the client" rule.
+        body: (limit: number, renewsOn: string) =>
+          `You've used all ${limit} analyses this period. It renews ${renewsOn}. Upgrade for more each period.`,
+      },
+    },
+    tier: {
+      free: {
+        name: 'Free',
+        price: '$0',
+        detail:
+          '1 analysis, once — try it before you commit. Certified PACE scores and one line of feedback per pillar. No drills.',
+      },
+      pro: {
+        name: 'Pro',
+        price: '$6.99 / month',
+        detail: '10 analyses per period. Full PACE analysis, injury-risk flags, and 1–2 corrective drills per issue.',
+      },
+      elite: {
+        name: 'Elite',
+        price: '$14.99 / month',
+        detail:
+          '30 analyses per period. Everything in Pro, plus a bit more depth per pillar and side-by-side comparison between two past analyses.',
+      },
+    },
+    footnote: 'Elite adds a little more detail and comparison — not a different analysis.',
+    cta: {
+      upgrade: {
+        pro: 'Upgrade to Pro',
+        elite: 'Upgrade to Elite',
+      },
+      current: 'Current plan',
+    },
+    // ----------------------------------------------------------------------------------------
+    // --- issue #52 NEW copy starts — NOT in the copy deck, NOT copy-certified. Needs review. ---
+    //
+    // `alertDismiss` — dismisses the purchase result Alert below. Same value and role as
+    // `settings.alertDismiss` ("Dismisses an informational alert"), duplicated by value rather
+    // than cross-referenced — this file's own established convention (see `home.quota.tier`'s
+    // comment) for a screen that needs a string another namespace already has without pulling
+    // that whole namespace in as a dependency, doubly relevant here since another agent owns the
+    // `settings:` block concurrently.
+    //
+    // The deck's Screen 10 table only specs the three static tier cards (above) and the two
+    // 402-triggered gate banners (above) — it never covers what happens DURING or AFTER tapping
+    // an "Upgrade" CTA: no pending/success/failure copy exists for the dummy purchase at all.
+    // Written to the deck's own voice rules (plain, calm, name the outcome, never claim a state
+    // that isn't true, no jargon) but NOT reviewed by ux-copywriter or Ian — mirror into
+    // copy-deck.md § Screen 10 once approved, same precedent as every other NEW block in this
+    // file (issues #36/#53/#56).
+    // ----------------------------------------------------------------------------------------
+    alertDismiss: 'OK',
+    plan: {
+      loading: 'Checking your plan…',
+      error: "Couldn't load your plan.",
+      retry: 'Retry',
+      // Screen-reader-only label — same reasoning as settings.plan.retryA11yLabel (this screen
+      // can show this Retry next to a purchase-error Retry, and two controls both named "Retry"
+      // are indistinguishable to a screen reader).
+      retryA11yLabel: 'Retry loading your plan',
+    },
+    purchase: {
+      pending: 'Upgrading…',
+      success: {
+        title: (tierName: string) => `You're on ${tierName} now`,
+        body: 'Your new plan is active.',
+      },
+      error: {
+        // lib/subscription.ts's PurchaseErrorCode 'not_found' — the dummy purchase-tier endpoint
+        // is gated behind PURCHASE_TIER_DUMMY_ENABLED (default OFF) and, separately, is simply
+        // not deployed to the live project yet (docs/architecture.md, issue #51). Both cases
+        // collapse to this SAME code and get this honest, non-alarming copy: it does not say
+        // "something went wrong" (nothing did) and it does not name the feature flag.
+        unavailable: {
+          title: "Upgrading isn't available yet",
+          body: "This build can't complete an upgrade right now. Check back soon.",
+        },
+        // code: 'rate_limited' — the same account called purchase-tier again within 3 seconds of
+        // its own last write.
+        rateLimited: {
+          title: 'One at a time',
+          body: 'Give it a moment before trying again.',
+        },
+        // Every other failure (network, an unrecognized code, a malformed response) — honest and
+        // retryable, matching this file's other generic-failure strings (e.g. the "check your
+        // connection and try again" idiom in settings.deleteAccountState.error.body).
+        generic: {
+          title: "Your upgrade didn't go through",
+          body: 'Nothing was charged. Check your connection and try again.',
+        },
+      },
+    },
+    // --- issue #52 NEW copy ends ---
+  },
   // ---------------------------------------------------------------------------------------
   // Screens 3-5 (issue #36): Source picker, Capture, Extracting. Lifted verbatim from
   // docs/design/copy-deck.md by key, same convention as every namespace above. A few keys
