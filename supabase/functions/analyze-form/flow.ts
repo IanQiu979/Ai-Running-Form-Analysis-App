@@ -11,7 +11,7 @@
  * ══ THE CALL ORDER IS THE CONTRACT ══════════════════════════════════════════════════════════
  *
  *   auth → consent → AI GATE → idempotency + quota reserve → model call (+1 retry)
- *        → upload frames → settle          ... and on any failure: release
+ *        → settle → upload frames → attach ... and on any failure: release
  *
  * Every arrow is load-bearing and each has a named failure mode. In order:
  *
@@ -41,9 +41,14 @@
  *    request; `analyze-form-validation.ts` (#45) reads the response and decides. Neither judges
  *    content.
  *
- * 9. UPLOAD, THEN SETTLE — in that order, and only on a deliverable outcome. The row already
- *    exists (the reserve minted it), so no object can ever be orphaned (#88). Never upload before
- *    the reserve: a rejected or failed analysis must leave NOTHING in the bucket.
+ * 9. SETTLE, THEN UPLOAD, THEN ATTACH — in that order, and only on a deliverable outcome (#130).
+ *    THE INVARIANT: a 'reserved' row can never have frames. Frames go up only after the row has
+ *    left 'reserved' for 'delivered', which is what makes an orphan impossible — a crash or a
+ *    refused settle leaves a 'reserved' row with an empty bucket, so #47's SQL-only sweep has
+ *    nothing to purge and needs no Storage access. `attach_media_paths` then records the paths;
+ *    everything after the settle is NON-FATAL (see `safeAttachFrames`), because by then the
+ *    analysis is delivered and the quota is spent. Still never upload before the reserve either
+ *    (#88): a rejected or failed analysis must leave NOTHING in the bucket.
  *
  * ══ RELEASE AND RECORD ARE `finally`, NOT BRANCHES ══════════════════════════════════════════
  *
@@ -87,6 +92,7 @@ import {
   type AttemptOutcome,
   type ReleaseReason,
 } from '../_shared/analyze-form-validation.ts';
+import { DEFAULT_PAGE_SIZE, purgePrefix, type StorageBucket } from '../_shared/delete-analysis.ts';
 import {
   PACE_FRAME_CAP,
   PACE_MAX_REQUEST_BODY_BYTES,
@@ -154,9 +160,14 @@ export interface ConsentReader {
   latestGrant(userId: string, consentKey: string): Promise<boolean | null>;
 }
 
-/** Service-role writes into the private `media` bucket. The client has no INSERT on
- * `storage.objects` at all (#88), so this is the only way a frame ever lands. */
-export interface FrameStorage {
+/** What `analyze-form` needs from the private `media` bucket: it uploads frames, and — when an
+ * attach refuses because the row is gone — purges the prefix it just wrote (#130). `list`/`remove`
+ * come from `StorageBucket`, the same shape `deleteAnalysis` and `delete-account` already use, so
+ * `purgePrefix` can be reused verbatim rather than reimplemented.
+ *
+ * The client has no INSERT on `storage.objects` at all (#88), so this is the only way a frame ever
+ * lands. */
+export interface FrameStorage extends StorageBucket {
   upload(path: string, bytes: Uint8Array, contentType: string): Promise<{ error: string | null }>;
 }
 
@@ -373,7 +384,6 @@ async function settleAnalysis(
     analysisId: string;
     result: PaceResult;
     isFallback: boolean;
-    mediaPaths: string[];
   }
 ): Promise<{ ok: boolean; reason?: string }> {
   const { data, error } = await rpc.rpc('settle_analysis', {
@@ -381,14 +391,31 @@ async function settleAnalysis(
     p_analysis_id: args.analysisId,
     p_result: args.result,
     p_is_fallback: args.isFallback,
-    // Five args (#88). Every path is namespace-guarded to `{p_user_id}/{p_analysis_id}/` inside the
-    // RPC itself — it rejects the whole call rather than silently dropping a foreign path — and we
-    // pass only the paths that ACTUALLY landed, so `media_paths` never names an object that does
-    // not exist.
-    p_media_paths: args.mediaPaths,
+    // FOUR args, not five (#130). `p_media_paths` still exists on the RPC and still defaults to
+    // '{}' — we simply have nothing to pass it, because nothing has been uploaded yet. The frames
+    // go up AFTER this call succeeds and `attach_media_paths` records them. THE INVARIANT: a
+    // 'reserved' row can never have frames.
   });
   if (error) {
     throw new Error(`settle_analysis failed: ${error.message}`);
+  }
+  return data as { ok: boolean; reason?: string };
+}
+
+async function attachMediaPaths(
+  rpc: RpcClient,
+  args: { userId: string; analysisId: string; mediaPaths: string[] }
+): Promise<{ ok: boolean; reason?: string }> {
+  const { data, error } = await rpc.rpc('attach_media_paths', {
+    p_user_id: args.userId,
+    p_analysis_id: args.analysisId,
+    // Namespace-guarded inside the RPC exactly as `settle_analysis` is — it rejects the whole call
+    // rather than dropping a foreign path — and we pass only the paths that ACTUALLY landed, so
+    // `media_paths` never names an object that does not exist.
+    p_media_paths: args.mediaPaths,
+  });
+  if (error) {
+    throw new Error(`attach_media_paths failed: ${error.message}`);
   }
   return data as { ok: boolean; reason?: string };
 }
@@ -750,30 +777,45 @@ export async function runAnalyzeForm(
 
     isFallback = decision.kind === 'partial';
 
-    // ── 10. Upload the frames, THEN settle. Never before the reserve (#88). ────────────────
+    // ── 10. Settle FIRST, then upload. Never the other way round (#130). ──────────────────────
     //
-    // The row exists, so no object can be orphaned. A frame that fails to upload does NOT fail the
-    // request: we settle with whichever paths landed, and `media_paths` — the frame-strip DISPLAY
-    // list, never the deletion authority — simply carries fewer entries. Purge is by prefix.
-    const mediaPaths = await uploadFrames(deps, callerUserId, analysisId, request.frames);
-    framesUploaded = mediaPaths.length;
-
+    // THE INVARIANT: a 'reserved' row can never have frames. Frames go up only once the row is
+    // 'delivered'. That is what makes an orphaned object impossible:
+    //
+    //   * killed before the settle -> 'reserved' row, ZERO frames uploaded. `sweep_stale_
+    //     reservations()` (#47) reclaims the row and has nothing to purge — which is precisely why
+    //     that sweep needs no Storage access at all.
+    //   * settle REFUSES           -> we throw, the `finally` releases, and again nothing was
+    //     uploaded. This is the leak the old upload-then-settle order had that needed NO CRASH: a
+    //     late replay or a concurrent duplicate makes `settle_analysis` return
+    //     `not_reserved_or_not_found` AFTER the frames are already in the bucket, and the released
+    //     row never names them. No sweep could ever have reached those objects — the sweep only
+    //     touches rows still stuck in 'reserved'.
+    //   * killed mid-upload        -> 'delivered' row whose frames sit under its OWN prefix, where
+    //     deletion finds them anyway. Purge walks the PREFIX, never `media_paths`.
+    //
+    // THE PRICE: a delivered row can carry an empty or short `media_paths`. That shortens the Past
+    // Analyses frame strip (#55) and nothing else — `media_paths` is the DISPLAY list, never the
+    // deletion authority.
     const settled = await settleAnalysis(deps.rpc, {
       userId: callerUserId,
       analysisId,
       result: decision.result,
       isFallback,
-      mediaPaths,
     });
 
     if (!settled.ok) {
-      // The row was not in `'reserved'` when we got here. Nothing was delivered; the `finally`
-      // releases (a no-op if something else already moved the row) and we do not pretend otherwise.
+      // The row was not in `'reserved'` when we got here. Nothing was delivered and — the whole
+      // point of the new ordering — nothing was uploaded. The `finally` releases (a no-op if
+      // something else already moved the row) and we do not pretend otherwise.
       throw new Error(`settle_analysis refused: ${settled.reason ?? 'unknown'}`);
     }
 
     reservationSettled = true;
     outcome = isFallback ? 'partial' : 'success';
+
+    // Everything from here on is NON-FATAL. The analysis is delivered and the quota is spent.
+    framesUploaded = await safeAttachFrames(deps, callerUserId, analysisId, request.frames);
 
     return (response = {
       status: 200,
@@ -896,9 +938,77 @@ async function callModel(
 }
 
 /**
+ * Upload the frames, record them on the ALREADY-DELIVERED row, and — if that row turned out to be
+ * gone — purge what we just wrote. NEVER THROWS (#130).
+ *
+ * By the time this runs, `settle_analysis` has succeeded: the analysis is delivered and the user's
+ * quota is spent. A throw from here would land in `runAnalyzeForm`'s `catch` and turn a delivered,
+ * charged analysis into a 500 the user cannot retry — a failure the old settle-last ordering made
+ * structurally impossible and this ordering has to close by hand. Same discipline as the `finally`
+ * helpers below: it must never be able to break the request it is decorating.
+ *
+ * THE PURGE (the delete-during-upload window). `deleteAnalysis` purges Storage BEFORE it marks the
+ * row deleted. Under this file's settle-first ordering the row is 'delivered', and therefore
+ * DELETABLE, while we are still uploading — so a user who deletes mid-upload gets their prefix
+ * walked, and then our remaining frames land in it, stranded, with the per-analysis purge already
+ * spent. `attach_media_paths` refusing with `row_deleted`/`not_found` IS that signal: nothing will
+ * ever name these objects, so we purge the prefix ourselves. We must NOT purge on
+ * `already_attached` — there the paths are recorded on a live row, and removing them would destroy
+ * a working analysis's frame strip.
+ *
+ * Returns the number of frames that landed and STAYED, for the observability line.
+ */
+async function safeAttachFrames(
+  deps: AnalyzeFormDeps,
+  userId: string,
+  analysisId: string,
+  frames: PaceFrame[]
+): Promise<number> {
+  const prefix = `${userId}/${analysisId}/`;
+
+  try {
+    const mediaPaths = await uploadFrames(deps, userId, analysisId, frames);
+    if (mediaPaths.length === 0) {
+      // A total storage outage. The row keeps `media_paths = '{}'`: the frame strip is empty, the
+      // analysis is intact, and we never name an object that does not exist.
+      return 0;
+    }
+
+    const attached = await attachMediaPaths(deps.rpc, { userId, analysisId, mediaPaths });
+    if (attached.ok) {
+      return mediaPaths.length;
+    }
+
+    if (attached.reason === 'row_deleted' || attached.reason === 'not_found') {
+      // The row is gone. Everything we just uploaded is an orphan — including whatever the user's
+      // own delete already walked past. Purge by PREFIX, never by `mediaPaths`: a partial upload
+      // means our list is not the authority on what is actually under there.
+      const purged = await purgePrefix(deps.storage, prefix, DEFAULT_PAGE_SIZE);
+      console.error(
+        `analyze-form: analysis ${analysisId} was ${attached.reason} mid-upload — purged ${purged} orphaned object(s)`
+      );
+      return 0;
+    }
+
+    // `already_attached` (a replay) or `not_delivered`. The objects are LIVE and NAMED by a row we
+    // must not touch. Purging here would delete a working analysis's frames.
+    console.error(`analyze-form: attach_media_paths refused: ${attached.reason ?? 'unknown'}`);
+    return mediaPaths.length;
+  } catch (err) {
+    // Includes a throw from `purgePrefix` itself (it refuses to report success while objects
+    // remain). The analysis is delivered either way; we log and return.
+    console.error(
+      'analyze-form: frames could not be attached — the analysis is still delivered',
+      err instanceof Error ? err.message : err
+    );
+    return 0;
+  }
+}
+
+/**
  * Uploads the frames the analysis actually ran on, service-role, to
- * `{user_id}/{analysis_id}/frame-{NN}.jpg` — the exact prefix `settle_analysis`'s namespace guard
- * enforces and `DELETE /analysis/:id` (#57) purges by. Returns only the paths that LANDED.
+ * `{user_id}/{analysis_id}/frame-{NN}.jpg` — the exact prefix `attach_media_paths`'s namespace
+ * guard enforces and `DELETE /analysis/:id` (#57) purges by. Returns only the paths that LANDED.
  *
  * A failed upload is logged and skipped, never thrown: the user's analysis is done and correct, and
  * refusing to deliver it because a thumbnail did not persist would be absurd. The only cost of a
