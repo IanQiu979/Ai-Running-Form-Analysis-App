@@ -98,6 +98,26 @@ export const Copy = {
     title: 'Home',
     cta: {
       analyze: 'Analyze my form',
+      // --- issues #54/#15 additions start — lifted verbatim from docs/design/copy-deck.md
+      // §Screen 2, "Ambiguities and calls made" #1. Three branch states for a used-up quota:
+      // Free (no tier below it) and Pro (Elite exists above it) get a relabeled, actionable
+      // CTA; Elite (nothing above it) keeps the plain "Analyze my form" label and renders
+      // disabled instead — see `analyzeDisabled` below.
+      upgradeToAnalyze: 'Upgrade to analyze',
+      upgradeForMore: 'Upgrade for more',
+      // Deck value is identical to `analyze` above by design (§Screen 2's row for this key:
+      // "Render disabled/greyed rather than relabeled") — kept as its own key anyway, matching
+      // this file's established convention of lifting every deck key even when two share one
+      // literal string (see `quota.pro.remaining` / `quota.elite.remaining` below).
+      analyzeDisabled: 'Analyze my form',
+      // NEW key, not in the deck. Issue #54's file lane forbids touching `app/paywall.tsx` or
+      // `lib/subscription.ts` (issue #52 — a parallel worktree, not merged as of this commit),
+      // so this build cannot navigate `upgradeToAnalyze`/`upgradeForMore` anywhere real yet.
+      // Both render correctly labelled but temporarily disabled, paired with this honest
+      // caption/accessibilityHint rather than a dead tap — delete once #52 merges and the CTA
+      // is wired to Paywall (see app/(tabs)/index.tsx's HANDOFF comment).
+      upgradeUnavailable: "Upgrades aren't available in this version yet.",
+      // --- issues #54/#15 additions end ---
     },
     quota: {
       free: {
@@ -105,7 +125,28 @@ export const Copy = {
       },
       exhausted: {
         free: "You've used your free analysis",
+        // --- issues #54/#15 additions start — lifted verbatim from the deck §Screen 2.
+        pro: "You've used all {limit} analyses this period — renews {date}",
+        elite: "You've used all {limit} analyses this period — renews {date}",
+        // --- issues #54/#15 additions end ---
       },
+      // --- issues #54/#15 additions start — lifted verbatim from the deck §Screen 2. Pro and
+      // Elite get their own key even though the string is identical, matching the deck's own
+      // separate table rows rather than collapsing them into one shared key it doesn't define.
+      pro: {
+        remaining: '{remaining} of {limit} analyses left this period',
+      },
+      elite: {
+        remaining: '{remaining} of {limit} analyses left this period',
+      },
+      renewsOn: 'Renews {date}',
+      // NEW key, not in the deck. `pace_quota_status`'s response
+      // (`supabase/functions/_shared/quota-status.ts`) can report `blocked: true` (issue #6's
+      // anti-farm cap) independently of `remaining` — a user can have quota left and still be
+      // refused right now. The deck has no copy for this state; kept short and generic rather
+      // than inventing detailed anti-farm messaging the deck was never asked to write.
+      blocked: "You can't start a new analysis right now. Try again later.",
+      // --- issues #54/#15 additions end ---
       loading: 'Checking your plan…',
       error: {
         stale: 'Showing your last known plan status.',
@@ -115,16 +156,6 @@ export const Copy = {
         // narrower case where the very first fetch fails and there is nothing to show yet.
         retry: 'Retry',
         failed: "Couldn't load your plan status.",
-      },
-      // Not a deck key — the deck's real tier labels are the shared `tier.pro.name` /
-      // `tier.elite.name` (§1), but this screen is the only current consumer of a tier name at
-      // all (`describeReadyQuota` in app/(tabs)/index.tsx), so issue #30 scopes the fix to
-      // routing that one call site's hardcoded 'Pro'/'Elite' through the deck rather than
-      // threading the shared namespace through a screen that doesn't otherwise need it. Revisit
-      // if/when a second screen needs a tier label.
-      tier: {
-        pro: 'Pro',
-        elite: 'Elite',
       },
     },
     empty: {
