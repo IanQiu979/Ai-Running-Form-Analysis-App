@@ -43,6 +43,7 @@ import {
   type LogEvent,
 } from '../_shared/delete-account.ts';
 import { createDeleteAccountDeps } from '../_shared/delete-account-client.ts';
+import { hashUserId, logEvent, newRequestId, type LogLevel } from '../_shared/log.ts';
 
 function getPublishableKey(): string {
   const raw = Deno.env.get('SUPABASE_PUBLISHABLE_KEYS');
@@ -68,18 +69,6 @@ function jsonResponse(status: number, body: Record<string, unknown>): Response {
 }
 
 /**
- * One structured JSON line per boundary crossed (invocation, storage purge, row delete, auth
- * delete, completion/failure, with durations). When a deletion silently half-succeeds in
- * production, these logs are the only evidence of WHERE it stopped — and they have to already
- * exist by then. The user id is included because it is the retry key and the only handle on a
- * `orphans_remaining` prefix that needs a human; no frame bytes, results, or emails are ever
- * logged.
- */
-const log: LogEvent = (event) => {
-  console.log(JSON.stringify({ fn: 'delete-account', ...event }));
-};
-
-/**
  * Verifies the caller's JWT against Supabase Auth and returns their user id. Throws (never returns
  * a fabricated/guessed id) on a missing, expired, or otherwise invalid token — the caller below
  * treats any throw here as `401 unauthorized`, the same fail-closed shape `analysis/index.ts` uses.
@@ -101,6 +90,36 @@ async function resolveCallerUserId(authHeader: string): Promise<string> {
 }
 
 Deno.serve(async (req) => {
+  // Issue #85 — minted once per invocation, before auth, so it correlates every log line below
+  // even on the earliest failures (no Authorization header at all). `userIdHash` starts `null`
+  // (no user is known yet) and is filled in once `resolveCallerUserId` succeeds; the closure below
+  // reads whichever value is current at call time, so `deleteAccount`'s own internal `log(...)`
+  // calls (all of which fire well after the hash is set) pick it up automatically.
+  const requestId = newRequestId();
+  let userIdHash: string | null = null;
+
+  /**
+   * One structured JSON line per boundary crossed (invocation, storage purge, row delete, auth
+   * delete, completion/failure, with durations). When a deletion silently half-succeeds in
+   * production, these logs are the only evidence of WHERE it stopped — and they have to already
+   * exist by then. `_shared/delete-account.ts` (not owned by this issue's lane) builds each event
+   * with the raw `callerUserId` and sometimes its own `level` ('warn'/'error' on the orphan-
+   * catching paths) — this wrapper swaps the raw id for the pre-computed hash and normalizes the
+   * level via `_shared/log.ts`'s `logEvent()` (issue #85), without changing what `deleteAccount`
+   * itself decides to log or when. No frame bytes, results, or emails are ever logged.
+   */
+  const log: LogEvent = (event) => {
+    const { userId, level, event: eventName, ...rest } = event;
+    logEvent({
+      level: (typeof level === 'string' ? level : 'info') as LogLevel,
+      fn: 'delete-account',
+      requestId,
+      userId: typeof userId === 'string' ? userIdHash : null,
+      ...rest,
+      event: typeof eventName === 'string' ? eventName : 'delete_account.unknown',
+    });
+  };
+
   if (req.method !== 'POST') {
     return jsonResponse(405, { error: 'Only POST is supported on this route.', code: 'method_not_allowed' });
   }
@@ -118,6 +137,7 @@ Deno.serve(async (req) => {
     log({ event: 'delete_account.unauthorized', reason: 'invalid_or_expired_token' });
     return jsonResponse(401, { error: 'Invalid or expired session.', code: 'unauthorized' });
   }
+  userIdHash = await hashUserId(callerUserId);
 
   // Issue #124: a valid JWT alone is not enough for the single most destructive action this
   // product has — see this file's header and `_shared/delete-account.ts`'s "REAUTHENTICATION
