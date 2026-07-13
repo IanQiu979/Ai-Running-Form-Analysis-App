@@ -25,12 +25,27 @@
  * carries no coordinate data for one, and drawing invented overlay geometry would be exactly the
  * kind of fabrication this issue exists to refuse (see `components/pace-readout.tsx`'s header).
  * This screen renders the stored frame plainly, with the deck's alt text.
+ *
+ * MOTION (issue #61): `justAnalyzed` is read straight off the route params and forwarded to
+ * `<PaceReadout>` as `firstReveal` — nothing else on this screen branches on it. Both writers of
+ * this param (`app/analyzing.tsx`'s success effect and `app/(tabs)/index.tsx`'s cold-start
+ * reconciliation) already match motion-consult.md item 3's example verbatim: "ephemeral only — a
+ * nav param ... set immediately after the analyze call succeeds ... never derived from
+ * AsyncStorage or a DB field, so it can't replay after relaunch nor suppress a genuine first
+ * view." A plain re-open from Past Analyses never sets it, so `firstReveal` defaults to false
+ * there and `<PaceReadout>` renders its ordinary static, finished state.
+ *
+ * MOTION (issue #61) — the scroll container: motion-consult.md item 5, "build on Reanimated's
+ * `Animated.ScrollView` + `useAnimatedRef` from day one (zero effects wired now) so the post-MVP
+ * scroll-driven phase is additive, not a container swap." `scrollRef` below has no reader yet —
+ * this is that plumbing, not new visible motion.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { useAnimatedRef } from 'react-native-reanimated';
 
 import { PartialResultBanner } from '@/components/partial-result-banner';
 import { PaceReadout } from '@/components/pace-readout';
@@ -95,8 +110,13 @@ export default function ResultScreen() {
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
-  const params = useLocalSearchParams<{ id: string | string[] }>();
+  const params = useLocalSearchParams<{ id: string | string[]; justAnalyzed?: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  // Motion-consult.md item 3's own example param name and value, verbatim — see this file's
+  // header. Read once per mount; a later re-render (e.g. the hero image resolving) never flips it.
+  const justAnalyzed = (Array.isArray(params.justAnalyzed) ? params.justAnalyzed[0] : params.justAnalyzed) === '1';
+  // See this file's header (motion-consult.md item 5) — unread today, on purpose.
+  const scrollRef = useAnimatedRef<Animated.ScrollView>();
 
   const [state, setState] = useState<ScreenState>({ status: 'loading' });
   const activeFlagRef = useRef<ActiveFlag>({ active: false });
@@ -220,7 +240,7 @@ export default function ResultScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <Animated.ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
         {outcome.isFallback ? <PartialResultBanner assessedCount={assessedCount} /> : null}
 
         {heroUri ? (
@@ -234,7 +254,7 @@ export default function ResultScreen() {
           />
         ) : null}
 
-        <PaceReadout result={outcome.result} />
+        <PaceReadout result={outcome.result} firstReveal={justAnalyzed} />
 
         <ResultDisclaimer />
 
@@ -245,7 +265,7 @@ export default function ResultScreen() {
           style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
           <Text style={styles.primaryButtonText}>{Copy.result.cta.done}</Text>
         </Pressable>
-      </ScrollView>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
