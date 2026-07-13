@@ -108,7 +108,70 @@ describe('analyzingReducer', () => {
 
   it('moves to failed on a matching-attempt failure', () => {
     const next = analyzingReducer(INITIAL_ANALYZING_STATE, { type: 'failed', attempt: 1 });
-    expect(next).toEqual({ phase: 'failed', attempt: 1 });
+    expect(next).toEqual({ phase: 'failed', attempt: 1, code: undefined });
+  });
+
+  // Issue #136: AnalyzeFormError.code must survive into state, distinguishably, so
+  // app/analyzing.tsx can route a quota_exceeded failure to the paywall instead of rendering the
+  // generic retryable error panel — see AnalyzingState's 'failed' doc comment.
+  describe('failed carries the server code through (issue #136)', () => {
+    it('moves to failed with the quota_exceeded code on a matching-attempt failure', () => {
+      const next = analyzingReducer(INITIAL_ANALYZING_STATE, {
+        type: 'failed',
+        attempt: 1,
+        code: 'quota_exceeded',
+      });
+      expect(next).toEqual({ phase: 'failed', attempt: 1, code: 'quota_exceeded' });
+    });
+
+    it('a quota_exceeded failure is distinguishable in state from a generic (undefined-code) failure', () => {
+      const genericFailure = analyzingReducer(INITIAL_ANALYZING_STATE, { type: 'failed', attempt: 1 });
+      const quotaFailure = analyzingReducer(INITIAL_ANALYZING_STATE, {
+        type: 'failed',
+        attempt: 1,
+        code: 'quota_exceeded',
+      });
+
+      expect(genericFailure).not.toEqual(quotaFailure);
+      expect(genericFailure.phase === 'failed' && genericFailure.code).toBeUndefined();
+      expect(quotaFailure.phase === 'failed' && quotaFailure.code).toBe('quota_exceeded');
+    });
+
+    it('carries a non-quota documented code through unchanged (e.g. validation_failed)', () => {
+      const next = analyzingReducer(INITIAL_ANALYZING_STATE, {
+        type: 'failed',
+        attempt: 1,
+        code: 'validation_failed',
+      });
+      expect(next).toEqual({ phase: 'failed', attempt: 1, code: 'validation_failed' });
+    });
+
+    // The "MAY reject (throw)" case (lib/analyze-form.ts's AnalyzeFormClient doc comment) has no
+    // server-authored code at all — app/analyzing.tsx's .catch() dispatches 'failed' with no
+    // `code` field, which must behave exactly like today's generic failure, not crash or coerce
+    // to some fabricated value.
+    it('a failure with no code at all still moves to the generic failed phase', () => {
+      const next = analyzingReducer(INITIAL_ANALYZING_STATE, { type: 'failed', attempt: 1 });
+      expect(next.phase).toBe('failed');
+      expect(next.phase === 'failed' && next.code).toBeUndefined();
+    });
+
+    // Both directions (issue #136's own wording): a generic failure must STILL be retryable —
+    // carrying `code` through must not disturb the existing failed -> retry -> waiting transition,
+    // for either a coded or an uncoded failure.
+    it('a generic (uncoded) failed state is still retryable', () => {
+      const failed = analyzingReducer(INITIAL_ANALYZING_STATE, { type: 'failed', attempt: 1 });
+      expect(analyzingReducer(failed, { type: 'retry' })).toEqual({ phase: 'waiting', attempt: 2 });
+    });
+
+    it('a quota_exceeded failed state is still retryable at the machine level (routing away is app/analyzing.tsx\'s job, not this reducer\'s)', () => {
+      const failed = analyzingReducer(INITIAL_ANALYZING_STATE, {
+        type: 'failed',
+        attempt: 1,
+        code: 'quota_exceeded',
+      });
+      expect(analyzingReducer(failed, { type: 'retry' })).toEqual({ phase: 'waiting', attempt: 2 });
+    });
   });
 
   it('moves to timedOut on a matching-attempt timeout', () => {
