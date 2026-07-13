@@ -29,6 +29,13 @@ export type ColorScheme = 'light' | 'dark';
 // annotation lines drawn over a captured frame) — not text and not a UI-component boundary — so
 // WCAG 1.4.11 non-text contrast does not apply to it. V2.2 gave its own hairline the same
 // treatment (an even-lower-contrast rgba overlay); left at the brief's intent value, unchanged.
+//
+// `control.border` (issue #96) is the role `hairline` is explicitly NOT: an actual interactive-
+// boundary color, for the edge of a non-accent button/input/checkbox — anything whose fill alone
+// (`surface.base`/`surface.raised`, both near-invisible against `background` at ~1.1-1.2:1) is
+// not enough to read as a tappable control. Proven >=3:1 (WCAG 1.4.11's floor) against all three
+// surfaces, both schemes, in `theme-contrast.test.ts` — including a guard that hairline itself
+// stays under 3:1, so this role can never quietly collapse back into decorative hairline.
 // -------------------------------------------------------------------------------------------
 
 export const Colors = {
@@ -43,6 +50,15 @@ export const Colors = {
       secondary: '#5A5347', // labels, captions — 6.74:1 on background, 7.60:1 on surface.raised
     },
     hairline: '#DAD3C4', // rules, ticks, annotations — decorative, see note above
+    control: {
+      // The interactive-boundary role (issue #96) — same hue/sat family as hairline (40.9°,
+      // 22.9%), lightness darkened until the WORST of the three surfaces it can sit against
+      // (background, surface.base, surface.raised — a control's fill is one of the latter two,
+      // its outer edge always touches `background`) clears 3:1: 3.06:1 (background) / 3.28:1
+      // (surface.base) / 3.45:1 (surface.raised). Distinct from `hairline`, which stays
+      // unchanged and quiet (decorative rules/ticks/annotations are not a control boundary).
+      border: '#9B8861',
+    },
   },
   dark: {
     background: '#1A1712',
@@ -55,6 +71,13 @@ export const Colors = {
       secondary: '#B3AC9C', // 7.91:1 on background, 6.64:1 on surface.raised
     },
     hairline: '#3A342A',
+    control: {
+      // Same hue/sat family as dark hairline (37.5°, 16%), lightened until the worst surface
+      // clears 3:1: 3.05:1 (surface.raised) / 3.38:1 (surface.base) / 3.64:1 (background) —
+      // surface.raised is dark mode's lightest surface, so (as elsewhere in this file) it's the
+      // binding constraint for a lightened foreground.
+      border: '#7C6F5A',
+    },
   },
 } as const;
 

@@ -1,0 +1,88 @@
+# The commit gate (issue #82). Until this workflow existed, `npm run typecheck && npm run lint
+# && npm test` (CLAUDE.md's "run this clean before every commit") was enforced by convention
+# only — a PR that broke the build could merge exactly as easily as one that didn't.
+#
+# Mirrors the project's own gate exactly (see `package.json` scripts and CLAUDE.md): typecheck,
+# then lint, then test — cheapest static checks first so a broken build fails in seconds, not
+# after a full Jest + Deno test run. No build/EAS step here on purpose — that's a separate,
+# Apple-gated concern tracked in `docs/blocked-on-apple.md`.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel a superseded run (e.g. a fast follow-up push) rather than let two runs for the same
+# ref race each other. `github.ref` is unique per PR (refs/pull/<n>/merge) and per branch
+# (refs/heads/main), so pushes to main and each open PR each get their own lane.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: this workflow only reads the repo and runs local checks. It never comments,
+# labels, or writes anything back — no broader permission is needed. Widen deliberately if a
+# future step actually requires more (e.g. posting a check annotation via the API).
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: typecheck, lint, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # No `engines` field in package.json and no `.nvmrc`/`.node-version` in this repo (checked
+      # 2026-07-13, issue #82) to pin against. Node 24 matches the only other precedent in this
+      # repo, `.github/workflows/hibp-canary.yml`'s `setup-node` step — kept identical on purpose
+      # so the two workflows can't silently drift onto different Node runtimes. If a future
+      # change adds an `engines`/`.nvmrc` pin, prefer that as the source of truth here instead
+      # (see `hibp-canary.yml` for the same note) and update both workflows together.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: npm ci
+        run: npm ci
+
+      # `typecheck:edge` and `test:edge` (both wired into `npm run typecheck` / `npm test` — see
+      # package.json) `deno check`/`deno test` over `supabase/functions/`, so Deno must be on
+      # PATH before either composite command runs. Pinned to 2.9.2 to match the version installed
+      # locally per CLAUDE.md ("installed locally at ~/.local/bin/deno") — there is no repo-
+      # committed Deno version file to defer to instead. Bump this alongside the local install if
+      # it's ever upgraded.
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: '2.9.2'
+
+      # No step here generates `.expo/types/router.d.ts` (the gitignored file that tells `tsc`
+      # which route strings are valid). `npm run typecheck` regenerates it itself, via the
+      # `generate:routes` script it chains — that is issue #118's fix, and CI deliberately does
+      # not duplicate the mechanism so there is only one place to change it.
+      - name: Typecheck (app + supabase/functions)
+        run: npm run typecheck
+
+      # Issue #82's "watch out for": `expo lint` loads `.env` via `@expo/env`, and `.env` is
+      # gitignored so it never exists in CI. Verified locally (2026-07-13, this checkout) that
+      # `expo lint` exits 0 with `.env` absent — `@expo/env` loads it only if present and does not
+      # require it — so no dummy `.env` is provisioned here. If lint ever starts failing on a
+      # missing env var, that's a genuine new dependency introduced elsewhere and should be fixed
+      # at the source, not papered over with a placeholder `.env` in CI.
+      - name: Lint
+        run: npm run lint
+
+      # `jest && npm run test:edge` — the app's Jest suite (jest-expo, passWithNoTests: true
+      # today) and the Deno suite under `supabase/functions/` (which also runs
+      # `verify:knowledge`, regenerating `supabase/functions/_shared/knowledge.generated.ts` from
+      # `knowledge/*.md` and failing on drift). Verified locally that both halves pass with no
+      # `.env`/`supabase/functions/.env` present — neither suite reads live secrets, only unit-
+      # level fixtures/mocks.
+      - name: Test
+        run: npm test

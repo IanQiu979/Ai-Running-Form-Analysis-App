@@ -63,9 +63,10 @@ supabase/functions/
    10 / Elite 30 per purchase-anchored period) and the tier's frame-count cap, then reserves the
    analysis atomically. Over quota → structured `402`.
 4. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames (see "Frame
-   pipeline" below) with their actual sampled timestamps; those same frames were already
-   uploaded direct-to-bucket (frames-only — the original video is never uploaded), and their
-   storage paths ride in the request alongside the base64 frame data.
+   pipeline" below) with the timestamps the client requested from the extractor — not the actual
+   decoded times, which `expo-video-thumbnails` cannot report on either platform (issue #112);
+   those same frames were already uploaded direct-to-bucket (frames-only — the original video is
+   never uploaded), and their storage paths ride in the request alongside the base64 frame data.
 5. **Build the grounded prompt** — system message = the certified `knowledge/` files
    (`pace_framework.md` + `injury_flags.md` + `drills.md`, bundled with the function, not
    fetched per call), then the image block(s) plus their timestamps, then the scoring
@@ -99,9 +100,10 @@ supabase/functions/
 ### Frame pipeline (the new part vs Echo)
 
 - **Per-tier frame counts:** Free 1 / Pro 5 / Elite 8, enforced server-side against the tier.
-- **Sampling:** timestamps sampled evenly across the **5%–95%** window of the clip (never
-  t=0/end — extractor edge failures); Android snaps to keyframes, so the actual sampled
-  timestamps are recorded and passed to the prompt rather than claiming perfect even spacing.
+- **Sampling:** requested timestamps are spaced evenly across the **5%–95%** window of the clip
+  (never t=0/end — extractor edge failures); Android snaps to the nearest keyframe and exposes no
+  way to read back the frame it actually decoded, so what's recorded and passed to the prompt is
+  the REQUESTED time, honestly labelled as approximate, not a verified actual one (issue #112).
 - **Extraction:** `expo-video-thumbnails` returns one frame per call — N frames is N sequential
   calls; the UI shows progress while this runs.
 - **Downscale/compress:** each frame is downscaled to ≤1568px long edge (Anthropic's optimum)

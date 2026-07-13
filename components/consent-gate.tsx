@@ -174,7 +174,11 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     },
     checkbox: {
       alignItems: 'center',
-      borderColor: colors.hairline,
+      // `control.border`, not `hairline` — a checkbox's box is a UI-component boundary WCAG
+      // 1.4.11 names explicitly, so it needs the >=3:1 interactive-boundary role, not the
+      // decorative hairline rule (issue #96). The checked state already clears 3:1 via
+      // `Accent.value` (see `checkboxChecked` below); this covers the unchecked state.
+      borderColor: colors.control.border,
       borderRadius: Radius.card,
       borderWidth: CheckboxSize.border,
       height: CheckboxSize.box,

@@ -17,8 +17,8 @@ milestone "done" criteria.
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | **In progress** — the grounded prompt, tier verbosity dial, and structured-output contract landed 2026-07-12 (issue #41, `supabase/functions/_shared/analyze-form-prompt.ts`, 28 Deno tests, **no live model call made**), unblocking M4's #44/#45. The milestone's own gate — "prompt *provably* includes the framework text" — is proven statically today (the three certified files are asserted present **byte-for-byte** in the assembled prompt); proving the *output* references the PACE pillars still needs #42's live-call eval harness. Still open: **#39** (Ian certifies Elasticity + the pillar refinements — the prompt ships his name) and **#40** (the runner's-note guidance in `injury_flags.md`; #41 neutralises it at the prompt layer, but the certified file itself still says "if the note reports…", so #40 stays open for Ian's review). |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed — and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. **Hardened 2026-07-13 after a security audit (PR #123): the function is gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — see Known Issue #21, a release blocker.** See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. Every M5 screen (paywall, tier-aware CTAs) remains unbuilt. |
-| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **not deployed** — see Known Issue #22. |
-| M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo also gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74; see `docs/architecture.md`'s "Current — CI" section. |
+| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **not deployed** — see Known Issue #22. **Its account-level storage sweep is now bounded-concurrency and resumable (issue #125, 2026-07-13)**, closing the "a heavy account can become permanently undeletable" gap — see Known Issue #22's updated sub-bullet; does not change the not-deployed status above. |
+| M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74. **A second workflow, `.github/workflows/ci.yml` (issue #82, 2026-07-13), is the repo's first actual commit gate** — typecheck/lint/test on every push and PR to `main`, previously enforced by convention only; see `docs/architecture.md`'s "Current — CI" section for both. |
 
 ## Done so far
 
@@ -259,6 +259,12 @@ milestone "done" criteria.
       happy-path retry-exhausted branch) — an unreleased `'reserved'` row silently eats one of
       the user's quota slots forever. Also consider a periodic sweep for stale `'reserved'` rows
       (e.g. the edge function crashed before either settling or releasing).
+      **The sweep half is now written (issue #47, 2026-07-13):**
+      `supabase/migrations/20260713130000_stale_reservation_sweep.sql` adds
+      `public.sweep_stale_reservations()` on a 5-minute `pg_cron` schedule, 15-minute staleness
+      threshold — **written, NOT applied** to the live project (confirmed via `supabase migration
+      list`). It only flips the row's `status`/`release_reason`; it does not purge the row's
+      Storage prefix — see Known Issue #16 below for that still-open half.
     - MUST refuse to run for a user with no recorded consent. `public.consents` (added 2026-07-12,
       issue #68) is the record; the check is `select granted from public.consents where user_id =
       <jwt uid> and consent_key = 'upload.health.v1' order by created_at desc limit 1`, and a
@@ -343,9 +349,12 @@ milestone "done" criteria.
     - **Closes #8** (namespace guard in `settle_analysis` — live) **and #7** (client loses
       storage `INSERT` at the RLS-policy level — live, though see the grant-level caveat in
       Known Issue #18 below). **Re-scopes #35** (no direct-to-bucket upload left to build). This
-      issue's remaining scope is now just its two follow-ups, neither built yet: **#47** (the
-      stale-`reserved` sweep must also purge the storage prefix, not just flip the row's status)
-      and **#57** (`DELETE /functions/v1/analysis/:id` is now a hard prerequisite for any
+      issue's remaining scope is now its two follow-ups: **#47** (the stale-`reserved` sweep must
+      also purge the storage prefix, not just flip the row's status) is **half-built as of
+      2026-07-13** — `supabase/migrations/20260713130000_stale_reservation_sweep.sql` (written,
+      **NOT applied** to the live project) flips the row's `status`/`release_reason` on a 5-minute
+      `pg_cron` schedule, but does **not** purge the swept row's Storage prefix, so this issue's
+      own storage-purge ask is still open — and **#57** (`DELETE /functions/v1/analysis/:id` is now a hard prerequisite for any
       user-facing delete, since the client's row `DELETE` is also gone).
 17. **AI spend guardrail contract for #44 — migrations applied and verified; one manual step
     still open (issue #91, 2026-07-12).** The substrate ("Done so far" above) is live:
@@ -484,10 +493,19 @@ milestone "done" criteria.
       note that the TestFlight beta currently excludes them.
     - **Filed separately, deliberately out of scope for #58: issue #124** (no re-authentication —
       a stolen access token can delete an account outright; the fix is a recent-login/AAL check,
-      not a body confirmation field an attacker would just send too) **and issue #125** (the sweep
-      is wall-clock-bound but not checkpointed — bounded per-batch by `REMOVE_BATCH_SIZE = 500`,
-      but an account with many hundreds of analyses still makes many hundreds of sequential `list()`
-      round trips in one invocation; fine at any plausible near-term volume, not fine indefinitely).
+      not a body confirmation field an attacker would just send too) — **still open**.
+    - ~~**Issue #125** (the sweep is wall-clock-bound but not checkpointed — bounded per-batch by
+      `REMOVE_BATCH_SIZE = 500`, but an account with many hundreds of analyses still makes many
+      hundreds of sequential `list()` round trips in one invocation; fine at any plausible
+      near-term volume, not fine indefinitely).~~ **FIXED 2026-07-13.** The account-level sweep
+      now runs bounded-concurrently (`ACCOUNT_PURGE_CONCURRENCY = 8` in-flight sub-prefix purges
+      instead of one sequential `list()` at a time) with soft wall-clock budgets
+      (`ACCOUNT_PURGE_DEADLINE_MS` / `ACCOUNT_POST_DELETE_SWEEP_DEADLINE_MS`) and free
+      checkpointing (each sub-prefix purge independently `list → remove → verify`s, so a
+      timed-out retry re-enumerates the account root and finds strictly fewer sub-prefixes rather
+      than redoing the whole sweep) — see `docs/change_log.md` 2026-07-13. A heavy account can no
+      longer become permanently undeletable this way. This does **not** change #58's own
+      not-deployed status above, and does not touch #124.
 23. **NEW — `lib/delete-account.ts`'s client is real, but built against an unmerged, moving-target
     contract (issue #53, 2026-07-13; corrected the same day per a security audit on PR #122,
     finding F1).** The Settings screen's "Delete account and data" flow originally shipped bound to

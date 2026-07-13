@@ -275,6 +275,27 @@ export class LargeSecureStore implements SupportedStorage {
 }
 
 /**
+ * SSR/static-export-safe stand-in for the web branch below (issue #119). `expo export
+ * --platform web`'s static rendering prerenders every route in Node, where `window` does not
+ * exist — but `@react-native-async-storage/async-storage`'s web implementation reaches for
+ * `window.localStorage` completely unguarded (see
+ * `node_modules/@react-native-async-storage/async-storage/lib/commonjs/AsyncStorage.js`), so
+ * returning it as-is during prerender throws `ReferenceError: window is not defined` the
+ * instant `supabase.auth` touches storage — which it does eagerly (GoTrueClient's constructor
+ * kicks off session recovery itself, before any React effect runs), so this was unreachable to
+ * guard from `lib/session-provider.tsx`. A no-op here is correct, not just crash-safe: a
+ * prerendered page genuinely cannot see the browser's localStorage, so "no session" is the
+ * only honest answer during prerender. The hydrated client bundle re-runs this module in an
+ * actual browser (`window` defined there), and gets the real localStorage-backed AsyncStorage
+ * from the branch below, same as always.
+ */
+const noopWebStorage: SupportedStorage = {
+  getItem: async () => null,
+  setItem: async () => {},
+  removeItem: async () => {},
+};
+
+/**
  * Platform fallback. expo-secure-store has no web implementation — confirmed against the
  * installed package: `node_modules/expo-secure-store/src/ExpoSecureStore.web.ts` exports an
  * empty `{}`, so on web every `SecureStore.*Async` call above would throw
@@ -290,14 +311,16 @@ export class LargeSecureStore implements SupportedStorage {
  * project's real target (an Expo/React Native app, part of the PACE family per CLAUDE.md);
  * `npm run web` is a dev convenience, not a shipping target.
  *
- * Exposed as a factory (rather than resolving `Platform.OS` inline at the call site) so both
- * branches are directly unit-testable without mocking the `react-native` module.
+ * Exposed as a factory (rather than resolving `Platform.OS`/`window` inline at the call site)
+ * so all branches are directly unit-testable without mocking the `react-native` module or a
+ * global.
  */
 export function createSecureSessionStorage(
-  platformOS: typeof Platform.OS = Platform.OS
+  platformOS: typeof Platform.OS = Platform.OS,
+  hasWindow: boolean = typeof window !== 'undefined'
 ): SupportedStorage {
   if (platformOS === 'web') {
-    return AsyncStorage;
+    return hasWindow ? AsyncStorage : noopWebStorage;
   }
   return new LargeSecureStore();
 }

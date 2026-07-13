@@ -29,17 +29,13 @@ import {
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { signInWithGoogle } from '@/lib/auth';
-import { mapAuthError } from '@/lib/auth-errors';
+import { mapAuthError, validateSignInForm } from '@/lib/auth-errors';
 import { checkPasswordBreached } from '@/lib/hibp';
 import { useSession } from '@/lib/session-provider';
 import { supabase } from '@/lib/supabase';
 
 type Mode = 'signIn' | 'signUp';
 type PendingAction = 'google' | 'email' | null;
-
-function isValidEmail(value: string): boolean {
-  return /\S+@\S+\.\S+/.test(value.trim());
-}
 
 export default function SignInScreen() {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
@@ -99,9 +95,16 @@ export default function SignInScreen() {
   }
 
   async function handleEmailSubmit() {
+    // Issue #17: a purely local check, run BEFORE anything is sent — `validateSignInForm`
+    // (lib/auth-errors.ts) is the ONLY source of its return value, and it is guaranteed never
+    // to return `Copy.auth.error.generic` or any other string that implies a server was
+    // contacted. Nothing below this block runs (no clearErrors(), no pendingAction, no
+    // supabase.auth.* call) until the form actually passes, so a validation failure can never
+    // be mistaken for an attempted-and-rejected sign-in.
     const trimmedEmail = email.trim();
-    if (!trimmedEmail || !password || !isValidEmail(trimmedEmail)) {
-      setErrorMessage(Copy.auth.error.generic);
+    const validationError = validateSignInForm(trimmedEmail, password);
+    if (validationError !== null) {
+      setErrorMessage(validationError);
       return;
     }
 
@@ -347,7 +350,7 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       minHeight: ControlHeight.standard,
       borderRadius: Radius.card,
       borderWidth: 1,
-      borderColor: colors.hairline,
+      borderColor: colors.control.border,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: Spacing.lg,
@@ -355,7 +358,8 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     // `surface.raised` is theme.ts's "one raised element per screen" — Google is the
     // lower-friction path (brief §4.1 lists it first), so it gets the raised treatment; the
     // email button below is `surface.base` instead, kept legible as a button by the shared
-    // `hairline` border above (issue #25).
+    // `control.border` above (issue #25). That border is `control.border`, not `hairline`:
+    // it is the only thing marking these as controls, so WCAG 1.4.11 requires >=3:1 (issue #96).
     secondaryButtonRaised: {
       backgroundColor: colors.surface.raised,
     },
@@ -396,7 +400,7 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       minHeight: ControlHeight.standard,
       borderRadius: Radius.card,
       borderWidth: 1,
-      borderColor: colors.hairline,
+      borderColor: colors.control.border,
       backgroundColor: colors.surface.base,
       paddingHorizontal: Spacing.lg,
       fontFamily: FontFamily.body.regular,

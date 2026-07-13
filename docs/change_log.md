@@ -7,6 +7,171 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-13
 
+- **Stale `'reserved'` analyses rows now have a backstop sweep (issue #47) — migration written,
+  NOT APPLIED to the live project (confirmed via `supabase migration list`).**
+  New `supabase/migrations/20260713130000_stale_reservation_sweep.sql` adds
+  `public.sweep_stale_reservations()`, scheduled every 5 minutes via `pg_cron`, to reclaim a row
+  left `'reserved'` when an `analyze-form` invocation is killed (timeout/OOM/deploy) before its
+  own `finally` block can release it — the backstop `docs/status.md` Known Issue #14 asked for.
+  Threshold: 15 minutes, derived from `analyze-form`'s own 105s self-imposed deadline and
+  Supabase Edge Functions' 150s platform wall-clock kill (6x margin over the platform limit).
+  - **Swept rows release with a new `release_reason = 'stale_sweep'`**, added to the existing
+    CHECK constraint but deliberately kept OUT of `pace_is_farming_signal`'s vocabulary, so a
+    swept row can never count toward the 3-strike anti-farming cap (#6) — the exact farming
+    vector `docs/status.md` Known Issue #16 flagged this fix against.
+  - **This migration reclaims the DB row only — it does NOT purge the swept row's Storage
+    prefix.** Known Issue #16's original ask was that the sweep "must also purge the storage
+    prefix, not just flip the row's status"; that half is still open — frames from a crashed
+    invocation still need a separate purge path.
+  - **Race-safe against a live `settle_analysis`/`release_analysis`** via `FOR UPDATE SKIP
+    LOCKED` plus the same "conditional UPDATE, no advisory lock" idiom those RPCs already use.
+    Batched (`p_batch_limit` default 500) so an incident leaving many rows stale at once can't
+    make one sweep run try to lock an unbounded number of rows.
+  - Runs as `pg_cron` calling the SQL function directly, not a scheduled edge function — pure DB
+    bookkeeping needs no HTTP hop, and provisioning a Vault-stored credential for a
+    `pg_net`-invoked edge function from a migration file isn't safe to do in-repo.
+  - **24 new Deno tests**: a TypeScript model of the sweep's contract (fresh/stale/settled/
+    released rows, the race with a concurrent settle in both directions) plus migration-text
+    invariant tests that read the actual SQL.
+- **`delete-account`'s storage sweep is bounded-concurrency and resumable, closing the
+  "heaviest accounts become permanently undeletable" gap (issue #125).** The account-level purge
+  used to hand the whole `{userId}/` prefix to `purgePrefix()` in one call, which recurses into
+  every `{analysis_id}/` sub-prefix ONE AT A TIME. A long-lived Elite account (30 analyses/
+  period) accumulates hundreds of sub-prefixes, and since the purge is deliberately blocking, a
+  sweep that times out deletes nothing — a GDPR erasure failure that lands hardest on the users
+  with the most data.
+  - **New `purgeAccountPrefix()`** in `supabase/functions/_shared/delete-account.ts` enumerates
+    the account root, then purges each analysis sub-prefix through the UNCHANGED `purgePrefix()`
+    via a new `mapWithConcurrency()` helper, bounded to `ACCOUNT_PURGE_CONCURRENCY` (8) in-flight
+    purges at once instead of sequentially.
+  - **Soft wall-clock budgets** (`ACCOUNT_PURGE_DEADLINE_MS`, 60s for the main purge;
+    `ACCOUNT_POST_DELETE_SWEEP_DEADLINE_MS`, 20s for the post-delete race sweep) stop dispatching
+    new sub-prefix purges once spent and fail closed as the EXISTING `purge_failed` outcome — no
+    new response contract, so `lib/delete-account.ts`'s hand-mirrored error codes don't drift.
+  - **Checkpointing is free, not built**: each sub-prefix purge independently
+    `list → remove → verify`s before the next starts, so a timed-out retry re-enumerates the
+    account root and finds strictly fewer sub-prefixes (emptied ones vanish from the listing)
+    rather than redoing the whole sweep.
+  - **8 new Deno tests** (`mapWithConcurrency`'s bound/order/fail-fast properties, a
+    40-analysis bounded-concurrency proof, a budget-exceeded test, a resume-after-timeout test);
+    3 existing ops-array assertions updated since removes now happen per sub-prefix instead of
+    once per account.
+  - Closes the half of `docs/status.md` Known Issue #22 that filed this out of scope as "the
+    sweep is wall-clock-bound but not checkpointed" — that concern is now closed. `delete-account`
+    itself is still not deployed, and issue #124 (no re-authentication) is still open, unaffected
+    by this fix.
+- **The Supabase client is now typed against the live schema (issue #32)** — new
+  `lib/database.types.ts`, generated via `supabase gen types typescript --project-id
+  vputdomdlknvthnzritt` and cross-checked against the Supabase MCP's `generate_typescript_types`
+  for the same project (identical for the public schema). `lib/supabase.ts` now passes it as
+  `createClient<Database>(...)`, so every `.from(...)`/`.rpc(...)` call site is checked against
+  real column/RPC shapes at compile time instead of resolving to `any`.
+  - Verified the generic is actually active (not silently falling back to untyped) by
+    temporarily probing a bad table name and a malformed RPC arg list — both produced real `tsc`
+    errors, then were reverted.
+  - Every existing query call site (`app/(tabs)/index.tsx`, `app/settings.tsx`,
+    `app/result/[id].tsx`, `lib/consent.ts`) type-checked clean with zero shape changes needed.
+    The one real edit: `app/result/[id].tsx` drops its `as AnalysisRow` cast now that the
+    generated `analyses` Row type is structurally proven to match `AnalysisRow`'s hand-written
+    shape — `tsc` now verifies that assertion on every build instead of trusting it blindly.
+  - **Known drift, left untouched (read-only against the live DB, out of scope for this issue)**:
+    `pace_quota_status` (20260712233000) and `pace_purchase_tier` (20260713120000) are not yet
+    pushed to the linked project (confirmed via `list_migrations`), so neither appears in the
+    generated types. Both edge functions that call them already carry their own deploy-gated
+    header comments acknowledging this.
+- **A shared `invokeFunction()` wrapper replaces ad hoc `supabase.functions.invoke()` unwrapping
+  (issue #46)** — `supabase.functions.invoke()` wraps every non-2xx response in a generic
+  `FunctionsHttpError` whose `{ error, code }` body is only reachable via `await
+  error.context.json()`; every caller had to know that, or silently lose the server's error code
+  (e.g. `quota_exceeded`, which #52's paywall depends on). New `lib/functions-client.ts`'s
+  `invokeFunction<T>()` does that unwrap once and returns a discriminated result: `'http'` (a
+  parsed `{ error, code }` body), `'network'` (`FunctionsRelayError`/`FunctionsFetchError` — no
+  body was ever produced), or `'malformed'` (an HTTP error whose body didn't match the documented
+  contract). It never rejects.
+  - Deliberately does NOT validate `code` against any one endpoint's known set — each endpoint's
+    codes are disjoint (`delete-account`'s three share nothing with `analyze-form`'s or
+    `purchase-tier`'s); narrowing `code: string` into a specific union is each call site's own
+    job.
+  - `lib/delete-account.ts` — the only existing real `supabase.functions.invoke` call site — is
+    migrated to it, dropping its own inline `FunctionsHttpError` unwrap; its endpoint-specific
+    error-code narrowing (`isServerDeleteAccountErrorCode`) and 200-body parsing stay, since
+    those are endpoint-specific.
+  - 12 new Jest tests in new `lib/__tests__/functions-client.test.ts`.
+- **New `control.border` interactive-boundary theme token closes a WCAG 1.4.11 gap (issue
+  #96)** — every non-accent button/input/checkbox relied on `hairline` (~1.22–1.49:1 across
+  surfaces) as its only visible edge, below the 3:1 floor WCAG 1.4.11 sets for a UI-component
+  boundary. `Colors[scheme].control.border` (same hue/sat family as `hairline`, lightness moved
+  until it clears 3:1 against every surface in both schemes: 3.06–3.64:1) is a genuinely new
+  role, not a re-tune of the decorative `hairline` rule. Applied to
+  `components/consent-gate.tsx`'s checkbox border and, in this integration, `app/(auth)/
+  sign-in.tsx`'s secondary/email buttons and text input (the other control in the repo with the
+  same bug).
+  - `constants/__tests__/theme-contrast.test.ts` gained a real regression guard, not just new
+    assertions: it asserts `hairline` itself STAYS below 3:1 (computed from the live export, not
+    a hardcoded ratio) and that `control.border !== hairline` per scheme, so the token can never
+    silently collapse back into the rule it replaces. 69 → 83 assertions.
+- **`npm run typecheck` now generates `.expo/types/router.d.ts` itself (issue #118)** — `tsc
+  --noEmit` relies on this gitignored, dev-server-generated file for expo-router's typed routes;
+  nothing in the typecheck/lint/test gate produced it, so a fresh clone (or CI checkout) either
+  silently disabled route type-checking (file absent → permissive fallback) or failed on stale
+  route unions left over from a previous dev-server session — exactly what happened merging
+  #113–#117. Fixed via `npx expo customize tsconfig.json`, Expo's own non-interactive codegen
+  entry point for this file (confirmed byte-identical to what `expo start` produces, and a no-op
+  against the committed `tsconfig.json`). New `"generate:routes": "expo customize
+  tsconfig.json"` script; `"typecheck"` now runs it first. Verified with `rm -rf .expo && npm
+  run typecheck`.
+- **The repo's first commit gate lands: `.github/workflows/ci.yml` (issue #82)** — until now,
+  `npm run typecheck && npm run lint && npm test` (CLAUDE.md's pre-commit rule) was enforced by
+  convention only; a PR that broke the build could merge exactly as easily as one that didn't.
+  Runs on push/PR to `main`: `npm ci`, Node 24 (matching `hibp-canary.yml`'s pin — no
+  `.nvmrc`/`engines` field exists to defer to instead), Deno 2.9.2 (matching the local install
+  CLAUDE.md documents), then typecheck → lint → test, cheapest checks first. `concurrency`
+  cancels a superseded run for the same ref; `permissions: contents: read` only (never
+  comments/labels/writes back). Distinct from the existing `hibp-canary.yml`, which is a daily
+  scheduled canary, not a PR gate.
+  - Deliberately provisions no dummy `.env` — verified locally that `expo lint`/`npm test` both
+    exit clean with no `.env`/`supabase/functions/.env` present.
+- **`npm run web`'s SSG crash fixed at the real root cause: `lib/secure-storage.ts`, not
+  `SessionProvider` (issue #119)** — `expo export --platform web` prerenders every route in
+  Node, where `window` doesn't exist. `createSecureSessionStorage`'s web branch returned bare
+  `AsyncStorage` unconditionally, and AsyncStorage's web implementation touches
+  `window.localStorage` with no guard; `supabase-js`'s `GoTrueClient` reads from it eagerly at
+  client construction (before any React effect runs), so every route crashed with
+  `ReferenceError: window is not defined` the instant `SessionProvider`'s module tree loaded —
+  the crash surfaced there, but the bug was one layer down, in storage. Fixed: the web branch
+  now falls back to a no-op storage (an honest "no session" answer, since a prerendered page
+  genuinely cannot see the browser's localStorage) when there is no `window`, and still returns
+  the real localStorage-backed `AsyncStorage` once hydrated in an actual browser. 4 new Jest
+  tests in `lib/__tests__/secure-storage.test.ts` (25 total, up from 21).
+- **Killed the false "actual sampled timestamps" claim at its source (issue #126, follow-up to
+  #112)** — `planning/03-engineering-requirements.md` was the *original* document
+  `docs/architecture.md` inherited the claim from, before #112 corrected that downstream copy; the
+  source itself was left standing and would have re-infected the docs the next time someone did
+  their homework from `planning/`. Corrected both instances (the `analyze-form` "Inputs" step and
+  the "Frame pipeline" section) to say what `lib/frames.ts` actually records: the timestamp the
+  client *requested* from `expo-video-thumbnails`, not the time it decoded — Android snaps to the
+  nearest keyframe and exposes no PTS, iOS discards `AVAssetImageGenerator`'s `actualTime`, so the
+  real intervals can differ from the requested ones and are not verified to be evenly spaced.
+  - **A second surviving copy was found and fixed** in `docs/mvp-build-prompt.md`'s "How the
+    analysis engine must work (ground truth — read twice)" digest, same false claim, same fix.
+  - **Deliberately left alone**: `docs/change_log.md`'s own historical entries (they correctly
+    narrate the past claim as something that *got* fixed, not something still true) and
+    `docs/superpowers/plans/2026-07-12-frame-upload-ordering.md` (a dated record of what was
+    drafted into `docs/architecture.md` at the time, not a live assertion).
+    `knowledge/pace_framework.md`'s "evenly-spaced frames" clause is certified content — out of
+    scope here, same as it was in #112 — and stays neutralised at the prompt layer.
+- **Sign-in no longer claims a server attempt on a purely local validation failure (issue
+  #17)** — `handleEmailSubmit` in `app/(auth)/sign-in.tsx` collapsed every client-side check
+  (empty email, empty password, malformed email — none of which ever reach the network) into
+  `Copy.auth.error.generic`, "Sign-in didn't go through. Try again." — a lie, since nothing was
+  ever sent, and the same string said "Sign-in" even in signUp mode. New `validateSignInForm()`
+  in `lib/auth-errors.ts` (mirroring `mapAuthError`, which only ever handles a caught server
+  response) returns one of three new field-specific, honest, mode-neutral strings —
+  `Copy.auth.error.emailRequired` / `.emailInvalid` / `.passwordRequired` (new in
+  `constants/copy.ts`, delimited as NOT copy-certified) — or `null` if the form is well-formed
+  enough to submit. Guaranteed, and tested, to never overlap with any string `mapAuthError` can
+  produce from a real server rejection. 7 new Jest tests in `lib/__tests__/auth-errors.test.ts`
+  (24 total), including an explicit "never produces a string mapAuthError can also produce" lock.
 - **Frame timestamps are told the truth, end to end (issue #112)** — `expo-video-thumbnails`
   records the time the client *requested*, never the time it decoded (Android snaps to the nearest
   keyframe and exposes no PTS; iOS computes `AVAssetImageGenerator`'s `actualTime` and discards

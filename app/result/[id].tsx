@@ -122,7 +122,7 @@ export default function ResultScreen() {
           if (active.active) setState({ status: 'loadFailed' });
           return;
         }
-        row = data as AnalysisRow | null;
+        row = data;
       } catch {
         if (active.active) setState({ status: 'loadFailed' });
         return;

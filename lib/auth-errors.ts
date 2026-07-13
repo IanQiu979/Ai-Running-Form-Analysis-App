@@ -1,5 +1,9 @@
 /**
- * Maps a caught sign-in/sign-up error to the copy deck's fixed strings (screen 1).
+ * Maps a caught sign-in/sign-up error to the copy deck's fixed strings (screen 1). Also home to
+ * `validateSignInForm` (issue #17), the client-side form-validation counterpart — deliberately
+ * kept in this same module rather than `sign-in.tsx` so it gets the same unit-test coverage as
+ * everything else here, and so its output can never accidentally converge with a real
+ * server-error string produced by `mapAuthError` below.
  *
  * Extracted out of `app/(auth)/sign-in.tsx` (issue #70 follow-up) purely so this
  * security-relevant mapping gets real unit-test coverage — screens themselves are not
@@ -72,6 +76,39 @@ const FLOW_STATE_ERROR_CODES = new Set([
   'bad_oauth_state',
   'bad_oauth_callback',
 ]);
+
+function isValidEmail(value: string): boolean {
+  return /\S+@\S+\.\S+/.test(value.trim());
+}
+
+/**
+ * Client-side field validation for the sign-in/sign-up form (issue #17), run BEFORE any network
+ * call in `handleEmailSubmit` (app/(auth)/sign-in.tsx). Kept as its own function, entirely
+ * separate from `mapAuthError` below, because the two answer different questions: this one
+ * decides whether the form is even well-formed enough to send; `mapAuthError` only ever runs on
+ * a value caught from an actual attempted request. Collapsing the two used to produce a
+ * dishonest result — a malformed email, which never left the device, surfaced the exact same
+ * "Sign-in didn't go through. Try again." copy as a real server rejection, claiming a
+ * round-trip that never happened.
+ *
+ * Returns the copy string for the first violated rule, in the order a user encounters the
+ * fields top-to-bottom on screen (email, then password), or `null` if the form is well-formed
+ * enough to submit. Never returns `Copy.auth.error.generic` or any other string that implies a
+ * server was contacted — that is the whole guarantee this function exists to hold.
+ */
+export function validateSignInForm(email: string, password: string): string | null {
+  const trimmedEmail = email.trim();
+  if (!trimmedEmail) {
+    return Copy.auth.error.emailRequired;
+  }
+  if (!isValidEmail(trimmedEmail)) {
+    return Copy.auth.error.emailInvalid;
+  }
+  if (!password) {
+    return Copy.auth.error.passwordRequired;
+  }
+  return null;
+}
 
 export function mapAuthError(error: unknown): string {
   // Typed check first — see header. `reasons` is a set, not a tag: GoTrue ACCUMULATES it, so a
