@@ -7,6 +7,23 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-13
 
+- **Killed the false "actual sampled timestamps" claim at its source (issue #126, follow-up to
+  #112)** — `planning/03-engineering-requirements.md` was the *original* document
+  `docs/architecture.md` inherited the claim from, before #112 corrected that downstream copy; the
+  source itself was left standing and would have re-infected the docs the next time someone did
+  their homework from `planning/`. Corrected both instances (the `analyze-form` "Inputs" step and
+  the "Frame pipeline" section) to say what `lib/frames.ts` actually records: the timestamp the
+  client *requested* from `expo-video-thumbnails`, not the time it decoded — Android snaps to the
+  nearest keyframe and exposes no PTS, iOS discards `AVAssetImageGenerator`'s `actualTime`, so the
+  real intervals can differ from the requested ones and are not verified to be evenly spaced.
+  - **A second surviving copy was found and fixed** in `docs/mvp-build-prompt.md`'s "How the
+    analysis engine must work (ground truth — read twice)" digest, same false claim, same fix.
+  - **Deliberately left alone**: `docs/change_log.md`'s own historical entries (they correctly
+    narrate the past claim as something that *got* fixed, not something still true) and
+    `docs/superpowers/plans/2026-07-12-frame-upload-ordering.md` (a dated record of what was
+    drafted into `docs/architecture.md` at the time, not a live assertion).
+    `knowledge/pace_framework.md`'s "evenly-spaced frames" clause is certified content — out of
+    scope here, same as it was in #112 — and stays neutralised at the prompt layer.
 - **Frame timestamps are told the truth, end to end (issue #112)** — `expo-video-thumbnails`
   records the time the client *requested*, never the time it decoded (Android snaps to the nearest
   keyframe and exposes no PTS; iOS computes `AVAssetImageGenerator`'s `actualTime` and discards

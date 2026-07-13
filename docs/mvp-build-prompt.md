@@ -144,8 +144,9 @@ points: certifying the Elasticity content (Phase 0.5 / 3) and skimming the desig
    UNIQUE `(user_id, idempotency_key)` on `analyses`; a retried request returns the existing
    row instead of double-charging quota and Anthropic.
 4. **Frame spec (numbers the docs never had):** sample timestamps evenly in the 5%–95% window
-   (never t=0/end — extractor edge failures; Android snaps to keyframes, so record actual
-   timestamps and pass them to the prompt rather than claiming perfect spacing); downscale to
+   (never t=0/end — extractor edge failures; Android snaps to keyframes and exposes no way to read
+   back what it actually decoded, so record the REQUESTED timestamp and pass it to the prompt,
+   honestly labelled approximate, rather than claiming perfect spacing — issue #112); downscale to
    ≤1568px long edge (Anthropic's optimum) at JPEG q≈0.7 via `expo-image-manipulator`
    (**install it** — `expo-video-thumbnails` has no resize option); target ~150–350KB/frame,
    total request body ≤5MB, enforced client-side and re-checked server-side.
@@ -275,9 +276,10 @@ Digest of Echo V1's real shipped behavior + this build's corrected design:
 3. **Atomic reserve** — SECURITY DEFINER RPC: tier limits (Free 1 lifetime / Pro 10 / Elite 30
    per purchase-anchored period), frame-count cap for the tier, reserve atomically. Over quota
    → structured `402`.
-4. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames (Ruling 4), with
-   their actual timestamps; those same frames were uploaded direct-to-bucket (frames-only, Ruling
-   1) and their paths ride in the request.
+4. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames (Ruling 4), with the
+   timestamps the client requested from the extractor — not the actual decoded times, which
+   `expo-video-thumbnails` cannot report on either platform (issue #112); those same frames were
+   uploaded direct-to-bucket (frames-only, Ruling 1) and their paths ride in the request.
 5. **Grounded prompt, server-side only** — system message = the certified `knowledge/` files
    (`pace_framework.md` + `injury_flags.md` + `drills.md`, bundled into the function; the 0–100 +
    band rubric and the four hard analyzer rules live in `pace_framework.md`), then image blocks
