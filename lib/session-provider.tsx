@@ -12,6 +12,7 @@ import {
 
 import { Copy } from '@/constants/copy';
 
+import { startAppStateSync } from './app-state';
 import { createSessionFromUrl } from './auth';
 import { mapAuthError } from './auth-errors';
 import { onSessionRestoreFailure } from './secure-storage';
@@ -122,6 +123,15 @@ export function SessionProvider({ children }: PropsWithChildren) {
       subscription.unsubscribe();
       unsubscribeRestoreFailure();
     };
+  }, []);
+
+  // Issue #10: the ONE AppState listener in this app (lib/app-state.ts) — re-arms Supabase's
+  // token-refresh ticker on foreground and stops it on background, since autoRefreshToken: true
+  // alone (lib/supabase.ts) does not survive JS being suspended. Also the foundation issue #64's
+  // Analyzing-screen reconciliation subscribes to via `onAppForeground`, rather than registering
+  // its own second listener — see lib/app-state.ts's header for why that matters.
+  useEffect(() => {
+    return startAppStateSync();
   }, []);
 
   useEffect(() => {

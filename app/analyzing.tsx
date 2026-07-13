@@ -4,19 +4,34 @@
  * `analyze-form` (issue #44) does not exist yet, so this screen is built and reviewable entirely
  * against `lib/analyze-form.ts`'s injectable seam, currently bound to a mock (see that file's
  * header). Swapping the seam's binding for the real implementation is the only change #44 needs
- * to make here — nothing in this file talks to Supabase or the network directly.
+ * to make here. The one exception to "nothing in this file talks to Supabase" is issue #64's
+ * reconciliation read below (`supabase.from('analyses')...`) — a plain RLS-scoped SELECT of this
+ * user's own row, the same category of read `lib/consent.ts` and `app/result/[id].tsx` already
+ * make directly from the client, not a privileged write.
  *
- * STATE MACHINE: owned by `lib/analyzing-machine.ts` (pure, unit-tested there). This file's only
- * jobs are (1) drive that reducer from real events — the `analyzeFormClient.submit()` call, a
- * client-side timeout timer, a Retry tap — and (2) render each phase. Per the issue: the machine
- * is honest about "waiting on a server-side job," not "holding a promise in memory" — a client-
- * side timeout here does not cancel the underlying call (the server settles the analysis and
- * releases/keeps quota regardless of whether this screen is still listening,
- * `docs/architecture.md`'s "Backgrounding recovery" note), and Retry always reuses the SAME
- * `idempotencyKey` rather than minting a new one, so it can never double-run the model or
- * double-burn quota. Recovering an analysis that finished while this screen (or the app) was
- * gone is issue #64's job, not this one's — this screen only has to not get in its way.
+ * STATE MACHINE: owned by `lib/analyzing-machine.ts` (pure, unit-tested there). This file's jobs
+ * are (1) drive that reducer from real events — the `analyzeFormClient.submit()` call, a
+ * client-side timeout timer, a foreground reconciliation read (issue #64), a Retry tap — and (2)
+ * render each phase. Per the issue: the machine is honest about "waiting on a server-side job,"
+ * not "holding a promise in memory" — a client-side timeout here does not cancel the underlying
+ * call (the server settles the analysis and releases/keeps quota regardless of whether this
+ * screen is still listening, `docs/architecture.md`'s "Backgrounding recovery" note), and Retry
+ * always reuses the SAME `idempotencyKey` rather than minting a new one, so it can never
+ * double-run the model or double-burn quota.
  *
+ * ISSUE #64 — backgrounding recovery, implemented here: if the app is backgrounded (not killed)
+ * while this screen is still `waiting`, `analyzeFormClient.submit()`'s promise may never resolve
+ * (iOS/Android can suspend or drop in-flight JS work) even though the SERVER-SIDE `analyze-form`
+ * invocation runs to completion regardless. The foreground-reconciliation effect below re-reads
+ * the `analyses` row by idempotency key on every return-to-foreground and routes accordingly —
+ * see that effect's own comment for the three cases. A genuine app KILL (not just background) is
+ * NOT handled here: `request` (lib/analyze-form.ts's one-shot mailbox) does not survive a process
+ * restart, so this screen is never re-entered with a live `waiting` state to reconcile — see the
+ * defensive bail-out below. Surfacing "your analysis finished" on a cold relaunch after a kill
+ * would need a differently-scoped, persisted marker read at app startup, out of this issue's file
+ * lane (see this issue's DOCS block).
+ *
+
  * isFallback: true (an honest partial result, issue #45) is routed through the exact same success
  * path as a full result — see the `succeeded` effect below. It is never treated as a failure.
  *
@@ -65,6 +80,9 @@ import {
   captionPhaseForElapsed,
   type AnalyzingCaptionPhase,
 } from '@/lib/analyzing-machine';
+import { onAppForeground } from '@/lib/app-state';
+import { supabase } from '@/lib/supabase';
+import { isPaceAnalysisOutcome } from '@shared/pace';
 
 export default function AnalyzingScreen() {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
@@ -85,7 +103,11 @@ export default function AnalyzingScreen() {
 
   // Defensive bail-out: a direct or cold navigation to this route with nothing staged (module
   // state does not survive a process kill, so this is also what a relaunch mid-analysis looks
-  // like from here — issue #64's territory, not this screen's). There is no copy-deck string for
+  // like from here — a genuine app KILL, not just a background/foreground cycle, which issue
+  // #64's reconciliation effect below handles instead; see this file's header). Surfacing "your
+  // analysis finished" after a real kill+relaunch needs a persisted, cross-restart marker outside
+  // this screen entirely, not something reachable from a mailbox that a process kill already
+  // emptied — out of scope here, see this issue's DOCS block. There is no copy-deck string for
   // this case because the real flow should never reach it; back out quietly rather than invent
   // wording the deck doesn't have.
   useEffect(() => {
@@ -131,6 +153,71 @@ export default function AnalyzingScreen() {
     return () => {
       clearTimeout(timeoutHandle);
     };
+  }, [state, request]);
+
+  // Issue #64: reconcile against the persisted `analyses` row whenever the app returns to the
+  // foreground while this screen is still waiting — subscribing to issue #10's single AppState
+  // listener (lib/app-state.ts) rather than registering a second one. The row is matched by
+  // `idempotency_key`, not `id`: the DB id is never known client-side until a real `succeeded`
+  // response names it, but the idempotency key is known from the moment `request` exists, and
+  // `reserve_analysis` guarantees at most one row per (user, idempotency_key) — see
+  // supabase/migrations/20260711150400_quota_reserve_settle_release.sql. RLS scopes the read to
+  // this user's own rows, so no explicit user_id filter is needed (same idiom as lib/consent.ts).
+  //
+  // Three outcomes, matching the issue's own three cases:
+  //  - no row yet, a transient read error, or `status: 'reserved'` -> do nothing. The row not
+  //    existing yet just means the reserve hasn't landed server-side; either way this is still
+  //    genuinely in flight, so the ORIGINAL submit()/timeout race above remains the source of
+  //    truth. Never resubmit here — the idempotency key protects the server from a double-charge,
+  //    but this effect must not even try.
+  //  - `status: 'delivered'` -> dispatch the EXISTING `succeeded` event (same fields a real
+  //    response carries), which the effect below already routes to `/result/[id]`.
+  //  - `status: 'released'` -> dispatch `reconciledReleased`, the one case that would otherwise
+  //    spin forever: the server already gave up on this analysis while the app was away, and
+  //    nothing will ever resolve the original submit() promise now.
+  useEffect(() => {
+    if (state.phase !== 'waiting' || !request) {
+      return;
+    }
+    const attempt = state.attempt;
+    const req = request;
+
+    async function reconcile() {
+      try {
+        const { data, error } = await supabase
+          .from('analyses')
+          .select('id, status, result, is_fallback')
+          .eq('idempotency_key', req.idempotencyKey)
+          .maybeSingle();
+
+        if (error || !data) return;
+
+        if (data.status === 'delivered') {
+          const outcome = { result: data.result, isFallback: data.is_fallback };
+          // Structural validation (CLAUDE.md: shape only, never content) before trusting a row
+          // read outside the normal submit() response path. An invalid shape here would be a
+          // genuine bug elsewhere (settle_analysis only ever writes a validated PaceResult) —
+          // rather than navigate to a broken result screen, fall through to a no-op and let the
+          // original submit()/timeout race keep governing.
+          if (isPaceAnalysisOutcome(outcome)) {
+            dispatch({ type: 'succeeded', attempt, outcome, analysisId: data.id });
+          }
+          return;
+        }
+
+        if (data.status === 'released') {
+          dispatch({ type: 'reconciledReleased', attempt, analysisId: data.id });
+        }
+        // status === 'reserved': still genuinely in flight — intentionally no-op.
+      } catch {
+        // Same posture as a missing row / a returned error above: this is a supplementary check,
+        // not the primary source of truth, so a thrown read failure is not surfaced.
+      }
+    }
+
+    return onAppForeground(() => {
+      reconcile();
+    });
   }, [state, request]);
 
   // Drives the caption pacing (step 0 -> step 1, steady -> the long-wait fade) from the SAME pure
@@ -240,6 +327,27 @@ export default function AnalyzingScreen() {
           />
         )}
 
+        {/* Issue #64's third case — the one that otherwise spins forever: the app was backgrounded
+            while waiting, and reconciliation found the row already 'released' (the server gave up
+            on it while we were away). Deliberately NO onRetry: resubmitting with this request's
+            idempotency key would just hand back the same released row again (`reserve_analysis`
+            returns an idempotency match "as-is, whatever its status"), not actually retry — see
+            lib/analyzing-machine.ts's 'released' phase doc comment. Reuses the `failed` copy as the
+            closest existing string (same "didn't go through" / "wasn't counted against your quota"
+            meaning) since no dedicated string exists yet — same reuse-and-flag precedent
+            lib/session-provider.tsx's corruptedSessionError already follows for `Copy.auth.error.generic`.
+            A dedicated `analyzing.error.releasedWhileAway.*` pair (without the "try again" line,
+            since there is no working retry here) is real future ux-copywriter work — see this
+            issue's DOCS block. */}
+        {state.phase === 'released' && (
+          <ErrorPanel
+            styles={styles}
+            title={Copy.analyzing.error.failed.title}
+            body={Copy.analyzing.error.failed.body}
+            onCancel={handleCancel}
+          />
+        )}
+
         {/* 'succeeded' is transient — the effect above navigates away immediately; nothing
             distinct renders for it, matching the "no fake progress, no extra beat" honesty rule. */}
       </ScrollView>
@@ -255,16 +363,19 @@ type ErrorPanelProps = {
   styles: Styles;
   title: string;
   body: string;
-  onRetry: () => void;
+  /** Omitted for the `released` phase (issue #64) — see that render branch's comment for why a
+   * Retry button would be a dead end there rather than an actual retry. */
+  onRetry?: () => void;
   onCancel: () => void;
 };
 
 /**
- * Shared chrome for both error states (`analyzing.error.failed.*` / `.timeout.*`) — same
- * calm, non-alarmed treatment app/(tabs)/index.tsx's own quota-error state already uses (plain
- * text.primary/text.secondary, no Semantic.error red): this app's voice is "coach, not scold"
- * even when something went wrong, and `Semantic.error` (constants/theme.ts) is reserved for a
- * true alarm condition, not a "try again, nothing was lost" recoverable state.
+ * Shared chrome for all three error/exit states (`analyzing.error.failed.*` / `.timeout.*`, and
+ * issue #64's `released` phase reusing `failed`'s copy) — same calm, non-alarmed treatment
+ * app/(tabs)/index.tsx's own quota-error state already uses (plain text.primary/text.secondary,
+ * no Semantic.error red): this app's voice is "coach, not scold" even when something went wrong,
+ * and `Semantic.error` (constants/theme.ts) is reserved for a true alarm condition, not a "try
+ * again, nothing was lost" recoverable state.
  */
 function ErrorPanel({ styles, title, body, onRetry, onCancel }: ErrorPanelProps) {
   return (
@@ -275,13 +386,15 @@ function ErrorPanel({ styles, title, body, onRetry, onCancel }: ErrorPanelProps)
       <Text style={styles.errorBody} accessibilityLiveRegion="polite">
         {body}
       </Text>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={Copy.analyzing.error.cta.retry}
-        onPress={onRetry}
-        style={({ pressed }) => [styles.primaryCta, pressed && styles.pressed]}>
-        <Text style={styles.primaryCtaText}>{Copy.analyzing.error.cta.retry}</Text>
-      </Pressable>
+      {onRetry && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={Copy.analyzing.error.cta.retry}
+          onPress={onRetry}
+          style={({ pressed }) => [styles.primaryCta, pressed && styles.pressed]}>
+          <Text style={styles.primaryCtaText}>{Copy.analyzing.error.cta.retry}</Text>
+        </Pressable>
+      )}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={Copy.analyzing.error.cta.cancel}
