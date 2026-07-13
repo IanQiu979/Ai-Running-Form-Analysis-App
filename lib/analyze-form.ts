@@ -14,6 +14,8 @@
  * the shape that unwrapper must produce, it is not a substitute for #46's own shared helper.
  */
 
+import * as Crypto from 'expo-crypto';
+
 import type { PaceFrameSet } from '@/lib/frames';
 import { PACE_PILLARS, type PacePillarId, type PacePillarResult, type PaceResult } from '@shared/pace';
 
@@ -163,10 +165,22 @@ function mockPaceResult(assessedPillars: readonly PacePillarId[]): PaceResult {
   };
 }
 
-/** Not a real UUID generator — good enough for a value that only ever flows into dev-only mock
- * navigation params, never persisted or compared against a real database row. */
+/**
+ * A REAL UUID, deliberately — do not "simplify" this back to a `mock-…` string.
+ *
+ * It used to return `mock-${Date.now()}-${random}`, on the stated assumption that a mock id is
+ * "never compared against a real database row." That assumption was false, and it silently broke
+ * the entire dev happy path: `app/result/[id].tsx` guards its route param with a strict
+ * `UUID_PATTERN` regex and bails to the "we couldn't find this analysis" state before it ever
+ * queries Supabase. So the mock's SUCCESS path landed the user on a not-found screen — the core
+ * flow #135 had just connected still dead-ended one screen later, and every Maestro happy-path
+ * assertion (#86) failed against it. Found by the #86 E2E lane, 2026-07-13.
+ *
+ * `Crypto.randomUUID()` (expo-crypto, already a dependency) is what `app/capture/extracting.tsx`
+ * already uses to mint the idempotency key, so this adds nothing and matches the existing idiom.
+ */
 function mockAnalysisId(): string {
-  return `mock-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return Crypto.randomUUID();
 }
 
 export function createMockAnalyzeFormClient(options: MockAnalyzeFormClientOptions = {}): AnalyzeFormClient {
