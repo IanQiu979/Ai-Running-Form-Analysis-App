@@ -49,14 +49,32 @@
  * purge (storage objects → rows → auth user, in that strict order — see #58). Nothing here may
  * ever delete a row, an object, or a user itself, and an `{ ok: true }` here means the SERVER said
  * it purged, never that this file decided it did.
+ *
+ * ⚠️ ISSUE #124: the server can now ALSO reject a structurally valid, unexpired request with
+ * `code: 'reauth_required'` — a valid JWT is no longer sufficient authorization for this one
+ * endpoint (see `supabase/functions/_shared/delete-account.ts`'s "REAUTHENTICATION FRESHNESS"
+ * section for why: a stolen access token is still a valid token, and this is the single most
+ * destructive, least reversible action the product has). The reauthentication helpers below —
+ * `getReauthProvider`, `reauthenticateWithPassword`, `reauthenticateWithGoogle` — are what
+ * `app/settings.tsx` calls to satisfy that gate: re-present the SAME kind of credential the
+ * session was originally established with, which mints a fresh session the server will accept,
+ * then retry `submit()` once. This is a SERVER-ENFORCED gate, not a client-side nicety — these
+ * helpers exist only to let the client cooperate with a check the edge function runs regardless of
+ * whether the client calls them at all.
  */
+import type { Session } from '@supabase/supabase-js';
+
+import { signInWithGoogle } from './auth';
+import { mapAuthError } from './auth-errors';
 import { invokeFunction } from './functions-client';
+import { supabase } from './supabase';
 
 const EDGE_FUNCTION_NAME = 'delete-account';
 
 /**
  * Every retryable failure `code` #58's `delete-account` can send on a non-2xx response, per the
- * contract settled 2026-07-13 (server side still mid-flight in PR #121 — see this file's header):
+ * contract settled 2026-07-13 (server side still mid-flight in PR #121 — see this file's header),
+ * plus `reauth_required` added by issue #124:
  *
  * | Outcome            | Status | Body                                                         |
  * |--------------------|--------|--------------------------------------------------------------|
@@ -65,24 +83,41 @@ const EDGE_FUNCTION_NAME = 'delete-account';
  * | `purge_failed`     | 503    | `{ error, code: 'purge_failed' }`                             |
  * | `rows_failed`      | 503    | `{ error, code: 'rows_failed' }`                              |
  * | `auth_delete_failed`| 503   | `{ error, code: 'auth_delete_failed' }`                       |
+ * | `reauth_required`  | 401    | `{ error, code: 'reauth_required' }`                          |
  *
  * The two 200 outcomes are BOTH successes on this client — see `DeleteAccountSuccessOutcome` — so
  * they are deliberately NOT part of this error-code union. `orphans_remaining` is not a failure:
  * the account is fully, irreversibly deleted in that case (see `parseSuccessBody` below).
  *
+ * `reauth_required` is unlike the other three: it is NOT retryable by simply calling `submit()`
+ * again unchanged — the server refused before touching anything because the session's most recent
+ * proof of a real credential (password or OAuth, via the JWT's `amr` claim) is too old. It is
+ * retryable only after the caller satisfies that — see `reauthenticateWithPassword`/
+ * `reauthenticateWithGoogle` below, which `app/settings.tsx` calls before retrying `submit()`.
+ *
  * `'unknown'` is NOT one of the server's codes — it is this client's own bucket for a failure the
- * contract above doesn't name at all: a relay/network error, a 401 (expired session), a 404 (the
- * function isn't deployed yet — see this file's header), or a 200/503 body that doesn't parse as
- * documented. Collapsing those into one of the THREE SERVER codes above would misreport what the
- * server actually said (or didn't); a fourth, honestly-unknown code keeps that distinction instead
+ * contract above doesn't name at all: a relay/network error, a 401 with no recognized code, a 404
+ * (the function isn't deployed yet — see this file's header), or a 200/503 body that doesn't parse
+ * as documented. Collapsing those into one of the FOUR SERVER codes above would misreport what the
+ * server actually said (or didn't); a fifth, honestly-unknown code keeps that distinction instead
  * of pretending to know more than the response told us.
  */
-export type DeleteAccountErrorCode = 'purge_failed' | 'rows_failed' | 'auth_delete_failed' | 'unknown';
+export type DeleteAccountErrorCode =
+  | 'purge_failed'
+  | 'rows_failed'
+  | 'auth_delete_failed'
+  | 'reauth_required'
+  | 'unknown';
 
 function isServerDeleteAccountErrorCode(
   value: unknown
 ): value is Exclude<DeleteAccountErrorCode, 'unknown'> {
-  return value === 'purge_failed' || value === 'rows_failed' || value === 'auth_delete_failed';
+  return (
+    value === 'purge_failed' ||
+    value === 'rows_failed' ||
+    value === 'auth_delete_failed' ||
+    value === 'reauth_required'
+  );
 }
 
 /**
@@ -194,8 +229,76 @@ export function createDeleteAccountClient(): DeleteAccountClient {
 }
 
 // -------------------------------------------------------------------------------------------
+// Step-up reauthentication (issue #124). See this file's header for why these exist at all: the
+// server can reject an otherwise-valid `submit()` call with `code: 'reauth_required'`, and these
+// are what `app/settings.tsx` calls to satisfy that before retrying. Neither function touches
+// `delete-account` itself — they only refresh the LOCAL session, which `submit()`'s own
+// `supabase.functions.invoke()` call reads fresh at call time, so a retry automatically carries
+// whatever the most recent successful reauthentication produced with no manual token wiring.
+// -------------------------------------------------------------------------------------------
+
+/**
+ * Which credential to ask the user to re-present, read off the CURRENT session's provider.
+ * `'unknown'` is the safe default for a provider this screen has no reauthentication flow for —
+ * there is only one today, Google — so the caller can show an honest "can't confirm it's you,
+ * sign out and back in" message instead of silently doing nothing or guessing at a flow.
+ */
+export type ReauthProvider = 'password' | 'google' | 'unknown';
+
+export function getReauthProvider(session: Session | null): ReauthProvider {
+  const provider = session?.user.app_metadata?.provider;
+  if (provider === 'email') return 'password';
+  if (provider === 'google') return 'google';
+  return 'unknown';
+}
+
+export interface ReauthResult {
+  ok: boolean;
+  /** Set only when `ok` is false AND there is something to show the user (a wrong password, a
+   *  real failure). Absent — not just empty — when the user themselves cancelled; see `cancelled`. */
+  error?: string;
+  /** True only for a user-initiated cancel (closed the OAuth browser sheet). Never set alongside `error` — a cancel is not a failure to report. */
+  cancelled?: boolean;
+}
+
+/**
+ * Re-presents a password credential for the CURRENTLY signed-in user. Mirrors
+ * `app/(auth)/sign-in.tsx`'s own `signInWithPassword` call exactly and reuses the same
+ * `mapAuthError` (`lib/auth-errors.ts`), so a wrong password reads identically here as it does at
+ * sign-in — no second, drifted copy of "invalid credentials" to keep in sync.
+ */
+export async function reauthenticateWithPassword(email: string, password: string): Promise<ReauthResult> {
+  try {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: mapAuthError(err) };
+  }
+}
+
+/**
+ * Re-runs the SAME Google OAuth flow used at sign-in (`lib/auth.ts`'s `signInWithGoogle` —
+ * imported and called directly, never duplicated, so this stays exactly as correct as the
+ * already-audited sign-in path, including its PKCE/redirect handling). `null` from
+ * `signInWithGoogle` means the user dismissed the browser sheet — reported as `cancelled`, not an
+ * error, matching how `app/(auth)/sign-in.tsx` treats the same return value.
+ */
+export async function reauthenticateWithGoogle(): Promise<ReauthResult> {
+  try {
+    const session = await signInWithGoogle();
+    if (session === null) {
+      return { ok: false, cancelled: true };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: mapAuthError(err) };
+  }
+}
+
+// -------------------------------------------------------------------------------------------
 // Dev/test-only mock. Every branch the screen renders — plain success, the orphans-remaining
-// success, each of the three server failure codes, an unrecognized/unknown failure, and an
+// success, each of the four server failure codes, an unrecognized/unknown failure, and an
 // unexpected throw — is reachable by constructing a differently-configured mock. Nothing here
 // calls Supabase or touches a network.
 // -------------------------------------------------------------------------------------------
@@ -206,6 +309,7 @@ export type MockDeleteAccountOutcome =
   | 'purgeFailed'
   | 'rowsFailed'
   | 'authDeleteFailed'
+  | 'reauthRequired'
   | 'unknownFailure'
   | 'thrown';
 
@@ -266,6 +370,14 @@ export function createMockDeleteAccountClient(
           return {
             ok: false,
             error: { error: 'Your data was deleted but your sign-in could not be removed.', code: 'auth_delete_failed' },
+          };
+        case 'reauthRequired':
+          return {
+            ok: false,
+            error: {
+              error: 'Please confirm this is really you before deleting your account.',
+              code: 'reauth_required',
+            },
           };
         case 'unknownFailure':
           return { ok: false, error: GENERIC_UNKNOWN_ERROR };

@@ -24,6 +24,12 @@
  *     have shipped silently lying about erasure). `delete-account`'s edge function (#58/#121) is
  *     built but not yet merged to `main` or deployed — see `lib/delete-account.ts`'s header for
  *     what that means for this screen today (an honest, retryable failure, never a false success).
+ *     As of issue #124, the server can also reject the call with `code: 'reauth_required'` — a
+ *     valid session is no longer enough on its own for this one destructive action. This screen
+ *     handles that by prompting the user to re-present their credential (a password modal, or a
+ *     re-run of Google sign-in) and retrying ONCE — see `beginReauthFlow` below. That gate is
+ *     enforced server-side regardless of whether this screen calls these helpers at all; they
+ *     exist purely so a real user hitting it gets a real path forward instead of a dead end.
  *
  * CONFIRMATIONS USE NATIVE `Alert`, NOT AN IN-SCREEN SHEET. That is a correctness requirement for
  * sign-out, not a style preference: the moment sign-out resolves, the session flips to null and the
@@ -33,12 +39,26 @@
  */
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Copy } from '@/constants/copy';
 import {
+  Accent,
   Colors,
+  ControlHeight,
   FontFamily,
   FontSize,
   HitTarget,
@@ -53,7 +73,11 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { hasConsented, UPLOAD_HEALTH_CONSENT, withdrawConsent } from '@/lib/consent';
 import {
   deleteAccountClient,
+  getReauthProvider,
+  reauthenticateWithGoogle,
+  reauthenticateWithPassword,
   type DeleteAccountErrorCode,
+  type DeleteAccountResult,
   type DeleteAccountSuccessOutcome,
 } from '@/lib/delete-account';
 import { useSession } from '@/lib/session-provider';
@@ -96,6 +120,15 @@ export default function SettingsScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  // Issue #124's step-up reauthentication flow. `passwordReauthVisible` gates the password modal
+  // (email/password accounts only — Google's reauth is a native Alert + browser flow, no modal
+  // needed). `isReauthenticating` is scoped to the modal's own Confirm-button busy state; the
+  // outer `isDeleting` stays true through the whole reauth detour so the account-action row keeps
+  // reading "Deleting your account…" and the rest of the screen stays disabled via `isBusy`.
+  const [passwordReauthVisible, setPasswordReauthVisible] = useState(false);
+  const [reauthPassword, setReauthPassword] = useState('');
+  const [reauthPasswordError, setReauthPasswordError] = useState<string | null>(null);
+  const [isReauthenticating, setIsReauthenticating] = useState(false);
 
   // This screen unmounts the instant `session` flips to null (the route guard), which happens
   // mid-flight for sign-out and for a successful delete. Any `setState` after that point is a
@@ -256,32 +289,148 @@ export default function SettingsScreen() {
     );
   }
 
+  /** The one place that calls the client, with the one documented fallback for a thrown
+   *  `submit()` (no connectivity, unexpected error) — reused by both the initial attempt and the
+   *  post-reauth retry below, so the two paths can never drift on how a failure is folded. */
+  async function submitDeleteAccount(): Promise<DeleteAccountResult> {
+    try {
+      return await deleteAccountClient.submit();
+    } catch {
+      // A thrown client is the same user-facing truth as the generic documented failure: the
+      // account was not confirmed deleted. See lib/delete-account.ts's DeleteAccountClient contract.
+      return { ok: false, error: { error: 'The account could not be deleted.', code: 'unknown' } };
+    }
+  }
+
   async function handleDeleteAccount() {
     if (isBusy) return;
     setIsDeleting(true);
 
-    let result: Awaited<ReturnType<typeof deleteAccountClient.submit>>;
-    try {
-      result = await deleteAccountClient.submit();
-    } catch {
-      // A thrown client (no connectivity, unexpected error) is the same user-facing truth as the
-      // generic documented failure: the account was not confirmed deleted. See
-      // lib/delete-account.ts's DeleteAccountClient contract.
-      result = { ok: false, error: { error: 'The account could not be deleted.', code: 'unknown' } };
-    }
+    const result = await submitDeleteAccount();
+    await handleDeleteAccountResult(result, false);
+  }
 
-    if (!result.ok) {
-      if (!isMountedRef.current) return;
-      setIsDeleting(false);
-      showDeleteAccountFailureAlert(result.error.code);
+  /**
+   * Shared by the initial attempt and the post-reauth retry. `isRetryAfterReauth` bounds the
+   * reauth detour to exactly ONE loop: if the retry ALSO comes back `reauth_required` (clock
+   * skew, or a second concurrent stale request), this falls through to the ordinary failure alert
+   * instead of prompting for a credential a second time — see `Copy.settings.reauth.error.stillRequired`.
+   */
+  async function handleDeleteAccountResult(result: DeleteAccountResult, isRetryAfterReauth: boolean) {
+    if (result.ok) {
+      // `outcome` distinguishes two DIFFERENT successes (audit finding F2) — both mean the account
+      // is gone, but only one of them needs its own copy. See handleDeleteAccountSuccess below.
+      handleDeleteAccountSuccess(result.data.outcome);
+      // No setState after this: the account is deleted either way, so the local session is about
+      // to be cleared and the route guard is about to unmount this screen.
       return;
     }
 
-    // `outcome` distinguishes two DIFFERENT successes (audit finding F2) — both mean the account
-    // is gone, but only one of them needs its own copy. See handleDeleteAccountSuccess below.
-    handleDeleteAccountSuccess(result.data.outcome);
-    // No setState after this in either branch: the account is deleted either way, so the local
-    // session is about to be cleared and the route guard is about to unmount this screen.
+    if (result.error.code === 'reauth_required' && !isRetryAfterReauth) {
+      // Issue #124: the server refused before touching anything — no storage list, no row, no
+      // auth-user delete (see supabase/functions/_shared/delete-account.ts's "REAUTHENTICATION
+      // FRESHNESS" section). `isDeleting` deliberately stays true here: from the user's
+      // standpoint this IS still the same delete request, just gated on one more step.
+      beginReauthFlow();
+      return;
+    }
+
+    if (!isMountedRef.current) return;
+    setIsDeleting(false);
+    showDeleteAccountFailureAlert(result.error.code);
+  }
+
+  /** Decides which credential to ask the user to re-present, based on the CURRENT session's
+   *  provider, and kicks off that flow. Called only when the server has just said
+   *  `reauth_required` — never speculatively. */
+  function beginReauthFlow() {
+    const provider = getReauthProvider(session);
+
+    if (provider === 'password') {
+      setReauthPassword('');
+      setReauthPasswordError(null);
+      setPasswordReauthVisible(true);
+      return;
+    }
+
+    if (provider === 'google') {
+      // A native Alert first, matching this screen's own established idiom for every other
+      // destructive/step-up confirmation — the browser sheet Google reauth opens shouldn't appear
+      // with no warning.
+      Alert.alert(Copy.settings.reauth.googlePrompt.title, Copy.settings.reauth.googlePrompt.body, [
+        {
+          text: Copy.settings.reauth.googlePrompt.cta.secondary,
+          style: 'cancel',
+          onPress: () => {
+            if (isMountedRef.current) setIsDeleting(false);
+          },
+        },
+        {
+          text: Copy.settings.reauth.googlePrompt.cta.primary,
+          onPress: () => {
+            void handleGoogleReauth();
+          },
+        },
+      ]);
+      return;
+    }
+
+    // No reauthentication flow exists for this provider today — say so plainly rather than
+    // silently doing nothing or guessing at a flow that isn't built.
+    if (isMountedRef.current) setIsDeleting(false);
+    Alert.alert(Copy.settings.reauth.unsupportedProvider.title, Copy.settings.reauth.unsupportedProvider.body, [
+      { text: Copy.settings.alertDismiss },
+    ]);
+  }
+
+  async function handleGoogleReauth() {
+    setIsReauthenticating(true);
+    const reauth = await reauthenticateWithGoogle();
+    if (!isMountedRef.current) return;
+    setIsReauthenticating(false);
+
+    if (!reauth.ok) {
+      setIsDeleting(false);
+      if (reauth.cancelled) return; // the user closed the browser sheet — not an error to report
+      Alert.alert(Copy.settings.reauth.error.title, reauth.error ?? Copy.settings.reauth.error.genericBody, [
+        { text: Copy.settings.alertDismiss },
+      ]);
+      return;
+    }
+
+    const result = await submitDeleteAccount();
+    await handleDeleteAccountResult(result, true);
+  }
+
+  async function handlePasswordReauthSubmit() {
+    if (!email) {
+      setReauthPasswordError(Copy.settings.reauth.error.genericBody);
+      return;
+    }
+
+    setIsReauthenticating(true);
+    setReauthPasswordError(null);
+    const reauth = await reauthenticateWithPassword(email, reauthPassword);
+    if (!isMountedRef.current) return;
+    setIsReauthenticating(false);
+
+    if (!reauth.ok) {
+      // Shown INSIDE the modal, not a separate Alert — the user can correct and retry immediately.
+      setReauthPasswordError(reauth.error ?? Copy.settings.reauth.error.genericBody);
+      return;
+    }
+
+    setPasswordReauthVisible(false);
+    setReauthPassword('');
+    const result = await submitDeleteAccount();
+    await handleDeleteAccountResult(result, true);
+  }
+
+  function cancelPasswordReauth() {
+    setPasswordReauthVisible(false);
+    setReauthPassword('');
+    setReauthPasswordError(null);
+    if (isMountedRef.current) setIsDeleting(false);
   }
 
   /**
@@ -322,11 +471,14 @@ export default function SettingsScreen() {
   }
 
   /**
-   * Every failure code — the three the server documents plus this client's own 'unknown' bucket
-   * (lib/delete-account.ts) — currently renders the SAME honest, retryable copy (audit finding
+   * The three purge-phase codes the server documents plus this client's own 'unknown' bucket
+   * (lib/delete-account.ts) all currently render the SAME honest, retryable copy (audit finding
    * F2: a per-code claim about exactly what survived would be true for some codes and false for
-   * others). Still switched exhaustively, not defaulted, so a fifth code added later forces a
-   * conscious decision here instead of silently inheriting this one.
+   * others). `reauth_required` gets its OWN copy — reached here only when `handleDeleteAccountResult`
+   * already tried the reauth-and-retry loop once (issue #124) and the retry was ALSO rejected as
+   * stale, which is a materially different, more specific situation than a generic purge failure.
+   * Still switched exhaustively, not defaulted, so a sixth code added later forces a conscious
+   * decision here instead of silently inheriting one of these.
    */
   function showDeleteAccountFailureAlert(code: DeleteAccountErrorCode) {
     switch (code) {
@@ -337,6 +489,13 @@ export default function SettingsScreen() {
         Alert.alert(
           Copy.settings.deleteAccountState.error.title,
           Copy.settings.deleteAccountState.error.body,
+          [{ text: Copy.settings.alertDismiss }]
+        );
+        return;
+      case 'reauth_required':
+        Alert.alert(
+          Copy.settings.reauth.error.stillRequired.title,
+          Copy.settings.reauth.error.stillRequired.body,
           [{ text: Copy.settings.alertDismiss }]
         );
         return;
@@ -587,6 +746,78 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
       </ScrollView>
+
+      {/* Issue #124's step-up reauthentication for password accounts. A full-opaque-screen Modal
+          rather than a translucent-backdrop sheet — this repo has no scrim/overlay color token
+          (constants/theme.ts), and CLAUDE.md's "theme tokens only" rule means one isn't invented
+          here; a full page using the same background/surface tokens as the rest of this screen
+          reads as a natural continuation of it instead. `onRequestClose` (the Android back button)
+          is wired to the same cancel path as the Cancel button, not a silent dismiss. */}
+      <Modal
+        visible={passwordReauthVisible}
+        animationType="slide"
+        onRequestClose={cancelPasswordReauth}>
+        <SafeAreaView style={styles.reauthSafeArea}>
+          <KeyboardAvoidingView
+            style={styles.flex}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <ScrollView contentContainerStyle={styles.reauthContent} keyboardShouldPersistTaps="handled">
+              <Text style={styles.title} accessibilityRole="header">
+                {Copy.settings.reauth.passwordPrompt.title}
+              </Text>
+              <Text style={styles.bodyText}>{Copy.settings.reauth.passwordPrompt.body}</Text>
+              <TextInput
+                style={styles.input}
+                placeholder={Copy.settings.reauth.passwordPrompt.placeholder}
+                accessibilityLabel={Copy.settings.reauth.passwordPrompt.placeholder}
+                placeholderTextColor={colors.text.secondary}
+                value={reauthPassword}
+                onChangeText={setReauthPassword}
+                secureTextEntry
+                autoCapitalize="none"
+                textContentType="password"
+                editable={!isReauthenticating}
+                autoFocus
+              />
+              {reauthPasswordError !== null && (
+                <Text style={styles.errorText} accessibilityLiveRegion="polite">
+                  {reauthPasswordError}
+                </Text>
+              )}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={Copy.settings.reauth.passwordPrompt.cta.primary}
+                accessibilityState={{ disabled: isReauthenticating, busy: isReauthenticating }}
+                disabled={isReauthenticating}
+                onPress={() => {
+                  void handlePasswordReauthSubmit();
+                }}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  isReauthenticating && styles.disabled,
+                  pressed && !isReauthenticating && styles.pressed,
+                ]}>
+                {isReauthenticating ? (
+                  <ActivityIndicator color={Accent.onAccent} />
+                ) : (
+                  <Text style={styles.primaryButtonText}>{Copy.settings.reauth.passwordPrompt.cta.primary}</Text>
+                )}
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={isReauthenticating}
+                onPress={cancelPasswordReauth}
+                style={({ pressed }) => [
+                  styles.textAction,
+                  isReauthenticating && styles.disabled,
+                  pressed && !isReauthenticating && styles.pressed,
+                ]}>
+                <Text style={styles.textActionLabel}>{Copy.settings.reauth.passwordPrompt.cta.secondary}</Text>
+              </Pressable>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -720,6 +951,47 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     },
     pressed: {
       opacity: Opacity.pressed,
+    },
+    // --- issue #124: the step-up password reauthentication Modal --------------------------------
+    flex: {
+      flex: 1,
+    },
+    reauthSafeArea: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    reauthContent: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      padding: Spacing.xl,
+      gap: Spacing.lg,
+    },
+    // Mirrors app/(auth)/sign-in.tsx's own `input` style (not imported/shared — that screen is
+    // outside this fix's file lane) so the password field this modal reuses for reauthentication
+    // looks and behaves identically to the one at sign-in.
+    input: {
+      minHeight: ControlHeight.standard,
+      borderRadius: Radius.card,
+      borderWidth: 1,
+      borderColor: colors.control.border,
+      backgroundColor: colors.surface.base,
+      paddingHorizontal: Spacing.lg,
+      fontFamily: FontFamily.body.regular,
+      fontSize: FontSize.md,
+      color: colors.text.primary,
+    },
+    primaryButton: {
+      minHeight: ControlHeight.standard,
+      borderRadius: Radius.card,
+      backgroundColor: Accent.value,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: Spacing.lg,
+    },
+    primaryButtonText: {
+      fontFamily: FontFamily.body.semiBold,
+      fontSize: FontSize.md,
+      color: Accent.onAccent,
     },
   });
 }

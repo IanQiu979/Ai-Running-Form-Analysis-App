@@ -13,27 +13,48 @@
  * `delayMs: 0` throughout the mock tests — its default delay exists so a human reviewer can see
  * the screen's pending state, and has no business slowing a unit test down.
  */
-import { FunctionsHttpError } from '@supabase/supabase-js';
+import { FunctionsHttpError, type Session } from '@supabase/supabase-js';
 
+import { Copy } from '@/constants/copy';
+
+import { signInWithGoogle } from '../auth';
 import { supabase } from '../supabase';
 
 jest.mock('../supabase', () => ({
-  supabase: { functions: { invoke: jest.fn() } },
+  supabase: {
+    functions: { invoke: jest.fn() },
+    auth: { signInWithPassword: jest.fn() },
+  },
 }));
 
-const mockInvoke = supabase.functions.invoke as jest.MockedFunction<typeof supabase.functions.invoke>;
+// Issue #124: `reauthenticateWithGoogle` calls straight through to `lib/auth.ts`'s
+// `signInWithGoogle` (never duplicates it — see delete-account.ts's header), which itself opens a
+// real browser session via `expo-web-browser` — not something a Jest/Node environment can run.
+// Mocked at the module boundary, same as `../supabase` above.
+jest.mock('../auth', () => ({ signInWithGoogle: jest.fn() }));
 
-// Re-imported after the mock is registered, matching this repo's established pattern
+const mockInvoke = supabase.functions.invoke as jest.MockedFunction<typeof supabase.functions.invoke>;
+const mockSignInWithPassword = supabase.auth.signInWithPassword as jest.MockedFunction<
+  typeof supabase.auth.signInWithPassword
+>;
+const mockSignInWithGoogle = signInWithGoogle as jest.MockedFunction<typeof signInWithGoogle>;
+
+// Re-imported after the mocks are registered, matching this repo's established pattern
 // (lib/__tests__/consent.test.ts mocks `../supabase` the same way).
 import {
   createDeleteAccountClient,
   createMockDeleteAccountClient,
   deleteAccountClient,
+  getReauthProvider,
+  reauthenticateWithGoogle,
+  reauthenticateWithPassword,
   type DeleteAccountClient,
 } from '../delete-account';
 
 beforeEach(() => {
   mockInvoke.mockReset();
+  mockSignInWithPassword.mockReset();
+  mockSignInWithGoogle.mockReset();
 });
 
 /** A minimal fake `Response`-shaped object — all `submitToEdgeFunction` ever calls on
@@ -89,6 +110,10 @@ describe('createDeleteAccountClient (the real implementation)', () => {
     ['purge_failed', 'Could not remove your stored frames.'],
     ['rows_failed', 'Your stored frames were removed but your account could not be deleted.'],
     ['auth_delete_failed', 'Your data was deleted but your sign-in could not be removed.'],
+    // Issue #124: the server's new pre-purge gate, a 401 rather than a 503 like the other three —
+    // `submitToEdgeFunction`/`invokeFunction`'s `kind: 'http'` branch does not key off status code,
+    // only off a parseable `{ error, code }` body, so this must map through identically.
+    ['reauth_required', 'Please confirm this is really you before deleting your account.'],
   ] as const)('maps a documented %s failure through, code and message intact', async (code, error) => {
     mockInvoke.mockResolvedValue({
       data: null,
@@ -178,6 +203,7 @@ describe('createMockDeleteAccountClient', () => {
     ['purgeFailed', 'purge_failed'],
     ['rowsFailed', 'rows_failed'],
     ['authDeleteFailed', 'auth_delete_failed'],
+    ['reauthRequired', 'reauth_required'],
     ['unknownFailure', 'unknown'],
   ] as const)('exercises the %s failure with code %s', async (outcome, code) => {
     const client = createMockDeleteAccountClient({ delayMs: 0, outcome });
@@ -227,5 +253,102 @@ describe('deleteAccountClient (the shipped binding)', () => {
     await deleteAccountClient.submit();
 
     expect(mockInvoke).toHaveBeenCalledWith('delete-account', { method: 'POST' });
+  });
+});
+
+// -------------------------------------------------------------------------------------------
+// Step-up reauthentication — issue #124. `app/settings.tsx` calls these when `submit()` comes
+// back `code: 'reauth_required'`; these tests prove the client HALF of the fix without needing a
+// real browser session or a real password backend.
+// -------------------------------------------------------------------------------------------
+
+function fakeSession(provider: string): Session {
+  return {
+    access_token: 'fake-token',
+    refresh_token: 'fake-refresh',
+    expires_in: 3600,
+    token_type: 'bearer',
+    user: {
+      id: 'user-id',
+      app_metadata: { provider, providers: [provider] },
+      user_metadata: {},
+      aud: 'authenticated',
+      created_at: '',
+    },
+  } as unknown as Session;
+}
+
+describe('getReauthProvider', () => {
+  it("returns 'password' for an email/password session", () => {
+    expect(getReauthProvider(fakeSession('email'))).toBe('password');
+  });
+
+  it("returns 'google' for a Google OAuth session", () => {
+    expect(getReauthProvider(fakeSession('google'))).toBe('google');
+  });
+
+  it("returns 'unknown' for a provider with no reauthentication flow, so the caller can say so honestly", () => {
+    expect(getReauthProvider(fakeSession('apple'))).toBe('unknown');
+  });
+
+  it("returns 'unknown' for a null session rather than throwing", () => {
+    expect(getReauthProvider(null)).toBe('unknown');
+  });
+});
+
+describe('reauthenticateWithPassword', () => {
+  it('resolves { ok: true } when signInWithPassword succeeds', async () => {
+    mockSignInWithPassword.mockResolvedValue({ data: {}, error: null } as never);
+
+    const result = await reauthenticateWithPassword('runner@example.com', 'correct-horse-battery-staple');
+
+    expect(result).toEqual({ ok: true });
+    expect(mockSignInWithPassword).toHaveBeenCalledWith({
+      email: 'runner@example.com',
+      password: 'correct-horse-battery-staple',
+    });
+  });
+
+  it('maps a wrong password through mapAuthError, identically to the sign-in screen', async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      data: {},
+      error: new Error('Invalid login credentials'),
+    } as never);
+
+    const result = await reauthenticateWithPassword('runner@example.com', 'wrong-password');
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected the failure branch');
+    expect(result.error).toBe(Copy.auth.error.invalidCredentials);
+    expect(result.cancelled).toBeUndefined();
+  });
+});
+
+describe('reauthenticateWithGoogle', () => {
+  it('resolves { ok: true } when signInWithGoogle returns a session', async () => {
+    mockSignInWithGoogle.mockResolvedValue(fakeSession('google'));
+
+    const result = await reauthenticateWithGoogle();
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('resolves { ok: false, cancelled: true } — NOT an error — when the user dismisses the browser sheet', async () => {
+    mockSignInWithGoogle.mockResolvedValue(null);
+
+    const result = await reauthenticateWithGoogle();
+
+    expect(result).toEqual({ ok: false, cancelled: true });
+  });
+
+  it('maps a thrown OAuth failure through mapAuthError', async () => {
+    mockSignInWithGoogle.mockRejectedValue(new Error('network down'));
+
+    const result = await reauthenticateWithGoogle();
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected the failure branch');
+    expect(typeof result.error).toBe('string');
+    expect(result.cancelled).toBeUndefined();
   });
 });

@@ -32,8 +32,11 @@ import {
   ACCOUNT_PURGE_CONCURRENCY,
   batchedRemove,
   deleteAccount,
+  extractMostRecentAssuranceTimestamp,
   httpStatusForAccountOutcome,
+  isReauthFresh,
   mapWithConcurrency,
+  REAUTH_FRESHNESS_WINDOW_SECONDS,
   REMOVE_BATCH_SIZE,
   type AccountRows,
   type AuthAdmin,
@@ -190,6 +193,20 @@ function assertEquals(actual: unknown, expected: unknown, message?: string): voi
 
 function assertTrue(value: boolean, message: string): void {
   if (!value) throw new Error(message);
+}
+
+/**
+ * Builds a syntactically-real, UNSIGNED JWT string for `isReauthFresh`/
+ * `extractMostRecentAssuranceTimestamp` to decode. Safe for these tests specifically because
+ * those two functions are documented to DECODE, NEVER VERIFY (see `delete-account.ts`'s
+ * "REAUTHENTICATION FRESHNESS" section) — the signature segment is never checked, so a fake one is
+ * fine here. This must never be treated as a pattern for producing a token any real endpoint would
+ * accept as authenticated.
+ */
+function makeJwt(payload: Record<string, unknown>): string {
+  const base64Url = (obj: unknown): string =>
+    btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `${base64Url({ alg: 'HS256', typ: 'JWT' })}.${base64Url(payload)}.not-a-real-signature`;
 }
 
 const USER_A = '11111111-1111-1111-1111-111111111111';
@@ -1050,6 +1067,117 @@ Deno.test(
     }
   }
 );
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// REAUTHENTICATION FRESHNESS — issue #124. A valid JWT alone must no longer be sufficient to run
+// this endpoint's purge; these tests prove the `amr`-based freshness gate `index.ts` runs BEFORE
+// `deleteAccount()` is ever called. See `delete-account.ts`'s own "REAUTHENTICATION FRESHNESS"
+// section for the full reasoning this suite is checking against.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+Deno.test('isReauthFresh: true when the most recent amr entry is within the freshness window', () => {
+  const nowSeconds = 1_700_000_000;
+  const jwt = makeJwt({ amr: [{ method: 'password', timestamp: nowSeconds - 60 }] });
+  assertTrue(
+    isReauthFresh(jwt, () => nowSeconds * 1000, 300),
+    'a credential presented 60s ago must pass a 300s freshness window'
+  );
+});
+
+Deno.test('isReauthFresh: false when the most recent amr entry is older than the freshness window', () => {
+  const nowSeconds = 1_700_000_000;
+  const jwt = makeJwt({ amr: [{ method: 'password', timestamp: nowSeconds - 600 }] });
+  assertTrue(
+    !isReauthFresh(jwt, () => nowSeconds * 1000, 300),
+    'a credential presented 600s ago must FAIL a 300s freshness window'
+  );
+});
+
+Deno.test('isReauthFresh: exactly at the boundary is fresh (inclusive)', () => {
+  const nowSeconds = 1_700_000_000;
+  const jwt = makeJwt({ amr: [{ method: 'password', timestamp: nowSeconds - 300 }] });
+  assertTrue(isReauthFresh(jwt, () => nowSeconds * 1000, 300), 'exactly windowSeconds old must still count as fresh');
+});
+
+Deno.test('isReauthFresh: fails closed when there is no amr claim at all', () => {
+  const jwt = makeJwt({ sub: 'some-user-id' });
+  assertTrue(!isReauthFresh(jwt), 'no amr claim is no evidence of any authentication event — must never default to true');
+});
+
+Deno.test('isReauthFresh: fails closed on an undecodable / malformed token', () => {
+  assertTrue(!isReauthFresh('not-a-jwt-at-all'), 'a non-JWT string must never be treated as fresh');
+  assertTrue(!isReauthFresh(''), 'an empty string must never be treated as fresh');
+  assertTrue(!isReauthFresh('only.two-segments'), 'a two-segment string must never be treated as fresh');
+});
+
+Deno.test('isReauthFresh: fails closed when amr is present but empty', () => {
+  const jwt = makeJwt({ amr: [] });
+  assertTrue(!isReauthFresh(jwt), 'an empty amr array carries no evidence of any credential presentation');
+});
+
+Deno.test('isReauthFresh: an OAuth sign-in counts exactly the same as a password sign-in', () => {
+  const nowSeconds = 1_700_000_000;
+  const jwt = makeJwt({ amr: [{ method: 'oauth', timestamp: nowSeconds - 30 }] });
+  assertTrue(isReauthFresh(jwt, () => nowSeconds * 1000, 300), 'oauth is a real credential presentation, same as password');
+});
+
+Deno.test(
+  'extractMostRecentAssuranceTimestamp: takes the MAX timestamp across entries, not just the first — defensive against relying on amr ordering',
+  () => {
+    const jwt = makeJwt({
+      amr: [
+        { method: 'password', timestamp: 1000 },
+        { method: 'totp', timestamp: 5000 }, // deliberately out of Supabase's documented "most-recent-first" order
+      ],
+    });
+    assertEquals(extractMostRecentAssuranceTimestamp(jwt), 5000);
+  }
+);
+
+Deno.test(
+  'extractMostRecentAssuranceTimestamp: EXCLUDES token_refresh entries — a silent refresh must never look like a fresh credential presentation',
+  () => {
+    const jwt = makeJwt({
+      amr: [
+        { method: 'token_refresh', timestamp: 999_999 }, // fresh-looking, but NOT a real credential event
+        { method: 'password', timestamp: 1000 },
+      ],
+    });
+    assertEquals(
+      extractMostRecentAssuranceTimestamp(jwt),
+      1000,
+      'a token_refresh entry, however recent, must never be the basis for "recently authenticated" — ' +
+        'that would be exactly the "looks like a control, protects against nothing" bug issue #124 warns against'
+    );
+  }
+);
+
+Deno.test('extractMostRecentAssuranceTimestamp: null when only token_refresh entries exist', () => {
+  const jwt = makeJwt({ amr: [{ method: 'token_refresh', timestamp: 123 }] });
+  assertEquals(
+    extractMostRecentAssuranceTimestamp(jwt),
+    null,
+    'a session refreshed forever but never re-authenticated has no evidence of a real credential presentation'
+  );
+});
+
+Deno.test('extractMostRecentAssuranceTimestamp: null (not a crash) when amr entries are malformed', () => {
+  const jwt = makeJwt({ amr: [{ method: 'password' }, { timestamp: 123 }, 'garbage', 42, null] });
+  assertEquals(extractMostRecentAssuranceTimestamp(jwt), null, 'malformed entries must be dropped, not trusted or crashed on');
+});
+
+Deno.test('extractMostRecentAssuranceTimestamp: null when the amr claim is missing, not an array, or the token is undecodable', () => {
+  assertEquals(extractMostRecentAssuranceTimestamp(makeJwt({})), null);
+  assertEquals(extractMostRecentAssuranceTimestamp(makeJwt({ amr: 'not-an-array' })), null);
+  assertEquals(extractMostRecentAssuranceTimestamp('garbage'), null);
+});
+
+Deno.test('REAUTH_FRESHNESS_WINDOW_SECONDS is a real, bounded window — not zero, not accidentally hours long', () => {
+  assertTrue(
+    REAUTH_FRESHNESS_WINDOW_SECONDS > 0 && REAUTH_FRESHNESS_WINDOW_SECONDS <= 30 * 60,
+    `unreasonable freshness window: ${REAUTH_FRESHNESS_WINDOW_SECONDS}`
+  );
+});
 
 Deno.test('DeleteAccountErrorCode: the three failure outcomes are exactly its members, matching accountResponseBodyForOutcome\'s `code` field', () => {
   // A stringly-typed `code: string` is how the original mixed-body bug survived review — nothing
