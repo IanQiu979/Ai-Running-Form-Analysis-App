@@ -1,5 +1,5 @@
 /**
- * Regression locks for `lib/consent.ts` (issue #68).
+ * Regression locks for `lib/consent.ts` (issues #68 and #94).
  *
  * This module is a compliance control, and compliance controls fail quietly. Issue #74 is open
  * in this repo right now because `lib/hibp.ts` fails OPEN — it silently reports every password
@@ -15,8 +15,22 @@
  * ordering happens in the database. A unit test with a mocked client can only prove that the
  * query ASKS for `created_at desc, limit 1` (case 4). That the database honors it is verified
  * against the real project in Task 1 of the plan, not here.
+ *
+ * `AGE_CONFIRMATION_CONSENT` and `THIRD_PARTY_ATTESTATION_CONSENT` (issue #94) need no new
+ * behavior in this module — `hasConsented`/`grantConsent`/`withdrawConsent` are already generic
+ * over `ConsentKey`, and every case above already proves the generic behavior. The one thing
+ * worth locking down here instead is the new keys' own VALUES: they must actually be distinct
+ * strings, or "the record must distinguish self-consent from third-party attestation" (the
+ * issue's own requirement) would be false at the data layer regardless of what the UI does.
  */
-import { grantConsent, hasConsented, UPLOAD_HEALTH_CONSENT, withdrawConsent } from '../consent';
+import {
+  AGE_CONFIRMATION_CONSENT,
+  grantConsent,
+  hasConsented,
+  THIRD_PARTY_ATTESTATION_CONSENT,
+  UPLOAD_HEALTH_CONSENT,
+  withdrawConsent,
+} from '../consent';
 import { supabase } from '../supabase';
 
 jest.mock('../supabase', () => ({
@@ -147,5 +161,46 @@ describe('withdrawConsent', () => {
     mockInsertChain({ error: { message: 'permission denied' } });
 
     await expect(withdrawConsent(UPLOAD_HEALTH_CONSENT)).rejects.toThrow('permission denied');
+  });
+});
+
+describe('issue #94 consent keys', () => {
+  // The data-layer half of "the record must distinguish self-consent from third-party
+  // attestation": the three keys must be three different strings, or every guarantee the
+  // component layer builds on top of them (components/consent-gate.tsx) collapses.
+  it('gives the health, age, and third-party-attestation keys distinct values', () => {
+    const keys = [UPLOAD_HEALTH_CONSENT, AGE_CONFIRMATION_CONSENT, THIRD_PARTY_ATTESTATION_CONSENT];
+
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('grants AGE_CONFIRMATION_CONSENT under its own key, not the self-consent key', async () => {
+    const chain = mockInsertChain({ error: null });
+
+    await grantConsent(AGE_CONFIRMATION_CONSENT);
+
+    expect(chain.insert).toHaveBeenCalledWith({
+      consent_key: 'upload.ageConfirmation.v1',
+      granted: true,
+    });
+  });
+
+  it('grants THIRD_PARTY_ATTESTATION_CONSENT under its own key, not the self-consent key', async () => {
+    const chain = mockInsertChain({ error: null });
+
+    await grantConsent(THIRD_PARTY_ATTESTATION_CONSENT);
+
+    expect(chain.insert).toHaveBeenCalledWith({
+      consent_key: 'upload.thirdPartyAttestation.v1',
+      granted: true,
+    });
+  });
+
+  it('reads AGE_CONFIRMATION_CONSENT scoped to its own key', async () => {
+    const chain = mockSelectChain({ data: { granted: true }, error: null });
+
+    await hasConsented(AGE_CONFIRMATION_CONSENT);
+
+    expect(chain.eq).toHaveBeenCalledWith('consent_key', 'upload.ageConfirmation.v1');
   });
 });

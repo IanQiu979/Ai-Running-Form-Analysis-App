@@ -1,22 +1,25 @@
 /**
  * Source picker (design brief screen 3, issue #36) — "Add your run": two cards, Upload
  * (library) or Record (in-app). Also hosts:
- *   - the Art. 9 consent gate (`components/consent-gate.tsx`, issue #68) — the copy deck names
- *     this screen as the exact place it intercepts: "gates the Source Picker -> Capture/Upload
- *     handoff" (docs/design/copy-deck.md § Consent). Checked once per screen visit, shown at
- *     most once before whichever card the user tapped actually proceeds.
+ *   - the consent gate (`components/consent-gate.tsx`, issues #68 and #94) — the copy deck
+ *     names this screen as the exact place it intercepts: "gates the Source Picker ->
+ *     Capture/Upload handoff" (docs/design/copy-deck.md § Consent). Every card press shows the
+ *     gate now — it used to skip straight through for a returning, already-consented user, but
+ *     issue #94 added a per-upload "who's actually in this photo or video" question that a
+ *     once-ever grant cannot answer, so the gate always mounts and decides its own starting
+ *     phase internally (see that component's docblock).
  *   - the photo-library permission dance (soft-ask -> OS prompt -> denied), since the deck's
  *     `sourcePicker.permission.library.*` keys live on THIS screen, not a separate one.
  *   - `lib/media-caps.ts`'s pre-flight check on whatever the library picker returns (a picked
  *     video, unlike an in-app recording, isn't bounded by `CameraView`'s own `maxDuration`).
  *
  * Camera permission is Capture's (`app/capture/record.tsx`) own concern, not this screen's —
- * tapping Record just navigates there once consent is settled.
+ * tapping Record just navigates there once the gate fires onConsented.
  */
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -37,12 +40,10 @@ import {
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { hasConsented, UPLOAD_HEALTH_CONSENT } from '@/lib/consent';
 import { readFileSizeBytes } from '@/lib/media-file-size';
 import { checkMediaCaps } from '@/lib/media-caps';
 import { classifyPermission, permissionRecoveryAction } from '@/lib/permission-state';
 
-type ConsentState = 'checking' | 'needed' | 'granted';
 type PendingAction = 'record' | 'upload' | null;
 type LibraryFlow = 'idle' | 'softAsk';
 type InlineError = { title: string; body: string };
@@ -56,30 +57,12 @@ export default function SourcePickerScreen() {
   const [libraryPermission, requestLibraryPermission] = ImagePicker.useMediaLibraryPermissions();
   const libraryState = classifyPermission(libraryPermission);
 
-  const [consentState, setConsentState] = useState<ConsentState>('checking');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [libraryFlow, setLibraryFlow] = useState<LibraryFlow>('idle');
   const [uploadError, setUploadError] = useState<InlineError | null>(null);
   // Guards double-taps while a native permission dialog / picker sheet is in flight — both are
   // modal and async, and this screen stays mounted underneath them.
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    hasConsented(UPLOAD_HEALTH_CONSENT)
-      .then((granted) => {
-        if (!cancelled) setConsentState(granted ? 'granted' : 'needed');
-      })
-      .catch(() => {
-        // Fail closed (lib/consent.ts's own contract): treat "couldn't confirm" the same as
-        // "not yet consented" and show the gate again. Safe either way — re-granting an
-        // already-granted consent just appends another true row; it never skips the check.
-        if (!cancelled) setConsentState('needed');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   function goToRecord() {
     router.push('/capture/record');
@@ -153,23 +136,17 @@ export default function SourcePickerScreen() {
     // hook resolves on its own re-render — nothing to do here either way.
   }
 
+  // Always routes through the gate now (issue #94) — there is no "already consented, skip
+  // straight through" shortcut anymore, because the gate's per-upload subject question has no
+  // such thing as "already answered" (see components/consent-gate.tsx's docblock).
   function handleCardPress(action: 'record' | 'upload') {
     setUploadError(null);
-    if (consentState !== 'granted') {
-      setPendingAction(action);
-      return;
-    }
-    if (action === 'record') {
-      goToRecord();
-    } else {
-      void beginUploadFlow();
-    }
+    setPendingAction(action);
   }
 
   function handleConsented() {
     const action = pendingAction;
     setPendingAction(null);
-    setConsentState('granted');
     if (action === 'record') {
       goToRecord();
     } else if (action === 'upload') {
@@ -200,12 +177,7 @@ export default function SourcePickerScreen() {
     }
   }
 
-  // Also gates on consentState === 'checking': tapping a card before the initial consent read
-  // resolves would show the ConsentGate to an already-consented returning user (a harmless but
-  // annoying re-ask, not an unsafe skip — see the consent effect's fail-closed comment above),
-  // purely because of a race with this screen's own fetch. Disabling briefly is simpler and
-  // more honest than either racing it or re-asking needlessly.
-  const cardsDisabled = busy || consentState === 'checking';
+  const cardsDisabled = busy;
 
   if (pendingAction !== null) {
     return (
