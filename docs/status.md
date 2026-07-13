@@ -16,9 +16,9 @@ milestone "done" criteria.
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | **In progress** — the grounded prompt, tier verbosity dial, and structured-output contract landed 2026-07-12 (issue #41, `supabase/functions/_shared/analyze-form-prompt.ts`, 28 Deno tests, **no live model call made**), unblocking M4's #44/#45. The milestone's own gate — "prompt *provably* includes the framework text" — is proven statically today (the three certified files are asserted present **byte-for-byte** in the assembled prompt); proving the *output* references the PACE pillars still needs #42's live-call eval harness. Still open: **#39** (Ian certifies Elasticity + the pillar refinements — the prompt ships his name) and **#40** (the runner's-note guidance in `injury_flags.md`; #41 neutralises it at the prompt layer, but the certified file itself still says "if the note reports…", so #40 stays open for Ian's review). |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | Not started — the AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. |
-| M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed — and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. **Hardened 2026-07-13 after a security audit (PR #123): the function is gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — see Known Issue #21, a release blocker.** See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. Every M5 screen (paywall, tier-aware CTAs) remains unbuilt. |
-| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | Not started — except `DELETE /functions/v1/analysis/:id` (issue #57, closing #3), written and Deno-tested on `fix/57` 2026-07-12, **not deployed**. See Known Issue #19 for a residual gap it narrows but does not close. Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **not deployed** — see Known Issue #22. **Its account-level storage sweep is now bounded-concurrency and resumable (issue #125, 2026-07-13)**, closing the "a heavy account can become permanently undeletable" gap — see Known Issue #22's updated sub-bullet; does not change the not-deployed status above. |
-| M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | Not started — except the privacy slice of issue #68, landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. The consent **record** (`public.consents`, `lib/consent.ts`) and the `<ConsentGate />` / `<ResultDisclaimer />` components landed 2026-07-12; the three #68 checkboxes remain blocked on their host screens (M2/M4/M5), which now inherit drop-ins rather than re-deriving Art. 9 consent under deadline. Server-side enforcement is a binding M4 requirement — see Known Issue #14. The repo gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74. **A second workflow, `.github/workflows/ci.yml` (issue #82, 2026-07-13), is the repo's first actual commit gate** — typecheck/lint/test on every push and PR to `main`, previously enforced by convention only; see `docs/architecture.md`'s "Current — CI" section for both. |
+| M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed — and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. **Hardened 2026-07-13 after a security audit (PR #123): the function is gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — see Known Issue #21, a release blocker.** See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. **Every M5 screen now exists (2026-07-13)**: `app/paywall.tsx` + `lib/subscription.ts` (issue #52) is the dummy paywall, display-only by construction — no tier limit or frame cap is hardcoded, every count is read fresh off `quota-status`, locked by a regression test — and Home's quota-aware CTAs are real (issues #54/#15: the client-side quota mirror is deleted, replaced by one `lib/quota.ts` call to `quota-status`; exhausted CTAs now open the real Paywall route). See `docs/architecture.md`'s "Current — `app/paywall.tsx`" and "Current — Home quota" sections. Neither `paywall` nor `purchase-tier`'s edge function is deployed yet, so nothing here works end to end against a live backend today. |
+| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | **In progress — gained a real screen 2026-07-13.** `DELETE /functions/v1/analysis/:id` (issue #57, closing #3) is written, Deno-tested, and **confirmed DEPLOYED** (corrected 2026-07-13 — every earlier note here and in `docs/architecture.md` calling it "not deployed" was stale; see Known Issue #27 for the drift and why it matters). **It now also purges Storage a second time after the row is marked deleted (issue #132, 2026-07-13)**, closing the delete-during-upload orphan window issue #130 narrowed — see the (resolved) Known Issue #26 below; whether this specific code change has itself been redeployed is unconfirmed. See Known Issue #19 for the residual gap #57 narrows but does not close. **`app/(tabs)/history.tsx` (issues #55/#12, 2026-07-13)** is the Past Analyses screen itself — list, per-row not-assessed/no-thumbnail states, delete, and a tab-bar chrome fix (partial — see Known Issue #28). Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **not deployed** — see Known Issue #22. Its account-level storage sweep is bounded-concurrency and resumable (issue #125, 2026-07-13), and it now also requires recent reauthentication (issue #124, 2026-07-13) — see Known Issue #22's updated sub-bullets; neither changes the not-deployed status of `delete-account` itself. The Elite Compare screen is still unbuilt. |
+| M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | **In progress — gained real offline/a11y/consent/recovery work 2026-07-13, still Not started overall (M4's `analyze-form` isn't deployed, so the full path doesn't run end to end).** The privacy slice of issue #68 landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. **The Art. 9 consent gate is now two-phase (issues #68 restatement + #94, 2026-07-13)**: health consent + a new 16+ age checkbox are once-ever; a "who is in this photo?" subject attestation is now asked on every upload, never skippable — see `docs/architecture.md`'s "Current — the two-phase consent gate" section. Server-side enforcement is still a binding M4 requirement — see Known Issue #14. **Connectivity detection landed 2026-07-13 (issue #93)**: a global offline banner is live, but the pre-flight gate before an `analyze-form` submit is exported and unwired — see Known Issue #30. **One `AppState` listener with foreground reconciliation landed 2026-07-13 (issues #10/#64)**: a backgrounded-then-foregrounded analysis recovers; a process kill does not — see Known Issue #29. **Password reset landed 2026-07-13 (issue #81)** — no privacy-label or consent implication, a pure account-recovery gap closed. **Sign-in a11y and hierarchy polish landed 2026-07-13 (issues #16/#20/#28/#11)**, including the first iOS `AccessibilityInfo.announceForAccessibility` usage in the repo. **`.maestro/` E2E flows for the M7 no-dead-end gate were written 2026-07-13 (issue #86) but never run** — see Known Issue #31. The repo gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74. **A second workflow, `.github/workflows/ci.yml` (issue #82, 2026-07-13), is the repo's first actual commit gate** — typecheck/lint/test on every push and PR to `main`, previously enforced by convention only; see `docs/architecture.md`'s "Current — CI" section for both. |
 
 ## Done so far
 
@@ -391,7 +391,7 @@ milestone "done" criteria.
     - Out of scope for #91, unaffected by it: a monthly cap (the Anthropic Console limit above
       already is one — a second one here would be duplicated state that can drift) and CAPTCHA/
       signup rate limiting (Known Issue #12, still blocked on Ian).
-18. **NEW — `storage.objects` table-level `GRANT INSERT`/`GRANT DELETE` to `authenticated` were
+18. **`storage.objects` table-level `GRANT INSERT`/`GRANT DELETE` to `authenticated` were
     never revoked (issue #100, found during 2026-07-12 verification of #88's push).** Narrower
     than the issue as originally filed: it's `storage.objects` specifically — a table shared
     across every bucket this project might ever add, not just `media` — not a general grants
@@ -402,8 +402,16 @@ milestone "done" criteria.
     dropping the policies was its whole fix and it never claimed to touch privileges. So the
     client is blocked by the *absence of a policy*, not by *lacking the privilege* — no defense
     in depth if a future migration ever adds a policy back carelessly, or if RLS is ever disabled
-    on this table by mistake. Fix (not yet done): `revoke insert, delete on storage.objects from
-    authenticated;`, mirroring #2's pattern.
+    on this table by mistake.
+    **Fix WRITTEN 2026-07-13, closed together with issue #4 — NOT YET APPLIED to the live
+    project.** `supabase/migrations/20260713153000_grant_hardening.sql` runs
+    `revoke all on storage.objects from authenticated, anon` and re-grants `authenticated` only
+    `SELECT` (also tightens `subscriptions`/`profiles`'s stray leftover `anon` grants and revokes
+    `set_updated_at()`'s EXECUTE — see `docs/change_log.md` 2026-07-13 for the full migration).
+    **Until `supabase db push` applies this migration, the live project is exactly as described
+    above — do not treat production as hardened.** `CLAUDE.md`'s "Uploaded media is sensitive"
+    section has been corrected to say the same thing. See also Known Issue #33 for the full,
+    current list of migrations written but not applied.
 19. **NEW — the client's direct soft-delete UPDATE policy (issue #2) can still leave frames
     orphaned without ever touching `DELETE /functions/v1/analysis/:id` (issue #57, found while
     building #57, 2026-07-12).** #2's `public.analyses` UPDATE policy (`deleted_at: null -> now()`
@@ -500,9 +508,19 @@ milestone "done" criteria.
       `docs/privacy-policy.md`'s "Deleting your account removes everything" literally true and
       needs no policy amendment. **Revisit if EU/UK users are admitted** — see Known Issue #15's
       note that the TestFlight beta currently excludes them.
-    - **Filed separately, deliberately out of scope for #58: issue #124** (no re-authentication —
+    - ~~**Filed separately, deliberately out of scope for #58: issue #124** (no re-authentication —
       a stolen access token can delete an account outright; the fix is a recent-login/AAL check,
-      not a body confirmation field an attacker would just send too) — **still open**.
+      not a body confirmation field an attacker would just send too) — still open.~~ **FIXED
+      2026-07-13.** `_shared/delete-account.ts`'s `isReauthFresh()` now requires the caller's JWT
+      to carry an `amr` (Authentication Methods Reference) claim entry — a real password or OAuth
+      credential presentation, deliberately never the JWT's own `iat`, which advances on every
+      silent token refresh and would have been exactly the "looks like a control, isn't one" bug
+      this issue exists to close — timestamped within 5 minutes of the request. `index.ts` runs
+      this check before `deleteAccount()` is ever called and returns `401 reauth_required` on
+      failure; `app/settings.tsx` handles that with a password re-entry modal or a Google re-run,
+      exactly one retry. See `docs/change_log.md` and `docs/architecture.md`'s "Current —
+      `POST /functions/v1/delete-account`" section. **Does not change `delete-account`'s own
+      not-deployed status** — this is new code in an undeployed function.
     - ~~**Issue #125** (the sweep is wall-clock-bound but not checkpointed — bounded per-batch by
       `REMOVE_BATCH_SIZE = 500`, but an account with many hundreds of analyses still makes many
       hundreds of sequential `list()` round trips in one invocation; fine at any plausible
@@ -612,8 +630,21 @@ milestone "done" criteria.
       is genuinely useful, but on Free that is their one lifetime analysis. Not changed here because
       it would alter what "a valid result" means, which is a product call. (The *fallback* path does
       guard against this: a salvage with no pillar actually scored is a clean failure, refunded.)
-26. **NEW — the delete-during-upload orphan race is NARROWED, NOT CLOSED (issue #130, 2026-07-13;
-    found in review of #130's own fix).** #130 flipped `analyze-form` to settle **before** it
+26. ~~**NEW — the delete-during-upload orphan race is NARROWED, NOT CLOSED (issue #130,
+    2026-07-13; found in review of #130's own fix).**~~ **RESOLVED 2026-07-13 (issue #132).**
+    `deleteAnalysis()` now runs the exact fix described in this entry's own "known fix, not
+    implemented" bullet: a second `purgePrefix()` call immediately after `markDeleted` actually
+    performs the `deleted_at` transition, closing the purge→`markDeleted` gap below. A failed
+    second purge is reported as a new `orphans_remaining` outcome (`200`,
+    `{ deleted: true, orphansRemaining: true }` — not `purge_failed`, since the row is already,
+    unambiguously gone by that point and there is nothing left to retry) and logged at `error`
+    level as the sole alarm; a caught orphan logs at `warn`. See `docs/change_log.md` 2026-07-13
+    and `docs/architecture.md`'s "Current — `DELETE /functions/v1/analysis/:id`" section for the
+    full mechanism. **Left as originally written below for the historical record of the hole
+    itself** — the fix closes exactly this window and no other; Known Issue #19 (the client's
+    direct soft-delete UPDATE policy bypassing this endpoint entirely) is a *different* orphan
+    door and remains open.
+    #130 flipped `analyze-form` to settle **before** it
     uploads, which does close the two orphan paths that motivated it (a killed invocation, and a
     refused settle — both now leave a frameless row). But settling first makes the row `'delivered'`,
     and therefore **deletable**, while the function is still uploading frames into its prefix. That
@@ -645,6 +676,99 @@ milestone "done" criteria.
       settle/upload ordering and the sweep), and it belongs in `delete-analysis.ts`, not in the sweep:
       these rows are `'delivered'`, never `'reserved'`, so `sweep_stale_reservations()` would not see
       them even if it purged Storage.
+27. **NEW — this document previously claimed the `analysis` edge function (`DELETE
+    /functions/v1/analysis/:id`, issue #57) was not deployed. That was stale/wrong, confirmed
+    during this batch's 2026-07-13 verification pass — it IS deployed.** Every "not deployed"
+    note about this specific function, both here and in `docs/architecture.md`, has been
+    corrected in place rather than left standing. Recorded as its own issue because it matters:
+    a doc that wrongly says a function isn't live could lead someone to skip a redeploy this
+    function's own new code (issue #132's second purge, see the resolved Known Issue #26) may
+    still need. **Unresolved by this correction**: whether the specific #132 code is itself the
+    version currently live, or whether the pre-#132 code is — that needs a fresh
+    `supabase functions deploy analysis` (or an equivalent live check), not assumed from this
+    note. `docs/status.md` and `docs/architecture.md` are otherwise believed accurate on
+    deployment status for every other function (`quota-status`, `purchase-tier`, `delete-account`,
+    `analyze-form` all remain **not deployed**, unaffected by this correction).
+28. **NEW — the Past Analyses tab bar chrome fix is PARTIAL (issue #12, 2026-07-13).**
+    `app/(tabs)/_layout.tsx`'s `tabBarStyle`/`tabBarLabelStyle` now use this app's own tokens
+    instead of React Navigation's stock cool-gray palette, closing the mismatch a second
+    always-visible tab made glaring. **Not done**: the root `ThemeProvider`'s
+    `DefaultTheme`/`DarkTheme` in `app/_layout.tsx` (screen-transition backgrounds, any future
+    header chrome outside `(tabs)`) is still React Navigation's stock palette — out of this
+    change's file lane. A full custom `NavigationTheme` object both layouts consume is the
+    eventual fix; not built here.
+29. **NEW — foreground reconciliation (issue #64) does not survive a process KILL, only a
+    background/foreground cycle (2026-07-13).** `app/analyzing.tsx` now re-reads the in-flight
+    analysis by `idempotency_key` on every return-to-foreground (via `lib/app-state.ts`'s
+    `onAppForeground`), recovering a result the app was backgrounded for. `lib/analyze-form.ts`'s
+    one-shot pending-request mailbox does not survive a process restart, though, so a genuine
+    app kill followed by a cold relaunch never re-enters this screen with a live `waiting` state
+    to reconcile against — the user gets no "your analysis finished" surfacing at all in that
+    case, even though the server-side `analyze-form` invocation ran to completion regardless.
+    **The known fix, not built**: a persisted (AsyncStorage, not the in-memory mailbox), marker
+    read at app startup — outside `app/analyzing.tsx`'s own file lane, closer to
+    `lib/session-provider.tsx`'s territory. `docs/design/copy-deck.md`'s
+    `toast.analysisFinishedInBackground.*` keys already anticipate this surfacing; nothing
+    currently fires them for the cold-relaunch case.
+30. **NEW — the offline pre-flight gate is built but not wired in (issue #93, 2026-07-13).**
+    `lib/connectivity.ts`'s `checkConnectivity()` — a one-shot check meant to run immediately
+    before a network-dependent action, so a user is told *before* they wait, not after a silent
+    failure — is exported and unit-tested but called from nowhere. Only the passive, always-live
+    `useIsOffline()` banner (`components/offline-banner.tsx`, mounted globally) is actually wired
+    up. **Not done**: neither `app/analyzing.tsx`'s submit nor `app/capture/index.tsx`'s upload
+    handoff calls `checkConnectivity()` first — a user in a dead zone can still tap Analyze,
+    watch the wait screen, and only then discover the call never had a chance.
+31. **NEW — `.maestro/` E2E flows (issue #86, 2026-07-13) are written but UNVERIFIED — never
+    executed.** Four flows (`happy-path`, `dead-end-offline`, `dead-end-quota-exhausted`,
+    `dead-end-analysis-failure`) plus shared subflows, written against the documented screen
+    contracts for the M7 no-dead-end gate. **Blocked on issue #84** (no dev build exists — Maestro
+    drives a real installed app binary, not Metro/Expo Go). Do not treat these as a passing gate;
+    they are an unrun draft until #84 unblocks a real execution and someone runs `maestro test`
+    against it.
+32. **NEW — a per-user orphan-purge ACTION exists but is wired to no schedule (issue #7's action
+    half, 2026-07-13).** `supabase/functions/_shared/storage-sweep.ts`'s
+    `sweepOrphanedMediaPrefixes()` is pure, Deno-tested orchestration that calls the new
+    `public.list_orphaned_media_prefixes` detection RPC (see Known Issue #33) and purges what it
+    finds through the real Storage API. **No scheduled edge function calls it, and none exists in
+    this repo.** Needs: a new `supabase/functions/<name>/index.ts` entrypoint plus a Supabase
+    Dashboard Cron Job or a `pg_cron`+`pg_net`+Vault-secret trigger — a `jobs-queues-edge` +
+    deploy/config task, and a scheduling-mechanism decision (Dashboard Cron Job vs.
+    `pg_net`+Vault) that needs Ian's input before it's built.
+33. **NEW — SIX migrations are now written but NOT APPLIED to the live project (issue #131's
+    count is stale — it tracked four).** In `supabase/migrations/`, unapplied as of 2026-07-13:
+    `20260712233000_quota_status_function.sql` (#50), `20260713120000_purchase_tier_function.sql`
+    (#51), `20260713130000_stale_reservation_sweep.sql` (#47), `20260713140000_attach_media_paths.sql`
+    (#130 — **newly confirmed unapplied this batch**; it had been on `main` since before this
+    batch and was not previously flagged as a live gap in this list), and this batch's own
+    `20260713150000_settle_analysis_deleted_at_guard.sql` (#133),
+    `20260713151000_reserve_analysis_media_path_guard.sql` (#8),
+    `20260713152000_storage_user_budget.sql` (#7), and `20260713153000_grant_hardening.sql`
+    (#100+#4) — eight files, six distinct fixes once grouped by the workstream each belongs to.
+    Until `supabase db push` runs, the live project's actual behavior is whatever the **last
+    applied** migration left it at (`20260712230000`, per `docs/architecture.md`'s "Current — DB
+    schema" section) — every guard and fix these eight files describe is a written intent, not a
+    live property. Whoever applies these should re-verify each one's own header for
+    apply-ordering dependencies between them (`20260713153000` explicitly assumes
+    `20260713152000` applies first, for instance) before running `supabase db push`.
+34. **NEW — this batch adds five more blocks of UNCERTIFIED copy across four screens
+    (2026-07-13), none reviewed by `ux-copywriter` or Ian.** Joins Known Issue #24's precedent
+    (the Settings screen's own uncertified block from issue #53) rather than replacing it — read
+    both together for the full uncertified-copy surface:
+    - `consent.upload.age.checkbox` and the whole `consent.upload.subject.*` namespace (issue
+      #94) — **the highest-stakes block in this list**: it carries the Art. 9 health-data
+      obligation and an explicit under-16 parent/guardian clause for third-party subjects.
+    - `Copy.settings.reauth.*` (issue #124) — the delete-account step-up reauthentication copy.
+    - `paywall.alertDismiss`, `paywall.plan.*`, `paywall.purchase.*` (issue #52) — the dummy
+      purchase's pending/success/failure states; the deck's Screen 10 never specced them.
+    - `history.item.a11yLabelNotAssessed`, `history.item.deleteCta`, `history.delete.error.*`,
+      `history.error.*` (issue #55) — states the deck's Screen 8 table never specced.
+    - `Copy.auth.reset.*` (issue #81) — the whole password-reset request/update flow; no
+      "forgot password" flow exists anywhere in the deck to lift from.
+    All five are written to the deck's own stated voice rules (plain, calm, name the outcome, no
+    jargon, never claim a state that isn't true) but are drafts. `docs/design/copy-deck.md` now
+    marks each with a delimited "NEW — awaiting certification" note, following issue #95's
+    established precedent for backfilling settled copy — except these are explicitly NOT settled
+    yet. Review and certify before any of these four screens ships to real users.
 
 ## Next action
 

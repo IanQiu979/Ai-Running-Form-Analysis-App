@@ -120,27 +120,45 @@ Analyzing screen (issue #80)" below.
 
 ## Route tree — current (M1) vs planned
 
+**As of 2026-07-13, every route below is current — nothing in this app's route tree is still
+"planned".** This table previously listed `(tabs)/history`, `paywall`, `capture/`, and `result/
+[id]` inconsistently (some rows current, some duplicated as "planned" further down) as different
+issues landed piecemeal; consolidated here into one accurate list rather than left contradicting
+itself.
+
 ```
 app/
-  (auth)/sign-in         # current — sign-up folds into the same screen, no separate route
-  (tabs)/index           # current — Home / Analyze (pick source is still a disabled stub —
-                          # Home's own CTA wiring into capture/ is a follow-up issue #36 does
-                          # not close, see "Current — capture screens" below)
-  (tabs)/history         # planned — past analyses (M6)
-  capture/                # current (issue #36) — source picker, in-app record, frame
+  (auth)/sign-in           # current — sign-up folds into the same screen, no separate route
+  (auth)/reset-password    # current (issue #81, 2026-07-13) — request a password-reset email;
+                          # see "Current — password reset" below
+  (auth)/update-password   # current (issue #81, 2026-07-13) — consumes the emailed recovery
+                          # link's session, sets a new password; see "Current — password reset"
+  (tabs)/index             # current — Home / Analyze
+  (tabs)/history           # current (issue #55, 2026-07-13) — Past Analyses list + delete; see
+                          # "Current — Past Analyses" below. Second Tabs.Screen alongside Home
+                          # (`app/(tabs)/_layout.tsx`).
+  capture/                  # current (issue #36) — source picker, in-app record, frame
                           # extraction; see "Current — capture screens (issue #36)" below
-  result/[id]             # planned — analysis result view (M4/M6)
-  analyzing               # current (issue #80, 2026-07-12) — Screen 6, the analyze-form wait
+  analyzing                 # current (issue #80, 2026-07-12) — Screen 6, the analyze-form wait
                           # screen; top-level route (not nested under (tabs)/capture), guarded
                           # the same as (tabs). See "Current — the Analyzing screen" below.
-  capture/                # planned — record or pick, framing guide (stack) (M2)
-  result/[id]             # planned — analysis result view (M4/M6). NOTE: docs/design/
+  result/[id]                # current (issue #56) — the PACE readout. NOTE: docs/design/
                           # motion-consult.md's own nav-param example names this route
                           # `results/[id]` (plural) — a doc inconsistency, not yet reconciled;
                           # see docs/status.md Known Issue #20. `app/analyzing.tsx` navigates to
                           # `result/[id]` (singular, matching this table).
-  paywall, settings       # planned (M5)
+  settings                   # current (issue #53) — top-level pushed route, not a tab; see
+                          # "Current — the Settings screen" below.
+  paywall                     # current (issue #52, 2026-07-13) — the M5 dummy paywall; see
+                          # "Current — app/paywall.tsx" below. Declared inside app/_layout.tsx's
+                          # signed-in Stack.Protected block — it was reachable, unguarded, via
+                          # file-based routing the moment it landed on disk; that declaration is
+                          # what actually puts it behind the session.
 ```
+
+**Not built**: the Elite `compare` screen (design brief Screen 9). `history.compare.*` copy exists
+in the deck but is deliberately excluded from `constants/copy.ts` — see "Current — Past Analyses"
+below.
 
 ## `lib/` layout — current (M1) vs planned
 
@@ -220,10 +238,36 @@ lib/
   # the single source of truth for the app + edge function (no copy/codegen/symlink). The app
   # imports it via the `@shared/*` tsconfig alias (`@shared/pace`). See "Current — Deno
   # build/test contract, pace.ts location & knowledge bundling" below.
-  subscription.ts         # planned (M5) — tier read + dummy purchase (adapted from Echo V1 /
-                          # V2.2) — cosmetic only; tier/quota are never authoritative on the
-                          # client (the live reserve_analysis RPC is already the sole
-                          # enforcement point — see "Current — DB schema" below)
+  subscription.ts         # current (issue #52, 2026-07-13) — GET /functions/v1/quota-status read
+                          # + POST /functions/v1/purchase-tier dummy purchase for app/paywall.tsx.
+                          # Cosmetic only; no tier/quota number is ever hardcoded here — every
+                          # count/limit is read fresh off the quota-status response, locked by a
+                          # regression test. See "Current — app/paywall.tsx" below.
+  quota.ts                 # current (issues #54/#15, 2026-07-13) — the quota-status client for
+                          # Home, replacing app/(tabs)/index.tsx's former hand-rolled
+                          # subscriptions+analyses count query. Also holds Home's pure
+                          # quota -> copy/CTA mapping. See "Current — Home quota (issues #54/
+                          # #15)" below.
+  history.ts               # current (issue #55, 2026-07-13) — Past Analyses list fetch, per-row
+                          # interpretation, and short-TTL signed-URL frame-strip minting for
+                          # app/(tabs)/history.tsx; mirrors lib/analysis-result.ts's split for the
+                          # single-result screen. See "Current — Past Analyses" below.
+  connectivity.ts           # current (issue #93, 2026-07-13) — useIsOffline() (live hook,
+                          # components/offline-banner.tsx) and checkConnectivity() (one-shot
+                          # pre-flight check, exported but NOT yet called by analyzing.tsx or
+                          # capture/index.tsx — see "Current — connectivity" below).
+  app-state.ts              # current (issues #10/#64, 2026-07-13) — the app's ONE AppState
+                          # listener; re-arms Supabase's token refresh on foreground and exposes
+                          # onAppForeground() as a pub/sub seam other modules subscribe to instead
+                          # of registering a second native listener. See "Current — AppState &
+                          # foreground reconciliation" below.
+  use-announce.ts            # current (issue #11, 2026-07-13) — fires
+                          # AccessibilityInfo.announceForAccessibility on iOS, the iOS-side
+                          # complement to accessibilityLiveRegion="polite" (Android-only). See
+                          # "Current — sign-in hierarchy & a11y" below.
+  password-reset.ts          # current (issue #81, 2026-07-13) — requestPasswordReset() +
+                          # updateRecoveryPassword() backing app/(auth)/reset-password.tsx and
+                          # app/(auth)/update-password.tsx. See "Current — password reset" below.
 ```
 
 ## Current — auth flow (M1)
@@ -1104,7 +1148,7 @@ RLS.
 | `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | `{ result, analysisId, isFallback }` or `402` over-quota / `403` anon | Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. |
 | `POST /functions/v1/purchase-tier` | JWT + gate | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` or `404 not_found` (gate off) / `429 rate_limited` / `400 invalid_tier` / `invalid_source` | **Built, Deno-tested, not deployed (issue #51, 2026-07-13; hardened same day, PR #123)** — see "Current" below. **Gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF, must never be set in production secrets) — deploying without understanding the gate is a release blocker, `docs/status.md` Known Issue #23.** Same contract as V2.2; v2 swaps `source` to receipt verification (a non-`dummy` source is refused today). The only legitimate writer to `subscriptions`, via the service-role-only `pace_purchase_tier` RPC — no client-writable INSERT/UPDATE policy exists, and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`. Idempotent: `purchased_at` (the period anchor) is written once on first purchase and never moved (no caller-suppliable `p_as_of` either), so a repurchase cannot reset the quota period. |
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, not deployed (issue #50, 2026-07-12)** — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
-| `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, not deployed (issue #57, 2026-07-12)** — see "Current" below. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. |
+| `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Issue #132's second-purge/`orphans_remaining` behavior (below) is new code in this same batch and has NOT itself been confirmed redeployed** — the confirmed-live fact above is that some version of this function is deployed; whether it's the pre- or post-#132 code needs a fresh `supabase functions deploy analysis` check, not assumed from this note. |
 | `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, not deployed (issue #58, 2026-07-13; response contract fixed post-review, same date)** — see "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
@@ -1125,8 +1169,34 @@ into `analyses` happen only inside `analyze-form`.
 
 ## Current — `DELETE /functions/v1/analysis/:id` (issue #57, 2026-07-12), closing issue #3
 
-Built and Deno-tested on `fix/57`. **Not deployed** — `supabase functions deploy` was never run,
-and no migration was applied; this section describes what exists in the repo, not live behavior.
+Built and Deno-tested on `fix/57`. **Confirmed DEPLOYED** during this batch's 2026-07-13
+verification pass — every earlier note in this doc (and in `docs/status.md`) claiming this
+function was "not deployed" was stale as of that check and has been corrected. No migration was
+needed for the base function (see below); whether the specific #132 changes described at the end
+of this section have been redeployed is a separate, unconfirmed question — see the API table's own
+caveat.
+
+**Purges Storage a SECOND time after the row is marked deleted (issue #132, 2026-07-13),
+closing the delete-during-upload orphan window issue #130 narrowed but left open (`docs/status.md`
+Known Issue #26).** `deleteAnalysis()` purges Storage first (A), then calls `markDeleted` (B) —
+reversing that order is the privacy defect issue #3 exists to prevent. Since #130 settles a row
+before its frames finish uploading, an `attach_media_paths` call that commits in the gap between A
+and B still sees `deleted_at is null` at that instant and succeeds, so `safeAttachFrames`
+correctly does not purge on its own — then B commits, the redact trigger wipes `media_paths` back
+to `'{}'`, and any frame written in that gap is stranded under a prefix whose purge already ran and
+reported empty. `deleteAnalysis()` now re-runs the same, unmodified `purgePrefix()` immediately
+after `markDeleted` actually performs the transition (`updated === true` only — a retry against an
+already-deleted row skips this, since there is no fresh gap to close). A non-empty second purge (a
+real orphan caught) and a failed second purge are each logged via a new injectable `LogEvent` sink
+(`analysis/index.ts` now wires a real `console.log`-based sink instead of the default no-op) —
+`delete_analysis.second_purge_caught_orphan` (`warn`) and `delete_analysis.second_purge_failed`
+(`error`) respectively. A failed second purge cannot be reported as `purge_failed` (503,
+retryable) — the row is already, unambiguously deleted by that point, so there is nothing left to
+retry — so it is instead reported as the new `orphans_remaining` outcome: `200`,
+`{ deleted: true, orphansRemaining: true }`, mirroring `delete-account.ts`'s outcome of the same
+name and shape (see "Current — `POST /functions/v1/delete-account`" below). This narrows, but does
+not close, `docs/status.md` Known Issue #19 (the client's direct soft-delete UPDATE policy bypassing
+this endpoint entirely) — a different door onto the same orphan class.
 
 ```
 supabase/functions/
@@ -2099,13 +2169,48 @@ Three files, the same three-way split as `analysis/index.ts` (#57):
   production these are the only evidence of where it stopped, and they have to exist *before* the
   incident. No frame bytes, results, or emails are logged.
 
+- **A valid JWT is no longer SUFFICIENT — the caller must also prove RECENT reauthentication
+  (issue #124, 2026-07-13).** A stolen or leaked access token is a *valid* token right up until it
+  expires, and `autoRefreshToken: true` (`lib/supabase.ts`) means a device silently refreshing in
+  the background can keep producing valid tokens indefinitely with no credential ever re-presented
+  — acceptable for ordinary endpoints, not acceptable for the one irreversible, unrecoverable
+  action in this product.
+  - **Mechanism**: Supabase Auth's `amr` (Authentication Methods Reference) JWT claim — an array of
+    `{ method, timestamp }` entries, one per real authentication *event*, not per token.
+    `isReauthFresh()` (`_shared/delete-account.ts`) reads the SAME already-verified token
+    `index.ts`'s `auth.getUser()` call trusted — it never re-verifies a signature, only decodes
+    claims out of a token already established as trustworthy — and requires the most recent
+    non-excluded `amr` entry to be within `REAUTH_FRESHNESS_WINDOW_SECONDS` (5 minutes) of now.
+    Fails CLOSED on anything it can't positively confirm (an undecodable token, a missing `amr`, a
+    stale timestamp) by demanding reauthentication rather than assuming it.
+  - **Deliberately NOT `iat` (issued-at)**, which advances on every silent token refresh even
+    though the user did nothing — an `iat`-based check would be exactly the "looks like a control,
+    protects against nothing" trap this issue exists to close, since a stolen persisted session
+    could stay "recently authenticated" forever just by refreshing.
+  - **`token_refresh` is explicitly excluded from counting as assurance** (defensive: Supabase's
+    authoritative "currently recognized" `amr` method list doesn't include it today, but this
+    project's own live project has no populated `auth.mfa_amr_claims` rows to empirically confirm a
+    refresh never gets stamped in — the exclusion hedges against a future GoTrue change).
+  - **The gate runs in `index.ts`, before `createDeleteAccountDeps`/`deleteAccount` are ever
+    called** — a stale-session request never touches storage, rows, or the auth user, and gets its
+    own `401 { error, code: 'reauth_required' }`, parallel to the existing missing/invalid-JWT
+    401s. It is deliberately not a `{ confirm: "DELETE" }`-style body field, which protects against
+    nothing when the attacker already holds the token and composes the request themselves.
+  - **Client step-up flow, `app/settings.tsx`**: on `reauth_required`, the screen inspects the
+    session's provider (`getReauthProvider`) and either opens a password re-entry modal
+    (`reauthenticateWithPassword`) or re-runs Google sign-in behind a warning `Alert`
+    (`reauthenticateWithGoogle`); an unrecognized provider gets an honest "we can't confirm it's
+    you, sign out and back in" message. Exactly one retry loop — a retry that ALSO comes back
+    `reauth_required` (clock skew, a second concurrent stale request) falls through to the ordinary
+    failure copy rather than prompting a second time. New, uncertified `Copy.settings.reauth.*`.
+
 **Still open** (see `docs/status.md` Known Issue #22): the #59 half that runs against a real local
 Supabase (Postgres *and* Storage — the property under test is that two different systems agree,
-which a fake cannot fail the way production does), and no re-authentication requirement on this
-endpoint (a stolen access token can delete an account; a confirmation field in the body would not
-change that, since an attacker would simply send it — tracked separately as issue #124). The
-wall-clock-bound-but-not-checkpointed concern this paragraph used to also list is **resolved** —
-see the bounded-concurrency bullet above (issue #125).
+which a fake cannot fail the way production does). The wall-clock-bound-but-not-checkpointed
+concern this paragraph used to also list is **resolved** — see the bounded-concurrency bullet
+above (issue #125). Issue #124 (re-authentication) is also now **resolved** — see the bullet
+above — leaving this endpoint's remaining gap purely the #59 local-integration-test half and the
+not-deployed status this whole section opens with.
 
 ## Current — the Settings screen (issue #53, 2026-07-13), closing issue #27
 
@@ -2333,3 +2438,201 @@ you cannot tell a prompt regression from a provider incident.
 replay question is resolved as **refuse** (consent is checked before idempotency, so a replay after a
 withdrawal is refused rather than served from cache) — the safer read, and the one that agrees with
 what the delete/purge path (#57) does to such a row anyway.
+
+## Current — four unapplied migrations close real holes found reviewing #130 (issues #133, #8, #7, #100+#4, 2026-07-13)
+
+All four are **written, NOT APPLIED** to the live project — see `docs/status.md` Known Issue #29
+for the full, current list of unapplied migrations (six, not four, once `attach_media_paths` and
+the stale-reservation sweep are counted too).
+
+- **`20260713150000_settle_analysis_deleted_at_guard.sql` (#133).** Adds `and deleted_at is null`
+  to `settle_analysis`'s `WHERE` clause — the same guard #130 already gave `attach_media_paths` —
+  closing a path where a soft-deleted `'reserved'` row could still be un-redacted by a
+  late-arriving `settle_analysis` write and served back as a `200` instead of the `410` the
+  soft-delete contract promises. Same 5-arg signature, `create or replace`; deliberately does not
+  touch `reserve_analysis`.
+- **`20260713151000_reserve_analysis_media_path_guard.sql` (#8).** #8 as filed no longer applies —
+  `reserve_analysis` is 4-arg (`p_media_paths` dropped by #88) with no path to guard. Instead adds
+  a table-level `CHECK` constraint, `analyses_media_paths_within_owner_namespace`, backed by
+  `public.pace_media_paths_within_namespace()` — the same namespace rule `settle_analysis`/
+  `attach_media_paths` already enforce in their own bodies, now enforced at the row level against
+  *every* writer, present or future.
+- **`20260713152000_storage_user_budget.sql` (#7).** A `BEFORE INSERT` trigger on
+  `storage.objects` (a trigger, not RLS, because `service_role` — the only live writer — bypasses
+  RLS but not triggers): Guard 1 rejects any object whose path doesn't name a live, non-deleted
+  `analyses` row owned by that user; Guard 2 caps each user at 3000 objects / 500 MiB in the
+  `media` bucket. Plus a read-only `public.list_orphaned_media_prefixes` detection RPC for a
+  future scheduled purge — see the next section.
+- **`20260713153000_grant_hardening.sql` (#100 + #4).** `storage.objects` still carried Supabase's
+  legacy table-level grant-all (including `TRUNCATE`, which no RLS policy can filter) to
+  `authenticated`/`anon` — #88 dropped the client's INSERT/DELETE *policies* but never touched the
+  underlying *grant*. Fixed: `revoke all on storage.objects from authenticated, anon`, re-granting
+  `authenticated` only `SELECT`. Also tightens `subscriptions`/`profiles`'s stray `anon` grants and
+  revokes `set_updated_at()`'s EXECUTE. **This is the fix `CLAUDE.md`'s "Uploaded media is
+  sensitive" section now describes as written but not yet applied** — see that file.
+
+## Current — orphan-purge action, wired to nothing (issue #7's action half, 2026-07-13)
+
+`supabase/functions/_shared/storage-sweep.ts` — the ACTION half of the detection RPC above.
+`sweepOrphanedMediaPrefixes()` is pure, dependency-free orchestration (same discipline as
+`ai-guard.ts`/`delete-analysis.ts`), fully Deno-tested, and deliberately does not import
+`delete-analysis.ts`'s `purgePrefix()` (the ~30-line list→remove→verify idiom is reimplemented
+independently to avoid coupling two parallel worktrees' files — a candidate follow-up refactor,
+not forced here). **No scheduled edge function calls it, and none exists in this repo** — wiring
+one up (a new `supabase/functions/<name>/index.ts` plus a Dashboard Cron Job or
+`pg_cron`+`pg_net`+Vault trigger) is a `jobs-queues-edge` + deploy/config task, not done here. See
+`docs/status.md`'s Known Issues for this.
+
+## Current — the two-phase consent gate (issues #68 restatement + #94, 2026-07-13)
+
+`components/consent-gate.tsx` now gates three distinct things, with two different lifecycles:
+
+1. **Health-processing consent** (#68, unchanged) — once-ever.
+2. **Age confirmation** (#94, new) — "I confirm I'm 16 or older," also once-ever (age only moves
+   one direction). `docs/privacy-policy.md` already stated a 16+ minimum; nothing had ever asked
+   or recorded it. Same screen as (1), its own checkbox, its own `consent_key`.
+3. **Subject attestation** (#94, new) — who is actually in this photo or video. This **cannot** be
+   a once-ever grant, because the answer is a property of the specific upload, not the account.
+   Runs on **every** gate presentation with no `hasConsented` short-circuit; the previous shortcut
+   (skip the whole gate for a returning consented user) is gone, since phase 'subject' has no
+   "already answered" state. Answering "This is me" records no new consent (self-processing is
+   already covered by (1)); answering "Someone else" requires a fresh checkbox attestation —
+   including an explicit under-16 parent/guardian clause — and records its own, distinct
+   `consent_key` on every occurrence.
+
+`app/capture/index.tsx` now always mounts the gate. **New, UNCERTIFIED copy**:
+`consent.upload.age.checkbox` and the whole `consent.upload.subject.*` namespace — legally
+load-bearing (the Art. 9 obligation, the under-16 clause) and not yet reviewed by `ux-copywriter`
+or Ian. See `docs/design/copy-deck.md`'s new-copy section.
+
+## Current — `app/paywall.tsx` (issue #52, 2026-07-13)
+
+The M5 dummy paywall. `lib/subscription.ts` reads `GET /functions/v1/quota-status` and calls
+`POST /functions/v1/purchase-tier` (#51, still deploy-gated behind `PURCHASE_TIER_DUMMY_ENABLED`,
+default OFF), both through issue #46's shared `invokeFunction()` wrapper. **No tier limit or frame
+cap is hardcoded anywhere in either file** — every count/limit shown is read fresh off the
+`quota-status` response, and a regression test fails if a numeric tier constant is ever added
+here; this is the exact trap `lib/subscription.ts`'s own header names by name, since Echo V1 once
+mistakenly believed enforcement lived in a file shaped like this one (it lived in the edge
+function, same as here). Registered inside `app/_layout.tsx`'s signed-in `Stack.Protected` block.
+New, uncertified purchase pending/success/failure copy (`paywall.alertDismiss`, `paywall.plan.*`,
+`paywall.purchase.*`) — the deck's Screen 10 table only ever specced the static tier cards and the
+two 402-gate banners, never what happens during/after tapping Upgrade.
+
+## Current — Home quota (issues #54/#15, 2026-07-13)
+
+`app/(tabs)/index.tsx`'s former hand-rolled `subscriptions` + `analyses` count query — a second,
+independent implementation of counting logic `reserve_analysis`/`pace_quota_status` already own
+server-side — is **deleted**. New `lib/quota.ts` calls `GET /functions/v1/quota-status` and holds
+Home's pure quota→copy/CTA mapping as unit-tested logic rather than inlined JSX. Exhausted-quota
+CTAs (`"Upgrade to analyze"` / `"Upgrade for more"`) now open the real Paywall route. Also renders
+issue #6's anti-farm `blocked` state (`pace_quota_status` can report `blocked: true` independently
+of `remaining`), which the old mirror had no way to represent — new, uncertified
+`home.quota.blocked` copy, since the deck never specced this state.
+
+## Current — Past Analyses (issues #55/#12, 2026-07-13)
+
+`app/(tabs)/history.tsx`, a second tab alongside Home (`app/(tabs)/_layout.tsx`). New
+`lib/history.ts` owns list-fetching, per-row interpretation, and short-TTL signed-URL frame-strip
+minting, mirroring `lib/analysis-result.ts`'s split for the single-result screen.
+`fetchHistoryList` filters `deleted_at is null` server-side AND `readHistoryRow` re-checks it in
+code — never trusting one layer alone. Signed URLs are minted fresh on every screen open (never
+cached long-lived) and never logged. A row whose media can't be shown (an honestly-empty
+`media_paths` from a non-fatal post-settle frame-upload failure, or a path that fails to sign)
+folds into a per-row "no thumbnail" state rather than crashing the whole list. Delete routes
+through `DELETE /functions/v1/analysis/:id` (see its section above, including issue #132's second
+purge). New, uncertified `history.item.a11yLabelNotAssessed`, `history.item.deleteCta`,
+`history.delete.error.*`, and `history.error.*` — states the deck never specced. The Elite Compare
+screen (`history.compare.*`) is **not built** — out of #55's scope.
+
+**Tab bar chrome fixed, partially (#12).** React Navigation's stock cool-gray tab bar sat directly
+beneath this app's warm Gait Plate tokens — invisible with one tab, glaring once a second tab made
+the bar itself always-visible chrome. `(tabs)/_layout.tsx` now sets `tabBarStyle`'s
+`backgroundColor`/`borderTopColor` to `surface.base`/`hairline` and `tabBarLabelStyle.fontFamily`
+to the app's own type family. **The root `ThemeProvider`'s `DefaultTheme`/`DarkTheme` in
+`app/_layout.tsx` is still React Navigation's stock palette** (screen-transition backgrounds, any
+future header chrome outside `(tabs)`) — out of this file's lane, a follow-up.
+
+## Current — AppState & foreground reconciliation (issues #10/#64, 2026-07-13)
+
+New `lib/app-state.ts` is the app's ONE `AppState.addEventListener` call (a `started` guard makes
+a second real registration fail loud rather than silently double-firing), wired from
+`lib/session-provider.tsx`'s top-level effect. On every transition into `'active'` it re-arms
+`supabase.auth.startAutoRefresh()` (Supabase's own React Native guidance: the refresh ticker does
+not run while JS is suspended, so a backgrounded app can foreground with an expired token and
+nothing refreshing it) and then notifies every `onAppForeground` subscriber — a pub/sub seam, not
+a second listener.
+
+`app/analyzing.tsx` is the one subscriber today (#64). If the app is backgrounded (not killed)
+while still `waiting`, `analyzeFormClient.submit()`'s promise may never resolve even though the
+server-side `analyze-form` invocation runs to completion regardless. On every foreground it
+re-reads the `analyses` row by `idempotency_key` (never `id` — the DB id isn't known client-side
+until a real response names it, and `reserve_analysis` guarantees at most one row per `(user,
+idempotency_key)`) via a plain RLS-scoped `SELECT`, structurally validates it
+(`isPaceAnalysisOutcome`) before trusting it, and dispatches `succeeded`/`reconciledReleased`
+accordingly; `'reserved'`, no row, or a read error are all no-ops — it never resubmits.
+
+**Partial, stated plainly: a process KILL, not just background, is NOT recovered.**
+`lib/analyze-form.ts`'s one-shot mailbox does not survive a process restart, so a cold relaunch
+never re-enters this screen with a live `waiting` state to reconcile against. Surfacing "your
+analysis finished" after a real kill needs a persisted, cross-restart marker read at app startup —
+out of scope here. See `docs/status.md`'s Known Issues.
+
+## Current — connectivity detection (issue #93, 2026-07-13)
+
+New `lib/connectivity.ts` (`@react-native-community/netinfo`) backs two shapes: `useIsOffline()` —
+a live hook for `components/offline-banner.tsx`, mounted globally in `app/_layout.tsx` — and
+`checkConnectivity()`, a one-shot pre-flight check for a network-dependent action. Fails closed
+toward "online" on an indeterminate reading (`isInternetReachable: null`) — a false "connection is
+fine" just lets a real call try and possibly fail normally, cheaper than a false "you're offline"
+blocking a working connection outright. Uses the deck's pre-existing `offline.banner`/
+`offline.blocked.*` copy (already specced in `docs/design/copy-deck.md`'s "Cross-cutting —
+Offline" section — nothing new to mirror there).
+
+**Partial, stated plainly: the pre-flight gate is not wired in.** `checkConnectivity()` is
+exported and tested but neither `app/analyzing.tsx`'s submit nor `app/capture/index.tsx`'s upload
+handoff calls it — both are owned by other in-flight work. Today only the passive banner is live;
+a user who taps Analyze while offline still watches a spinner before failing. See `docs/status.md`'s
+Known Issues.
+
+## Current — sign-in hierarchy & a11y (issues #16, #20, #28, #11, 2026-07-13)
+
+`app/(auth)/sign-in.tsx`: Google is now the accent-styled primary CTA; the sign-in↔sign-up mode
+toggle actually opens the email form (previously a dead tap target); busy state, header
+`accessibilityRole`, autofill hints, and inter-field focus chaining are all real. New
+`lib/use-announce.ts` fires `AccessibilityInfo.announceForAccessibility` on iOS whenever a message
+changes to a new truthy value — the iOS-side complement to `accessibilityLiveRegion="polite"`,
+which React Native maps only to `android:accessibilityLiveRegion` and is a silent no-op on iOS.
+Every dynamic-status text that relied on `accessibilityLiveRegion` alone (an auth error, a quota
+caption) was completely silent to VoiceOver on iOS until this landed. Applied to sign-in's
+error/status text and Home's three quota captions; every future screen with a dynamic status
+string should call both mechanisms, never `accessibilityLiveRegion` alone.
+
+## Current — password reset (issue #81, 2026-07-13)
+
+New `app/(auth)/reset-password.tsx` (request the email), `app/(auth)/update-password.tsx`
+(consume the recovery link, set a new password), and `lib/password-reset.ts` (both Supabase Auth
+calls, reusing `PASSWORD_MIN_LENGTH` and `checkPasswordBreached` rather than re-deriving either).
+`requestPasswordReset` is deliberately enumeration-safe: the success copy is identical whether or
+not the submitted email has an account — the only success message that flow can produce.
+
+**A recovery session IS a session — this is the detail worth remembering.** The instant the
+emailed link's PKCE exchange resolves, `session` goes non-null, and a bare
+`Stack.Protected guard={!!session}` would flip on exactly that transition, excluding the whole
+`(auth)` group from the navigator (`Stack.Protected` omits, it does not merely hide) and ejecting
+the user into `(tabs)` before they had set a new password — making the reset screen unreachable at
+precisely the moment it's needed. Fixed: `lib/session-provider.tsx` now tracks a
+`PASSWORD_RECOVERY` auth event as `isPasswordRecovery` (cleared on `SIGNED_OUT` or once
+`update-password.tsx` commits the new password), and both `Stack.Protected` guards in
+`app/_layout.tsx` now read `!!session && !isPasswordRecovery` / `!session || isPasswordRecovery`.
+
+New, uncertified `Copy.auth.reset.*` — not in the copy deck, needs review. See
+`docs/design/copy-deck.md`'s new-copy section.
+
+## `.maestro/` E2E flows (issue #86, 2026-07-13) — UNVERIFIED, never executed
+
+Four flows (`happy-path`, `dead-end-offline`, `dead-end-quota-exhausted`,
+`dead-end-analysis-failure`) plus shared subflows (`sign-up`, `grant-consent`), written against the
+documented screen contracts for the M7 no-dead-end gate. **Blocked on issue #84** (no dev build
+exists — Maestro drives a real app binary, not Metro/Expo Go) and never run against one. Treat as
+an unrun draft, not a passing gate, until #84 unblocks a real execution.

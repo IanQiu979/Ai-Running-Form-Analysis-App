@@ -79,10 +79,15 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
   (#44) are built against, and as of 2026-07-12 it is **live**: the migration
   (`supabase/migrations/20260712123606_frame_upload_ordering.sql`) was applied to the production
   project via `supabase db push` and verified — `storage.objects` carries zero INSERT and zero
-  DELETE policies, only the owner-scoped SELECT. One gap remains: the bucket's table-level
-  `GRANT INSERT`/`GRANT DELETE` to `authenticated` were never revoked, so the client is blocked
-  only by the missing RLS policy, not by privilege — no defense in depth. See `docs/status.md`
-  Known Issue #18 (issue #100).
+  DELETE policies, only the owner-scoped SELECT. **The grant-level gap this paragraph used to
+  describe is fixed IN THE REPO but NOT YET APPLIED to production**: as of 2026-07-13,
+  `supabase/migrations/20260713153000_grant_hardening.sql` revokes the bucket's leftover
+  table-level grant-all (including TRUNCATE, which no RLS policy can filter) and re-grants
+  `authenticated` only `SELECT` — but that migration has not been pushed. Until it is, the
+  production project is exactly as before: the client is blocked only by the missing RLS policy,
+  not by privilege — no defense in depth. Do not treat production as hardened until `supabase
+  migration list` / `supabase db push` confirms this migration (and its siblings — see
+  `docs/status.md` Known Issue #29) is live. See `docs/status.md` Known Issue #18 (issue #100).
 
 ## Git etiquette
 

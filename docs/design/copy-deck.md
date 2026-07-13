@@ -75,6 +75,39 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 | `auth.error.signInCancelled` | "Sign-in was cancelled." | Google sign-in (issue #5): the provider's own redirect carried `error=access_denied` — the user declined on Google's consent screen after the browser sheet had already "succeeded" from `WebBrowser`'s point of view, so the normal silent-cancel path (closing the sheet) never fires and the app has to say something or the user is left wondering if it worked. Provider-neutral wording on purpose — Apple sign-in (`auth.cta.apple`) will hit the same code path once it ships. |
 | `auth.error.signInExpired` | "Sign-in expired before it could finish. Try again." | Google sign-in (issue #5): the PKCE verifier stored on-device was missing or no longer matched what the server had on file (lost/cleared storage, a different app install, or too much time passed between starting the browser flow and the redirect landing back). Previously this failure was silently swallowed — the user landed back on sign-in with nothing. |
 
+### Password reset (issue #81) — NEW, NOT COPY-CERTIFIED, awaiting review
+
+There was previously no way back into an email account for a user who forgot their password —
+`auth.error.invalidCredentials`'s note above records that the earlier "…or reset your password"
+clause was deliberately trimmed (issue #18) because no such flow existed yet. It now does. These
+keys were written to this deck's own voice rules (plain, calm, name the outcome, no jargon) but
+have **not** been reviewed by `ux-copywriter` or Ian — mirrored here from `constants/copy.ts`
+verbatim, not reworded, per this doc's role as the source of truth once a key is settled. Treat as
+a draft until certified.
+
+| Key | String | Shows when |
+|---|---|---|
+| `auth.reset.cta.forgotPassword` | "Forgot password?" | New link on the sign-in screen (email/password mode), routes to the request screen below. |
+| `auth.reset.request.title` | "Reset your password" | Screen header, `app/(auth)/reset-password.tsx`. |
+| `auth.reset.request.body` | "Enter your email and we'll send you a link to reset it." | |
+| `auth.reset.request.cta.send` | "Send reset link" | |
+| `auth.reset.request.cta.backToSignIn` | "Back to sign in" | |
+| `auth.reset.request.success.title` | "Check your email" | Request submitted — **shown identically regardless of whether the email has an account**, by design (`lib/password-reset.ts`'s `requestPasswordReset` is enumeration-safe; this is the only success message that flow can produce). |
+| `auth.reset.request.success.body` | "If an account exists for {email}, we've sent a link to reset your password." | |
+| `auth.reset.request.error.rateLimited` | "Too many attempts. Wait a few minutes and try again." | Supabase's per-project/IP `auth.rate_limit.email_sent` limit — not an enumeration risk, since it says nothing about whether `{email}` itself has an account. |
+| `auth.reset.request.error.generic` | "We couldn't send that email. Check your connection and try again." | Any other request failure. |
+| `auth.reset.update.title` | "Set a new password" | Screen header, `app/(auth)/update-password.tsx` — reached only via the emailed recovery link. |
+| `auth.reset.update.password.placeholder` | "New password" | |
+| `auth.reset.update.cta.submit` | "Update password" | |
+| `auth.reset.update.cta.continue` | "Continue" | Shown after a successful update. |
+| `auth.reset.update.checking` | "Confirming your link…" | Bounded wait while the screen confirms Supabase's `PASSWORD_RECOVERY` event landed — not a spinner-forever, same rule `analyzing.longWait` follows. |
+| `auth.reset.update.success.title` | "Password updated" | |
+| `auth.reset.update.success.body` | "You're all set — signed in with your new password." | |
+| `auth.reset.update.error.expiredLink.title` | "This link has expired" | Covers both a link Supabase reports as expired/already-used AND a link opened with no recovery params at all — both are the same actionable state. |
+| `auth.reset.update.error.expiredLink.body` | "Password reset links only work once and expire after a while. Request a new one." | |
+| `auth.reset.update.error.expiredLink.cta` | "Request a new link" | Routes back to the request screen. |
+| `auth.reset.update.error.generic` | "We couldn't update your password. Try again." | A genuine `updateUser` failure — deliberately its own string rather than reusing `auth.error.generic` ("Sign-in didn't go through"), the wrong frame for a failed password *update*. |
+
 ---
 
 ## Screen 2 — Home / Analyze
@@ -97,6 +130,7 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 | `home.quota.error.stale` | "Showing your last known plan status." | Quota-status fetch failed — show the last cached value with this quiet caption, not a blocking error. |
 | `home.quota.error.failed` | "Couldn't load your plan status." | Quota fetch failed and there is no cached value to show (first load). Paired with the retry action. Backfilled 2026-07-11 from the M1 build — the deck originally only covered the has-cache case. |
 | `home.quota.error.retry` | "Retry" | Small text action next to the stale/failed caption — reuse `shared.cta.retry`. |
+| `home.quota.blocked` | "You can't start a new analysis right now. Try again later." | NEW key (issues #54/#15), NOT COPY-CERTIFIED — awaiting review. `pace_quota_status` can report `blocked: true` (issue #6's anti-farm cap) independently of `remaining` — a user can have quota left and still be refused right now. This deck never specced the state; kept short and generic rather than inventing detailed anti-farm messaging. |
 | `home.recent.label` | "Your last analysis" | Heading above the most-recent gait-plate thumbnail, once history exists. |
 | `home.empty.caption` | "Nothing analyzed yet." | Optional small line under the faint annotated-figure motif, before any history exists. The motif + CTA already carry the empty state per brief §4.2 — this is a one-line reinforcement, not required. |
 
@@ -257,10 +291,17 @@ failure, not a network one).
 | `history.empty.body` | "Your analyses will live here." | Per brief §4.8, verbatim. |
 | `history.empty.cta` | "Analyze my form" | The one action that fills the empty state (rule 4) — routes into the capture flow. |
 | `history.item.a11yLabel` | "Analysis from {date}, overall {score} out of 100, {band}." | VoiceOver label for each list row. |
+| `history.item.a11yLabelNotAssessed` | "Analysis from {date}, not assessed." | NEW key (issue #55), NOT COPY-CERTIFIED — awaiting review. An analysis whose overall is honestly null (every pillar not assessed) still needs a real VoiceOver sentence — mirrors `result.pillar.notAssessed.generic`'s "never stringify null as a score" rule. |
+| `history.item.deleteCta` | "Delete" | NEW key (issue #55), NOT COPY-CERTIFIED — awaiting review. This deck specs the confirmation dialog (`history.delete.confirm.*` below) but not a label for the row's own delete trigger — the built screen's affordance is a persistent tappable control per row (design brief §8 offers swipe/long-press as alternatives; a persistent tap target reads correctly to VoiceOver with no gesture to discover). |
 | `history.delete.confirm.title` | "Delete this analysis?" | Swipe/long-press → delete. |
 | `history.delete.confirm.body` | "This removes the result and its saved frames. This can't be undone." | States both halves of the purge (row + frames), matching Ruling 6. |
 | `history.delete.confirm.cta.primary` | "Delete analysis" | Names the destruction (rule 3), not "OK." |
 | `history.delete.confirm.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel`. |
+| `history.delete.error.title` | "Couldn't delete this analysis" | NEW key (issue #55), NOT COPY-CERTIFIED — awaiting review. This deck covers the confirm dialog but not a failed delete's own outcome. |
+| `history.delete.error.body` | "Check your connection and try again." | |
+| `history.delete.error.dismiss` | "OK" | Reuses `settings.alertDismiss`'s wording by value. |
+| `history.error.loadFailed` | "Couldn't load your past analyses." | NEW key (issue #55), NOT COPY-CERTIFIED — awaiting review. This deck's §5 states checklist names a loading state for this list but not a load-FAILURE state; mirrors `result.error.*`'s identical addition for the single-result screen. |
+| `history.error.retry` | "Retry" | Reuse `shared.cta.retry`. |
 | `result.loadingFromHistory` | "Loading your result…" | Opening a stored result cold — regenerating the short-TTL signed URLs for its frames. |
 | `history.compare.cta` | "Compare two analyses" | Elite tier, ≥2 analyses exist — entry point into the Compare screen. |
 | `history.compare.locked.title` | "Compare is an Elite feature" | Free/Pro tier taps a locked compare entry point. |
@@ -309,6 +350,32 @@ failure, not a network one).
 | `paywall.cta.upgrade.elite` | "Upgrade to Elite" | |
 | `paywall.cta.current` | "Current plan" | Disabled-state label on the user's own tier card. |
 
+### Purchase pending/success/failure (issue #52) — NEW, NOT COPY-CERTIFIED, awaiting review
+
+This deck's Screen 10 table above only ever specced the three static tier cards and the two
+402-triggered gate banners — it never covered what happens DURING or AFTER tapping an "Upgrade"
+CTA: no pending/success/failure copy existed for the dummy purchase at all. Written to this deck's
+own voice rules (plain, calm, name the outcome, never claim a state that isn't true, no jargon)
+but **not** reviewed by `ux-copywriter` or Ian — mirrored here verbatim from `constants/copy.ts`,
+a draft until certified.
+
+| Key | String | Shows when |
+|---|---|---|
+| `paywall.alertDismiss` | "OK" | Dismisses the purchase-result `Alert`. Same value/role as `settings.alertDismiss`. |
+| `paywall.plan.loading` | "Checking your plan…" | The screen's own quota-status read is in flight. |
+| `paywall.plan.error` | "Couldn't load your plan." | That read failed. |
+| `paywall.plan.retry` | "Retry" | Reuse `shared.cta.retry` by value. |
+| `paywall.plan.retryA11yLabel` | "Retry loading your plan" | Screen-reader-only label — this screen can show this Retry next to a purchase-error Retry, and two controls both named "Retry" are indistinguishable to a screen reader. |
+| `paywall.purchase.pending` | "Upgrading…" | The dummy `purchase-tier` call is in flight. |
+| `paywall.purchase.success.title` | "You're on {tierName} now" | A templated function, not a plain string. Purchase succeeded. |
+| `paywall.purchase.success.body` | "Your new plan is active." | |
+| `paywall.purchase.error.unavailable.title` | "Upgrading isn't available yet" | Code `not_found` — `purchase-tier` is deploy-gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) and/or not deployed at all. Both collapse to the same honest, non-alarming copy; it does not name the feature flag. |
+| `paywall.purchase.error.unavailable.body` | "This build can't complete an upgrade right now. Check back soon." | |
+| `paywall.purchase.error.rateLimited.title` | "One at a time" | Code `rate_limited` — the same account called `purchase-tier` again within 3 seconds of its own last write. |
+| `paywall.purchase.error.rateLimited.body` | "Give it a moment before trying again." | |
+| `paywall.purchase.error.generic.title` | "Your upgrade didn't go through" | Every other failure (network, an unrecognized code, a malformed response). |
+| `paywall.purchase.error.generic.body` | "Nothing was charged. Check your connection and try again." | |
+
 ---
 
 ## Screen 11 — Settings
@@ -335,6 +402,34 @@ failure, not a network one).
 | `settings.privacy.body` | "Your original photo or video never leaves your device. We extract a small number of still frames from it on your phone, and only those frames are uploaded — stored in a private location only you can access, and kept there until you delete the analysis or your account. To generate your results, the stored frames are sent to Anthropic, our AI provider, to analyze your form." | Fuller Settings disclosure, matching the first-upload consent line's facts (frames-only, private + kept-until-deleted, sent to Anthropic for analysis). Corrected 2026-07-12: the previous string said frames were "stored" while also claiming videos were "stored in a private location" — self-contradictory, and factually wrong per Ruling 1 / `architecture.md` (the original video never leaves the device; only extracted frames are ever uploaded or stored). |
 | `settings.privacy.deleteNote` | "Deleting an analysis removes its stored frames immediately. Deleting your account removes everything." | |
 
+### Reauthentication (issue #124) — NEW, NOT COPY-CERTIFIED, awaiting review
+
+`delete-account` now requires proof of a *recent* real credential (password or OAuth), not just a
+valid session, before it runs the purge (server-side gate — see `_shared/delete-account.ts`'s
+"REAUTHENTICATION FRESHNESS" section). These strings cover the step-up flow that satisfies it: a
+password re-entry prompt for email/password accounts, a heads-up before re-running Google sign-in
+for OAuth accounts, and honest failure copy for the cases neither can resolve. Written to this
+deck's own rules (name the outcome, no jargon, don't blame the user) but **not** reviewed by
+`ux-copywriter` or Ian — mirrored here verbatim from `constants/copy.ts`, a draft until certified.
+
+| Key | String | Shows when |
+|---|---|---|
+| `settings.reauth.passwordPrompt.title` | "Confirm it's you" | Delete-account returns `reauth_required` for an email/password account. |
+| `settings.reauth.passwordPrompt.body` | "For your security, deleting your account needs a recent sign-in. Enter your password to continue." | |
+| `settings.reauth.passwordPrompt.placeholder` | "Password" | |
+| `settings.reauth.passwordPrompt.cta.primary` | "Confirm and delete" | |
+| `settings.reauth.passwordPrompt.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel` by value. |
+| `settings.reauth.googlePrompt.title` | "Confirm it's you" | Delete-account returns `reauth_required` for a Google account. |
+| `settings.reauth.googlePrompt.body` | "For your security, deleting your account needs a recent sign-in. You'll be asked to sign in with Google again, then your account will be deleted." | A native `Alert` before the browser sheet opens, matching this screen's own idiom for every other destructive/step-up confirmation. |
+| `settings.reauth.googlePrompt.cta.primary` | "Continue with Google" | |
+| `settings.reauth.googlePrompt.cta.secondary` | "Cancel" | |
+| `settings.reauth.unsupportedProvider.title` | "We can't confirm it's you" | The session's provider has no reauthentication flow built today — said plainly rather than silently doing nothing. |
+| `settings.reauth.unsupportedProvider.body` | "Sign out and sign back in, then try deleting your account again." | |
+| `settings.reauth.error.title` | "That didn't work" | The reauthentication attempt itself failed (wrong password, cancelled Google flow, network error). |
+| `settings.reauth.error.genericBody` | "We couldn't confirm it's you. Check your connection and try again." | |
+| `settings.reauth.error.stillRequired.title` | "We still couldn't confirm it's you" | Reached only if the retry AFTER a successful reauthentication is also rejected as stale (e.g. clock skew) — distinct from the generic body because the user just did what was asked and it still didn't take. |
+| `settings.reauth.error.stillRequired.body` | "That didn't go through in time. Wait a moment, then try deleting your account again." | |
+
 ---
 
 ## Cross-cutting — Consent (shown once, before the first-ever upload)
@@ -353,6 +448,29 @@ earlier plain Continue/Cancel draft.
 | `consent.upload.cta.primary` | "I consent — continue" | Proceeds into the upload/capture flow. **Disabled until `consent.upload.checkbox` is ticked.** |
 | `consent.upload.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel`; returns to the source picker without uploading anything. Unchanged. |
 | `consent.upload.error.record` | "We couldn't record your consent, so nothing has been uploaded. Check your connection and try again." | NEW key. The consent write to `public.consents` failed. States plainly that nothing was sent — matching `offline.blocked.body`'s "nothing has been sent yet" rule (brief §5: never claim a state that isn't true). The gate stays up and the primary CTA stays available for a retry; the user is never advanced into the upload flow on a failed consent write. |
+| `consent.upload.age.checkbox` | "I confirm I'm 16 or older." | NEW key (issue #94), NOT COPY-CERTIFIED — awaiting review. Shown on the same once-ever screen as `consent.upload.checkbox` above, its own checkbox, both required before the primary CTA enables. `docs/privacy-policy.md` already states a 16+ minimum; nothing had asked or recorded it anywhere in the app before this. |
+
+### Subject attestation (issue #94) — NEW, NOT COPY-CERTIFIED, awaiting review
+
+The gap the consent block above doesn't cover: `consent.upload.checkbox` is "I consent to **my**
+images" by construction, so it says nothing when the uploader is filming someone else — the most
+obvious real use of a running-form analyzer built by a running coach. This screen asks who is
+actually in the frame, on **every** upload (not once-ever like the block above — the answer is a
+property of the specific upload, not the account), and requires a fresh attestation whenever the
+answer is "someone else." This is legally load-bearing (the Art. 9 obligation, an explicit
+under-16 parent/guardian clause) and has **not** been reviewed by `ux-copywriter` or Ian — mirrored
+here verbatim from `constants/copy.ts`, a draft until certified.
+
+| Key | String | Shows when |
+|---|---|---|
+| `consent.upload.subject.title` | "Who's in this photo or video?" | Second, always-shown consent screen — every upload attempt, no once-ever shortcut. |
+| `consent.upload.subject.body` | "Let us know if you're submitting your own running form, or someone else's — like an athlete you coach or a friend." | |
+| `consent.upload.subject.option.me` | "This is me" | Records no new consent — self-processing is already covered by the once-ever health-consent block. |
+| `consent.upload.subject.option.other` | "Someone else" | Requires the third-party checkbox below before the primary CTA enables. |
+| `consent.upload.subject.thirdParty.checkbox` | "I confirm the person in this photo or video has agreed to this analysis — or, if they're under 16, their parent or guardian has agreed on their behalf — and I consent to Anthropic processing their images to produce this feedback." | Shown only when "Someone else" is selected. Recorded as its own, distinct `consent_key` every single time — never inherited from a prior attestation. |
+| `consent.upload.subject.cta.primary` | "I confirm — continue" (subject: other) / "Continue" (subject: me) | A templated function, not a plain string (same convention as `capture.recording.timer`). "This is me" reads as plain navigation since no new consent is given; "Someone else" is itself the affirmative attestation act, so the button names that. |
+| `consent.upload.subject.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel` by value. |
+| `consent.upload.subject.error.record` | "We couldn't record your confirmation, so nothing has been uploaded. Check your connection and try again." | The consent write failed — same "nothing sent yet" honesty rule as `consent.upload.error.record` above. |
 
 ## Cross-cutting — Offline
 
