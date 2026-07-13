@@ -26,6 +26,7 @@
 // exactly (kept as a separate copy per that file's own "limit blast radius" rationale, extended
 // here to cover concurrent multi-agent work on `_shared/`).
 import { createClient } from 'npm:@supabase/supabase-js@2.110.2';
+import { errorClassOf, hashUserId, logEvent, newRequestId } from '../_shared/log.ts';
 import { getQuotaStatus, httpStatusForQuotaStatus, responseBodyForQuotaStatus } from '../_shared/quota-status.ts';
 import { createQuotaStatusClient } from '../_shared/quota-status-client.ts';
 
@@ -75,6 +76,11 @@ async function resolveCallerUserId(authHeader: string): Promise<string> {
 }
 
 Deno.serve(async (req) => {
+  // Issue #85 — minted once per invocation; correlates this request's log line(s) even though
+  // today there is normally at most one (the failure path below).
+  const requestId = newRequestId();
+  const startedAt = Date.now();
+
   if (req.method !== 'GET') {
     return jsonResponse(405, { error: 'Only GET is supported on this route.', code: 'method_not_allowed' });
   }
@@ -99,6 +105,19 @@ Deno.serve(async (req) => {
     // its migration is applied — see this file's header) is never the caller's fault, and never
     // a 4xx. Never leak the raw Postgres/network error message to the client.
     console.error('quota-status: pace_quota_status call failed', err instanceof Error ? err.message : err);
+    // Issue #85 — this endpoint had NO structured logging at all before this line: a failed
+    // `quota-status` call (e.g. the migration-not-yet-applied `db_error` this file's header warns
+    // about) was as invisible as the `analyze-form` gap the issue is named for.
+    logEvent({
+      level: 'error',
+      fn: 'quota-status',
+      event: 'quota_status_failed',
+      requestId,
+      userId: await hashUserId(callerUserId),
+      errorClass: errorClassOf(err),
+      durationMs: Date.now() - startedAt,
+      outcome: 'db_error',
+    });
     return jsonResponse(500, {
       error: 'Could not determine your current quota. Please try again shortly.',
       code: 'quota_status_unavailable',

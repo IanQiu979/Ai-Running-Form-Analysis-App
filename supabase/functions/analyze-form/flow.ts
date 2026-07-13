@@ -93,6 +93,7 @@ import {
   type ReleaseReason,
 } from '../_shared/analyze-form-validation.ts';
 import { DEFAULT_PAGE_SIZE, purgePrefix, type StorageBucket } from '../_shared/delete-analysis.ts';
+import { errorClassOf, hashUserId, logEvent, newRequestId } from '../_shared/log.ts';
 import {
   PACE_FRAME_CAP,
   PACE_MAX_REQUEST_BODY_BYTES,
@@ -182,9 +183,16 @@ export interface ModelCaller {
 }
 
 /** One structured line per request. Model id, tokens, latency, whether it retried, whether it fell
- * back — without these you cannot tell a prompt regression from a provider incident. */
+ * back — without these you cannot tell a prompt regression from a provider incident.
+ *
+ * `userId` is the output of `_shared/log.ts`'s `hashUserId()`, never the raw `auth.uid` (issue
+ * #85's "user id ONLY if hashed/opaque"). `requestId` correlates this summary line with the
+ * intermediate structured events (`ai_gate_denied`, `retry_gated_out`, `honest_partial_fallback`,
+ * `model_call_timeout`, ...) emitted directly via `logEvent()` elsewhere in this file for the same
+ * request — see `runAnalyzeForm`'s top for where both are minted. */
 export interface AnalyzeFormLogEvent {
   event: 'analyze-form';
+  requestId: string;
   userId: string;
   analysisId: string | null;
   tier: PaceTier | null;
@@ -570,11 +578,21 @@ interface OpenCall {
 
 export async function runAnalyzeForm(
   deps: AnalyzeFormDeps,
-  params: { callerUserId: string; rawBody: unknown }
+  params: { callerUserId: string; rawBody: unknown; requestId?: string }
 ): Promise<AnalyzeFormHttpResponse> {
   const now = deps.now ?? Date.now;
   const startedAt = now();
   const { callerUserId } = params;
+
+  // Issue #85 — observability. Minted ONCE per request, before any work: `requestId` correlates
+  // every structured log line this invocation emits (the gate denial, a skipped retry, the
+  // honest-partial fallback, and the final summary below) even across a genuine model timeout;
+  // `userIdHash` is what every one of those lines is allowed to carry instead of the raw
+  // `callerUserId` — see `_shared/log.ts`'s `hashUserId()` for why. Neither call can throw
+  // (`hashUserId` degrades internally rather than reject), so this cannot turn into a new failure
+  // mode for a request that would otherwise have succeeded.
+  const requestId = params.requestId ?? newRequestId();
+  const userIdHash = await hashUserId(callerUserId);
 
   // --- The two `finally` obligations, as state. Nothing below this line calls release or record.
   let reservation: string | null = null;
@@ -636,10 +654,21 @@ export async function runAnalyzeForm(
       // business, and any authenticated user could read it just by tripping the cap. The client
       // needs `code` (to pick the right copy) and nothing more; the detail is logged server-side,
       // where it belongs.
-      console.error(
-        `analyze-form: AI gate denied (${gate.reason})`,
-        JSON.stringify(gate.detail ?? {})
-      );
+      //
+      // Issue #85 — this is #91's guardrail substrate (kill switch / circuit breaker / daily cap)
+      // actually firing, and it is exactly the kind of failure that must be COUNTED, not
+      // discovered from a user complaint. `reason` is one of 'killed' | 'breaker_open' |
+      // 'daily_cap' | 'unknown_model' | 'invalid_estimate' — filterable directly in `get_logs`.
+      logEvent({
+        level: 'warn',
+        fn: 'analyze-form',
+        event: 'ai_gate_denied',
+        requestId,
+        userId: userIdHash,
+        outcome: `gate_${gate.reason}`,
+        reason: gate.reason,
+        detail: gate.detail ?? {},
+      });
       outcome = `gate_${gate.reason}`;
       return (response = {
         status: httpStatusForGateDeny(gate.reason),
@@ -690,7 +719,17 @@ export async function runAnalyzeForm(
     // ── 8. One vision call, then — on any failure — exactly one retry. ─────────────────────
     const deadline = startedAt + ANALYZE_FORM_DEADLINE_MS;
 
-    const first = await callModel(deps, anthropicRequest, openCalls, gate.callId, 0, deadline, now);
+    const first = await callModel(
+      deps,
+      anthropicRequest,
+      openCalls,
+      gate.callId,
+      0,
+      deadline,
+      now,
+      requestId,
+      userIdHash
+    );
     attempts.push(first.attempt);
     if (first.timedOut) {
       releaseReason = 'provider_timeout';
@@ -729,7 +768,9 @@ export async function runAnalyzeForm(
             retryGate.callId,
             1,
             deadline,
-            now
+            now,
+            requestId,
+            userIdHash
           );
           attempts.push(second.attempt);
           // The retry genuinely happened — the model was asked a second time. This, and ONLY this,
@@ -741,11 +782,37 @@ export async function runAnalyzeForm(
         } else {
           // We suppressed the retry (daily cap / open breaker). `retryRan` stays false: a content
           // failure on attempt 1 alone is our fault now, not a farming signal.
-          console.error(`analyze-form: retry gated out (${retryGate.reason})`);
+          //
+          // Issue #85 — the retry-once path (#45's promise), specifically the case where WE cut
+          // it, not the model. Distinct event name from `ai_gate_denied` above: this one denies
+          // the SECOND call of an in-flight request, after a reservation already exists.
+          logEvent({
+            level: 'warn',
+            fn: 'analyze-form',
+            event: 'retry_gated_out',
+            requestId,
+            userId: userIdHash,
+            analysisId,
+            reason: retryGate.reason,
+          });
         }
+      } else {
+        // `remaining < MIN_RETRY_BUDGET_MS` — we skipped the retry to avoid paying for a call
+        // we'd have to abort. `retryRan` stays false for the same reason. Previously silent: this
+        // is exactly the kind of degradation issue #85 says must be counted, not discovered from
+        // a user complaint — a request that arrived with too little deadline left for a genuine
+        // second attempt.
+        logEvent({
+          level: 'warn',
+          fn: 'analyze-form',
+          event: 'retry_skipped_insufficient_budget',
+          requestId,
+          userId: userIdHash,
+          analysisId,
+          remainingMs: remaining,
+          minRetryBudgetMs: MIN_RETRY_BUDGET_MS,
+        });
       }
-      // (else: `remaining < MIN_RETRY_BUDGET_MS` — we skipped the retry to avoid paying for a call
-      // we'd have to abort. `retryRan` stays false for the same reason.)
     }
 
     // ── 9. The decision (#45). Never fabricate a score. ────────────────────────────────────
@@ -776,6 +843,26 @@ export async function runAnalyzeForm(
     }
 
     isFallback = decision.kind === 'partial';
+
+    if (isFallback) {
+      // Issue #85 — the honest-partial fallback IS #45's promise: some pillars scored, others
+      // honestly dropped rather than fabricated. It is a deliverable 200, not an error, which is
+      // exactly why it needs its own greppable event — the final summary line below reports
+      // `outcome: 'partial'` too, but only once the whole request has finished, and only in the
+      // shape `deps.log` happens to be wired to. This line exists on its own so ops can count and
+      // alert on fallback RATE without parsing the summary schema.
+      logEvent({
+        level: 'warn',
+        fn: 'analyze-form',
+        event: 'honest_partial_fallback',
+        requestId,
+        userId: userIdHash,
+        analysisId,
+        tier,
+        sourceAttempt: decision.sourceAttempt,
+        retried: retryRan,
+      });
+    }
 
     // ── 10. Settle FIRST, then upload. Never the other way round (#130). ──────────────────────
     //
@@ -860,7 +947,8 @@ export async function runAnalyzeForm(
     try {
       deps.log?.({
         event: 'analyze-form',
-        userId: callerUserId,
+        requestId,
+        userId: userIdHash,
         analysisId: reservation,
         tier,
         mediaType,
@@ -914,7 +1002,9 @@ async function callModel(
   callId: string,
   attemptIndex: number,
   deadline: number,
-  now: () => number
+  now: () => number,
+  requestId: string,
+  userIdHash: string
 ): Promise<{ attempt: AttemptOutcome; timedOut: boolean }> {
   const budget = Math.min(MODEL_CALL_TIMEOUT_MS, Math.max(0, deadline - now()));
 
@@ -931,6 +1021,19 @@ async function callModel(
 
   if (!result.ok) {
     console.error(`analyze-form: model call ${result.kind}: ${result.message}`);
+    // Issue #85 — timeouts specifically. `result.message` is Anthropic/network free text (already
+    // logged above via the pre-existing console.error, unchanged); the structured line below
+    // carries only the enum-shaped `result.kind` and `budgetMs`, so it stays within the "no
+    // unbounded free text" rule even though the console.error next to it does not need to.
+    logEvent({
+      level: 'warn',
+      fn: 'analyze-form',
+      event: result.kind === 'timeout' ? 'model_call_timeout' : 'model_call_error',
+      requestId,
+      userId: userIdHash,
+      attemptIndex,
+      budgetMs: budget,
+    });
     return { attempt: callFailedAttempt(), timedOut: result.kind === 'timeout' };
   }
 
