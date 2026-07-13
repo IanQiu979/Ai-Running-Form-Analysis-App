@@ -15,7 +15,7 @@
 import { AuthApiError, AuthPKCECodeVerifierMissingError, AuthWeakPasswordError } from '@supabase/supabase-js';
 
 import { Copy } from '../../constants/copy';
-import { mapAuthError, OAuthRedirectError } from '../auth-errors';
+import { mapAuthError, OAuthRedirectError, validateSignInForm } from '../auth-errors';
 
 describe('mapAuthError', () => {
   // Case 1: the server rejected a breached password (issue #70). This is the new branch.
@@ -142,5 +142,78 @@ describe('mapAuthError', () => {
 
       expect(mapAuthError(error)).not.toBe(Copy.auth.error.signInExpired);
     });
+  });
+});
+
+// Issue #17: `handleEmailSubmit` (app/(auth)/sign-in.tsx) used to collapse every purely
+// client-side validation failure into `Copy.auth.error.generic` — "Sign-in didn't go through.
+// Try again." — which claims a network round-trip that never happened, since these checks all
+// run BEFORE any supabase.auth.* call. `validateSignInForm` is the fix: it must return a
+// field-specific string for each failure, and — the load-bearing guarantee — that string must
+// never be `generic` or any other copy that could be mistaken for a real, attempted-and-rejected
+// sign-in (`invalidCredentials`, `signInExpired`, etc., every string `mapAuthError` above can
+// produce from an actual caught error).
+describe('validateSignInForm', () => {
+  const SERVER_ATTEMPT_COPY: readonly string[] = [
+    Copy.auth.error.generic,
+    Copy.auth.error.invalidCredentials,
+    Copy.auth.error.emailInUse,
+    Copy.auth.error.signInCancelled,
+    Copy.auth.error.signInExpired,
+    Copy.auth.error.passwordBreached,
+    Copy.auth.error.passwordTooShort,
+  ];
+
+  it('returns emailRequired for an empty email, never server-attempt copy', () => {
+    const result = validateSignInForm('', 'correct-horse-battery-staple');
+
+    expect(result).toBe(Copy.auth.error.emailRequired);
+    expect(SERVER_ATTEMPT_COPY).not.toContain(result);
+  });
+
+  it('returns emailRequired for a whitespace-only email', () => {
+    expect(validateSignInForm('   ', 'correct-horse-battery-staple')).toBe(
+      Copy.auth.error.emailRequired
+    );
+  });
+
+  it('returns emailInvalid for a malformed email, never server-attempt copy', () => {
+    const result = validateSignInForm('not-an-email', 'correct-horse-battery-staple');
+
+    expect(result).toBe(Copy.auth.error.emailInvalid);
+    expect(SERVER_ATTEMPT_COPY).not.toContain(result);
+  });
+
+  it('returns passwordRequired for an empty password, never server-attempt copy', () => {
+    const result = validateSignInForm('runner@example.com', '');
+
+    expect(result).toBe(Copy.auth.error.passwordRequired);
+    expect(SERVER_ATTEMPT_COPY).not.toContain(result);
+  });
+
+  // Ordering lock: email is checked before password (top-to-bottom field order on screen) — a
+  // form that is wrong in both fields should name the email problem first, not the password one.
+  it('reports the email problem before the password problem when both are empty', () => {
+    expect(validateSignInForm('', '')).toBe(Copy.auth.error.emailRequired);
+  });
+
+  it('returns null for a well-formed email and a non-empty password', () => {
+    expect(validateSignInForm('runner@example.com', 'correct-horse-battery-staple')).toBeNull();
+  });
+
+  // The whole point of extracting this function (see the file header): its output space and
+  // mapAuthError's output space must never overlap. If a future edit ever made a validation
+  // failure return the same string as a real server rejection, this is the test that would catch
+  // it — every string this function can produce must be absent from `mapAuthError`'s.
+  it('never produces a string mapAuthError can also produce', () => {
+    const validationOutputs = [
+      validateSignInForm('', 'x'),
+      validateSignInForm('not-an-email', 'x'),
+      validateSignInForm('runner@example.com', ''),
+    ];
+
+    for (const output of validationOutputs) {
+      expect(SERVER_ATTEMPT_COPY).not.toContain(output);
+    }
   });
 });
