@@ -52,6 +52,39 @@
  * the prefix is always rooted at the CALLER's own id, so at most it probes an empty prefix under
  * their own namespace — no cross-user object deletion is reachable through this path regardless
  * of the ownership check below.
+ *
+ * THE SECOND PURGE (issue #132 — found in code review of #130, tracked as `docs/status.md` Known
+ * Issue #26): purging Storage first (A) and marking the row deleted second (B) closes the
+ * failure-leaves-nothing-orphaned case in the paragraph above, but since #130, `analyze-form`
+ * settles the row BEFORE uploading its frames — so a row can be `'delivered'` (deletable) while
+ * its frames are still uploading. If an in-flight `attach_media_paths` commits in the gap between
+ * A and B, the row still has `deleted_at IS NULL` at that instant, so the attach SUCCEEDS (from
+ * its own point of view the row is live) and `safeAttachFrames` correctly does not purge. Then B
+ * commits and the `redact_analyses_on_soft_delete` trigger wipes `media_paths` back to `'{}'` —
+ * every frame uploaded after A's verification list is now stranded under a prefix whose purge
+ * already ran and reported empty, named by nothing in the database.
+ *
+ * Once B has committed, `deleted_at` is set, and `attach_media_paths`'s `deleted_at is null`
+ * guard means the attach path refuses from that moment on (and `flow.ts` purges on that refusal)
+ * — so ANY object still under the prefix after B is, by construction, an orphan from exactly this
+ * race. `deleteAnalysis()` therefore purges the SAME prefix a second time, immediately after B
+ * commits, reusing `purgePrefix()` — never reimplemented, never keyed on `media_paths`. This is
+ * only run when B just performed the real `deleted_at` transition (`updated === true`); a repeat
+ * call that finds the row ALREADY deleted (`alreadyDeleted`) or that never finds the row at all
+ * (`not_found`) skips it — there is no fresh A→B gap on those paths for it to close. On the
+ * overwhelmingly common path nothing landed in the gap, so the second purge costs exactly one
+ * `list()` against an already-empty prefix. A non-zero second-purge count means a real orphan was
+ * caught, and is logged as such (`delete_analysis.second_purge_caught_orphan`) rather than
+ * silently folded away. If the second purge itself cannot fully clear the prefix, `purgePrefix`'s
+ * fail-closed verification throws — and since B already committed, that throw cannot be answered
+ * with `purge_failed` (nothing about the delete is retryable at that point; the row is gone
+ * either way), so it is reported as `orphans_remaining`: a success from the caller's standpoint,
+ * logged at error level (`delete_analysis.second_purge_failed`) as the sole alarm, mirroring
+ * `delete-account.ts`'s own post-delete-sweep outcome for the identical shape of problem.
+ *
+ * This narrows, but does not close, the OTHER orphan door: Known Issue #19, the client-side
+ * soft-delete path (issue #2's UPDATE policy) that never calls this endpoint at all. Read them
+ * together — different door, same orphan class.
  */
 
 export interface AnalysisOwnershipRow {
@@ -91,17 +124,31 @@ export interface StorageBucket {
   remove(paths: string[]): Promise<{ error: string | null }>;
 }
 
+/** Structured log sink — one event per boundary crossed. Defaults to a no-op; see `deleteAnalysis`. */
+export type LogEvent = (event: Record<string, unknown>) => void;
+
 export type DeleteAnalysisResult =
   | { outcome: 'deleted'; alreadyDeleted: boolean; purgedObjectCount: number }
   | { outcome: 'not_found' }
   | { outcome: 'not_yours' }
-  | { outcome: 'purge_failed'; reason: string };
+  | { outcome: 'purge_failed'; reason: string }
+  /**
+   * The row IS fully deleted (`markDeleted` committed) but the second purge — the #132 sweep for
+   * a frame that landed in the A/B gap — could not fully clear the prefix. Not retryable (there
+   * is nothing left to retry: the row is gone either way), so this is a SUCCESS outcome, same
+   * shape as `delete-account.ts`'s `orphans_remaining`, not folded into `purge_failed`. The
+   * `delete_analysis.second_purge_failed` error-level log this triggers is the only alarm; see
+   * the file header's "THE SECOND PURGE" section.
+   */
+  | { outcome: 'orphans_remaining'; reason: string; purgedObjectCount: number };
 
 export interface DeleteAnalysisParams {
   analysisId: string;
   callerUserId: string;
   /** Test-only seam — production callers should never pass this (see DEFAULT_PAGE_SIZE below). */
   pageSize?: number;
+  /** Optional structured log sink; defaults to a no-op so tests stay silent unless they opt in. */
+  log?: LogEvent;
 }
 
 /** Supabase Storage's `list()` accepts up to 1000 per page; used as the real default. */
@@ -121,6 +168,8 @@ export async function deleteAnalysis(
   storage: StorageBucket,
   params: DeleteAnalysisParams
 ): Promise<DeleteAnalysisResult> {
+  const log: LogEvent = params.log ?? (() => {});
+
   const row = await analyses.findById(params.analysisId);
   if (!row) {
     return { outcome: 'not_found' };
@@ -143,7 +192,57 @@ export async function deleteAnalysis(
   }
 
   const { updated } = await analyses.markDeleted(params.analysisId, params.callerUserId);
-  return { outcome: 'deleted', alreadyDeleted: !updated, purgedObjectCount };
+
+  if (!updated) {
+    // The row was ALREADY deleted before this call (a retry, or the client-side soft-delete
+    // bypass — issue #2/#19). This call's own markDeleted did not just perform the deleted_at
+    // transition, so there is no fresh A/B gap for the second purge to close here — see the file
+    // header's "THE SECOND PURGE" section for why that gap only exists around a real transition.
+    return { outcome: 'deleted', alreadyDeleted: true, purgedObjectCount };
+  }
+
+  // SECOND PURGE (#132): markDeleted just committed the real deleted_at transition, so any object
+  // that lands under this same prefix from this point on can only be the #132 race — an
+  // attach_media_paths that committed between the purge above and this line, while the row still
+  // looked live. Re-running the same, unmodified purgePrefix() against the same prefix is always
+  // safe (idempotent, fails closed) and on the common path costs one list() against an empty
+  // prefix.
+  let secondPurgeObjectCount: number;
+  try {
+    secondPurgeObjectCount = await purgePrefix(storage, prefix, pageSize);
+  } catch (err) {
+    // The row is already deleted and that cannot be undone — reporting `purge_failed` here would
+    // wrongly tell the client to retry a delete that already happened. purgePrefix's fail-closed
+    // verification means this only throws when an object demonstrably still exists (or a real
+    // Storage-side error), so this is exactly `delete-account.ts`'s `orphans_remaining` shape: a
+    // success that must still be alerted on loudly, because there is nothing left to retry.
+    const reason = err instanceof Error ? err.message : String(err);
+    log({
+      event: 'delete_analysis.second_purge_failed',
+      level: 'error',
+      analysisId: params.analysisId,
+      userId: params.callerUserId,
+      reason,
+    });
+    return { outcome: 'orphans_remaining', reason, purgedObjectCount };
+  }
+
+  if (secondPurgeObjectCount > 0) {
+    // A real orphan was caught by the #132 sweep — always worth seeing, never folded away silently.
+    log({
+      event: 'delete_analysis.second_purge_caught_orphan',
+      level: 'warn',
+      analysisId: params.analysisId,
+      userId: params.callerUserId,
+      secondPurgeObjectCount,
+    });
+  }
+
+  return {
+    outcome: 'deleted',
+    alreadyDeleted: false,
+    purgedObjectCount: purgedObjectCount + secondPurgeObjectCount,
+  };
 }
 
 /**
@@ -217,7 +316,11 @@ async function collectFiles(
 
 export function httpStatusForOutcome(outcome: DeleteAnalysisResult['outcome']): number {
   switch (outcome) {
+    // Both `deleted` and `orphans_remaining` are 200: by the time `orphans_remaining` is reached
+    // the row is already gone, so a non-2xx would tell the client to retry an operation that
+    // already succeeded — same reasoning as `delete-account.ts`'s `httpStatusForAccountOutcome`.
     case 'deleted':
+    case 'orphans_remaining':
       return 200;
     case 'not_found':
       return 404;
@@ -236,6 +339,11 @@ export function responseBodyForOutcome(result: DeleteAnalysisResult): Record<str
   switch (result.outcome) {
     case 'deleted':
       return { deleted: true, alreadyDeleted: result.alreadyDeleted };
+    case 'orphans_remaining':
+      // Success shape, not the error shape — the row really is deleted. `orphansRemaining: true`
+      // is a client hint with no retry affordance, because there is nothing left to retry; the
+      // actionable detail lives only in the error-level `delete_analysis.second_purge_failed` log.
+      return { deleted: true, orphansRemaining: true };
     case 'not_found':
       return { error: 'No analysis exists with that id.', code: 'not_found' };
     case 'not_yours':
