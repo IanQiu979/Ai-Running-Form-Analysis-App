@@ -147,6 +147,13 @@ app/
 ```
 lib/
   supabase.ts             # current — the Supabase client; see "Current — auth flow" below
+  database.types.ts       # current (issue #32, 2026-07-13) — generated `Database` type from the
+                          # live schema; passed to `createClient<Database>` in supabase.ts. See
+                          # "Current — typed Supabase client" below.
+  functions-client.ts     # current (issue #46, 2026-07-13) — shared `invokeFunction()` wrapper
+                          # around `supabase.functions.invoke()`; every lib/*.ts edge-function
+                          # caller should use this instead of calling `.invoke()` directly. See
+                          # "Planned — API"'s Error contract below.
   auth.ts                 # current — browser OAuth (Google), PKCE code exchange
   session-provider.tsx    # current — session state + Stack.Protected guard source of truth
   crypto-polyfill.ts      # current — WebCrypto shim; see "Current — auth flow" below
@@ -162,7 +169,11 @@ lib/
                           # aren't unit-tested by convention). Maps the server's typed
                           # `AuthWeakPasswordError` to `Copy.auth.error.passwordBreached` /
                           # `.passwordTooShort` — see "Current — Supabase config" below for the
-                          # `reasons` accumulation subtlety this depends on.
+                          # `reasons` accumulation subtlety this depends on. Also hosts
+                          # `validateSignInForm` (issue #17, 2026-07-13) — the purely
+                          # client-side, pre-network form check, kept in this module so its output
+                          # can never accidentally converge with a real server-error string from
+                          # `mapAuthError`.
   consent.ts               # current (issue #68) — hasConsented/grantConsent/withdrawConsent
                           # against public.consents; fails closed (throws) on any query error
                           # rather than defaulting either way — see "Current — consent record &
@@ -266,8 +277,45 @@ lib/
   (detected by its leading `{`, since every ciphertext this class writes is pure hex) instead of
   returning null and forcing a silent sign-out. On web (`Platform.OS === 'web'`),
   `createSecureSessionStorage` falls back to plain AsyncStorage — `expo-secure-store` has no web
-  implementation and `npm run web` must not crash;
-  browsers have no Keychain/Keystore equivalent to move to regardless.
+  implementation and `npm run web` must not crash; browsers have no Keychain/Keystore equivalent
+  to move to regardless.
+- **The web fallback itself is SSR/static-export-safe (issue #119, 2026-07-13).** `expo export
+  --platform web`'s static rendering prerenders every route in Node, where `window` does not
+  exist, but AsyncStorage's web implementation reaches for `window.localStorage` completely
+  unguarded — and `supabase-js`'s `GoTrueClient` touches storage eagerly at construction, before
+  any React effect runs, so `npm run web`'s prerender crashed with `ReferenceError: window is not
+  defined` the instant `SessionProvider`'s module tree loaded. `createSecureSessionStorage` now
+  takes an injectable `hasWindow` param (default `typeof window !== 'undefined'`, same pattern as
+  the existing `platformOS` param) and returns a no-op storage — an honest "no session" answer,
+  since a prerendered page genuinely cannot see the browser's localStorage — instead of bare
+  AsyncStorage when there is no `window`. Once hydrated in an actual browser it returns the same
+  real, localStorage-backed AsyncStorage as before.
+
+## Current — typed Supabase client (issue #32, 2026-07-13)
+
+`lib/database.types.ts` is generated from the live project (`supabase gen types typescript
+--project-id vputdomdlknvthnzritt`, cross-checked against the Supabase MCP's
+`generate_typescript_types` for the same project — identical for the public schema).
+`lib/supabase.ts` passes it as `createClient<Database>(supabaseUrl, supabasePublishableKey,
+{...})`, so every `.from(...)`/`.rpc(...)` call site across the app is checked against real
+column/RPC shapes at compile time instead of resolving to `any`. Verified the generic is actually
+active (not silently falling back to untyped) by temporarily probing a bad table name and a
+malformed RPC arg list — both produced real `tsc` errors, then were reverted.
+
+Every existing query call site (`app/(tabs)/index.tsx`, `app/settings.tsx`,
+`app/result/[id].tsx`, `lib/consent.ts`) already type-checked clean with zero query-shape changes
+needed. The one real edit: `app/result/[id].tsx` drops the `as AnalysisRow` cast it used to need,
+now that the generated `analyses` Row type is structurally proven to match `AnalysisRow`'s
+hand-written shape — `tsc` verifies that assertion on every build now, rather than the cast
+trusting it blindly. No RPCs are called from the app client today (`reserve_analysis`/
+`settle_analysis`/etc. are all service-role-only, called from edge functions), so no `.rpc()`
+call site needed fixing here.
+
+**Known drift, not touched (read-only against the live DB, out of scope for this issue):** two
+functions defined in the repo's migrations — `pace_quota_status` (20260712233000) and
+`pace_purchase_tier` (20260713120000) — are not yet pushed to the linked project (confirmed via
+`list_migrations`) and so are absent from the generated types. Both are already deploy-gated with
+header comments in their respective edge functions acknowledging exactly this.
 
 ## Current — `knowledge/` (done 2026-07-10)
 
@@ -470,6 +518,29 @@ each bundled constant is non-empty, contains an anchor heading from its source f
 the file on disk byte-for-byte (catching a codegen escaping bug that "contains an anchor string"
 alone would miss).
 
+## Current — `npm run typecheck` self-generates typed routes (issue #118, 2026-07-13)
+
+`app.json`'s `experiments.typedRoutes: true` makes expo-router generate the gitignored
+`.expo/types/router.d.ts` — the file `tsc` needs to know which route strings (e.g.
+`router.push('/capture')`) are valid — but it was previously produced only by a *running* Metro
+dev/watch server (`npx expo start`); `npx expo export` doesn't touch it, and nothing in
+`typecheck`/`lint`/`test` generated it either. A fresh clone or CI checkout with no `.expo/`
+directory either silently disabled route type-checking (file absent → permissive fallback) or
+failed on stale route unions left over from whichever dev-server session last happened to run —
+exactly what happened merging issues #113–#117.
+
+Fixed with a new `"generate:routes": "expo customize tsconfig.json"` script — `npx expo
+customize tsconfig.json` is Expo's own non-interactive codegen entry point for this file (the
+`@expo/cli` `customize` command's tsconfig.json target calls the same typed-routes generator a
+dev server would, without booting Metro or a device/watch server; verified to write
+`.expo/types/router.d.ts`/`expo-env.d.ts` byte-for-byte identical to what `expo start` produces,
+and to leave the committed `tsconfig.json` itself untouched). `"typecheck"` is now `"npm run
+generate:routes && tsc --noEmit && npm run typecheck:edge"`, so `npm run typecheck` is
+self-sufficient on a checkout with no `.expo/` directory — verified with `rm -rf .expo && npm run
+typecheck`. `.github/workflows/ci.yml` (issue #82, below) deliberately does not duplicate this
+step — it relies on `npm run typecheck` to generate its own routes, so there is only one place to
+change the mechanism.
+
 ## Current — design layer (Phase 0.5, done 2026-07-11)
 
 - [`docs/design/frontend-design-brief.md`](design/frontend-design-brief.md) — the single
@@ -486,10 +557,22 @@ alone would miss).
   compliance checklist gating M7 (App Store privacy labels, consent upgrade, data inventory,
   retention limits), plus two conflicts surfaced for Ian (see `docs/status.md`).
 - `constants/theme.ts` + `constants/contrast.ts` — the brief's §2 tokens as light+dark theme
-  values, spacing/radii/type scales, and the score-band palette, with a 69-assertion Jest test
+  values, spacing/radii/type scales, and the score-band palette, with an 83-assertion Jest test
   (`constants/__tests__/theme-contrast.test.ts`) proving every text/surface and band pair clears
   WCAG AA. Font families (`@expo-google-fonts/archivo`, `inter`, `ibm-plex-mono`) installed via
   `npx expo install`; `expo-font` added to `app.json`'s plugins.
+- **`Colors[scheme].control.border`, a new interactive-boundary role (issue #96, 2026-07-13).**
+  Every non-accent button/input/checkbox previously relied on `hairline` (~1.22–1.49:1 across
+  surfaces) as its only visible edge, below the 3:1 floor WCAG 1.4.11 sets for a UI-component
+  boundary. `control.border` is the same hue/saturation family as `hairline`, with lightness
+  moved until it clears 3:1 against every surface in both schemes (3.06–3.64:1) — a genuinely new
+  role, not a re-tune of the decorative `hairline` rule, which is unchanged and still deliberately
+  below 3:1 (rules/ticks/annotations, not a control boundary). Applied to
+  `components/consent-gate.tsx`'s checkbox border and `app/(auth)/sign-in.tsx`'s secondary/email
+  buttons and text input. `theme-contrast.test.ts` gained a regression guard, not just new
+  assertions: it asserts `hairline` itself stays below 3:1 (computed from the live export) and
+  that `control.border !== hairline` per scheme, so the token can never silently collapse back
+  into the rule it replaces — bringing the suite from 69 to 83 assertions.
 
 UI work builds from these rather than re-deriving the direction. Still open from Phase 0.5:
 Ian's certification review of the drafted Elasticity content (`knowledge/pace_framework.md`).
@@ -578,11 +661,12 @@ config" below) is a required pre-first-dev-build cleanup, not yet done. It is **
 the `development` profile's `ios.simulator: true` build needs no Apple account and is enough to
 retire Expo Go. See `docs/status.md` Known Issue #7.
 
-## Current — CI (added 2026-07-12, the repo's first workflow)
+## Current — CI (`hibp-canary.yml` added 2026-07-12; `ci.yml`, the commit gate, added 2026-07-13, issue #82)
 
-The repo previously had **no CI at all**. `.github/workflows/hibp-canary.yml` is the first one,
-and it is deliberately narrow: a **daily scheduled cron, not a PR gate** — a live-network check
-required on every PR would make unrelated PRs flaky against a third party's uptime.
+The repo previously had **no CI at all**. `.github/workflows/hibp-canary.yml` is the first
+workflow, and it is deliberately narrow: a **daily scheduled cron, not a PR gate** — a
+live-network check required on every PR would make unrelated PRs flaky against a third party's
+uptime.
 
 - **What it watches**: `lib/hibp.ts`'s `checkPasswordBreached` fails open and deliberately never
   logs (see its header comment), which made the leaked-password check silently unobservable in
@@ -622,6 +706,33 @@ required on every PR would make unrelated PRs flaky against a third party's upti
   captures outbound request URLs as breadcrumbs — without `denyUrls`/`beforeBreadcrumb`
   configured to drop `api.pwnedpasswords.com`, adding one would turn crash reports into a
   durable, identity-linked fingerprint of every user's password.
+
+**`.github/workflows/ci.yml` (issue #82, 2026-07-13) is the repo's first actual commit gate.**
+Until it existed, `npm run typecheck && npm run lint && npm test` (CLAUDE.md's pre-commit rule)
+was enforced by convention only — a PR that broke the build could merge exactly as easily as one
+that didn't. Distinct from `hibp-canary.yml` above: this one runs on every `push`/`pull_request`
+to `main`, not on a schedule.
+
+- **Mirrors the project's own gate exactly**: `npm ci`, then typecheck → lint → test — cheapest
+  static checks first, so a broken build fails in seconds rather than after a full Jest + Deno
+  run. No build/EAS step (that's a separate, Apple-gated concern — `docs/blocked-on-apple.md`).
+- **Node 24, Deno 2.9.2.** No `engines` field in `package.json` and no `.nvmrc`/`.node-version`
+  to pin against, so Node 24 is kept identical to `hibp-canary.yml`'s own `setup-node` pin,
+  deliberately, so the two workflows can't silently drift onto different runtimes. Deno is pinned
+  to 2.9.2 to match the version installed locally (CLAUDE.md: `~/.local/bin/deno`) — there is no
+  repo-committed Deno version file to defer to instead.
+- **Does not generate `.expo/types/router.d.ts` itself.** `npm run typecheck` now does that on
+  its own (issue #118, above), so this workflow deliberately does not duplicate the mechanism —
+  there is only one place to change it.
+- **`concurrency` cancels a superseded run** for the same ref (a fast follow-up push, or two
+  pushes to the same PR racing each other) rather than letting both run to completion.
+  **`permissions: contents: read`** only — the workflow never comments, labels, or writes
+  anything back; widen deliberately if a future step needs more.
+- **Provisions no dummy `.env`.** `expo lint` loads `.env` via `@expo/env`, and `.env` is
+  gitignored so it never exists in CI; verified locally that `expo lint` and `npm test` both exit
+  clean with no `.env`/`supabase/functions/.env` present, so no placeholder is provisioned — if
+  either command ever starts failing on a missing env var, that's a genuine new dependency to fix
+  at the source, not paper over here.
 
 ## Current — consent record & disclaimer (done 2026-07-12, issue #68)
 
@@ -984,9 +1095,16 @@ RLS.
 | `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, not deployed (issue #58, 2026-07-13; response contract fixed post-review, same date)** — see "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
-`supabase.functions.invoke` wraps non-2xx responses in a generic `FunctionsHttpError`, so the
-client uses one shared wrapper that parses `{ error, code }` back out of that exception, rather
-than re-parsing it at each call site.
+`supabase.functions.invoke()` wraps non-2xx responses in a generic `FunctionsHttpError` whose
+body is only reachable via `await error.context.json()` — **`lib/functions-client.ts`'s
+`invokeFunction<T>()` (issue #46, 2026-07-13) is the one shared wrapper that does this unwrap**,
+rather than each call site re-parsing it. It resolves to a discriminated result —
+`{ ok: true, data: T }` or `{ ok: false, error }`, where `error.kind` is `'http'` (a parsed
+`{ error, code }` body — `code` typed only as `string`; narrowing it into a specific union per
+endpoint is each call site's own job), `'network'` (`FunctionsRelayError`/`FunctionsFetchError` —
+no server response was ever produced to read a body from), or `'malformed'` (an HTTP error whose
+body didn't match the documented `{ error, code }` shape) — and it **never rejects**, so a caller
+needs no `try`/`catch` around it. `lib/delete-account.ts` is the only real caller today.
 
 Direct Supabase-client reads (RLS-guarded, `user_id = auth.uid()`): list own `analyses`; read
 own `subscriptions`; read own frames from the private bucket via short-TTL signed URLs. Inserts
@@ -1335,6 +1453,48 @@ never revoked (unlike `public.analyses` above) — the client is blocked only be
 policy permitting either statement, not because the privilege is gone. No defense in depth if a
 policy is ever carelessly re-added, or RLS disabled on this table. Tracked as issue #100 — see
 `docs/status.md` Known Issue #18.
+
+## Current — stale-reservation sweep (issue #47, 2026-07-13; migration written, NOT applied)
+
+`supabase/migrations/20260713130000_stale_reservation_sweep.sql` exists in the repo but is
+**not** applied to the live project (confirmed via `supabase migration list`, 2026-07-13 — its
+`remote` column is empty, same footing as `pace_quota_status`'s, 20260712233000, and
+`pace_purchase_tier`'s, 20260713120000). It is the backstop `docs/status.md` Known Issue #14
+asked for: reclaiming a `'reserved'` row when the `analyze-form` invocation that created it is
+killed (timeout/OOM/deploy) before its own `finally` block can reach `release_analysis`.
+
+- **`public.sweep_stale_reservations(p_stale_after interval default '15 minutes', p_batch_limit
+  integer default 500)`** — `SECURITY DEFINER`, `EXECUTE` revoked from
+  `public`/`anon`/`authenticated`, scheduled via `pg_cron` (`create extension if not exists
+  pg_cron`) every 5 minutes. Runs as `pg_cron` calling the SQL function directly rather than a
+  scheduled edge function: pure DB bookkeeping needs no HTTP hop, and provisioning a Vault-stored
+  credential for a `pg_net`-invoked edge function from a migration file isn't something this
+  migration attempts.
+- **The 15-minute threshold is derived, not guessed**: `analyze-form`'s own self-imposed
+  `ANALYZE_FORM_DEADLINE_MS` (105s, `flow.ts`) and Supabase Edge Functions' 150s platform
+  wall-clock kill bound how long a *legitimate*, still-running reservation can stay `'reserved'`;
+  15 minutes is 6x the platform limit, ~7.5x the self-imposed one.
+- **Extends `analyses_release_reason_known_values`** (the CHECK constraint the anti-farming fix
+  below introduces) with a fifth value, `'stale_sweep'` — superset-only, so this is safe
+  regardless of the table's row count. Deliberately kept OUT of `pace_is_farming_signal`'s
+  vocabulary (unchanged), so a swept row can never count toward the 3-strike anti-farming cap
+  (#6) — the row's own existence past the threshold proves the invocation that created it never
+  reached any of its own release paths, so attributing it to the user would repeat the anti-farm
+  fix's exact mistake in miniature.
+- **Race-safe against a live `settle_analysis`/`release_analysis`, without an advisory lock**: a
+  single conditional `UPDATE ... where status = 'reserved'`, plus `FOR UPDATE SKIP LOCKED` in the
+  row-selection subquery for non-blocking batching. Whichever transaction reaches a row first
+  wins; the other side's own pre-existing "duplicate/late call is a safe no-op" guard absorbs the
+  loss. `p_batch_limit` (default 500) bounds how many rows one sweep run can lock and rewrite, so
+  an incident leaving many rows stale at once can't make a single run try to process an unbounded
+  number.
+- **This migration reclaims the DB row only — it does NOT purge the swept row's Storage
+  prefix.** `docs/status.md` Known Issue #16 asked for both halves; the storage-purge half
+  remains open.
+- **24 new Deno tests** (`_shared/__tests__/stale-reservation-sweep.deno.test.ts`): a TypeScript
+  model of the sweep's contract (fresh/stale/settled/released rows, the race with a concurrent
+  settle in both directions) plus migration-text invariant tests that read the actual SQL to
+  prove the model isn't lying.
 
 ## Planned — anti-farming cap distinguishes our fault from theirs (issue #6, migration written
 2026-07-12, NOT yet applied)
@@ -1877,16 +2037,38 @@ Three files, the same three-way split as `analysis/index.ts` (#57):
   `batchedRemove()` in `_shared/delete-account.ts` wraps the injected bucket so removes go out in
   fixed-size batches, leaving `purgePrefix` itself untouched and still the only implementation of
   the recursion. Asserted by a 1250-object test.
+- **The account-level sweep is bounded-concurrency and resumable, not sequential (issue #125,
+  2026-07-13).** The original account sweep handed the whole `{userId}/` prefix to one
+  `purgePrefix()` call, whose recursion walks every `{analysis_id}/` sub-prefix ONE AT A TIME —
+  fine for `delete-analysis.ts`'s own single-analysis callers, but an account spans every analysis
+  the user ever ran, and a long-lived Elite account (30 analyses/period) accumulates hundreds of
+  sub-prefixes. Since the purge is deliberately blocking (above), a sweep that times out deletes
+  **nothing** — the heaviest accounts, with the strongest claim to erasure, became permanently
+  undeletable. New `purgeAccountPrefix()` enumerates the account root, then purges each sub-prefix
+  through the **unchanged** `purgePrefix()` via a new `mapWithConcurrency()` helper, bounded to
+  `ACCOUNT_PURGE_CONCURRENCY` (8) in-flight purges at once — a modest, single-digit fan-out chosen
+  to cut wall-clock time by close to an order of magnitude without tripping Storage's own rate
+  limiting. Soft wall-clock budgets (`ACCOUNT_PURGE_DEADLINE_MS`, 60s; and
+  `ACCOUNT_POST_DELETE_SWEEP_DEADLINE_MS`, 20s, for the post-delete race sweep below) stop
+  dispatching new sub-prefix purges once spent and fail closed as the same `purge_failed` outcome
+  — no new response contract. **Checkpointing falls out for free**: each sub-prefix purge
+  independently `list → remove → verify`s before the next starts, so a timed-out retry
+  re-enumerates the account root and finds strictly fewer sub-prefixes (an emptied
+  `{analysis_id}/` vanishes from the listing) rather than redoing the whole sweep. 8 new Deno
+  tests cover `mapWithConcurrency`'s bound/order/fail-fast properties, a 40-analysis
+  bounded-concurrency proof, a budget-exceeded case, and a resume-after-timeout case.
 - **Structured JSON logs at every boundary** — invocation, storage purge, consent purge, row
   delete, auth delete, completion, each failure, with durations. When a deletion half-succeeds in
   production these are the only evidence of where it stopped, and they have to exist *before* the
   incident. No frame bytes, results, or emails are logged.
 
-**Still open** (see `docs/status.md` Known Issue #21): the #59 half that runs against a real local
+**Still open** (see `docs/status.md` Known Issue #22): the #59 half that runs against a real local
 Supabase (Postgres *and* Storage — the property under test is that two different systems agree,
 which a fake cannot fail the way production does), and no re-authentication requirement on this
 endpoint (a stolen access token can delete an account; a confirmation field in the body would not
-change that, since an attacker would simply send it).
+change that, since an attacker would simply send it — tracked separately as issue #124). The
+wall-clock-bound-but-not-checkpointed concern this paragraph used to also list is **resolved** —
+see the bounded-concurrency bullet above (issue #125).
 
 ## Current — the Settings screen (issue #53, 2026-07-13), closing issue #27
 
@@ -1910,7 +2092,7 @@ of session. This screen hosts sign-out and account deletion; it must never be re
 | Account (email) | `session.user.email` | Real. Falls back to an honest line when a provider returns no email, rather than rendering an empty row. |
 | Plan (tier) | `subscriptions` read, `status = 'active'` | Real, and **display-only** — read, never computed (CLAUDE.md: the client is never the authority on tier). Loading and error are real states; a failed read never silently renders "Free". |
 | Sign out | `lib/sign-out.ts` | Real, and correct against all three real outcomes — see below. |
-| Delete account | `lib/delete-account.ts` | Real client, calls `supabase.functions.invoke('delete-account')`. ⚠️ The edge function it calls (#58/#121) is built but not yet merged/deployed — see below. |
+| Delete account | `lib/delete-account.ts` | Real client, calls the `delete-account` edge function through the shared `invokeFunction()` wrapper (`lib/functions-client.ts`, issue #46, 2026-07-13) rather than `supabase.functions.invoke` directly. ⚠️ The edge function it calls (#58/#121) is built but not yet merged/deployed — see below. |
 | Privacy disclosure + consent withdrawal | `lib/consent.ts` | Real. Restates the pre-upload disclosure (#68) and calls `withdrawConsent`, which had been built and waiting for a caller since #68. |
 | Privacy policy link | — | **Deliberately not linked.** See below. |
 
@@ -1942,7 +2124,11 @@ section originally described an injectable seam bound to a dev mock, on the theo
 "replace one binding line." That handoff had no owner: #58/#121's file list is entirely under
 `supabase/functions/` and never touches `lib/`, so the swap would never have happened and
 production would have shipped silently lying about account erasure. `lib/delete-account.ts` now
-calls the real `supabase.functions.invoke('delete-account')`, against this response contract:
+calls the real `delete-account` edge function, against this response contract, through the shared
+`invokeFunction()` wrapper (`lib/functions-client.ts`, issue #46, 2026-07-13) rather than calling
+`supabase.functions.invoke` directly — that wrapper owns the generic `FunctionsHttpError` unwrap
+now; this file keeps only what's specific to this endpoint, the 200 success shape and narrowing
+the wrapper's generic `code: string` to the three codes below:
 
 | Outcome | Status | Body |
 |---|---|---|

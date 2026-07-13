@@ -27,7 +27,8 @@ in [`docs/architecture.md`](docs/architecture.md).
 | `npm start` | `expo start` — serves a **development build** URL, not Expo Go (see below) |
 | `npm run start:go` | `expo start --go` — serves `exp://…` for Expo Go on a phone |
 | `npm run ios` / `npm run android` / `npm run web` | `expo start --ios` / `--android` / `--web` |
-| `npm run typecheck` | `tsc --noEmit && npm run typecheck:edge` — the app + `supabase/functions/` |
+| `npm run typecheck` | `npm run generate:routes && tsc --noEmit && npm run typecheck:edge` — the app + `supabase/functions/` |
+| `npm run generate:routes` | Codegens the gitignored `.expo/types/router.d.ts` (typed routes) without booting Metro. Chained into `typecheck`, so you never call it directly — without it `tsc` silently stops checking route strings altogether (issue #118) |
 | `npm run typecheck:edge` | `deno check` over `supabase/functions/` only (issue #90) |
 | `npm run lint` | `expo lint` |
 | `npm test` | `jest && npm run test:edge` — the app + `supabase/functions/` |

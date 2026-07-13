@@ -350,7 +350,7 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       minHeight: ControlHeight.standard,
       borderRadius: Radius.card,
       borderWidth: 1,
-      borderColor: colors.hairline,
+      borderColor: colors.control.border,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: Spacing.lg,
@@ -358,7 +358,8 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     // `surface.raised` is theme.ts's "one raised element per screen" — Google is the
     // lower-friction path (brief §4.1 lists it first), so it gets the raised treatment; the
     // email button below is `surface.base` instead, kept legible as a button by the shared
-    // `hairline` border above (issue #25).
+    // `control.border` above (issue #25). That border is `control.border`, not `hairline`:
+    // it is the only thing marking these as controls, so WCAG 1.4.11 requires >=3:1 (issue #96).
     secondaryButtonRaised: {
       backgroundColor: colors.surface.raised,
     },
@@ -399,7 +400,7 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       minHeight: ControlHeight.standard,
       borderRadius: Radius.card,
       borderWidth: 1,
-      borderColor: colors.hairline,
+      borderColor: colors.control.border,
       backgroundColor: colors.surface.base,
       paddingHorizontal: Spacing.lg,
       fontFamily: FontFamily.body.regular,

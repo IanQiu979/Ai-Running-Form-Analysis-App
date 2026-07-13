@@ -62,42 +62,10 @@ jobs:
         with:
           deno-version: '2.9.2'
 
-      # --- The .expo/types/router.d.ts problem (issue #118) ---
-      #
-      # `app.json` sets `experiments.typedRoutes: true`, which makes expo-router generate
-      # `.expo/types/router.d.ts` — the file that tells `tsc` which route strings are valid, so
-      # `router.push('/capture')` only typechecks if this file already knows `/capture` exists.
-      # It is (correctly) gitignored, but a fresh `git clone && npm ci` does NOT produce it:
-      # issue #118 confirmed the file is regenerated only by a *running* Metro dev/watch server
-      # (`npx expo start`) — `npx expo export` does not touch it, and nothing in
-      # `typecheck`/`lint`/`test` generates it either. Without this step, `npm run typecheck`
-      # fails here on every route added since whenever a dev server last happened to run, with
-      # errors that look like a code bug (`TS2345: Argument of type '"/capture"' is not
-      # assignable...`) rather than a missing build step.
-      #
-      # `npx expo customize tsconfig.json` is the fix: it is a *non-server* codegen entry point
-      # (`@expo/cli`'s `customize` command, specifically its special-cased `tsconfig.json`
-      # target) that calls the exact same typed-routes generator a dev server would, without
-      # booting Metro or a device/watch server — verified locally: it writes
-      # `.expo/types/router.d.ts` (and `expo-env.d.ts`) byte-for-byte identical to what
-      # `expo start` produces, does NOT modify the committed `tsconfig.json` itself (that target
-      # is special-cased to only run the generator, never copy a template over an existing file),
-      # needs no network access beyond what's already resolved by `npm ci`, and completes in
-      # under a second. This satisfies option 1 from #118 ("If there's a supported non-server
-      # codegen entry point, use it").
-      #
-      # Coordination note for whoever fixes #118 itself: that issue is about `npm run typecheck`
-      # not being self-sufficient from a clean checkout, and per this worktree's task scope this
-      # workflow must not edit `package.json` to fix it there. This step is CI's own workaround,
-      # scoped to `.github/`, so the commit gate isn't blocked on #118 landing first. It's
-      # side-effect-free on the working tree beyond `.expo/`/`expo-env.d.ts` (both gitignored),
-      # so it is harmless to leave in place even after #118 lands, however that issue ends up
-      # being fixed (a `pretypecheck` script, a committed-file + drift-check like
-      # `verify:knowledge`, or something else) — this step and any future package.json-level fix
-      # can coexist without conflict.
-      - name: "Generate expo-router typed routes (.expo/types/router.d.ts) — works around #118"
-        run: npx expo customize tsconfig.json
-
+      # No step here generates `.expo/types/router.d.ts` (the gitignored file that tells `tsc`
+      # which route strings are valid). `npm run typecheck` regenerates it itself, via the
+      # `generate:routes` script it chains — that is issue #118's fix, and CI deliberately does
+      # not duplicate the mechanism so there is only one place to change it.
       - name: Typecheck (app + supabase/functions)
         run: npm run typecheck
 
