@@ -272,14 +272,19 @@ export function primaryCtaKind(quota: QuotaStatus): PrimaryCtaKind {
  * Whether tapping the primary CTA should be able to start something right now. `remaining > 0`
  * alone isn't sufficient: issue #6's anti-farm cap (`blocked`) can refuse a reserve even when
  * quota is available, independent of `remaining` (`_shared/quota-status.ts`'s header names this
- * exact combination). `upgradeToAnalyze`/`upgradeForMore` are never enabled by this function at
- * all — this build has no Paywall route to send them to (issue #52, a parallel worktree not
- * merged as of this commit; see `app/(tabs)/index.tsx`'s HANDOFF comment) — so both render
- * correctly labelled but temporarily inert rather than guessing at a route this worktree cannot
- * verify.
+ * exact combination), so an available-but-blocked user gets an inert CTA and an honest hint
+ * rather than a tap the server would refuse.
+ *
+ * The two upgrade kinds ARE enabled: `app/paywall.tsx` (issue #52) is a real route now, so they
+ * navigate there. This is the whole point of issue #15 — the exhausted user must be offered a way
+ * forward instead of an offer the screen cannot honour.
  */
 export function isPrimaryCtaEnabled(quota: QuotaStatus): boolean {
-  return primaryCtaKind(quota) === 'analyze' && !quota.blocked;
+  const kind = primaryCtaKind(quota);
+  // Elite-exhausted: nothing exists above this tier, so there is genuinely nowhere to send them.
+  if (kind === 'analyzeDisabled') return false;
+  if (kind === 'analyze') return !quota.blocked;
+  return true;
 }
 
 export function primaryCtaLabel(kind: PrimaryCtaKind): string {
@@ -314,6 +319,8 @@ export function primaryCtaAccessibilityHint(quota: QuotaStatus): string | null {
     // The exhausted-Elite caption already states the reason in full ("...renews {date}").
     return describeQuota(quota).primary;
   }
-  // upgradeToAnalyze / upgradeForMore — correctly labelled, but Paywall isn't wired yet.
-  return Copy.home.cta.upgradeUnavailable;
+  // upgradeToAnalyze / upgradeForMore are enabled (they open the Paywall), so isPrimaryCtaEnabled
+  // returned true above and this line is unreachable for them. Kept exhaustive rather than
+  // throwing: a future CTA kind should degrade to no hint, never crash Home.
+  return null;
 }

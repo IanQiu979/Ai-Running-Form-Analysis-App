@@ -44,7 +44,7 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const reduceMotion = useReducedMotion();
-  const { session, isLoading: isSessionLoading } = useSession();
+  const { session, isLoading: isSessionLoading, isPasswordRecovery } = useSession();
   const [fontsLoaded, fontError] = useFonts({
     Archivo_400Regular,
     Archivo_500Medium,
@@ -85,7 +85,14 @@ function RootLayoutNav() {
               at (tabs) to navigate to, and vice versa — this is what makes sign-in/sign-out
               redirect automatically the instant `session` changes, with no manual
               router.replace() call anywhere in sign-in.tsx or the sign-out handler. */}
-          <Stack.Protected guard={!!session}>
+          {/* Issue #81: `!!session` alone is not the right guard. A password-recovery session is
+              a real session, so the moment the emailed link's exchange resolves this guard would
+              flip, exclude (auth) from the navigator, and eject the user into (tabs) before they
+              had set a new password — making the reset screen unreachable at precisely the moment
+              it is needed. `isPasswordRecovery` (lib/session-provider.tsx) holds them in (auth)
+              until the new password is committed, at which point it clears and this resolves to
+              the ordinary signed-in case with no manual navigation. */}
+          <Stack.Protected guard={!!session && !isPasswordRecovery}>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             {/* The core flow, in the order the user walks it: capture -> analyzing -> result.
                 All three are top-level routes rather than tabs (each is full-screen with no tab
@@ -107,8 +114,13 @@ function RootLayoutNav() {
                 the comment above says: an undeclared route file would be an always-available,
                 unguarded top-level screen — and this one hosts sign-out and account deletion. */}
             <Stack.Screen name="settings" options={{ headerShown: false }} />
+            {/* Screen 8 — Paywall (issue #52). Declared here for the same load-bearing reason as
+                settings above: an undeclared route file is an always-available, unguarded
+                top-level screen. It was reachable via file-based routing the moment #52 landed;
+                this is what actually puts it behind the session. */}
+            <Stack.Screen name="paywall" options={{ headerShown: false }} />
           </Stack.Protected>
-          <Stack.Protected guard={!session}>
+          <Stack.Protected guard={!session || isPasswordRecovery}>
             <Stack.Screen name="(auth)" options={{ headerShown: false }} />
           </Stack.Protected>
         </Stack>

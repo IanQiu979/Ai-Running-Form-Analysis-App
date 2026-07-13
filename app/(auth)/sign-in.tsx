@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -291,6 +292,18 @@ export default function SignInScreen() {
                   <Text nativeID="password-hint" style={styles.passwordHint}>
                     {Copy.auth.password.hint}
                   </Text>
+                )}
+                {/* Issue #81 — sign-in mode only: there is no password to recover during sign-up,
+                    and offering it there would just be noise. Before this existed, a locked-out
+                    email user had no way back into their account at all. */}
+                {mode === 'signIn' && (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => router.push('/reset-password')}
+                    disabled={isBusy}
+                    style={({ pressed }) => [styles.toggleLink, pressed && styles.buttonPressed]}>
+                    <Text style={styles.toggleLinkText}>{Copy.auth.reset.cta.forgotPassword}</Text>
+                  </Pressable>
                 )}
                 <Pressable
                   accessibilityRole="button"

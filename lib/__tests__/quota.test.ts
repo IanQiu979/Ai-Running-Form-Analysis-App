@@ -320,16 +320,19 @@ describe('primaryCtaKind / primaryCtaLabel / isPrimaryCtaEnabled', () => {
     expect(isPrimaryCtaEnabled(ELITE_BLOCKED)).toBe(false);
   });
 
-  it('is "upgradeToAnalyze", disabled, for an exhausted Free user (no route to send it to yet)', () => {
+  // These two were pinned DISABLED while app/paywall.tsx did not exist. It does now (issue #52),
+  // so they are enabled and route there. This is the whole of issue #15: an exhausted user must
+  // be offered a way forward, not a dead button under an offer the screen cannot honour.
+  it('is "upgradeToAnalyze", ENABLED, for an exhausted Free user — it opens the Paywall', () => {
     expect(primaryCtaKind(FREE_EXHAUSTED)).toBe('upgradeToAnalyze');
     expect(primaryCtaLabel('upgradeToAnalyze')).toBe(Copy.home.cta.upgradeToAnalyze);
-    expect(isPrimaryCtaEnabled(FREE_EXHAUSTED)).toBe(false);
+    expect(isPrimaryCtaEnabled(FREE_EXHAUSTED)).toBe(true);
   });
 
-  it('is "upgradeForMore", disabled, for an exhausted Pro user (Elite ceiling exists above it)', () => {
+  it('is "upgradeForMore", ENABLED, for an exhausted Pro user (an Elite ceiling exists above it)', () => {
     expect(primaryCtaKind(PRO_EXHAUSTED)).toBe('upgradeForMore');
     expect(primaryCtaLabel('upgradeForMore')).toBe(Copy.home.cta.upgradeForMore);
-    expect(isPrimaryCtaEnabled(PRO_EXHAUSTED)).toBe(false);
+    expect(isPrimaryCtaEnabled(PRO_EXHAUSTED)).toBe(true);
   });
 
   it('is "analyzeDisabled", same label as "analyze", for an exhausted Elite user (nothing above it)', () => {
@@ -352,12 +355,16 @@ describe('primaryCtaAccessibilityHint', () => {
     expect(primaryCtaAccessibilityHint(ELITE_EXHAUSTED)).toBe(describeQuota(ELITE_EXHAUSTED).primary);
   });
 
+  // An enabled CTA needs no "why is this dimmed" hint — its label ("Upgrade to analyze") already
+  // says what tapping it does. A hint here would be read out on top of that label, not instead of
+  // it, so VoiceOver users would hear the same thing twice.
   it.each(['upgradeToAnalyze', 'upgradeForMore'] as const)(
-    'names the paywall-unavailable reason for a disabled %s CTA',
+    'has no disabled-reason hint for the enabled %s CTA — it opens the Paywall',
     (kindLabel) => {
       const quota = kindLabel === 'upgradeToAnalyze' ? FREE_EXHAUSTED : PRO_EXHAUSTED;
       expect(primaryCtaKind(quota)).toBe(kindLabel);
-      expect(primaryCtaAccessibilityHint(quota)).toBe(Copy.home.cta.upgradeUnavailable);
+      expect(isPrimaryCtaEnabled(quota)).toBe(true);
+      expect(primaryCtaAccessibilityHint(quota)).toBeNull();
     }
   );
 });

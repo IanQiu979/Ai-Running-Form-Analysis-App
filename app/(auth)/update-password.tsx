@@ -87,7 +87,8 @@ export default function UpdatePasswordScreen() {
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors, scheme), [colors, scheme]);
 
-  const { session, deepLinkAuthError, clearDeepLinkAuthError } = useSession();
+  const { session, deepLinkAuthError, clearDeepLinkAuthError, clearPasswordRecovery } =
+    useSession();
 
   const [phase, setPhase] = useState<LinkPhase>(() => (session ? 'ready' : 'checking'));
   const [password, setPassword] = useState('');
@@ -199,9 +200,15 @@ export default function UpdatePasswordScreen() {
         <View style={styles.centered}>
           <Text style={styles.title}>{Copy.auth.reset.update.success.title}</Text>
           <Text style={styles.body}>{Copy.auth.reset.update.success.body}</Text>
+          {/* Releases the recovery hold (issue #81). No router.replace() is needed or wanted:
+              the password is already committed, so the session is now an ordinary signed-in one,
+              and dropping the flag flips app/_layout.tsx's guard — expo-router then routes into
+              (tabs) on its own, exactly as sign-in does. Calling replace('/') here instead would
+              be a no-op, because (tabs) is still excluded from the navigator until the flag
+              clears. */}
           <Pressable
             accessibilityRole="button"
-            onPress={() => router.replace('/')}
+            onPress={clearPasswordRecovery}
             style={({ pressed }) => [
               styles.primaryButton,
               pressed && styles.buttonPressed,

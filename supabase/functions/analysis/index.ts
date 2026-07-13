@@ -22,6 +22,7 @@ import {
   isValidUuid,
   parseAnalysisIdFromUrl,
   responseBodyForOutcome,
+  type LogEvent,
 } from '../_shared/delete-analysis.ts';
 import { createDeleteAnalysisDeps } from '../_shared/delete-analysis-client.ts';
 
@@ -93,7 +94,14 @@ Deno.serve(async (req) => {
   }
 
   const { analyses, storage } = createDeleteAnalysisDeps();
-  const result = await deleteAnalysis(analyses, storage, { analysisId: id, callerUserId });
+  // Issue #132. `deleteAnalysis` purges Storage a second time after the row is marked deleted, to
+  // catch frames from an `attach_media_paths` that committed in the gap. When that second purge
+  // actually finds something, it means a real orphan was caught — and when it FAILS, images of a
+  // person's body are still sitting in the bucket after the user asked for them to be deleted.
+  // Both are emitted as structured events, and the log sink defaults to a no-op — so without this
+  // line the alarm exists but nothing can hear it. Same wiring as delete-account/index.ts.
+  const log: LogEvent = (event) => console.log(JSON.stringify({ fn: 'analysis', ...event }));
+  const result = await deleteAnalysis(analyses, storage, { analysisId: id, callerUserId, log });
 
   return jsonResponse(httpStatusForOutcome(result.outcome), responseBodyForOutcome(result));
 });

@@ -56,6 +56,20 @@ type SessionContextValue = {
   corruptedSessionError: string | null;
   /** Consumed by app/(auth)/sign-in.tsx so a stale message doesn't linger into the next attempt. */
   clearCorruptedSessionError: () => void;
+  /**
+   * Issue #81: true between Supabase's PASSWORD_RECOVERY event and the moment the recovery
+   * session is spent (a completed update, or a sign-out). It exists because a recovery session
+   * IS a real session — `session` goes non-null the instant the recovery link's PKCE exchange
+   * resolves — and app/_layout.tsx's `Stack.Protected guard={!!session}` cannot tell the two
+   * apart. Without this flag the guard flips the moment the link is opened and *excludes the
+   * whole (auth) group from the navigator* (Protected omits, it does not hide), throwing the
+   * user into (tabs) before they have set a new password. The reset screen would be unreachable
+   * at exactly the moment it is needed.
+   */
+  isPasswordRecovery: boolean;
+  /** Called by app/(auth)/update-password.tsx once the new password is committed, which drops
+   * the guard back to normal and lets the (now fully authenticated) user route into (tabs). */
+  clearPasswordRecovery: () => void;
 };
 
 const SessionContext = createContext<SessionContextValue | undefined>(undefined);
@@ -80,6 +94,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [isLoading, setIsLoading] = useState(true);
   const [deepLinkAuthError, setDeepLinkAuthError] = useState<string | null>(null);
   const [corruptedSessionError, setCorruptedSessionError] = useState<string | null>(null);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -112,8 +127,15 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!isMounted) return;
+      // Issue #81. PASSWORD_RECOVERY fires when the emailed recovery link's exchange lands a
+      // session. That session is only good for one thing — setting a new password — so it is
+      // flagged rather than treated as a normal sign-in (see isPasswordRecovery's doc above).
+      // SIGNED_OUT clears it so an abandoned recovery cannot strand the guard in a state where
+      // a genuinely signed-in user is held outside (tabs).
+      if (event === 'PASSWORD_RECOVERY') setIsPasswordRecovery(true);
+      if (event === 'SIGNED_OUT') setIsPasswordRecovery(false);
       setSession(newSession);
       setIsLoading(false);
     });
@@ -168,6 +190,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const clearDeepLinkAuthError = useCallback(() => setDeepLinkAuthError(null), []);
   const clearCorruptedSessionError = useCallback(() => setCorruptedSessionError(null), []);
+  const clearPasswordRecovery = useCallback(() => setIsPasswordRecovery(false), []);
 
   const value = useMemo(
     () => ({
@@ -177,6 +200,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
       clearDeepLinkAuthError,
       corruptedSessionError,
       clearCorruptedSessionError,
+      isPasswordRecovery,
+      clearPasswordRecovery,
     }),
     [
       session,
@@ -185,6 +210,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
       clearDeepLinkAuthError,
       corruptedSessionError,
       clearCorruptedSessionError,
+      isPasswordRecovery,
+      clearPasswordRecovery,
     ]
   );
 

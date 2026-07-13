@@ -29,6 +29,7 @@ import {
   type QuotaStatus,
 } from '@/lib/quota';
 import { useSession } from '@/lib/session-provider';
+import { useAnnounce } from '@/lib/use-announce';
 
 type QuotaState =
   | { status: 'loading' }
@@ -138,6 +139,19 @@ export default function HomeScreen() {
   // hint above can both read the same `QuotaCaption` object rather than each recomputing it.
   const readyCaption = quota.status === 'ready' ? describeQuota(quota) : null;
 
+  // Issue #11. The three quota captions below carry `accessibilityLiveRegion="polite"`, which is
+  // an ANDROID-ONLY prop — a no-op on iOS, the platform this ships to first. Without this hook a
+  // VoiceOver user gets no announcement at all when quota resolves or fails. The prop stays for
+  // Android; this is the iOS complement, not a replacement. One derived message covers all three
+  // states so the announcement always matches whichever caption is actually on screen.
+  const liveQuotaMessage =
+    quota.status === 'loading'
+      ? Copy.home.quota.loading
+      : readyCaption
+        ? readyCaption.primary
+        : Copy.home.quota.error.failed;
+  useAnnounce(liveQuotaMessage);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* Same ScrollView + flexGrow:1 pattern as app/(auth)/sign-in.tsx: the content still
@@ -218,16 +232,10 @@ export default function HomeScreen() {
               Gating is still a display decision, not a business rule: `reserve_analysis`
               re-checks server-side regardless and stays the sole authority (CLAUDE.md).
 
-              HANDOFF (issue #52, `app/paywall.tsx` / `lib/subscription.ts` — a parallel
-              worktree, not merged as of this commit, and out of this file's lane): when
-              `ctaKind` is `'upgradeToAnalyze'` or `'upgradeForMore'`, the deck
-              (docs/design/copy-deck.md §Screen 2) wants this CTA ENABLED and routed to Paywall.
-              This build has no Paywall route to verify props/params against, so — rather than
-              guess — both render correctly labelled but disabled, paired with
-              `Copy.home.cta.upgradeUnavailable`. Once #52 merges: drop `ctaKind !== 'analyze'`
-              from `isPrimaryCtaEnabled`'s exclusion in lib/quota.ts, and add an else-branch here
-              — `else { router.push('/paywall'); }` (confirm the exact call against that file's
-              actual props once it exists) — to the `onPress` below. */}
+              An exhausted user is routed to the Paywall (issue #52) rather than left on a dead
+              button — that dead button, sitting under an offer of a free analysis, WAS issue #15.
+              The Paywall takes no params: it re-reads quota itself, so it stays honest however it
+              was reached. */}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={ctaLabel}
@@ -235,7 +243,11 @@ export default function HomeScreen() {
             accessibilityState={{ disabled: !ctaEnabled }}
             disabled={!ctaEnabled}
             onPress={() => {
-              router.push('/capture');
+              if (ctaKind === 'upgradeToAnalyze' || ctaKind === 'upgradeForMore') {
+                router.push('/paywall');
+              } else {
+                router.push('/capture');
+              }
             }}
             style={({ pressed }) => [
               styles.primaryButton,

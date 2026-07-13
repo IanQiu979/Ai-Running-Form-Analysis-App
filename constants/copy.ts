@@ -179,13 +179,6 @@ export const Copy = {
       // this file's established convention of lifting every deck key even when two share one
       // literal string (see `quota.pro.remaining` / `quota.elite.remaining` below).
       analyzeDisabled: 'Analyze my form',
-      // NEW key, not in the deck. Issue #54's file lane forbids touching `app/paywall.tsx` or
-      // `lib/subscription.ts` (issue #52 — a parallel worktree, not merged as of this commit),
-      // so this build cannot navigate `upgradeToAnalyze`/`upgradeForMore` anywhere real yet.
-      // Both render correctly labelled but temporarily disabled, paired with this honest
-      // caption/accessibilityHint rather than a dead tap — delete once #52 merges and the CTA
-      // is wired to Paywall (see app/(tabs)/index.tsx's HANDOFF comment).
-      upgradeUnavailable: "Upgrades aren't available in this version yet.",
       // --- issues #54/#15 additions end ---
     },
     quota: {
@@ -520,6 +513,9 @@ export const Copy = {
       // you hear "Retry… Retry" and cannot tell which does what. Naming the target fixes that
       // without changing what anyone sees. Same pattern as the deck's own `result.pillar.a11yLabel`.
       retryA11yLabel: 'Retry loading your plan',
+      // The deck's `settings.plan.cta`. It was written but deliberately left unrendered until
+      // there was a Paywall route for it to point at (issue #52) — that route now exists.
+      cta: 'See plans',
     },
     signOutError: {
       // THE ISSUE #27 STRING(S). A security audit on PR #122 (finding F3) found a THIRD real

@@ -595,9 +595,23 @@ export default function SettingsScreen() {
             )}
 
             {plan.status === 'ready' && (
-              <Text style={styles.rowValue} accessibilityLiveRegion="polite">
-                {TIER_LABEL[plan.tier]}
-              </Text>
+              <>
+                <Text style={styles.rowValue} accessibilityLiveRegion="polite">
+                  {TIER_LABEL[plan.tier]}
+                </Text>
+                {/* Issue #52. Settings is the only place a user who is NOT out of quota can go
+                    looking for their plan options — Home's upgrade CTA only appears once they
+                    are exhausted. Without this, a Free user who simply wants to upgrade has
+                    nowhere to do it. */}
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    router.push('/paywall');
+                  }}
+                  style={({ pressed }) => [styles.textAction, pressed && styles.pressed]}>
+                  <Text style={styles.textActionLabel}>{Copy.settings.plan.cta}</Text>
+                </Pressable>
+              </>
             )}
 
             {plan.status === 'error' && (
