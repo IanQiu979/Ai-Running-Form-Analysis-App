@@ -68,6 +68,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { readAnalysisRow, type AnalysisRow } from '@/lib/analysis-result';
 import { countAssessedPillars } from '@/lib/pace-readout';
 import { supabase } from '@/lib/supabase';
+import { useAnnounce } from '@/lib/use-announce';
 import type { PaceAnalysisOutcome } from '@shared/pace';
 
 // The private frame bucket (`supabase/migrations/20260711150500_media_storage_bucket.sql`) —
@@ -120,6 +121,17 @@ export default function ResultScreen() {
 
   const [state, setState] = useState<ScreenState>({ status: 'loading' });
   const activeFlagRef = useRef<ActiveFlag>({ active: false });
+  // Issue #11: the loading/error captions below carry `accessibilityLiveRegion="polite"`, which
+  // is Android-only — this is the iOS complement, same pattern as app/(tabs)/index.tsx.
+  useAnnounce(
+    state.status === 'loading'
+      ? Copy.result.loadingFromHistory
+      : state.status === 'loadFailed'
+        ? Copy.result.error.loadFailed
+        : state.status === 'unavailable'
+          ? Copy.result.error.notFound
+          : null
+  );
 
   const load = useCallback(
     async (active: ActiveFlag) => {

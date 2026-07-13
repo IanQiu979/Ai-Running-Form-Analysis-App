@@ -46,6 +46,7 @@ import {
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { requestPasswordReset, validateResetEmail } from '@/lib/password-reset';
+import { useAnnounce } from '@/lib/use-announce';
 
 type Status = 'idle' | 'submitting' | 'sent';
 
@@ -58,6 +59,11 @@ export default function ResetPasswordScreen() {
   const [status, setStatus] = useState<Status>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const isBusy = status === 'submitting';
+  // Issue #11: `accessibilityLiveRegion="polite"` below is Android-only — this is the iOS
+  // complement, same pattern as app/(auth)/sign-in.tsx. Two independent messages: the "sent"
+  // success body (its own render branch, below) and the form's own validation/request error.
+  useAnnounce(status === 'sent' ? Copy.auth.reset.request.success.body.replace('{email}', email.trim()) : null);
+  useAnnounce(errorMessage);
 
   async function handleSubmit() {
     const trimmedEmail = email.trim();

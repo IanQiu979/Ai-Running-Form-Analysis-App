@@ -52,6 +52,7 @@ import {
   signFrameStrip,
   type HistoryListItem,
 } from '@/lib/history';
+import { useAnnounce } from '@/lib/use-announce';
 
 // A local layout constant, not a `constants/theme.ts` role — same call `app/result/[id].tsx`
 // makes for its own `HERO_ASPECT_RATIO`: thumbnail sizing isn't one of that file's roles (colors/
@@ -81,6 +82,15 @@ export default function HistoryScreen() {
   const [thumbnails, setThumbnails] = useState<Record<string, string[]>>({});
   const [deletingIds, setDeletingIds] = useState<ReadonlySet<string>>(new Set());
   const activeFlagRef = useRef<ActiveFlag>({ active: false });
+  // Issue #11: the loading/error captions below carry `accessibilityLiveRegion="polite"`, which
+  // is Android-only — this is the iOS complement, same pattern as app/(tabs)/index.tsx.
+  useAnnounce(
+    state.status === 'loading'
+      ? Copy.history.loading
+      : state.status === 'error'
+        ? Copy.history.error.loadFailed
+        : null
+  );
 
   const load = useCallback(async (active: ActiveFlag) => {
     setState({ status: 'loading' });

@@ -21,6 +21,7 @@
  * original file this was extended from for the fuller explanation).
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform } from 'react-native';
 import type { TestInstance } from 'test-renderer';
 
 import { ConsentGate } from '../consent-gate';
@@ -43,6 +44,11 @@ jest.mock('@/lib/consent', () => ({
 
 const mockGrantConsent = grantConsent as jest.MockedFunction<typeof grantConsent>;
 const mockHasConsented = hasConsented as jest.MockedFunction<typeof hasConsented>;
+// Issue #11: `accessibilityLiveRegion="polite"` on this component's error Text is Android-only —
+// `lib/use-announce.ts` is the iOS complement. Asserted below alongside the existing
+// error-rendering tests, not as a separate describe block, so each stays next to the scenario
+// that produces the error it announces.
+const mockAnnounce = AccessibilityInfo.announceForAccessibility as jest.Mock;
 
 // Walks up from a host element to the nearest ancestor Pressable's own `onPress` prop, reading
 // it off the underlying fiber (test-renderer's `unstable_fiber`, the same field fireEvent.press
@@ -206,6 +212,23 @@ describe('phase: health (issue #68 self-consent + issue #94 age confirmation)', 
     expect(onConsented).not.toHaveBeenCalled();
   });
 
+  it('announces the health-phase recording failure on iOS (issue #11)', async () => {
+    const originalOS = Platform.OS;
+    Platform.OS = 'ios';
+    try {
+      mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
+      await renderAtHealthPhase();
+
+      await fireEvent.press(screen.getByTestId('consent-checkbox'));
+      await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
+      await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+
+      await waitFor(() => expect(mockAnnounce).toHaveBeenCalledWith(Copy.consent.upload.error.record));
+    } finally {
+      Platform.OS = originalOS;
+    }
+  });
+
   it('cancels without recording anything', async () => {
     const { onCancel } = await renderAtHealthPhase();
 
@@ -319,6 +342,25 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
 
     await waitFor(() => expect(screen.getByText(Copy.consent.upload.subject.error.record)).toBeTruthy());
     expect(onConsented).not.toHaveBeenCalled();
+  });
+
+  it('announces the subject-phase attestation failure on iOS (issue #11)', async () => {
+    const originalOS = Platform.OS;
+    Platform.OS = 'ios';
+    try {
+      mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
+      await renderAtSubjectPhase();
+
+      await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
+      await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
+      await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+
+      await waitFor(() =>
+        expect(mockAnnounce).toHaveBeenCalledWith(Copy.consent.upload.subject.error.record)
+      );
+    } finally {
+      Platform.OS = originalOS;
+    }
   });
 
   it('cancels without recording anything', async () => {

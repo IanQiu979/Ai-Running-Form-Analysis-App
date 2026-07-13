@@ -52,6 +52,7 @@ import {
   type PurchaseErrorCode,
   type QuotaStatus,
 } from '@/lib/subscription';
+import { useAnnounce } from '@/lib/use-announce';
 
 type PlanState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; data: QuotaStatus };
 
@@ -191,6 +192,12 @@ export default function PaywallScreen() {
   }
 
   const gateBanner = gateBannerFor(plan);
+  // Issue #11: the gate banner and plan status Texts below carry `accessibilityLiveRegion="polite"`,
+  // which is Android-only — these are the iOS complements, same pattern as app/(tabs)/index.tsx.
+  useAnnounce(gateBanner ? `${gateBanner.title} ${gateBanner.body}` : null);
+  useAnnounce(
+    plan.status === 'loading' ? Copy.paywall.plan.loading : plan.status === 'error' ? Copy.paywall.plan.error : null
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>

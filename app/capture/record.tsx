@@ -36,6 +36,7 @@ import {
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { MAX_CLIP_DURATION_MS } from '@/lib/media-caps';
 import { classifyPermission, permissionRecoveryAction } from '@/lib/permission-state';
+import { useAnnounce } from '@/lib/use-announce';
 
 // The record button's own geometry — a custom circular control, not a spacing value between UI
 // elements, so it's a local constant rather than a `constants/theme.ts` token (same category as
@@ -61,6 +62,12 @@ export default function RecordScreen() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [busy, setBusy] = useState(false);
   const recordingStartRef = useRef<number | null>(null);
+  // Issue #11: `accessibilityLiveRegion="polite"` on the recording caption below is Android-only —
+  // this is the iOS complement, but deliberately keyed to the recording/idle TRANSITION rather
+  // than the per-second "Ns / 15s" text change: a live region firing every second for the whole
+  // clip would fight VoiceOver's own speech queue instead of helping it. One announcement when
+  // recording starts, naming the same auto-stop bound the idle caption already shows.
+  useAnnounce(recording ? `Recording. ${Copy.capture.recording.autoCap}` : null);
 
   useEffect(() => {
     if (!recording) return;

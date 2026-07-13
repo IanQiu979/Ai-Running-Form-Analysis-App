@@ -29,6 +29,7 @@ import {
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useIsOffline } from '@/lib/connectivity';
+import { useAnnounce } from '@/lib/use-announce';
 
 export function OfflineBanner() {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
@@ -37,6 +38,10 @@ export function OfflineBanner() {
   // real insets from anywhere under app/ with no provider of its own to set up here.
   const insets = useSafeAreaInsets();
   const isOffline = useIsOffline();
+  // Issue #11: `accessibilityLiveRegion="polite"` on the Text below is Android-only — this is the
+  // iOS complement, same pattern as app/(auth)/sign-in.tsx. Called before the early return below
+  // (React's hook-order rule), so it always runs; `null` while online is a no-op.
+  useAnnounce(isOffline ? Copy.offline.banner : null);
 
   if (!isOffline) {
     return null;

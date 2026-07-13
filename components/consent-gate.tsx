@@ -58,6 +58,7 @@ import {
   THIRD_PARTY_ATTESTATION_CONSENT,
   UPLOAD_HEALTH_CONSENT,
 } from '@/lib/consent';
+import { useAnnounce } from '@/lib/use-announce';
 
 type Props = {
   /**
@@ -91,6 +92,10 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Issue #11: `accessibilityLiveRegion="polite"` on the error Texts below (both phases share
+  // this one piece of state) is Android-only — this is the iOS complement, same pattern as
+  // app/(auth)/sign-in.tsx.
+  useAnnounce(error);
   // Flipped the instant Cancel is pressed, including mid-write, AND on unmount — see
   // components/__tests__/consent-gate.test.tsx's race tests. Unmounting (what the host does on
   // cancel/consent, per this component's contract) does not cancel an in-flight promise below —

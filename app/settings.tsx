@@ -83,6 +83,7 @@ import {
 import { useSession } from '@/lib/session-provider';
 import { signOut, type SignOutResult } from '@/lib/sign-out';
 import { supabase } from '@/lib/supabase';
+import { useAnnounce } from '@/lib/use-announce';
 
 type SubscriptionTier = 'free' | 'pro' | 'elite';
 
@@ -129,6 +130,31 @@ export default function SettingsScreen() {
   const [reauthPassword, setReauthPassword] = useState('');
   const [reauthPasswordError, setReauthPasswordError] = useState<string | null>(null);
   const [isReauthenticating, setIsReauthenticating] = useState(false);
+
+  // Issue #11: every dynamic status Text below (`rowValueMuted`/`rowValue`/`errorText`/
+  // `destructiveLabel`) carries `accessibilityLiveRegion="polite"`, which is Android-only — these
+  // are the iOS complements, same pattern as app/(tabs)/index.tsx. One derived message per
+  // section, matching whichever caption is actually on screen for that section.
+  useAnnounce(
+    plan.status === 'loading'
+      ? Copy.settings.plan.loading
+      : plan.status === 'error'
+        ? Copy.settings.plan.error
+        : plan.status === 'ready'
+          ? TIER_LABEL[plan.tier]
+          : null
+  );
+  useAnnounce(
+    consent.status === 'loading'
+      ? Copy.settings.consent.status.loading
+      : consent.status === 'error'
+        ? Copy.settings.consent.status.error
+        : consent.status === 'ready'
+          ? (consent.granted ? Copy.settings.consent.status.granted : Copy.settings.consent.status.withdrawn)
+          : null
+  );
+  useAnnounce(isDeleting ? Copy.settings.deleteAccountState.pending : null);
+  useAnnounce(reauthPasswordError);
 
   // This screen unmounts the instant `session` flips to null (the route guard), which happens
   // mid-flight for sign-out and for a successful delete. Any `setState` after that point is a
