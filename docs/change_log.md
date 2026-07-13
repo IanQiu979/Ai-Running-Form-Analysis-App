@@ -5,6 +5,83 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-13 (second parallel batch — 10 worktrees; the core flow finally connects end to end)
+
+A second same-day batch, dispatched one worktree + one agent per issue. All merged to
+`integrate/batch-2026-07-13b`, `typecheck && lint && test` green (836 Jest + 338 Deno), and the
+web export pre-renders every screen including the two new ones. Read the caveats — several lanes
+correctly did *nothing* because their issue's premise was stale.
+
+- **#135 — Capture now hands off to Analyzing. THE CORE FLOW WAS NOT CONNECTED.** `app/capture/
+  extracting.tsx`'s "Frames ready" state had exactly one control — "Done" — which returned to
+  Home. A user could record, watch frames extract, and then simply leave; the one thing this
+  product does never reached the analyzer. The CTA (now `upload.ready.cta` = "Analyze my form",
+  reusing Home's existing wording) mints an idempotency key, builds the request via the existing
+  `toAnalyzeFormRequest()`, stages it in `lib/analyze-form.ts`'s one-shot mailbox, and routes to
+  `/analyzing`. Frames deliberately do NOT travel through route params — up to 5 MB of base64
+  into a serialized URL. Half the issue was stale: `app/analyzing.tsx` already *read* that mailbox;
+  nothing ever wrote to it.
+- **#136 — a 402 `quota_exceeded` now opens the paywall.** `AnalyzeFormError.code` was discarded by
+  the `'failed'` event, so an exhausted user would have seen the generic error panel with a **Retry
+  button that resubmits into the same exhausted quota** — a dead-end loop and a live paywall bypass
+  the moment #128 swaps in the real client. `code` is now threaded through
+  `lib/analyzing-machine.ts` (typed against the real error union) and `app/analyzing.tsx` routes
+  `quota_exceeded` to `/paywall` instead of rendering a retry.
+- **#93 — the offline pre-flight gate is wired.** Detection and the global banner already shipped;
+  only the *gate* was missing. `checkConnectivity()` now runs immediately before
+  `analyzeFormClient.submit()` — not on screen mount, because connectivity changes while waiting in
+  a dead zone and again on Retry. Offline is its own machine phase, **not folded into `failed`**, so
+  the screen can honestly say "nothing has been sent yet" — true *by construction*, since submit()
+  is never called and the timeout never starts. Capture and record are deliberately NOT gated: they
+  never touch the network (#88 removed client-side upload), and the copy deck says so explicitly.
+- **#140 — an analysis that finishes after a process kill is now surfaced.** #64 only handled
+  background→foreground while the screen stayed mounted; a kill drops `lib/analyze-form.ts`'s
+  module-state mailbox. New `lib/pending-analysis.ts` persists a marker (keyed on the same
+  `idempotency_key` #64 reconciles on, in AsyncStorage — not a credential, so not SecureStore) and
+  Home checks it once per cold start. Guarded against cross-account leakage. **The subtle part:**
+  the marker is cleared on `succeeded`/`released`/Cancel but deliberately NOT on `failed`/`timedOut`
+  (a client-perceived timeout does not prove the *server* stopped). Without the succeeded-clear, a
+  normal analysis would leave a stale marker and every later cold start would resurrect an
+  already-viewed result.
+- **#85 — structured edge-function logging (`supabase/functions/_shared/log.ts`). NO client crash
+  SDK, deliberately.** Both `docs/app-store-privacy-labels.md` and the M7 privacy checklist rest on
+  "no analytics or crash SDK is present"; adding Sentry would silently invalidate them. Redaction is
+  enforced **twice, independently**: an exact-key denylist (`frames`, `mediaPaths`, `result`, tokens,
+  `email`) *plus* a value-pattern scan (email/JWT/`data:` URI/bucket-path/signed-URL/base64 shapes)
+  that catches forbidden content under a key nobody listed. `userId` is SHA-256 hashed at every call
+  site. Instruments `analyze-form`'s real failure paths (kill switch, circuit breaker, retry-gated,
+  timeout, honest-partial fallback), all correlated by one `requestId`. **Fixed a real leak:**
+  `purchase-tier` was logging raw `err.message`, and Postgres unique-constraint violations echo the
+  offending value. **#74 and #47 are NOT unblocked by this** — both need client-side visibility,
+  which this deliberately does not add.
+- **#60 — Elite compare (`app/compare.tsx` + `lib/compare.ts`).** Client-side diff of two stored
+  results; no AI call, no quota burn, no edge function. A pillar that is `null` ("not assessed") on
+  *either* side renders as not-assessed, **never a delta of zero** — the fabrication trap a diff view
+  is most likely to fall into, now locked by a test that puts a real score on the opposite side.
+  Registered inside `Stack.Protected` — an undeclared route file renders as an unguarded top-level
+  screen.
+- **#137 — the orphaned-media sweeper has an entrypoint (`supabase/functions/sweep-orphaned-media/`).
+  IT IS NOT SCHEDULED — nothing runs it yet.** Route chosen on live evidence: `pg_net` is **not
+  installed** (`pg_cron` is), and a migration in git can never safely carry a secret *value* into
+  Vault, so the recommendation is a Supabase Dashboard Cron Job, not pg_cron+pg_net. **Dry-run is
+  the default**; arming real deletion needs an explicit `{"dryRun": false}`. Auth is a shared secret,
+  constant-time compared, failing closed — the first non-JWT-gated endpoint in the repo.
+- **#37 — `lib/frames.ts` tests closed.** The suite already existed at full coverage; this added the
+  gaps, chiefly a **regression lock tying `PACE_FRAME_CAP` to `reserve_analysis`'s hardcoded SQL
+  literals** (free 1 / pro 5 / elite 8) and a proof that an unrecognized tier fails *safe* — zero
+  frames, never more than the server allows. **Issue #37 contained an impossible acceptance
+  criterion** ("assert keyframe-snapped timestamps are propagated"): neither expo-video-thumbnails
+  native module exposes the decoded frame time (that is #112). No test was written to enshrine it.
+- **#100 — CLOSED, no code. The `storage.objects` grant-all cannot be revoked by a migration, ever.**
+  Re-derived live: the table is owned *and* granted by `supabase_storage_admin`; migrations run as
+  `postgres`, which holds neither membership nor usage, so `REVOKE` **silently no-ops instead of
+  erroring** — a text-level test over migration contents passes while the privilege is fully intact.
+  `anon`/`authenticated` still hold `GRANT ALL` including **TRUNCATE**, which no RLS policy can
+  filter; it is unreachable (schema not PostgREST-exposed) and the control of record is the
+  `pace_media_object_guard` trigger. `public.analyses` IS genuinely hardened (owned by `postgres`).
+  **Also corrected: `CLAUDE.md` claimed both grant migrations were unpushed. They are live.** That
+  false claim had been sending agents after a phantom.
+
 ## 2026-07-13 (large parallel batch — 15 worktrees, 19 issues fully resolved, 4 partial)
 
 A large parallel batch landed on `main` the same day as the entries below it (which predate this
