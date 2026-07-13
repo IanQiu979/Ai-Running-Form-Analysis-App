@@ -224,6 +224,21 @@ export const Copy = {
     empty: {
       caption: 'Nothing analyzed yet.',
     },
+    // NEW key group, nested inside the existing `home:` namespace (issue #140's own instruction:
+    // no new top-level namespace). Not in the copy deck — #64/#140's process-kill recovery is
+    // newer than the deck. Shown when `lib/pending-analysis.ts`'s startup check finds an
+    // analysis that was `released` (the server gave up on it) while the app that started it was
+    // dead. Deliberately no "delivered" copy here: that outcome routes straight to
+    // `/result/[id]` with no interstitial, same as a normal success. Reuses
+    // `analyzing.error.failed`'s "coach, not scold" tone (plain text, no Semantic.error) rather
+    // than inventing a second voice for the same underlying fact.
+    pending: {
+      released: {
+        title: "Your last analysis didn't go through",
+        body: "It wasn't counted against your quota — start a new one whenever you're ready.",
+        dismiss: 'Dismiss',
+      },
+    },
   },
   consent: {
     upload: {
