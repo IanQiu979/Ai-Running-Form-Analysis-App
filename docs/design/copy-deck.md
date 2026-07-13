@@ -75,7 +75,7 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 | `auth.error.signInCancelled` | "Sign-in was cancelled." | Google sign-in (issue #5): the provider's own redirect carried `error=access_denied` — the user declined on Google's consent screen after the browser sheet had already "succeeded" from `WebBrowser`'s point of view, so the normal silent-cancel path (closing the sheet) never fires and the app has to say something or the user is left wondering if it worked. Provider-neutral wording on purpose — Apple sign-in (`auth.cta.apple`) will hit the same code path once it ships. |
 | `auth.error.signInExpired` | "Sign-in expired before it could finish. Try again." | Google sign-in (issue #5): the PKCE verifier stored on-device was missing or no longer matched what the server had on file (lost/cleared storage, a different app install, or too much time passed between starting the browser flow and the redirect landing back). Previously this failure was silently swallowed — the user landed back on sign-in with nothing. |
 
-### Password reset (issue #81) — NEW, NOT COPY-CERTIFIED, awaiting review
+### Password reset (issue #81) — NEW, CERTIFIED by Ian 2026-07-13
 
 There was previously no way back into an email account for a user who forgot their password —
 `auth.error.invalidCredentials`'s note above records that the earlier "…or reset your password"
@@ -130,7 +130,7 @@ a draft until certified.
 | `home.quota.error.stale` | "Showing your last known plan status." | Quota-status fetch failed — show the last cached value with this quiet caption, not a blocking error. |
 | `home.quota.error.failed` | "Couldn't load your plan status." | Quota fetch failed and there is no cached value to show (first load). Paired with the retry action. Backfilled 2026-07-11 from the M1 build — the deck originally only covered the has-cache case. |
 | `home.quota.error.retry` | "Retry" | Small text action next to the stale/failed caption — reuse `shared.cta.retry`. |
-| `home.quota.blocked` | "You can't start a new analysis right now. Try again later." | NEW key (issues #54/#15), NOT COPY-CERTIFIED — awaiting review. `pace_quota_status` can report `blocked: true` (issue #6's anti-farm cap) independently of `remaining` — a user can have quota left and still be refused right now. This deck never specced the state; kept short and generic rather than inventing detailed anti-farm messaging. |
+| `home.quota.blocked` | "You can't start a new analysis right now. Try again later." | NEW key (issues #54/#15), CERTIFIED by Ian 2026-07-13. `pace_quota_status` can report `blocked: true` (issue #6's anti-farm cap) independently of `remaining` — a user can have quota left and still be refused right now. This deck never specced the state; kept short and generic rather than inventing detailed anti-farm messaging. |
 | `home.recent.label` | "Your last analysis" | Heading above the most-recent gait-plate thumbnail, once history exists. |
 | `home.empty.caption` | "Nothing analyzed yet." | Optional small line under the faint annotated-figure motif, before any history exists. The motif + CTA already carry the empty state per brief §4.2 — this is a one-line reinforcement, not required. |
 
@@ -291,16 +291,16 @@ failure, not a network one).
 | `history.empty.body` | "Your analyses will live here." | Per brief §4.8, verbatim. |
 | `history.empty.cta` | "Analyze my form" | The one action that fills the empty state (rule 4) — routes into the capture flow. |
 | `history.item.a11yLabel` | "Analysis from {date}, overall {score} out of 100, {band}." | VoiceOver label for each list row. |
-| `history.item.a11yLabelNotAssessed` | "Analysis from {date}, not assessed." | NEW key (issue #55), NOT COPY-CERTIFIED — awaiting review. An analysis whose overall is honestly null (every pillar not assessed) still needs a real VoiceOver sentence — mirrors `result.pillar.notAssessed.generic`'s "never stringify null as a score" rule. |
-| `history.item.deleteCta` | "Delete" | NEW key (issue #55), NOT COPY-CERTIFIED — awaiting review. This deck specs the confirmation dialog (`history.delete.confirm.*` below) but not a label for the row's own delete trigger — the built screen's affordance is a persistent tappable control per row (design brief §8 offers swipe/long-press as alternatives; a persistent tap target reads correctly to VoiceOver with no gesture to discover). |
+| `history.item.a11yLabelNotAssessed` | "Analysis from {date}, not assessed." | NEW key (issue #55), CERTIFIED by Ian 2026-07-13. An analysis whose overall is honestly null (every pillar not assessed) still needs a real VoiceOver sentence — mirrors `result.pillar.notAssessed.generic`'s "never stringify null as a score" rule. |
+| `history.item.deleteCta` | "Delete" | NEW key (issue #55), CERTIFIED by Ian 2026-07-13. This deck specs the confirmation dialog (`history.delete.confirm.*` below) but not a label for the row's own delete trigger — the built screen's affordance is a persistent tappable control per row (design brief §8 offers swipe/long-press as alternatives; a persistent tap target reads correctly to VoiceOver with no gesture to discover). |
 | `history.delete.confirm.title` | "Delete this analysis?" | Swipe/long-press → delete. |
 | `history.delete.confirm.body` | "This removes the result and its saved frames. This can't be undone." | States both halves of the purge (row + frames), matching Ruling 6. |
 | `history.delete.confirm.cta.primary` | "Delete analysis" | Names the destruction (rule 3), not "OK." |
 | `history.delete.confirm.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel`. |
-| `history.delete.error.title` | "Couldn't delete this analysis" | NEW key (issue #55), NOT COPY-CERTIFIED — awaiting review. This deck covers the confirm dialog but not a failed delete's own outcome. |
+| `history.delete.error.title` | "Couldn't delete this analysis" | NEW key (issue #55), CERTIFIED by Ian 2026-07-13. This deck covers the confirm dialog but not a failed delete's own outcome. |
 | `history.delete.error.body` | "Check your connection and try again." | |
 | `history.delete.error.dismiss` | "OK" | Reuses `settings.alertDismiss`'s wording by value. |
-| `history.error.loadFailed` | "Couldn't load your past analyses." | NEW key (issue #55), NOT COPY-CERTIFIED — awaiting review. This deck's §5 states checklist names a loading state for this list but not a load-FAILURE state; mirrors `result.error.*`'s identical addition for the single-result screen. |
+| `history.error.loadFailed` | "Couldn't load your past analyses." | NEW key (issue #55), CERTIFIED by Ian 2026-07-13. This deck's §5 states checklist names a loading state for this list but not a load-FAILURE state; mirrors `result.error.*`'s identical addition for the single-result screen. |
 | `history.error.retry` | "Retry" | Reuse `shared.cta.retry`. |
 | `result.loadingFromHistory` | "Loading your result…" | Opening a stored result cold — regenerating the short-TTL signed URLs for its frames. |
 | `history.compare.cta` | "Compare two analyses" | Elite tier, ≥2 analyses exist — entry point into the Compare screen. |
@@ -350,7 +350,7 @@ failure, not a network one).
 | `paywall.cta.upgrade.elite` | "Upgrade to Elite" | |
 | `paywall.cta.current` | "Current plan" | Disabled-state label on the user's own tier card. |
 
-### Purchase pending/success/failure (issue #52) — NEW, NOT COPY-CERTIFIED, awaiting review
+### Purchase pending/success/failure (issue #52) — NEW, CERTIFIED by Ian 2026-07-13
 
 This deck's Screen 10 table above only ever specced the three static tier cards and the two
 402-triggered gate banners — it never covered what happens DURING or AFTER tapping an "Upgrade"
@@ -402,7 +402,7 @@ a draft until certified.
 | `settings.privacy.body` | "Your original photo or video never leaves your device. We extract a small number of still frames from it on your phone, and only those frames are uploaded — stored in a private location only you can access, and kept there until you delete the analysis or your account. To generate your results, the stored frames are sent to Anthropic, our AI provider, to analyze your form." | Fuller Settings disclosure, matching the first-upload consent line's facts (frames-only, private + kept-until-deleted, sent to Anthropic for analysis). Corrected 2026-07-12: the previous string said frames were "stored" while also claiming videos were "stored in a private location" — self-contradictory, and factually wrong per Ruling 1 / `architecture.md` (the original video never leaves the device; only extracted frames are ever uploaded or stored). |
 | `settings.privacy.deleteNote` | "Deleting an analysis removes its stored frames immediately. Deleting your account removes everything." | |
 
-### Reauthentication (issue #124) — NEW, NOT COPY-CERTIFIED, awaiting review
+### Reauthentication (issue #124) — NEW, CERTIFIED by Ian 2026-07-13
 
 `delete-account` now requires proof of a *recent* real credential (password or OAuth), not just a
 valid session, before it runs the purge (server-side gate — see `_shared/delete-account.ts`'s
@@ -448,9 +448,9 @@ earlier plain Continue/Cancel draft.
 | `consent.upload.cta.primary` | "I consent — continue" | Proceeds into the upload/capture flow. **Disabled until `consent.upload.checkbox` is ticked.** |
 | `consent.upload.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel`; returns to the source picker without uploading anything. Unchanged. |
 | `consent.upload.error.record` | "We couldn't record your consent, so nothing has been uploaded. Check your connection and try again." | NEW key. The consent write to `public.consents` failed. States plainly that nothing was sent — matching `offline.blocked.body`'s "nothing has been sent yet" rule (brief §5: never claim a state that isn't true). The gate stays up and the primary CTA stays available for a retry; the user is never advanced into the upload flow on a failed consent write. |
-| `consent.upload.age.checkbox` | "I confirm I'm 16 or older." | NEW key (issue #94), NOT COPY-CERTIFIED — awaiting review. Shown on the same once-ever screen as `consent.upload.checkbox` above, its own checkbox, both required before the primary CTA enables. `docs/privacy-policy.md` already states a 16+ minimum; nothing had asked or recorded it anywhere in the app before this. |
+| `consent.upload.age.checkbox` | "I confirm I'm 16 or older." | NEW key (issue #94), CERTIFIED by Ian 2026-07-13. Shown on the same once-ever screen as `consent.upload.checkbox` above, its own checkbox, both required before the primary CTA enables. `docs/privacy-policy.md` already states a 16+ minimum; nothing had asked or recorded it anywhere in the app before this. |
 
-### Subject attestation (issue #94) — NEW, NOT COPY-CERTIFIED, awaiting review
+### Subject attestation (issue #94) — NEW, CERTIFIED by Ian 2026-07-13
 
 The gap the consent block above doesn't cover: `consent.upload.checkbox` is "I consent to **my**
 images" by construction, so it says nothing when the uploader is filming someone else — the most

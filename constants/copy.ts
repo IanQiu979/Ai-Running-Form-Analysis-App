@@ -62,10 +62,11 @@ export const Copy = {
       emailInvalid: 'Enter a valid email address.',
       passwordRequired: 'Enter your password.',
       // --- issue #17 NEW keys end ---
-      // No "or reset your password" — there is no forgot-password link, reset screen, or
-      // resetPasswordForEmail call anywhere in the app (issue #18). Only re-add that clause
-      // in the same change that ships the route it points at.
-      invalidCredentials: "Email or password doesn't match. Try again.",
+      // The "or reset your password" clause is back (issue #18's closing condition): the route it
+      // points at now exists — app/(auth)/reset-password.tsx, reached from the "Forgot password?"
+      // link on sign-in (issue #81). Before that, this clause pointed at nothing and was a dead
+      // end dressed up as help.
+      invalidCredentials: "Email or password doesn't match. Try again, or reset your password.",
       emailInUse: 'An account already exists with this email. Sign in instead.',
       generic: "Sign-in didn't go through. Try again.",
       passwordBreached:
@@ -386,7 +387,7 @@ export const Copy = {
     },
     item: {
       a11yLabel: 'Analysis from {date}, overall {score} out of 100, {band}.',
-      // --- issue #55 NEW keys start — NOT in docs/design/copy-deck.md, NOT copy-certified.
+      // --- issue #55 NEW keys start — NOT in docs/design/copy-deck.md, CERTIFIED by Ian 2026-07-13.
       // `a11yLabelNotAssessed`: an analysis whose overall is honestly null (every pillar not
       // assessed — `@shared/pace`'s `PaceOverall` doc comment: "never a fabricated overall built
       // from zero real data") still needs a real VoiceOver sentence, mirroring
@@ -626,7 +627,7 @@ export const Copy = {
     // --- issue #53 NEW copy ends ---
 
     // ----------------------------------------------------------------------------------------
-    // --- issue #124 NEW copy starts — NOT in the copy deck, NOT copy-certified. Needs review. ---
+    // --- issue #124 NEW copy starts — NOT in the copy deck, CERTIFIED by Ian 2026-07-13. Reviewed and certified. ---
     //
     // The delete-account edge function now requires proof of a RECENT real credential (password or
     // OAuth), not just a valid session, before it will run the purge (server-side gate — see
@@ -744,7 +745,7 @@ export const Copy = {
       current: 'Current plan',
     },
     // ----------------------------------------------------------------------------------------
-    // --- issue #52 NEW copy starts — NOT in the copy deck, NOT copy-certified. Needs review. ---
+    // --- issue #52 NEW copy starts — NOT in the copy deck, CERTIFIED by Ian 2026-07-13. Reviewed and certified. ---
     //
     // `alertDismiss` — dismisses the purchase result Alert below. Same value and role as
     // `settings.alertDismiss` ("Dismisses an informational alert"), duplicated by value rather
