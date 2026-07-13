@@ -1,45 +1,53 @@
 /**
- * Compliance locks for <ConsentGate /> (issue #68).
+ * Compliance locks for <ConsentGate /> (issues #68 and #68's follow-on, #94).
  *
- * One assertion in this file matters more than the rest: the primary CTA is DISABLED until the
- * checkbox is ticked (case 1), and grantConsent is not called before then (case 2). That gate is
- * what makes the consent affirmative and unbundled — i.e. Art. 9 explicit consent rather than a
- * "by continuing" notice, which is what the copy deck was upgraded away from in PR #72. If a
- * refactor ever enables that button by default, the consent silently stops being valid and
- * nothing else in the suite notices.
+ * The gate now has two phases (see the component's own docblock for the full reasoning):
+ *   - 'health' — #68's self-consent checkbox + #94's age-confirmation checkbox, both once-ever.
+ *   - 'subject' — #94's "who is actually in this photo or video" question, asked EVERY time,
+ *     with a fresh third-party attestation required whenever the answer is "someone else."
  *
- * `@testing-library/react-native@14` (installed in Task 4) made `render` and `fireEvent.*`
- * return Promises — the new `test-renderer` backing it (react-test-renderer's React-19-era
- * replacement) requires every interaction to flush through an awaited `act()`. Every render/press
- * below is awaited for that reason; skipping the await leaves `screen` pointed at its unattached
- * default (every query throws "`render` function has not been called") because `setRenderResult`
- * only runs once the promise resolves.
+ * Three assertions in this file matter more than the rest:
+ *   1. The phase-'health' primary CTA is disabled until BOTH checkboxes are ticked (not just
+ *      one) — otherwise the age confirmation #94 added would be decorative.
+ *   2. Phase 'subject' is never skipped, even for a user who granted phase 'health' long ago —
+ *      a once-ever grant proves nothing about who is in TODAY's clip.
+ *   3. A "someone else" answer and a "this is me" answer record DIFFERENT consent keys
+ *      (`THIRD_PARTY_ATTESTATION_CONSENT` vs. nothing new at all) — the record must distinguish
+ *      self-consent from third-party attestation, and the only thing that can prove it does is a
+ *      test that inspects which key `grantConsent` was actually called with.
+ *
+ * `@testing-library/react-native@14`'s `render`/`fireEvent.*` return Promises that must be
+ * awaited through `act()` — every render/press below is awaited for that reason (see the
+ * original file this was extended from for the fuller explanation).
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import type { TestInstance } from 'test-renderer';
 
 import { ConsentGate } from '../consent-gate';
 import { Copy } from '@/constants/copy';
-import { grantConsent, UPLOAD_HEALTH_CONSENT } from '@/lib/consent';
+import {
+  AGE_CONFIRMATION_CONSENT,
+  grantConsent,
+  hasConsented,
+  THIRD_PARTY_ATTESTATION_CONSENT,
+  UPLOAD_HEALTH_CONSENT,
+} from '@/lib/consent';
 
 jest.mock('@/lib/consent', () => ({
   UPLOAD_HEALTH_CONSENT: 'upload.health.v1',
+  AGE_CONFIRMATION_CONSENT: 'upload.ageConfirmation.v1',
+  THIRD_PARTY_ATTESTATION_CONSENT: 'upload.thirdPartyAttestation.v1',
   grantConsent: jest.fn(),
+  hasConsented: jest.fn(),
 }));
 
 const mockGrantConsent = grantConsent as jest.MockedFunction<typeof grantConsent>;
-
-async function renderGate() {
-  const onConsented = jest.fn();
-  const onCancel = jest.fn();
-  await render(<ConsentGate onConsented={onConsented} onCancel={onCancel} />);
-  return { onConsented, onCancel };
-}
+const mockHasConsented = hasConsented as jest.MockedFunction<typeof hasConsented>;
 
 // Walks up from a host element to the nearest ancestor Pressable's own `onPress` prop, reading
 // it off the underlying fiber (test-renderer's `unstable_fiber`, the same field fireEvent.press
-// itself resorts to internally). Used only by the race test below, and only for the press that
-// must NOT go through fireEvent.press's own act()-wrapping — see that test for why.
+// itself resorts to internally). Used only by the race tests below, and only for the press that
+// must NOT go through fireEvent.press's own act()-wrapping — see those tests for why.
 function getOnPress(instance: TestInstance): () => void {
   let fiber = instance.unstable_fiber;
   while (fiber) {
@@ -54,170 +62,376 @@ function getOnPress(instance: TestInstance): () => void {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGrantConsent.mockResolvedValue(undefined);
+  // Default: neither once-ever consent has been granted yet — the common "first ever upload"
+  // case — so the gate starts at phase 'health'. Tests that want the returning-user case
+  // (phase 'subject' straight away) override this per-test.
+  mockHasConsented.mockResolvedValue(false);
 });
 
-// Case 1: THE lock. The consent is only explicit because this button starts unusable.
-it('disables the primary CTA until the checkbox is ticked', async () => {
-  await renderGate();
-
-  // Re-query after the press rather than holding the element reference across the re-render —
-  // a held reference can be stale and would silently assert against the pre-toggle tree.
-  expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(true);
-
-  await fireEvent.press(screen.getByTestId('consent-checkbox'));
-
-  expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(false);
-});
-
-// Case 2: and the disabled button must be inert, not merely styled as disabled.
-it('does not record consent when the CTA is pressed before the checkbox is ticked', async () => {
-  await renderGate();
-
-  await fireEvent.press(screen.getByTestId('consent-cta-primary'));
-
-  expect(mockGrantConsent).not.toHaveBeenCalled();
-});
-
-it('records the consent and advances once the checkbox is ticked and the CTA pressed', async () => {
-  const { onConsented } = await renderGate();
-
-  await fireEvent.press(screen.getByTestId('consent-checkbox'));
-  await fireEvent.press(screen.getByTestId('consent-cta-primary'));
-
-  await waitFor(() => expect(onConsented).toHaveBeenCalledTimes(1));
-  expect(mockGrantConsent).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT);
-});
-
-// Case 4: fail closed. If the record did not persist, the user has NOT consented as far as we
-// can prove — so they must not be advanced into the upload flow.
-it('does not advance when recording the consent fails, and says so', async () => {
-  mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
-  const { onConsented } = await renderGate();
-
-  await fireEvent.press(screen.getByTestId('consent-checkbox'));
-  await fireEvent.press(screen.getByTestId('consent-cta-primary'));
-
-  await waitFor(() => expect(screen.getByText(Copy.consent.upload.error.record)).toBeTruthy());
-  expect(onConsented).not.toHaveBeenCalled();
-});
-
-it('cancels without recording anything', async () => {
-  const { onCancel } = await renderGate();
-
-  await fireEvent.press(screen.getByTestId('consent-cta-secondary'));
-
-  expect(onCancel).toHaveBeenCalledTimes(1);
-  expect(mockGrantConsent).not.toHaveBeenCalled();
-});
-
-// Finding 1: a cancel-mid-write race must not fire both callbacks. Per this component's own
-// contract, onCancel() unmounts/replaces the gate — but the in-flight grantConsent() write
-// keeps running underneath and, unguarded, its resolution would call onConsented() from a
-// stale closure, advancing a user into upload right after they cancelled.
-it('never calls onConsented if Cancel is pressed while the grant write is still pending', async () => {
-  // A controlled promise standing in for the network round-trip: it does not resolve until this
-  // test calls `resolveGrant()`, which is what lets us press Cancel WHILE the write is in flight.
-  let resolveGrant: () => void = () => {};
-  mockGrantConsent.mockImplementation(
-    () =>
-      new Promise<void>((resolve) => {
-        resolveGrant = resolve;
-      })
-  );
-  const { onConsented, onCancel } = await renderGate();
-
-  await fireEvent.press(screen.getByTestId('consent-checkbox'));
-
-  // Deliberately not awaited: `fireEvent.press` wraps the press in `act()`, and because
-  // `handleConsent` is async and doesn't settle until grantConsent's still-pending promise
-  // resolves, awaiting this here would hang the test on the very thing we're trying to
-  // interrupt with Cancel.
-  const primaryPress = fireEvent.press(screen.getByTestId('consent-cta-primary'));
-
-  // Press Cancel while that write is still in flight — but via the raw handler, not another
-  // `fireEvent.press`. A second `fireEvent.press` would open its own `act()` scope before the
-  // first (still-pending) one closes, which React disallows ("overlapping act() calls") and
-  // which corrupts every test that runs after this one. Calling the handler directly is safe
-  // here because it performs no React state update (see the component: it only flips a ref and
-  // calls the `onCancel` prop) — there's nothing for `act()` to flush.
-  getOnPress(screen.getByTestId('consent-cta-secondary'))();
-  expect(onCancel).toHaveBeenCalledTimes(1);
-
-  // The write resolves only now — after the user already cancelled.
-  resolveGrant();
-  await primaryPress;
-
-  expect(onConsented).not.toHaveBeenCalled();
-});
-
-// Same trigger as the race test above, but pins a different property: the Cancel button must
-// actually be disabled while the write is in flight, not merely inert-by-luck because the race
-// test never presses it through fireEvent. `getOnPress` (used above) reads the raw handler off
-// the fiber and bypasses Pressable's own `disabled` gate entirely, so that test cannot catch a
-// regression here — this one presses nothing, it only asserts the prop, so there is no second
-// fireEvent.press and no act()-overlap to work around.
-it('disables the Cancel button while the grant write is still pending', async () => {
-  let resolveGrant: () => void = () => {};
-  mockGrantConsent.mockImplementation(
-    () =>
-      new Promise<void>((resolve) => {
-        resolveGrant = resolve;
-      })
-  );
-  await renderGate();
-
-  await fireEvent.press(screen.getByTestId('consent-checkbox'));
-
-  const p = fireEvent.press(screen.getByTestId('consent-cta-primary'));
-  await waitFor(() =>
-    expect(screen.getByTestId('consent-cta-secondary').props.accessibilityState.disabled).toBe(
-      true
-    )
-  );
-
-  resolveGrant();
-  await p;
-});
-
-// Finding 1 (re-review): the button isn't the only way this gate goes away mid-write. A
-// modal-host backdrop tap, hardware back, swipe-to-dismiss, or navigating away all unmount this
-// component without ever running handleCancel — so the guard has to be keyed to the component's
-// lifecycle, not to that one button.
-it('never calls onConsented if the gate is unmounted while the grant write is still pending', async () => {
-  let resolveGrant: () => void = () => {};
-  mockGrantConsent.mockImplementation(
-    () =>
-      new Promise<void>((resolve) => {
-        resolveGrant = resolve;
-      })
-  );
+/** Renders the gate and waits for its initial hasConsented() check to resolve into phase
+ *  'health' — the default starting phase for a user who has never granted either once-ever
+ *  consent. */
+async function renderAtHealthPhase() {
   const onConsented = jest.fn();
   const onCancel = jest.fn();
-  const view = await render(<ConsentGate onConsented={onConsented} onCancel={onCancel} />);
+  await render(<ConsentGate onConsented={onConsented} onCancel={onCancel} />);
+  await waitFor(() => expect(screen.getByTestId('consent-checkbox')).toBeTruthy());
+  return { onConsented, onCancel };
+}
 
-  await fireEvent.press(view.getByTestId('consent-checkbox'));
+/** Renders the gate with both once-ever consents already granted, and waits for it to skip
+ *  straight to phase 'subject' — the returning-user case #94 added. */
+async function renderAtSubjectPhase() {
+  mockHasConsented.mockResolvedValue(true);
+  const onConsented = jest.fn();
+  const onCancel = jest.fn();
+  await render(<ConsentGate onConsented={onConsented} onCancel={onCancel} />);
+  await waitFor(() => expect(screen.getByTestId('consent-subject-option-me')).toBeTruthy());
+  return { onConsented, onCancel };
+}
 
-  const primaryPress = fireEvent.press(view.getByTestId('consent-cta-primary'));
-  await waitFor(() =>
-    expect(view.getByTestId('consent-cta-secondary').props.accessibilityState.disabled).toBe(true)
-  );
+/** Walks a first-time user through phase 'health' so a test can start from phase 'subject'
+ *  without pre-granting anything — proves the transition itself works, unlike
+ *  `renderAtSubjectPhase`, which skips phase 'health' by mocking it as already granted. */
+async function advanceToSubjectPhase() {
+  const result = await renderAtHealthPhase();
+  await fireEvent.press(screen.getByTestId('consent-checkbox'));
+  await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
+  await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+  await waitFor(() => expect(screen.getByTestId('consent-subject-option-me')).toBeTruthy());
+  return result;
+}
 
-  await view.unmount();
+describe('starting phase', () => {
+  it('shows a loading indicator while determining the starting phase', async () => {
+    // Two calls go out (health + age — see the next test), each its own Promise instance, so
+    // every resolver must be captured and resolved — a single shared `resolve` variable would
+    // get overwritten by the second call and leave the first permanently pending.
+    const resolvers: ((value: boolean) => void)[] = [];
+    mockHasConsented.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
 
-  // The write resolves only now — after the host already tore the gate down.
-  resolveGrant();
-  await primaryPress;
+    await render(<ConsentGate onConsented={jest.fn()} onCancel={jest.fn()} />);
+    expect(screen.getByTestId('consent-loading')).toBeTruthy();
 
-  expect(onConsented).not.toHaveBeenCalled();
-  expect(onCancel).not.toHaveBeenCalled();
+    resolvers.forEach((resolve) => resolve(false));
+    await waitFor(() => expect(screen.getByTestId('consent-checkbox')).toBeTruthy());
+  });
+
+  it('checks both the health and age once-ever consents before deciding whether to skip phase health', async () => {
+    await renderAtHealthPhase();
+
+    expect(mockHasConsented).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT);
+    expect(mockHasConsented).toHaveBeenCalledWith(AGE_CONFIRMATION_CONSENT);
+  });
+
+  it('does not skip phase health if only one of the two once-ever consents was previously granted', async () => {
+    mockHasConsented.mockImplementation(async (key: string) => key === UPLOAD_HEALTH_CONSENT);
+
+    await render(<ConsentGate onConsented={jest.fn()} onCancel={jest.fn()} />);
+
+    await waitFor(() => expect(screen.getByTestId('consent-checkbox')).toBeTruthy());
+  });
+
+  it('skips straight to phase subject once both once-ever consents are already granted', async () => {
+    await renderAtSubjectPhase();
+
+    expect(screen.queryByTestId('consent-checkbox')).toBeNull();
+  });
+
+  // Fail closed (lib/consent.ts's own contract): a thrown hasConsented() must not be read as
+  // "already granted" — that would skip Art. 9 consent entirely on a network flake.
+  it('treats a thrown hasConsented() as not-yet-granted and starts at phase health', async () => {
+    mockHasConsented.mockRejectedValue(new Error('network unreachable'));
+
+    await render(<ConsentGate onConsented={jest.fn()} onCancel={jest.fn()} />);
+
+    await waitFor(() => expect(screen.getByTestId('consent-checkbox')).toBeTruthy());
+  });
 });
 
-// The checkbox label names the health processing and Anthropic by name. That naming is what
-// carries Art. 9 — a generic "I agree to the terms" would not.
-it('renders the deck consent copy verbatim', async () => {
-  await renderGate();
+describe('phase: health (issue #68 self-consent + issue #94 age confirmation)', () => {
+  // THE lock, extended: the button starts unusable, and one checkbox alone is not enough.
+  it('disables the primary CTA until BOTH the self-consent and age checkboxes are ticked', async () => {
+    await renderAtHealthPhase();
 
-  expect(screen.getByText(Copy.consent.upload.title)).toBeTruthy();
-  expect(screen.getByText(Copy.consent.upload.body)).toBeTruthy();
-  expect(screen.getByText(Copy.consent.upload.checkbox)).toBeTruthy();
+    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(true);
+
+    await fireEvent.press(screen.getByTestId('consent-checkbox'));
+    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(true);
+
+    await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
+    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(false);
+  });
+
+  it('does not record anything when the CTA is pressed before both checkboxes are ticked', async () => {
+    await renderAtHealthPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+    expect(mockGrantConsent).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('consent-checkbox'));
+    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+    expect(mockGrantConsent).not.toHaveBeenCalled();
+  });
+
+  it('records both the health consent and the age confirmation, and advances to phase subject, once both checkboxes are ticked and the CTA is pressed', async () => {
+    const { onConsented } = await renderAtHealthPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-checkbox'));
+    await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
+    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+
+    expect(mockGrantConsent).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT);
+    expect(mockGrantConsent).toHaveBeenCalledWith(AGE_CONFIRMATION_CONSENT);
+    await waitFor(() => expect(screen.getByTestId('consent-subject-option-me')).toBeTruthy());
+    // Phase 'subject' still needs answering — onConsented must not fire yet.
+    expect(onConsented).not.toHaveBeenCalled();
+  });
+
+  it('does not advance to phase subject when recording fails, and says so', async () => {
+    mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
+    const { onConsented } = await renderAtHealthPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-checkbox'));
+    await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
+    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+
+    await waitFor(() => expect(screen.getByText(Copy.consent.upload.error.record)).toBeTruthy());
+    expect(screen.getByTestId('consent-checkbox')).toBeTruthy();
+    expect(onConsented).not.toHaveBeenCalled();
+  });
+
+  it('cancels without recording anything', async () => {
+    const { onCancel } = await renderAtHealthPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-cta-secondary'));
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(mockGrantConsent).not.toHaveBeenCalled();
+  });
+
+  it('never calls onConsented if Cancel is pressed while the health/age grant write is still pending', async () => {
+    // Two grantConsent calls go out together (Promise.all — health + age), each its own Promise
+    // instance, so every resolver must be captured — a single shared `resolve` variable would be
+    // overwritten by the second call and leave the first (and therefore the whole Promise.all)
+    // permanently pending.
+    const resolvers: (() => void)[] = [];
+    mockGrantConsent.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const { onConsented, onCancel } = await renderAtHealthPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-checkbox'));
+    await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
+
+    // Deliberately not awaited — see the module docblock's original race test for why.
+    const primaryPress = fireEvent.press(screen.getByTestId('consent-cta-primary'));
+
+    getOnPress(screen.getByTestId('consent-cta-secondary'))();
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    resolvers.forEach((resolve) => resolve());
+    await primaryPress;
+
+    expect(onConsented).not.toHaveBeenCalled();
+  });
+
+  it('renders the deck consent copy verbatim, including the new age checkbox', async () => {
+    await renderAtHealthPhase();
+
+    expect(screen.getByText(Copy.consent.upload.title)).toBeTruthy();
+    expect(screen.getByText(Copy.consent.upload.body)).toBeTruthy();
+    expect(screen.getByText(Copy.consent.upload.checkbox)).toBeTruthy();
+    expect(screen.getByText(Copy.consent.upload.age.checkbox)).toBeTruthy();
+  });
+});
+
+describe('phase: subject (issue #94 — third-party attestation)', () => {
+  it('requires selecting a subject before the primary CTA enables', async () => {
+    await renderAtSubjectPhase();
+
+    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(true);
+
+    await fireEvent.press(screen.getByTestId('consent-subject-option-me'));
+    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(false);
+  });
+
+  it('requires the third-party attestation checkbox once "Someone else" is selected, and the CTA stays disabled until it is ticked', async () => {
+    await renderAtSubjectPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
+    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(true);
+
+    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
+    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(false);
+  });
+
+  it('does not show the attestation checkbox when "This is me" is selected', async () => {
+    await renderAtSubjectPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-subject-option-me'));
+
+    expect(screen.queryByTestId('consent-subject-checkbox')).toBeNull();
+  });
+
+  // Case: self path. No NEW consent record — self-processing is already covered by the
+  // once-ever UPLOAD_HEALTH_CONSENT grant.
+  it('advances immediately with no new consent record when "This is me" is chosen', async () => {
+    const { onConsented } = await renderAtSubjectPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-subject-option-me'));
+    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+
+    await waitFor(() => expect(onConsented).toHaveBeenCalledTimes(1));
+    expect(mockGrantConsent).not.toHaveBeenCalled();
+  });
+
+  // THE lock for #94: a "someone else" answer records a DIFFERENT key than self-consent —
+  // proving the record actually distinguishes self-consent from third-party attestation, not
+  // just that some write happened.
+  it('records THIRD_PARTY_ATTESTATION_CONSENT, distinct from the self-consent key, when "Someone else" is chosen', async () => {
+    const { onConsented } = await renderAtSubjectPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
+    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
+    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+
+    await waitFor(() => expect(onConsented).toHaveBeenCalledTimes(1));
+    expect(mockGrantConsent).toHaveBeenCalledWith(THIRD_PARTY_ATTESTATION_CONSENT);
+    expect(mockGrantConsent).not.toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT);
+  });
+
+  it('does not advance when recording the third-party attestation fails, and says so', async () => {
+    mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
+    const { onConsented } = await renderAtSubjectPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
+    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
+    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+
+    await waitFor(() => expect(screen.getByText(Copy.consent.upload.subject.error.record)).toBeTruthy());
+    expect(onConsented).not.toHaveBeenCalled();
+  });
+
+  it('cancels without recording anything', async () => {
+    const { onCancel } = await renderAtSubjectPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-cta-secondary'));
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(mockGrantConsent).not.toHaveBeenCalled();
+  });
+
+  it('never calls onConsented if Cancel is pressed while the third-party attestation write is still pending', async () => {
+    let resolveGrant: () => void = () => {};
+    mockGrantConsent.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveGrant = resolve;
+        })
+    );
+    const { onConsented, onCancel } = await renderAtSubjectPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
+    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
+
+    const primaryPress = fireEvent.press(screen.getByTestId('consent-cta-primary'));
+
+    getOnPress(screen.getByTestId('consent-cta-secondary'))();
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    resolveGrant();
+    await primaryPress;
+
+    expect(onConsented).not.toHaveBeenCalled();
+  });
+
+  it('disables the Cancel button while the third-party attestation write is still pending', async () => {
+    let resolveGrant: () => void = () => {};
+    mockGrantConsent.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveGrant = resolve;
+        })
+    );
+    await renderAtSubjectPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
+    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
+
+    const p = fireEvent.press(screen.getByTestId('consent-cta-primary'));
+    await waitFor(() =>
+      expect(screen.getByTestId('consent-cta-secondary').props.accessibilityState.disabled).toBe(true)
+    );
+
+    resolveGrant();
+    await p;
+  });
+
+  it('never calls onConsented if the gate is unmounted while the third-party attestation write is still pending', async () => {
+    let resolveGrant: () => void = () => {};
+    mockGrantConsent.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveGrant = resolve;
+        })
+    );
+    mockHasConsented.mockResolvedValue(true);
+    const onConsented = jest.fn();
+    const onCancel = jest.fn();
+    const view = await render(<ConsentGate onConsented={onConsented} onCancel={onCancel} />);
+    await waitFor(() => expect(view.getByTestId('consent-subject-option-other')).toBeTruthy());
+
+    await fireEvent.press(view.getByTestId('consent-subject-option-other'));
+    await fireEvent.press(view.getByTestId('consent-subject-checkbox'));
+
+    const primaryPress = fireEvent.press(view.getByTestId('consent-cta-primary'));
+    await waitFor(() =>
+      expect(view.getByTestId('consent-cta-secondary').props.accessibilityState.disabled).toBe(true)
+    );
+
+    await view.unmount();
+
+    resolveGrant();
+    await primaryPress;
+
+    expect(onConsented).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('renders the subject-phase copy verbatim, including the third-party attestation wording', async () => {
+    await renderAtSubjectPhase();
+
+    expect(screen.getByText(Copy.consent.upload.subject.title)).toBeTruthy();
+    expect(screen.getByText(Copy.consent.upload.subject.body)).toBeTruthy();
+    expect(screen.getByText(Copy.consent.upload.subject.option.me)).toBeTruthy();
+    expect(screen.getByText(Copy.consent.upload.subject.option.other)).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
+    expect(screen.getByText(Copy.consent.upload.subject.thirdParty.checkbox)).toBeTruthy();
+  });
+});
+
+describe('end-to-end: a first-time user who is filming someone else', () => {
+  it('walks through phase health then phase subject, recording all three distinct consents', async () => {
+    const { onConsented } = await advanceToSubjectPhase();
+
+    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
+    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
+    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+
+    await waitFor(() => expect(onConsented).toHaveBeenCalledTimes(1));
+    expect(mockGrantConsent).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT);
+    expect(mockGrantConsent).toHaveBeenCalledWith(AGE_CONFIRMATION_CONSENT);
+    expect(mockGrantConsent).toHaveBeenCalledWith(THIRD_PARTY_ATTESTATION_CONSENT);
+    expect(mockGrantConsent).toHaveBeenCalledTimes(3);
+  });
 });

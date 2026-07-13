@@ -1,5 +1,5 @@
 /**
- * The consent record (issue #68).
+ * The consent record (issues #68 and #94 — one workstream).
  *
  * A checkbox is not consent — it COLLECTS consent. GDPR Art. 7(1) requires the controller to be
  * able to DEMONSTRATE that consent was given, and the injury-risk inferences this app produces
@@ -7,12 +7,24 @@
  * an append-only log in public.consents, one immutable row per grant or withdrawal.
  *
  * Everything here FAILS CLOSED — see hasConsented().
+ *
+ * Three consent keys, not one — see `components/consent-gate.tsx`'s docblock for the full
+ * reasoning behind why they exist and why they don't share a "once granted, never asked again"
+ * lifecycle. In one line: `UPLOAD_HEALTH_CONSENT` and `AGE_CONFIRMATION_CONSENT` are facts about
+ * the ACCOUNT and are granted once, ever; `THIRD_PARTY_ATTESTATION_CONSENT` is a fact about a
+ * SPECIFIC upload (who's actually in that photo or video) and is granted fresh every time the
+ * uploader says the subject is someone else — a returning "self-consent" grant proves nothing
+ * about who is in today's clip. Using a distinct key per grant is also what "the record must
+ * distinguish self-consent from third-party attestation" (issue #94) means in practice: the
+ * `consent_key` column IS that distinction — no extra table or column was needed.
  */
 import { supabase } from './supabase';
 
 /**
  * Consent to the upload → Anthropic → health-feedback processing chain, at the exact wording
- * shipped in `Copy.consent.upload` (copy-deck.md § Consent).
+ * shipped in `Copy.consent.upload` (copy-deck.md § Consent). Self-consent — this is the uploader
+ * consenting to processing of THEIR OWN images. See `THIRD_PARTY_ATTESTATION_CONSENT` for the
+ * distinct grant recorded when the uploader says someone else is in the frame.
  *
  * The version lives in the key on purpose. Consent to one wording is not consent to a later one,
  * so rewording the deck means minting `upload.health.v2` here — at which point hasConsented() is
@@ -21,7 +33,28 @@ import { supabase } from './supabase';
  */
 export const UPLOAD_HEALTH_CONSENT = 'upload.health.v1';
 
-export type ConsentKey = typeof UPLOAD_HEALTH_CONSENT;
+/**
+ * Confirmation that the account holder is 16 or older, per `docs/privacy-policy.md`'s "Age and
+ * other people in your media" section — stated there but, before issue #94, never asked or
+ * recorded anywhere in the app. Granted once, ever, alongside `UPLOAD_HEALTH_CONSENT` on the same
+ * first-upload screen (age only moves in one direction, so there is nothing to re-ask).
+ */
+export const AGE_CONFIRMATION_CONSENT = 'upload.ageConfirmation.v1';
+
+/**
+ * The uploader's attestation, given fresh for a specific upload, that the person shown — who is
+ * NOT the uploader — has agreed to this analysis, or their parent/guardian has if they're a
+ * minor. Recorded ONLY when `components/consent-gate.tsx`'s subject phase answers "someone else"
+ * — a coach filming a different athlete each session is a different data subject each time, so
+ * this is deliberately not a once-ever grant the way the two keys above are (see this module's
+ * docblock and the component's for the full reasoning).
+ */
+export const THIRD_PARTY_ATTESTATION_CONSENT = 'upload.thirdPartyAttestation.v1';
+
+export type ConsentKey =
+  | typeof UPLOAD_HEALTH_CONSENT
+  | typeof AGE_CONFIRMATION_CONSENT
+  | typeof THIRD_PARTY_ATTESTATION_CONSENT;
 
 /**
  * True if the newest consent event for this key is a grant.

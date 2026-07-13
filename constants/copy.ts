@@ -137,6 +137,13 @@ export const Copy = {
       body: 'Your frames are stored privately until you delete them. We send them to Anthropic, our AI provider, to analyse your form. The analysis produces health-related feedback about you, including injury-risk flags.',
       checkbox:
         'I consent to my images being analysed to produce health-related feedback, and to Anthropic processing them to do so.',
+      // NEW key (issue #94). `docs/privacy-policy.md`'s "Age and other people in your media"
+      // section already states a 16+ minimum; nothing asked or recorded it anywhere in the app.
+      // Shown alongside `checkbox` above, on the same once-ever first-upload screen — both must
+      // be ticked before the primary CTA enables (see components/consent-gate.tsx).
+      age: {
+        checkbox: "I confirm I'm 16 or older.",
+      },
       link: {
         privacy: 'Privacy details in Settings',
       },
@@ -147,6 +154,37 @@ export const Copy = {
       error: {
         record:
           "We couldn't record your consent, so nothing has been uploaded. Check your connection and try again.",
+      },
+      // NEW namespace (issue #94). The gap #68's self-consent copy above doesn't cover: that
+      // checkbox is "I consent to MY images" by construction, so it says nothing when the
+      // uploader is filming someone else — the most obvious real use of a running-form analyzer
+      // built by a running coach. This screen asks who is actually in the frame, EVERY time (not
+      // once-ever like the block above — see components/consent-gate.tsx's docblock for why),
+      // and requires a fresh attestation whenever the answer is "someone else."
+      subject: {
+        title: "Who's in this photo or video?",
+        body: "Let us know if you're submitting your own running form, or someone else's — like an athlete you coach or a friend.",
+        option: {
+          me: 'This is me',
+          other: 'Someone else',
+        },
+        thirdParty: {
+          checkbox:
+            "I confirm the person in this photo or video has agreed to this analysis — or, if they're under 16, their parent or guardian has agreed on their behalf — and I consent to Anthropic processing their images to produce this feedback.",
+        },
+        cta: {
+          // A template function, not a plain string — the deck's own convention for a
+          // runtime-templated value (see this file's header note on capture.recording.timer).
+          // The label differs by answer: choosing "This is me" gives no NEW consent (the block
+          // above already covers self-processing), so it reads as plain navigation; choosing
+          // "Someone else" is itself the affirmative attestation act, so the button names that.
+          primary: (subject: 'me' | 'other') => (subject === 'other' ? 'I confirm — continue' : 'Continue'),
+          secondary: 'Cancel',
+        },
+        error: {
+          record:
+            "We couldn't record your confirmation, so nothing has been uploaded. Check your connection and try again.",
+        },
       },
     },
   },
