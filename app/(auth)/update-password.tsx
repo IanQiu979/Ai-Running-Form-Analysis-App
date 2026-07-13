@@ -74,6 +74,7 @@ import { mapAuthError } from '@/lib/auth-errors';
 import { updateRecoveryPassword } from '@/lib/password-reset';
 import { useSession } from '@/lib/session-provider';
 import { supabase } from '@/lib/supabase';
+import { useAnnounce } from '@/lib/use-announce';
 
 // One PKCE exchange round-trip's worth of patience — same order of magnitude as
 // lib/hibp.ts's own TOTAL_TIMEOUT_MS for a single network call, not an arbitrary guess.
@@ -95,6 +96,9 @@ export default function UpdatePasswordScreen() {
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const isBusy = submitStatus === 'submitting';
+  // Issue #11: `accessibilityLiveRegion="polite"` on the error Text below is Android-only — this
+  // is the iOS complement, same pattern as app/(auth)/sign-in.tsx.
+  useAnnounce(errorMessage);
 
   // Signal 1: a session already existed by the time this screen mounted — the exchange (run by
   // lib/session-provider.tsx's own Linking listener, not duplicated here) already finished.

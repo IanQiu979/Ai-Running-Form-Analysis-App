@@ -85,6 +85,7 @@ import { checkConnectivity } from '@/lib/connectivity';
 import { clearPendingAnalysisMarker, setPendingAnalysisMarker } from '@/lib/pending-analysis';
 import { useSession } from '@/lib/session-provider';
 import { supabase } from '@/lib/supabase';
+import { useAnnounce } from '@/lib/use-announce';
 import { isPaceAnalysisOutcome } from '@shared/pace';
 
 export default function AnalyzingScreen() {
@@ -104,6 +105,18 @@ export default function AnalyzingScreen() {
   const [captionPhase, setCaptionPhase] = useState<AnalyzingCaptionPhase>(() => captionPhaseForElapsed(0));
   const longWaitOpacity = useRef(new Animated.Value(0)).current;
   const { session } = useSession();
+  // Issue #11: the waiting-phase caption below carries `accessibilityLiveRegion="polite"`,
+  // Android-only — this is the iOS complement, same pattern as app/(tabs)/index.tsx. Derived from
+  // the same `captionPhase` the caption itself renders, so the announcement always matches what's
+  // on screen (step 0 -> step 1 -> the long-wait line), and goes silent (null) once this screen
+  // leaves 'waiting' — the ErrorPanel below announces its own title/body instead.
+  useAnnounce(
+    state.phase === 'waiting'
+      ? captionPhase.kind === 'step'
+        ? Copy.analyzing.step[captionPhase.stepKey]
+        : Copy.analyzing.longWait
+      : null
+  );
 
   // Defensive bail-out: a direct or cold navigation to this route with nothing staged (module
   // state does not survive a process kill, so this is also what a relaunch mid-analysis looks
@@ -457,6 +470,12 @@ type ErrorPanelProps = {
  * again, nothing was lost" recoverable state.
  */
 function ErrorPanel({ styles, title, body, onRetry, onCancel }: ErrorPanelProps) {
+  // Issue #11: `accessibilityLiveRegion="polite"` on the two Texts below is Android-only — this
+  // is the iOS complement. `ErrorPanel` is only ever mounted fresh for whichever phase is showing
+  // (failed/timedOut/offline/released never render two at once), so this fires once per
+  // presentation, on mount. Title+body announced together as one utterance, not two ticks.
+  useAnnounce(`${title} ${body}`);
+
   return (
     <View style={styles.centerBlock}>
       <Text style={styles.errorTitle} accessibilityLiveRegion="polite">

@@ -54,6 +54,7 @@ import { extractFrames, FrameBudgetExceededError, type PaceFrameSet, type PaceMe
 import { checkMediaCaps, type MediaCapViolation } from '@/lib/media-caps';
 import { readFileSizeBytes } from '@/lib/media-file-size';
 import { parseCaptureParams } from '@/lib/parse-capture-params';
+import { useAnnounce } from '@/lib/use-announce';
 
 import { PACE_FRAME_CAP, type PaceTier } from '@shared/pace';
 
@@ -92,6 +93,20 @@ export default function ExtractingScreen() {
 
   const [state, setState] = useState<ExtractState>({ status: 'extracting', done: 0, total });
   const [attempt, setAttempt] = useState(0);
+  // Issue #11: the extracting-progress caption below carries `accessibilityLiveRegion="polite"`,
+  // Android-only — this is the iOS complement. The ready/error branches carried no live region on
+  // EITHER platform (a status message that reached no screen reader at all, not just an iOS gap) —
+  // `accessibilityLiveRegion="polite"` is added to those two Texts below to match, so both
+  // platforms get an announcement through that prop + this hook together.
+  useAnnounce(
+    state.status === 'extracting'
+      ? Copy.upload.step.extracting(state.done, state.total)
+      : state.status === 'ready'
+        ? `${Copy.upload.ready.title} ${Copy.upload.ready.body(state.frameSet.frames.length)}`
+        : state.status === 'error'
+          ? `${errorCopy(state).title} ${errorCopy(state).body}`
+          : null
+  );
 
   useEffect(() => {
     if (!media) {
@@ -182,7 +197,9 @@ export default function ExtractingScreen() {
 
         {state.status === 'ready' && (
           <View style={styles.centered}>
-            <Text style={styles.resultTitle}>{Copy.upload.ready.title}</Text>
+            <Text style={styles.resultTitle} accessibilityLiveRegion="polite">
+              {Copy.upload.ready.title}
+            </Text>
             <Text style={styles.caption}>{Copy.upload.ready.body(state.frameSet.frames.length)}</Text>
             <Pressable
               accessibilityRole="button"
@@ -196,7 +213,9 @@ export default function ExtractingScreen() {
 
         {state.status === 'error' && (
           <View style={styles.centered}>
-            <Text style={styles.errorTitle}>{errorCopy(state).title}</Text>
+            <Text style={styles.errorTitle} accessibilityLiveRegion="polite">
+              {errorCopy(state).title}
+            </Text>
             <Text style={styles.caption}>{errorCopy(state).body}</Text>
             {state.kind === 'extractionFailed' && (
               <Pressable

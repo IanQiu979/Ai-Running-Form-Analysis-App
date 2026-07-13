@@ -43,6 +43,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { readFileSizeBytes } from '@/lib/media-file-size';
 import { checkMediaCaps } from '@/lib/media-caps';
 import { classifyPermission, permissionRecoveryAction } from '@/lib/permission-state';
+import { useAnnounce } from '@/lib/use-announce';
 
 type PendingAction = 'record' | 'upload' | null;
 type LibraryFlow = 'idle' | 'softAsk';
@@ -290,6 +291,12 @@ function InlinePanel({
   error?: boolean;
 }) {
   const styles = createPanelStyles(colors, scheme);
+  // Issue #11: `accessibilityLiveRegion="polite"` on the panel View below is Android-only — this
+  // is the iOS complement, same pattern as app/(auth)/sign-in.tsx. `InlinePanel` is only ever
+  // mounted while it has something to say (soft-ask / denied / upload-error), so this fires once
+  // per presentation, on mount.
+  useAnnounce(`${title} ${body}`);
+
   return (
     <View style={styles.panel} accessibilityLiveRegion="polite">
       <Text style={[styles.panelTitle, error && styles.panelTitleError]}>{title}</Text>

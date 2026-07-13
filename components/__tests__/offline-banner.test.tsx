@@ -5,10 +5,13 @@
  * showing after connectivity comes back as it does to false "saved" copy).
  */
 import { render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform } from 'react-native';
 
 import { OfflineBanner } from '../offline-banner';
 import { Copy } from '@/constants/copy';
 import { useIsOffline } from '@/lib/connectivity';
+
+const mockAnnounce = AccessibilityInfo.announceForAccessibility as jest.Mock;
 
 // react-native-safe-area-context wraps a native module; the package's own jest mock (used the
 // same way its own README documents) resolves useSafeAreaInsets() to a fixed zeroed inset
@@ -30,6 +33,7 @@ const mockUseIsOffline = useIsOffline as jest.MockedFunction<typeof useIsOffline
 describe('OfflineBanner', () => {
   afterEach(() => {
     mockUseIsOffline.mockReset();
+    mockAnnounce.mockClear();
   });
 
   it('renders nothing while online', async () => {
@@ -62,5 +66,34 @@ describe('OfflineBanner', () => {
     await render(<OfflineBanner />);
 
     expect(screen.getByTestId('offline-banner-text').props.accessibilityLiveRegion).toBe('polite');
+  });
+
+  // Issue #11: `accessibilityLiveRegion` above is Android-only — `lib/use-announce.ts` is the iOS
+  // complement, and this locks that this component actually calls it rather than relying solely
+  // on the Android-only prop asserted above.
+  describe('the iOS announcement (issue #11 — lib/use-announce.ts)', () => {
+    const originalOS = Platform.OS;
+
+    afterEach(() => {
+      Platform.OS = originalOS;
+    });
+
+    it('announces the banner text on iOS when it goes offline', async () => {
+      Platform.OS = 'ios';
+      mockUseIsOffline.mockReturnValue(true);
+
+      await render(<OfflineBanner />);
+
+      expect(mockAnnounce).toHaveBeenCalledWith(Copy.offline.banner);
+    });
+
+    it('never announces while online', async () => {
+      Platform.OS = 'ios';
+      mockUseIsOffline.mockReturnValue(false);
+
+      await render(<OfflineBanner />);
+
+      expect(mockAnnounce).not.toHaveBeenCalled();
+    });
   });
 });

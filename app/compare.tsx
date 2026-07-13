@@ -66,6 +66,7 @@ import { computePaceDeltas, formatPillarDelta, orderByCreatedAt, pillarDeltaA11y
 import { fetchHistoryList, formatHistoryDate, formatHistoryItemA11yLabel, type HistoryListItem } from '@/lib/history';
 import { pillarLabel, pillarLetter } from '@/lib/pace-readout';
 import { getQuotaStatus } from '@/lib/subscription';
+import { useAnnounce } from '@/lib/use-announce';
 import { PACE_PILLARS } from '@shared/pace';
 
 const MAX_SELECTED = 2;
@@ -89,6 +90,15 @@ export default function CompareScreen() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [comparing, setComparing] = useState(false);
   const activeFlagRef = useRef<ActiveFlag>({ active: false });
+  // Issue #11: the loading/error captions below carry `accessibilityLiveRegion="polite"`, which
+  // is Android-only — this is the iOS complement, same pattern as app/(tabs)/index.tsx.
+  useAnnounce(
+    state.status === 'loading'
+      ? Copy.compare.loading
+      : state.status === 'error'
+        ? Copy.compare.error.loadFailed
+        : null
+  );
 
   const load = useCallback(async (active: ActiveFlag) => {
     setState({ status: 'loading' });
