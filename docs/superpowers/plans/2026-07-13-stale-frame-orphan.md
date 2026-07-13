@@ -299,17 +299,78 @@ Not applied to production — a fourth unapplied migration, see #131."
 
 ---
 
-## Task 2: Invert settle/upload in `flow.ts`
+## Task 2: Invert settle/upload in `flow.ts`, and close the delete-during-upload orphan
 
 **Files:**
-- Modify: `supabase/functions/analyze-form/flow.ts:369-394` (the `settleAnalysis` helper), `:753-776` (the call site), `:896-906` (the `uploadFrames` doc comment)
+- Modify: `supabase/migrations/20260713140000_attach_media_paths.sql` (split the refusal reason — see Step 0)
+- Modify: `supabase/__tests__/attach-media-paths.test.ts` (lock the new reasons)
+- Modify: `supabase/functions/analyze-form/flow.ts` (the `settleAnalysis` helper, the call site, the `FrameStorage` interface, the `uploadFrames` doc comment)
+- Modify: `supabase/functions/analyze-form/deps.ts:167-185` (implement `list`/`remove` on the storage dep)
 - Test: `supabase/functions/analyze-form/__tests__/flow.deno.test.ts`
 
 **Interfaces:**
-- Consumes: `public.attach_media_paths(uuid, uuid, text[])` from Task 1.
+- Consumes: `public.attach_media_paths(uuid, uuid, text[])` from Task 1; `purgePrefix(storage, prefix, pageSize)` and `StorageBucket` from `supabase/functions/_shared/delete-analysis.ts`.
 - Produces: nothing further tasks depend on in code. Task 3 documents this behavior.
 
-- [ ] **Step 1: Teach the fake RPC about the new function**
+### Why this task grew: the delete-during-upload orphan
+
+Both reviewers of Task 1 independently found that settle-then-upload opens a **new, narrower orphan window**, and the user chose to close it rather than document it.
+
+`deleteAnalysis` (`_shared/delete-analysis.ts`) purges Storage **first**, then marks the row deleted. That ordering is correct on its own. But under the new flow the row is `'delivered'` — and therefore deletable — *while its frames are still uploading*:
+
+1. `settle_analysis` commits. The row is `'delivered'`, `media_paths = '{}'`.
+2. `analyze-form` starts uploading frames (seconds of work, up to 8 on elite).
+3. The user calls `DELETE /analysis/:id`. `purgePrefix` walks `{uid}/{aid}/`, finds what's landed so far, removes it, verifies the prefix empty, and `markDeleted` sets `deleted_at` (the redaction trigger fires).
+4. The in-flight upload finishes, writing the remaining frames **into the prefix the purge already walked**.
+5. `attach_media_paths` correctly refuses — Task 1's `deleted_at is null` guard — so the row stays redacted and names nothing.
+
+The row is safe. **The objects are not.** They are orphans under a deleted analysis's prefix, and the per-analysis purge has already run; only `delete-account` (#58, which walks `{user_id}/`) would ever reach them. Those are images of a person's body, retained after the user deleted the analysis — the exact defect class this issue exists to kill.
+
+**The fix:** the refusal *is* the signal. When `attach_media_paths` refuses because the row is gone or deleted, the frames we just uploaded are provably orphans, and `safeAttachFrames` purges the prefix it just wrote. This requires splitting the collapsed `not_delivered_or_already_attached` reason, because it conflates two cases demanding **opposite** responses:
+
+- `row_deleted` / `not_found` → **purge.** Nothing will ever name these objects.
+- `already_attached` → **do NOT purge.** The paths are already recorded on a live row; deleting them would destroy a working analysis's frame strip.
+
+- [ ] **Step 0: Split `attach_media_paths`' refusal reason**
+
+The migration is unapplied, so changing its contract is free. In `supabase/migrations/20260713140000_attach_media_paths.sql`, replace the single `if not found then return … 'not_delivered_or_already_attached' … end if;` block with a lookup that names the actual cause. The **guards do not change** — only the reporting does.
+
+```sql
+  if not found then
+    -- The write matched nothing. WHICH guard refused matters to the caller: two of these mean the
+    -- frames it just uploaded are orphans it must purge, and one means the opposite — the paths are
+    -- already recorded on a live row, and purging would destroy a working analysis's frame strip.
+    -- Collapsing them into one reason (as the first draft of this function did) makes the correct
+    -- cleanup impossible to write. See flow.ts's `safeAttachFrames`.
+    select * into v_row
+    from public.analyses
+    where id = p_analysis_id and user_id = p_user_id;
+
+    if not found then
+      -- Hard-deleted (a profiles cascade). Nothing will ever name these objects.
+      return jsonb_build_object('ok', false, 'reason', 'not_found');
+    end if;
+
+    if v_row.deleted_at is not null then
+      -- Soft-deleted while we were uploading. `deleteAnalysis` purges Storage BEFORE it marks the
+      -- row, so anything we wrote after that purge is stranded under an already-walked prefix.
+      return jsonb_build_object('ok', false, 'reason', 'row_deleted');
+    end if;
+
+    if v_row.status <> 'delivered' then
+      return jsonb_build_object('ok', false, 'reason', 'not_delivered');
+    end if;
+
+    -- Write-once refused: media_paths is already populated. The objects are LIVE and NAMED.
+    return jsonb_build_object('ok', false, 'reason', 'already_attached');
+  end if;
+```
+
+Update the migration's header (the guard-2 and guard-3 prose) to describe the four refusal reasons and which two imply a purge. Then update `supabase/__tests__/attach-media-paths.test.ts`: the existing test asserting `'not_delivered_or_already_attached'` must now assert all four reasons exist (`not_found`, `row_deleted`, `not_delivered`, `already_attached`), and that the lookup runs **after** the update (`expect(body.indexOf('update public.analyses')).toBeLessThan(body.indexOf("'row_deleted'"))`).
+
+Run `npx jest supabase/__tests__/attach-media-paths.test.ts` and commit before touching `flow.ts`.
+
+- [ ] **Step 1: Teach the fakes about the new RPC and the storage purge**
 
 In `supabase/functions/analyze-form/__tests__/flow.deno.test.ts`, add one line to `FakeRpc.handlers` (it currently ends with `release_analysis`). Without this, every test throws `FakeRpc: unstubbed rpc "attach_media_paths"`.
 
@@ -317,6 +378,40 @@ In `supabase/functions/analyze-form/__tests__/flow.deno.test.ts`, add one line t
     settle_analysis: () => ({ data: { ok: true }, error: null }),
     attach_media_paths: () => ({ data: { ok: true }, error: null }),
     release_analysis: () => ({ data: { ok: true }, error: null }),
+```
+
+`FakeStorage` must also grow the two methods `purgePrefix` needs, recording what it was asked to remove:
+
+```typescript
+class FakeStorage {
+  readonly uploads: { path: string; bytes: number }[] = [];
+  readonly removed: string[] = [];
+  failOn: (path: string) => boolean = () => false;
+
+  // deno-lint-ignore require-await
+  async upload(path: string, bytes: Uint8Array, _contentType: string) {
+    if (this.failOn(path)) {
+      return { error: 'storage exploded' };
+    }
+    this.uploads.push({ path, bytes: bytes.length });
+    return { error: null };
+  }
+
+  // `purgePrefix` lists, then removes, then re-lists to VERIFY the prefix is empty. This fake must
+  // honour that contract or the verification pass will throw: report what is still present.
+  // deno-lint-ignore require-await
+  async list(prefix: string, _options: { limit: number; offset: number }) {
+    return this.uploads
+      .filter((u) => u.path.startsWith(prefix) && !this.removed.includes(u.path))
+      .map((u) => ({ name: u.path.slice(prefix.length), isFolder: false }));
+  }
+
+  // deno-lint-ignore require-await
+  async remove(paths: string[]) {
+    this.removed.push(...paths);
+    return { error: null };
+  }
+}
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -456,9 +551,73 @@ Deno.test('#130: a THROWING attach_media_paths still delivers 200 and still does
 Deno.test('#130: a REFUSING attach_media_paths still delivers 200 and still does not release', async () => {
   const h = harness([ok()]);
   h.rpc.handlers.attach_media_paths = () => ({
-    data: { ok: false, reason: 'not_delivered_or_already_attached' },
+    data: { ok: false, reason: 'already_attached' },
     error: null,
   });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(h.rpc.to('release_analysis').length, 0);
+});
+
+// --- The delete-during-upload window: the frames we wrote after the user's purge already ran ---
+
+Deno.test('#130: row_deleted mid-upload -> we purge the frames we just wrote', async () => {
+  // `deleteAnalysis` purges Storage BEFORE marking the row. Our upload finished after that purge
+  // walked the prefix, so these objects are stranded under a deleted analysis — images of a
+  // person's body, retained after they asked for them to be gone. The refusal is the signal.
+  const h = harness([ok()]);
+  h.rpc.handlers.attach_media_paths = () => ({
+    data: { ok: false, reason: 'row_deleted' },
+    error: null,
+  });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200, 'the analysis was delivered before the delete — that stands');
+  assertEquals(h.rpc.to('release_analysis').length, 0);
+  assertEquals(h.storage.removed, [
+    `${CALLER}/${ANALYSIS_ID}/frame-01.jpg`,
+    `${CALLER}/${ANALYSIS_ID}/frame-02.jpg`,
+  ]);
+});
+
+Deno.test('#130: not_found (hard-deleted row) -> we purge too', async () => {
+  const h = harness([ok()]);
+  h.rpc.handlers.attach_media_paths = () => ({
+    data: { ok: false, reason: 'not_found' },
+    error: null,
+  });
+
+  await run(h);
+
+  assertEquals(h.storage.removed.length, 2);
+});
+
+Deno.test('#130: already_attached -> we purge NOTHING (those objects are live and named)', async () => {
+  // THE INVERSE MISTAKE, and the more dangerous one: a replay refusal means a live row already
+  // names these paths. Purging here would delete a working analysis's frame strip.
+  const h = harness([ok()]);
+  h.rpc.handlers.attach_media_paths = () => ({
+    data: { ok: false, reason: 'already_attached' },
+    error: null,
+  });
+
+  await run(h);
+
+  assertEquals(h.storage.removed, []);
+});
+
+Deno.test('#130: a purge that itself fails still delivers 200 — nothing after the settle can 500', async () => {
+  const h = harness([ok()]);
+  h.rpc.handlers.attach_media_paths = () => ({
+    data: { ok: false, reason: 'row_deleted' },
+    error: null,
+  });
+  h.storage.remove = () => {
+    throw new Error('storage remove exploded');
+  };
 
   const res = await run(h);
 
@@ -567,13 +726,34 @@ In `flow.ts`, replace the block currently at lines 753-776 (from the `// ── 
     framesUploaded = await safeAttachFrames(deps, callerUserId, analysisId, request.frames);
 ```
 
-- [ ] **Step 6: Add the non-throwing `safeAttachFrames` helper**
+- [ ] **Step 6: Widen the `FrameStorage` interface and implement it**
+
+`purgePrefix` needs `list` and `remove`; `FrameStorage` today has only `upload`. Extend it from the shared `StorageBucket` rather than redeclaring those methods, so there is exactly one definition of the bucket's shape.
+
+In `flow.ts` (the interface is at line 159):
+
+```typescript
+import { purgePrefix, DEFAULT_PAGE_SIZE, type StorageBucket } from '../_shared/delete-analysis.ts';
+
+/** What `analyze-form` needs from the private `media` bucket: it uploads frames, and — when an
+ * attach refuses because the row is gone — purges the prefix it just wrote (#130). `list`/`remove`
+ * come from `StorageBucket`, the same shape `deleteAnalysis` and `delete-account` already use, so
+ * `purgePrefix` can be reused verbatim rather than reimplemented. */
+export interface FrameStorage extends StorageBucket {
+  upload(path: string, bytes: Uint8Array, contentType: string): Promise<{ error: string | null }>;
+}
+```
+
+In `supabase/functions/analyze-form/deps.ts`, add `list` and `remove` to the `storage` object (currently upload-only, at line 167). Mirror `supabase/functions/_shared/delete-account-client.ts:89-104` exactly — it already wraps the same two Supabase Storage calls against the same bucket, including the `isFolder` signal (`id === null`) that `purgePrefix`'s recursion depends on. Read that file and follow it; do not invent a second mapping.
+
+- [ ] **Step 7: Add the non-throwing `safeAttachFrames` helper**
 
 In `flow.ts`, add this immediately above the `uploadFrames` function (which stays unchanged — it already catches per-frame and never throws):
 
 ```typescript
 /**
- * Upload the frames, then record them on the ALREADY-DELIVERED row. NEVER THROWS (#130).
+ * Upload the frames, record them on the ALREADY-DELIVERED row, and — if that row turned out to be
+ * gone — purge what we just wrote. NEVER THROWS (#130).
  *
  * By the time this runs, `settle_analysis` has succeeded: the analysis is delivered and the user's
  * quota is spent. A throw from here would land in `runAnalyzeForm`'s `catch` and turn a delivered,
@@ -581,7 +761,16 @@ In `flow.ts`, add this immediately above the `uploadFrames` function (which stay
  * structurally impossible and this ordering has to close by hand. Same discipline as the `finally`
  * helpers below: it must never be able to break the request it is decorating.
  *
- * Returns the number of frames that landed, for the observability line.
+ * THE PURGE (the delete-during-upload window). `deleteAnalysis` purges Storage BEFORE it marks the
+ * row deleted. Under this file's settle-first ordering the row is 'delivered', and therefore
+ * DELETABLE, while we are still uploading — so a user who deletes mid-upload gets their prefix
+ * walked, and then our remaining frames land in it, stranded, with the per-analysis purge already
+ * spent. `attach_media_paths` refusing with `row_deleted`/`not_found` IS that signal: nothing will
+ * ever name these objects, so we purge the prefix ourselves. We must NOT purge on
+ * `already_attached` — there the paths are recorded on a live row, and removing them would destroy
+ * a working analysis's frame strip.
+ *
+ * Returns the number of frames that landed and STAYED, for the observability line.
  */
 async function safeAttachFrames(
   deps: AnalyzeFormDeps,
@@ -589,6 +778,8 @@ async function safeAttachFrames(
   analysisId: string,
   frames: PaceFrame[]
 ): Promise<number> {
+  const prefix = `${userId}/${analysisId}/`;
+
   try {
     const mediaPaths = await uploadFrames(deps, userId, analysisId, frames);
     if (mediaPaths.length === 0) {
@@ -598,13 +789,28 @@ async function safeAttachFrames(
     }
 
     const attached = await attachMediaPaths(deps.rpc, { userId, analysisId, mediaPaths });
-    if (!attached.ok) {
-      // The frames ARE in the bucket, under this row's own prefix, so deletion still reaches them
-      // (purge walks the prefix). Only the display list is missing.
-      console.error(`analyze-form: attach_media_paths refused: ${attached.reason ?? 'unknown'}`);
+    if (attached.ok) {
+      return mediaPaths.length;
     }
+
+    if (attached.reason === 'row_deleted' || attached.reason === 'not_found') {
+      // The row is gone. Everything we just uploaded is an orphan — including whatever the user's
+      // own delete already walked past. Purge by PREFIX, never by `mediaPaths`: a partial upload
+      // means our list is not the authority on what is actually under there.
+      const purged = await purgePrefix(deps.storage, prefix, DEFAULT_PAGE_SIZE);
+      console.error(
+        `analyze-form: analysis ${analysisId} was ${attached.reason} mid-upload — purged ${purged} orphaned object(s)`
+      );
+      return 0;
+    }
+
+    // `already_attached` (a replay) or `not_delivered`. The objects are LIVE and NAMED by a row we
+    // must not touch. Purging here would delete a working analysis's frames.
+    console.error(`analyze-form: attach_media_paths refused: ${attached.reason ?? 'unknown'}`);
     return mediaPaths.length;
   } catch (err) {
+    // Includes a throw from `purgePrefix` itself (it refuses to report success while objects
+    // remain). The analysis is delivered either way; we log and return.
     console.error(
       'analyze-form: frames could not be attached — the analysis is still delivered',
       err instanceof Error ? err.message : err
@@ -614,7 +820,7 @@ async function safeAttachFrames(
 }
 ```
 
-- [ ] **Step 7: Update the `uploadFrames` doc comment**
+- [ ] **Step 8: Update the `uploadFrames` doc comment**
 
 Its header (around line 900) currently says the prefix is "the exact prefix `settle_analysis`'s namespace guard enforces". Change that clause to name the new guard:
 
@@ -623,20 +829,20 @@ Its header (around line 900) currently says the prefix is "the exact prefix `set
  * guard enforces and `DELETE /analysis/:id` (#57) purges by. Returns only the paths that LANDED.
 ```
 
-- [ ] **Step 8: Run the tests to verify they pass**
+- [ ] **Step 9: Run the tests to verify they pass**
 
 Run: `npm run test:edge`
-Expected: PASS — the whole `flow.deno.test.ts` suite, including the four rewritten tests and the four new `#130:` ones.
+Expected: PASS — the whole `flow.deno.test.ts` suite, including the four rewritten tests and the eight new `#130:` ones.
 
-- [ ] **Step 9: Run the full gate**
+- [ ] **Step 10: Run the full gate**
 
 Run: `npm run typecheck && npm run lint && npm test`
 Expected: all clean.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add supabase/functions/analyze-form/flow.ts supabase/functions/analyze-form/__tests__/flow.deno.test.ts
+git add supabase/functions/analyze-form/flow.ts supabase/functions/analyze-form/deps.ts supabase/functions/analyze-form/__tests__/flow.deno.test.ts
 git commit -m "fix(#130): settle before uploading frames — orphans become impossible
 
 A 'reserved' row can now never have frames, so sweep_stale_reservations()
@@ -644,7 +850,13 @@ provably has nothing to purge. Also closes the orphan that needed no crash:
 a refused settle (late replay, concurrent duplicate) used to release a row
 whose frames were already in the bucket, and no sweep would ever reach them.
 
-Everything after the settle is now non-fatal — safeAttachFrames cannot throw,
+Closes the window the new ordering itself opened: the row is deletable while
+its frames upload, so a delete mid-upload could strand objects under an
+already-purged prefix. attach_media_paths' row_deleted/not_found refusal is
+the signal, and safeAttachFrames purges what it just wrote — never on
+already_attached, where the paths are live and named.
+
+Everything after the settle is non-fatal: safeAttachFrames cannot throw,
 because by then the analysis is delivered and the quota is spent."
 ```
 
