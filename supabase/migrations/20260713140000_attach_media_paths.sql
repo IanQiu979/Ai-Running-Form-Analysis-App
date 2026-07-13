@@ -69,9 +69,39 @@
 --      never be repaired by a later retry. Accepted — the strip is cosmetic, and the simpler rule
 --      is the safer one.
 --
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+-- THE FOUR REFUSAL REASONS, AND WHY THEY ARE NOT ONE
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+--
 -- Refusals RETURN, they never raise: the caller (flow.ts's safeAttachFrames) is running after the
 -- analysis is already delivered and already charged, and must never be able to turn a bookkeeping
 -- miss into a failed request.
+--
+-- But the caller needs to know WHICH guard refused, because two of the four reasons demand that it
+-- purge the frames it just uploaded and one demands the exact opposite:
+--
+--   * not_found        -> PURGE. The row was hard-deleted (a profiles cascade) while we uploaded.
+--                         Nothing will ever name these objects.
+--   * row_deleted      -> PURGE. The row was soft-deleted while we uploaded. This is the window
+--                         the settle-first ordering itself opens: a 'delivered' row is DELETABLE,
+--                         and deleteAnalysis (#57) purges Storage BEFORE it marks the row — so our
+--                         in-flight frames land in a prefix whose purge has already run and walked
+--                         past them. Images of a person's body, retained after they asked for them
+--                         to be gone, with the per-analysis purge already spent. This refusal is
+--                         the ONLY signal that it happened.
+--   * not_delivered    -> do NOT purge. The row is 'reserved' or 'released'. We should not be here
+--                         at all (flow.ts only attaches after a successful settle); something
+--                         raced us, and destroying objects on a state we do not understand is the
+--                         more dangerous move.
+--   * already_attached -> do NOT purge, emphatically. Guard 3 refused: media_paths is already
+--                         populated, so those objects are LIVE and NAMED by a working analysis.
+--                         Purging here would delete a delivered analysis's frame strip.
+--
+-- Collapsing these into a single reason (as this function's first draft did, with
+-- 'not_delivered_or_already_attached') makes the correct cleanup impossible to write: the caller
+-- cannot distinguish the case that REQUIRES a purge from the case that FORBIDS one. Hence the
+-- lookup after the update. It is a REPORT, not a check — the UPDATE's WHERE clause remains the sole
+-- enforcement point, so there is no check-then-write race to lose.
 
 create or replace function public.attach_media_paths(
   p_user_id     uuid,
@@ -110,7 +140,32 @@ begin
   returning * into v_row;
 
   if not found then
-    return jsonb_build_object('ok', false, 'reason', 'not_delivered_or_already_attached');
+    -- The write matched nothing. WHICH guard refused matters to the caller: two of these mean the
+    -- frames it just uploaded are orphans it must purge, and one means the opposite — the paths are
+    -- already recorded on a live row, and purging would destroy a working analysis's frame strip.
+    -- Collapsing them into one reason (as the first draft of this function did) makes the correct
+    -- cleanup impossible to write. See flow.ts's `safeAttachFrames`.
+    select * into v_row
+    from public.analyses
+    where id = p_analysis_id and user_id = p_user_id;
+
+    if not found then
+      -- Hard-deleted (a profiles cascade). Nothing will ever name these objects.
+      return jsonb_build_object('ok', false, 'reason', 'not_found');
+    end if;
+
+    if v_row.deleted_at is not null then
+      -- Soft-deleted while we were uploading. `deleteAnalysis` purges Storage BEFORE it marks the
+      -- row, so anything we wrote after that purge is stranded under an already-walked prefix.
+      return jsonb_build_object('ok', false, 'reason', 'row_deleted');
+    end if;
+
+    if v_row.status <> 'delivered' then
+      return jsonb_build_object('ok', false, 'reason', 'not_delivered');
+    end if;
+
+    -- Write-once refused: media_paths is already populated. The objects are LIVE and NAMED.
+    return jsonb_build_object('ok', false, 'reason', 'already_attached');
   end if;
 
   return jsonb_build_object(

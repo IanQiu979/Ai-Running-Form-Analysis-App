@@ -38,7 +38,15 @@ function attachBody(): string {
 function attachWhereClause(): string {
   const body = attachBody();
   const update = body.slice(body.indexOf('update public.analyses'));
-  return update.slice(update.indexOf('where'));
+  // Stop at `returning`. The refusal block BELOW the update now re-reads the row to name which
+  // guard refused, so it mentions `deleted_at` and `status` itself — slicing to the end of the
+  // body would let that lookup satisfy an assertion about the UPDATE's WHERE clause even after the
+  // guard had been deleted from the WHERE clause, which is the exact substitution this helper
+  // exists to prevent.
+  const returningIdx = update.indexOf('returning');
+  expect(returningIdx).toBeGreaterThan(-1);
+  const statement = update.slice(0, returningIdx);
+  return statement.slice(statement.indexOf('where'));
 }
 
 describe('attach_media_paths: the namespace guard is replicated, not assumed', () => {
@@ -94,7 +102,38 @@ describe('attach_media_paths: it can only ever fill in a delivered row, once', (
   });
 
   it('reports a refusal rather than throwing, so the caller can log and move on', () => {
-    expect(attachBody()).toContain('not_delivered_or_already_attached');
+    // Refusals RETURN. `safeAttachFrames` runs after the analysis is already delivered and already
+    // charged; a RAISE here would turn a bookkeeping miss into a 500 for a result the user paid for
+    // and cannot retry.
+    expect(attachBody()).toMatch(/return jsonb_build_object\('ok',\s*false,\s*'reason',/);
+    expect(attachBody()).not.toMatch(/\braise\b/i);
+  });
+
+  it('names WHICH guard refused — two reasons mean "purge", one means "never touch it"', () => {
+    // The four reasons are not cosmetic bookkeeping. They drive OPPOSITE cleanup actions in
+    // `flow.ts`'s `safeAttachFrames`:
+    //
+    //   row_deleted / not_found -> the row is gone, so the frames we just uploaded are orphans
+    //                              under an already-purged prefix. PURGE them.
+    //   already_attached        -> the paths are recorded on a LIVE row. Purging would destroy a
+    //                              working analysis's frame strip. Do NOT touch them.
+    //
+    // The first draft of this function collapsed all of these into one
+    // `not_delivered_or_already_attached`, which makes the correct cleanup impossible to write:
+    // the caller cannot tell the case that demands a purge from the case that forbids one.
+    const body = attachBody();
+
+    for (const reason of ['not_found', 'row_deleted', 'not_delivered', 'already_attached']) {
+      expect(body).toContain(`'reason', '${reason}'`);
+    }
+    expect(body).not.toContain('not_delivered_or_already_attached');
+  });
+
+  it('works out which guard refused AFTER the write, never instead of it', () => {
+    // The UPDATE's WHERE clause stays the sole enforcement point — a check-then-write would be
+    // racy. The lookup below it only REPORTS which guard the write already refused on.
+    const body = attachBody();
+    expect(body.indexOf('update public.analyses')).toBeLessThan(body.indexOf("'row_deleted'"));
   });
 
   it('never writes status, result, is_fallback, or delivered_at — settle_analysis owns those', () => {
