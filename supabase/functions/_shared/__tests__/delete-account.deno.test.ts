@@ -29,9 +29,11 @@
  */
 import {
   accountResponseBodyForOutcome,
+  ACCOUNT_PURGE_CONCURRENCY,
   batchedRemove,
   deleteAccount,
   httpStatusForAccountOutcome,
+  mapWithConcurrency,
   REMOVE_BATCH_SIZE,
   type AccountRows,
   type AuthAdmin,
@@ -59,6 +61,14 @@ class FakeStorage implements StorageBucket {
   failListWith: string | null = null;
   /** Paths that "appear" the moment `onResurrect` fires — simulates a concurrent analyze-form upload. */
   resurrectPaths: string[] = [];
+  /**
+   * When set (ms), every list() call yields to a real timer before resolving — issue #125's
+   * concurrency tests need calls to genuinely overlap in time to observe a max-in-flight count;
+   * a synchronously-resolved fake never overlaps, so a concurrency bug would be invisible to it.
+   */
+  artificialListDelayMs = 0;
+  /** Tracks how many list() calls are simultaneously in flight — proves bounded concurrency. */
+  readonly listConcurrency = { current: 0, max: 0 };
 
   constructor(initialPaths: string[], private ops: Op[] = []) {
     this.objects = new Set(initialPaths);
@@ -76,11 +86,20 @@ class FakeStorage implements StorageBucket {
     this.resurrectPaths = [];
   }
 
-  list(prefix: string, options: { limit: number; offset: number }): Promise<StorageEntry[]> {
+  async list(prefix: string, options: { limit: number; offset: number }): Promise<StorageEntry[]> {
     this.listCalls.push({ prefix, limit: options.limit, offset: options.offset });
     if (this.failListWith) {
-      return Promise.reject(new Error(this.failListWith));
+      throw new Error(this.failListWith);
     }
+    this.listConcurrency.current += 1;
+    this.listConcurrency.max = Math.max(this.listConcurrency.max, this.listConcurrency.current);
+    if (this.artificialListDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.artificialListDelayMs));
+    } else {
+      await Promise.resolve(); // still yield a tick, so genuinely concurrent callers can overlap
+    }
+    this.listConcurrency.current -= 1;
+
     const directChildren = new Map<string, boolean>(); // name -> isFolder
     for (const path of this.objects) {
       if (!path.startsWith(prefix)) continue;
@@ -97,7 +116,7 @@ class FakeStorage implements StorageBucket {
     const page = names
       .slice(options.offset, options.offset + options.limit)
       .map((name): StorageEntry => ({ name, isFolder: directChildren.get(name) ?? false }));
-    return Promise.resolve(page);
+    return page;
   }
 
   remove(paths: string[]): Promise<{ error: string | null }> {
@@ -258,12 +277,28 @@ Deno.test(
 
     await deleteAccount(rows, storage, auth, { userId: USER_A });
 
-    assertEquals(
-      ops,
-      ['storage.remove', 'rows.deleteConsents', 'rows.deleteProfile', 'auth.deleteUser'],
+    // Issue #125 dispatches one storage.remove() PER analysis sub-prefix (purged concurrently),
+    // not one combined remove() for the whole account — so the exact count is no longer a fixed
+    // "1", it is "one per non-empty analysis" (3, for this fixture). What must still hold, exactly
+    // as before, is the ORDERING: every storage.remove must land before the first row op, and the
+    // row/auth ops must run in their own fixed sequence.
+    const nonStorageOps = ops.filter((op) => op !== 'storage.remove');
+    const lastStorageRemoveIndex = ops.lastIndexOf('storage.remove');
+    const firstNonStorageIndex = ops.findIndex((op) => op !== 'storage.remove');
+    assertTrue(
+      ops.includes('storage.remove'),
+      'at least one storage.remove must have happened'
+    );
+    assertTrue(
+      firstNonStorageIndex === -1 || lastStorageRemoveIndex < firstNonStorageIndex,
       'storage must be purged BEFORE any row is deleted, and the auth user LAST — the cascade from ' +
         'auth.users would otherwise take the rows (and media_paths) with it, leaving storage.objects ' +
         'unreachable, un-enumerable, and orphaned forever (storage.objects has no FK to auth.users)'
+    );
+    assertEquals(
+      nonStorageOps,
+      ['rows.deleteConsents', 'rows.deleteProfile', 'auth.deleteUser'],
+      'once every storage.remove is done, rows and the auth user must still happen in exactly this order'
     );
   }
 );
@@ -422,6 +457,219 @@ Deno.test('batchedRemove: reports the first failing batch and does not swallow i
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
+// mapWithConcurrency — the bounded-fan-out primitive issue #125 introduces. Tested directly and in
+// isolation from the Storage fakes, since its correctness (cap respected, order preserved, fails
+// fast without abandoning in-flight work) is a property of the primitive, not of delete-account.ts.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+Deno.test('mapWithConcurrency: runs at most `limit` calls at once, and preserves result order regardless of completion order', async () => {
+  const items = Array.from({ length: 20 }, (_, i) => i);
+  let current = 0;
+  let max = 0;
+
+  const results = await mapWithConcurrency(items, 5, async (item) => {
+    current += 1;
+    max = Math.max(max, current);
+    // Later items resolve FASTER than earlier ones, so completion order is scrambled relative to
+    // input order — proving the RESULTS array is ordered by input index, not by finish time.
+    await new Promise((resolve) => setTimeout(resolve, 5 - (item % 5)));
+    current -= 1;
+    return item * 2;
+  });
+
+  assertEquals(results, items.map((i) => i * 2), 'results must be in input order regardless of completion order');
+  assertTrue(max <= 5, `observed ${max} concurrent calls in flight, limit was 5`);
+  assertTrue(max > 1, 'concurrency must actually be used — a max of 1 would mean this silently serialized');
+});
+
+Deno.test('mapWithConcurrency: a limit larger than the item count still runs every item exactly once', async () => {
+  const results = await mapWithConcurrency([1, 2, 3], 100, (n) => Promise.resolve(n + 1));
+  assertEquals(results, [2, 3, 4]);
+});
+
+Deno.test('mapWithConcurrency: an empty item list resolves immediately with an empty array and calls fn zero times', async () => {
+  const results = await mapWithConcurrency<number, number>([], 5, () => {
+    throw new Error('must never be called for an empty item list');
+  });
+  assertEquals(results, []);
+});
+
+Deno.test(
+  'mapWithConcurrency: the first rejection is thrown once every worker settles, and no NEW item starts after it — but in-flight items still finish',
+  async () => {
+    const started: number[] = [];
+    const finished: number[] = [];
+    const items = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    let caught: unknown;
+
+    try {
+      await mapWithConcurrency(items, 3, async (item) => {
+        started.push(item);
+        if (item === 1) {
+          throw new Error('boom on item 1');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        finished.push(item);
+        return item;
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    assertTrue(
+      caught instanceof Error && (caught as Error).message === 'boom on item 1',
+      "the failing call's own error must propagate, not be swallowed or replaced"
+    );
+    assertTrue(
+      started.length < items.length,
+      'once a failure is observed, no NEW item may be started — this is fail-fast, not fail-eventually'
+    );
+    assertTrue(finished.length > 0, 'items already in flight when the failure happened must still be allowed to finish');
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// THE HEAVY ACCOUNT — issue #125. Bounded concurrency over analysis prefixes, a soft wall-clock
+// budget that fails closed instead of risking a platform kill, and free checkpointing (a retry
+// after a budget timeout resumes rather than restarting) — proved against deleteAccount() itself,
+// not just the mapWithConcurrency primitive, so the ordering safety property (storage before rows
+// before the auth user) is proved to still hold under the new concurrent shape.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+Deno.test(
+  'deleteAccount: a heavy account (40 analyses) is purged with bounded, actually-concurrent Storage list() calls — not sequential, not unbounded',
+  async () => {
+    const analysisCount = 40;
+    const paths = Array.from(
+      { length: analysisCount },
+      (_, i) => `${USER_A}/analysis-${String(i).padStart(3, '0')}/frame-01.jpg`
+    );
+    const storage = new FakeStorage(paths);
+    storage.artificialListDelayMs = 3; // force genuine overlap between concurrent list() calls
+    const rows = new FakeRows({ [USER_A]: 0 }, [USER_A]);
+    const auth = new FakeAuthAdmin();
+    const cap = 6;
+
+    const result = await deleteAccount(rows, storage, auth, { userId: USER_A, listConcurrency: cap });
+
+    assertTrue(result.outcome === 'deleted', `expected deleted, got ${result.outcome}`);
+    if (result.outcome === 'deleted') {
+      assertEquals(result.purgedObjectCount, analysisCount, 'every one of the 40 analyses must be purged');
+    }
+    assertEquals(storage.remainingPaths(), [], 'zero orphans, exactly as the un-scaled cases prove');
+    assertTrue(
+      storage.listConcurrency.max <= cap,
+      `observed ${storage.listConcurrency.max} concurrent list() calls, cap was ${cap} — unbounded parallelism against Storage is exactly what issue #125 forbids`
+    );
+    assertTrue(
+      storage.listConcurrency.max > 1,
+      `observed only ${storage.listConcurrency.max} concurrent list() call(s) — the whole point of this fix is that these overlap, not run one at a time`
+    );
+  }
+);
+
+Deno.test('ACCOUNT_PURGE_CONCURRENCY is a sane, bounded, single-digit-to-low-double-digit fan-out — never unbounded, never accidentally 1', () => {
+  assertTrue(
+    ACCOUNT_PURGE_CONCURRENCY > 1 && ACCOUNT_PURGE_CONCURRENCY <= 32,
+    `unreasonable concurrency cap: ${ACCOUNT_PURGE_CONCURRENCY}`
+  );
+});
+
+Deno.test(
+  'deleteAccount: a spent time budget mid-purge fails closed as purge_failed — same contract as any other purge failure, no new outcome, nothing beyond Storage touched',
+  async () => {
+    const analysisCount = 10;
+    const paths = Array.from(
+      { length: analysisCount },
+      (_, i) => `${USER_A}/analysis-${String(i).padStart(2, '0')}/frame-01.jpg`
+    );
+    const storage = new FakeStorage(paths);
+    const rows = new FakeRows({ [USER_A]: 1 }, [USER_A]);
+    const auth = new FakeAuthAdmin();
+
+    // A fake clock: reports "no time has passed" for the first several checks (letting several
+    // sub-prefixes purge normally), then jumps far past any budget — simulating a slow account
+    // that runs out of wall-clock partway through the sweep. listConcurrency: 1 makes this
+    // deterministic (no race between concurrent workers' own now() checks).
+    let calls = 0;
+    const now = () => {
+      calls += 1;
+      return calls > 6 ? 1_000_000 : 0;
+    };
+
+    const result = await deleteAccount(rows, storage, auth, {
+      userId: USER_A,
+      listConcurrency: 1,
+      now,
+      purgeDeadlineMs: 500,
+    });
+
+    assertTrue(result.outcome === 'purge_failed', `expected purge_failed (budget spent), got ${result.outcome}`);
+    if (result.outcome === 'purge_failed') {
+      assertTrue(result.reason.length > 0 && !result.reason.includes('undefined'), 'the reason must be a real, informative message');
+    }
+    assertEquals(auth.deletedUsers, [], 'a budget timeout must not delete the auth user — same safety property as any other purge failure');
+    assertTrue(rows.profiles.has(USER_A), 'the account must still exist so a retry can resume it');
+    assertEquals(rows.consentsByUser.get(USER_A), 1, 'a purge failure must never touch rows at all');
+
+    const remainingAfterFirst = storage.remainingPaths().length;
+    assertTrue(
+      remainingAfterFirst > 0 && remainingAfterFirst < analysisCount,
+      `expected SOME but not all objects purged before the budget ran out, got ${remainingAfterFirst} of ${analysisCount} remaining`
+    );
+  }
+);
+
+Deno.test(
+  'deleteAccount: a retry after a budget timeout RESUMES rather than restarting — already-purged prefixes are not re-listed or re-removed (free checkpointing via Storage-durable partial progress)',
+  async () => {
+    const analysisCount = 10;
+    const paths = Array.from(
+      { length: analysisCount },
+      (_, i) => `${USER_A}/analysis-${String(i).padStart(2, '0')}/frame-01.jpg`
+    );
+    const storage = new FakeStorage(paths);
+    const rows = new FakeRows({ [USER_A]: 1 }, [USER_A]);
+    const auth = new FakeAuthAdmin();
+
+    let calls = 0;
+    const now = () => {
+      calls += 1;
+      return calls > 6 ? 1_000_000 : 0;
+    };
+
+    const first = await deleteAccount(rows, storage, auth, {
+      userId: USER_A,
+      listConcurrency: 1,
+      now,
+      purgeDeadlineMs: 500,
+    });
+    assertTrue(first.outcome === 'purge_failed', `expected the first attempt to fail on budget, got ${first.outcome}`);
+    const remainingAfterFirst = storage.remainingPaths().length;
+    assertTrue(
+      remainingAfterFirst > 0 && remainingAfterFirst < analysisCount,
+      `expected SOME but not all objects purged before the budget ran out, got ${remainingAfterFirst} of ${analysisCount} remaining`
+    );
+
+    // Retry with a normal, generous clock/budget: it must finish, and — this is the checkpointing
+    // property — it only has to deal with what is actually left, because the emptied sub-prefixes
+    // from attempt 1 no longer exist as pseudo-directories at all.
+    const second = await deleteAccount(rows, storage, auth, { userId: USER_A, listConcurrency: 4 });
+
+    assertTrue(second.outcome === 'deleted', `expected the retry to converge, got ${second.outcome}`);
+    if (second.outcome === 'deleted') {
+      assertEquals(
+        second.purgedObjectCount,
+        remainingAfterFirst,
+        'the retry must purge exactly what was left, not the whole account again — proof that attempt 1\'s progress was durable, not rolled back'
+      );
+    }
+    assertEquals(storage.remainingPaths(), [], 'the retry must finish the job completely');
+    assertEquals(auth.deletedUsers, [USER_A], 'the account is only now actually deleted');
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
 // (c) A FAILURE MID-PURGE DOES NOT DELETE THE AUTH USER. The purge is BLOCKING, not best-effort.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -444,7 +692,14 @@ Deno.test(
     );
     assertTrue(rows.profiles.has(USER_A), 'the profile row must be untouched — nothing is deleted when the purge fails');
     assertEquals(rows.consentsByUser.get(USER_A), 2, 'the consent events must be untouched when the purge fails');
-    assertEquals(ops, ['storage.remove'], 'the function must stop at the failed purge and touch nothing else');
+    // Issue #125: multiple analysis sub-prefixes can each attempt their own storage.remove()
+    // concurrently before any of them observes the others' failure, so the count is no longer
+    // pinned to exactly 1 — what must hold is that NOTHING else (no row, no auth op) ever runs.
+    assertTrue(ops.length > 0, 'at least one storage.remove attempt must have happened');
+    assertTrue(
+      ops.every((op) => op === 'storage.remove'),
+      'the function must stop at the failed purge and touch nothing else — no row or auth op may appear'
+    );
     assertEquals(storage.remainingPaths(), accountFrames(USER_A).sort(), 'the frames are still there — and still deletable, because the account still exists');
   }
 );
@@ -538,7 +793,20 @@ Deno.test('deleteAccount: a consent-delete failure aborts before the profile and
   const result = await deleteAccount(rows, storage, auth, { userId: USER_A });
 
   assertTrue(result.outcome === 'rows_failed', `expected rows_failed, got ${result.outcome}`);
-  assertEquals(ops, ['storage.remove', 'rows.deleteConsents'], 'it must stop at the failed step');
+  // Issue #125: the account-level sweep can issue more than one storage.remove() (one per
+  // analysis sub-prefix), so pin down the SHAPE rather than an exact array: some number of
+  // storage.remove ops, then exactly one rows.deleteConsents, then nothing else.
+  const consentsIndex = ops.indexOf('rows.deleteConsents');
+  assertTrue(consentsIndex > 0, 'rows.deleteConsents must have been attempted, after at least one storage.remove');
+  assertTrue(
+    ops.slice(0, consentsIndex).every((op) => op === 'storage.remove'),
+    'only storage.remove ops may precede rows.deleteConsents'
+  );
+  assertEquals(
+    ops.slice(consentsIndex),
+    ['rows.deleteConsents'],
+    'nothing may run after the failed consents delete — no profile delete, no auth delete'
+  );
   assertTrue(rows.profiles.has(USER_A), 'the profile survives');
   assertEquals(auth.deletedUsers, [], 'the auth user survives');
 });
