@@ -15,9 +15,17 @@
  *   - `Semantic.error` on every surface, both themes — text, >=4.5:1 (issue #24); also asserted
  *     distinct from `Score.low.text` in both themes, the issue's actual requirement — a system
  *     error must not be mistakable for the "Needs work" score band it used to borrow from.
+ *   - `Colors[scheme].control.border` on every surface, both themes — non-text UI-component
+ *     boundary (a non-accent button/input/checkbox edge), >=3:1 (issue #96). Also asserts, per
+ *     scheme, that `hairline` itself stays BELOW 3:1 against every surface — the regression this
+ *     guards against is `control.border` being set equal to (or as weak as) `hairline`, which
+ *     would silently reintroduce the exact bug #96 filed. That assertion is computed from the
+ *     live `hairline` export, not a hardcoded ratio, so it tracks the token if it ever moves.
  *
- * `hairline` is intentionally not asserted here — see the comment on it in theme.ts: it's a
- * decorative structural rule, not text or a UI-component boundary, so WCAG 1.4.11 does not apply.
+ * `hairline` is intentionally not asserted to clear either AA floor on its own — see the comment
+ * on it in theme.ts: it's a decorative structural rule, not text or a UI-component boundary, so
+ * WCAG 1.4.11 does not apply to it. It IS asserted to stay under 3:1 above, precisely because
+ * `control.border` must not be allowed to collapse back into it.
  */
 
 import { AA_NON_TEXT, AA_TEXT, contrastRatio } from '../contrast';
@@ -42,6 +50,8 @@ const scoreTextPairs: Pair[] = [];
 const accentTextPairs: Pair[] = [];
 const accentNonTextPairs: Pair[] = [];
 const semanticErrorTextPairs: Pair[] = [];
+const controlBorderPairs: Pair[] = [];
+const hairlineBelowControlFloorPairs: Pair[] = [];
 
 for (const scheme of SCHEMES) {
   const c = Colors[scheme];
@@ -55,6 +65,19 @@ for (const scheme of SCHEMES) {
       bg: surfaceHex,
     });
     accentNonTextPairs.push({ label: `${scheme} accent on ${surfaceName}`, fg: Accent.value, bg: surfaceHex });
+    controlBorderPairs.push({
+      label: `${scheme} control.border on ${surfaceName}`,
+      fg: c.control.border,
+      bg: surfaceHex,
+    });
+    // The regression guard (issue #96): computed from the live `hairline` export, so it fails
+    // the instant `control.border` is set back to `hairline` (or anything else this weak) — not
+    // a hardcoded "1.3:1" that would silently stop meaning anything once the underlying hex moves.
+    hairlineBelowControlFloorPairs.push({
+      label: `${scheme} hairline on ${surfaceName} (must stay a decorative rule, not a control boundary)`,
+      fg: c.hairline,
+      bg: surfaceHex,
+    });
     semanticErrorTextPairs.push({
       label: `${scheme} semantic.error on ${surfaceName}`,
       fg: Semantic.error[scheme],
@@ -103,6 +126,30 @@ describe('theme contrast — non-text pairs clear AA (>=3:1)', () => {
 
   test.each(accentNonTextPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  test.each(controlBorderPairs)('$label', ({ fg, bg }) => {
+    expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+});
+
+describe('the interactive-boundary regression guard — issue #96', () => {
+  // Proves the bug this token fixes still exists in the token it fixes it FROM: every non-accent
+  // button/input/checkbox that painted its boundary with `hairline` alone was, and remains,
+  // below the WCAG 1.4.11 floor. If this ever starts failing, `hairline` was strengthened enough
+  // to accidentally double as a control boundary — which would mean `control.border` is no
+  // longer proven distinct from it, and the guard below (which checks they're different values)
+  // would need to be revisited too.
+  test.each(hairlineBelowControlFloorPairs)('$label', ({ fg, bg }) => {
+    expect(contrastRatio(fg, bg)).toBeLessThan(AA_NON_TEXT);
+  });
+
+  // The direct regression case: if `control.border` were ever set back to `hairline` (or any
+  // value this weak), the `controlBorderPairs` assertions above would fail on their own — but
+  // asserting the two tokens are literally distinct, per scheme, catches the mistake even before
+  // that, and documents that this is a genuinely new role, not a re-tune of the old one.
+  test.each(SCHEMES)('%s: control.border !== hairline', (scheme) => {
+    expect(Colors[scheme].control.border).not.toBe(Colors[scheme].hairline);
   });
 });
 
