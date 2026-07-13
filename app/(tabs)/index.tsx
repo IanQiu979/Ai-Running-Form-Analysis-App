@@ -1,5 +1,5 @@
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { router, useFocusEffect, type Href } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -19,6 +19,7 @@ import {
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { checkPendingAnalysis } from '@/lib/pending-analysis';
 import {
   describeQuota,
   isPrimaryCtaEnabled,
@@ -76,6 +77,46 @@ export default function HomeScreen() {
   // Holds whichever ActiveFlag the most recent focus minted, so the Retry button — which calls
   // fetchQuota directly, outside useFocusEffect — can pass a flag too instead of racing unguarded.
   const activeFlagRef = useRef<ActiveFlag>({ active: false });
+
+  // Issue #140: an analysis whose Analyzing screen was killed mid-wait. Non-null only for the
+  // one outcome Home has to SHOW something for — `released` (the server gave up on it while
+  // nothing was watching); see `pendingReleased`'s render block below for why. A `delivered`
+  // outcome never sets this: it's routed straight to `/result/[id]` with no interstitial, same
+  // as a normal in-session success.
+  const [pendingReleased, setPendingReleased] = useState<{ analysisId: string } | null>(null);
+
+  // Runs exactly once per cold start (the ref guard, not the effect's dependency array, is what
+  // enforces "once" — Home stays mounted for the tab navigator's whole lifetime, so a plain
+  // `useEffect(() => {...}, [])` alone would still only ever run once per process anyway; the
+  // ref additionally protects against `userId` becoming available a render or two after mount,
+  // e.g. immediately after sign-in), never on every later focus like `fetchQuota` above — this is
+  // a STARTUP check ("did something finish while the app was dead"), not a live poll.
+  // `lib/pending-analysis.ts`'s `checkPendingAnalysis` never throws and never blocks quota from
+  // loading in parallel.
+  const startupCheckedRef = useRef(false);
+
+  useEffect(() => {
+    if (startupCheckedRef.current || !userId) return;
+    startupCheckedRef.current = true;
+
+    checkPendingAnalysis(userId).then((outcome) => {
+      if (outcome.kind === 'delivered') {
+        // Same destination and `justAnalyzed` trigger `app/analyzing.tsx`'s own succeeded-effect
+        // uses (docs/design/motion-consult.md item 3) — this device is genuinely seeing this
+        // result for the first time, even though it finished while the app was dead.
+        router.replace({
+          pathname: '/result/[id]',
+          params: { id: outcome.analysisId, justAnalyzed: '1' },
+        } as Href);
+        return;
+      }
+      if (outcome.kind === 'released') {
+        setPendingReleased({ analysisId: outcome.analysisId });
+      }
+      // 'none' and 'pending' need no UI — see checkPendingAnalysis's own doc comment for why
+      // leaving 'pending' alone (rather than erroring or clearing) is correct, not incomplete.
+    });
+  }, [userId]);
 
   const fetchQuota = useCallback(async (active: ActiveFlag) => {
     if (!userId) return;
@@ -151,6 +192,10 @@ export default function HomeScreen() {
         ? readyCaption.primary
         : Copy.home.quota.error.failed;
   useAnnounce(liveQuotaMessage);
+  // Same iOS/Android split as `liveQuotaMessage` above, for the one other piece of dynamic status
+  // text this screen can show (issue #140) — the banner's own `accessibilityLiveRegion="polite"`
+  // already covers Android.
+  useAnnounce(pendingReleased ? Copy.home.pending.released.title : null);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -174,6 +219,29 @@ export default function HomeScreen() {
             <Text style={styles.settingsText}>{Copy.settings.title}</Text>
           </Pressable>
         </View>
+
+        {/* Issue #140: surfaced once, at most, per reconciled analysis — `checkPendingAnalysis`
+            has already cleared the marker by the time this renders, so dismissing (or simply
+            navigating away) never re-shows it on a later focus, and a later cold start can never
+            resurrect it either. Home is not a dead end underneath this: the primary CTA and
+            Settings link above stay fully usable while this is showing. Same calm, non-alarmed
+            treatment `app/analyzing.tsx`'s own ErrorPanel documents for itself — plain
+            text.primary/text.secondary, no Semantic.error red. */}
+        {pendingReleased && (
+          <View style={styles.pendingReleasedBanner}>
+            <Text style={styles.pendingReleasedTitle} accessibilityLiveRegion="polite">
+              {Copy.home.pending.released.title}
+            </Text>
+            <Text style={styles.pendingReleasedBody}>{Copy.home.pending.released.body}</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={Copy.home.pending.released.dismiss}
+              onPress={() => setPendingReleased(null)}
+              style={({ pressed }) => [styles.pendingReleasedDismiss, pressed && styles.pressed]}>
+              <Text style={styles.pendingReleasedDismissText}>{Copy.home.pending.released.dismiss}</Text>
+            </Pressable>
+          </View>
+        )}
 
         <View style={styles.centerBlock}>
           {quota.status === 'loading' && (
@@ -298,6 +366,41 @@ function createStyles(colors: ThemeColors) {
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.sm,
       color: colors.text.secondary,
+      textDecorationLine: 'underline',
+    },
+    // Issue #140. Same neutral-surface treatment `components/partial-result-banner.tsx` (issue
+    // #56) uses for its own honesty disclosure — a bordered `surface.raised` card, not
+    // `Semantic.error`, matching that component's own reasoning: this is a "here's what
+    // happened" notice, not a system failure or a low score.
+    pendingReleasedBanner: {
+      backgroundColor: colors.surface.raised,
+      borderColor: colors.hairline,
+      borderRadius: Radius.card,
+      borderWidth: 1,
+      gap: Spacing.xs,
+      padding: Spacing.lg,
+    },
+    pendingReleasedTitle: {
+      fontFamily: FontFamily.display.semiBold,
+      fontSize: FontSize.md,
+      color: colors.text.primary,
+    },
+    pendingReleasedBody: {
+      fontFamily: FontFamily.body.regular,
+      fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * 1.4,
+      color: colors.text.secondary,
+    },
+    pendingReleasedDismiss: {
+      alignSelf: 'flex-start',
+      minHeight: HitTarget.min,
+      justifyContent: 'center',
+      paddingVertical: Spacing.xs,
+    },
+    pendingReleasedDismissText: {
+      fontFamily: FontFamily.body.medium,
+      fontSize: FontSize.sm,
+      color: colors.text.primary,
       textDecorationLine: 'underline',
     },
     centerBlock: {
