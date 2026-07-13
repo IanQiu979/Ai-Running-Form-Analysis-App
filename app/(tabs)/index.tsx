@@ -19,17 +19,21 @@ import {
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import {
+  describeQuota,
+  isPrimaryCtaEnabled,
+  primaryCtaAccessibilityHint,
+  primaryCtaKind,
+  primaryCtaLabel,
+  quotaStatusClient,
+  type QuotaStatus,
+} from '@/lib/quota';
 import { useSession } from '@/lib/session-provider';
-import { supabase } from '@/lib/supabase';
-
-type SubscriptionTier = 'free' | 'pro' | 'elite';
-
-type ReadyQuota = { tier: SubscriptionTier; hasUsedFreeAnalysis: boolean };
 
 type QuotaState =
   | { status: 'loading' }
-  | { status: 'error'; lastKnown: ReadyQuota | null }
-  | ({ status: 'ready' } & ReadyQuota);
+  | { status: 'error'; lastKnown: QuotaStatus | null }
+  | ({ status: 'ready' } & QuotaStatus);
 
 /** One of these is minted per focus (see the `useFocusEffect` below) and threaded into every
  * `fetchQuota` call started while it's current. Its cleanup flips `active` to false the moment
@@ -41,8 +45,22 @@ type ActiveFlag = { active: boolean };
 /** Pulls the last successful quota reading (if any) out of whatever state we're currently in,
  * so a fetch failure can keep showing it alongside the stale caption instead of just replacing
  * it — see the `error` branch's render below. */
-function lastKnownFrom(state: QuotaState): ReadyQuota | null {
-  if (state.status === 'ready') return { tier: state.tier, hasUsedFreeAnalysis: state.hasUsedFreeAnalysis };
+function lastKnownFrom(state: QuotaState): QuotaStatus | null {
+  if (state.status === 'ready') {
+    return {
+      tier: state.tier,
+      used: state.used,
+      limit: state.limit,
+      remaining: state.remaining,
+      frameCap: state.frameCap,
+      isLifetime: state.isLifetime,
+      periodStart: state.periodStart,
+      periodEnd: state.periodEnd,
+      blocked: state.blocked,
+      blockedReason: state.blockedReason,
+      blockedUntil: state.blockedUntil,
+    };
+  }
   if (state.status === 'error') return state.lastKnown;
   return null;
 }
@@ -61,47 +79,27 @@ export default function HomeScreen() {
   const fetchQuota = useCallback(async (active: ActiveFlag) => {
     if (!userId) return;
 
-    try {
-      // Mirrors reserve_analysis's own server-side counting rules (see
-      // supabase/migrations/20260711150400_quota_reserve_settle_release.sql) so this
-      // display can't disagree with what the RPC will actually enforce: a
-      // subscriptions row only counts while status = 'active' (a canceled one means
-      // free, same as no row), and an analyses row only counts toward "used" while
-      // 'reserved' or 'delivered' — a 'released' row (a failed/fallback attempt whose
-      // quota was refunded per gate #4) must NOT make a free user look like they've
-      // used their one lifetime analysis when they haven't.
-      const [{ data: subscription, error: subscriptionError }, { count, error: countError }] =
-        await Promise.all([
-          supabase
-            .from('subscriptions')
-            .select('tier')
-            .eq('user_id', userId)
-            .eq('status', 'active')
-            .maybeSingle(),
-          supabase
-            .from('analyses')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId)
-            .in('status', ['reserved', 'delivered']),
-        ]);
+    // Issues #54/#15: ONE call to the quota-status edge function (issue #50) — no counting
+    // logic here at all. This used to run its own two-query mirror of `reserve_analysis`'s
+    // counting rules (only `status = 'active'` subscriptions count; only `'reserved'`/
+    // `'delivered'` analyses count) directly against `subscriptions`/`analyses`, which
+    // CLAUDE.md's "no business rules in the client" rule forbids and which could never even be
+    // completed for Pro/Elite — their quota is period-based and `pace_current_period`'s EXECUTE
+    // is revoked from `authenticated`. `pace_quota_status` (server-side) now owns that counting
+    // exactly once; this file only renders what it returns. See `lib/quota.ts`'s header for the
+    // full contract, including the caveat that the endpoint is not deployed to the live project
+    // yet — a failure here is expected until it is, and is handled by the `error` branch below,
+    // never papered over with a guessed quota.
+    const result = await quotaStatusClient.fetch();
 
-      if (subscriptionError || countError) {
-        if (!active.active) return;
-        setQuota((current) => ({ status: 'error', lastKnown: lastKnownFrom(current) }));
-        return;
-      }
+    if (!active.active) return;
 
-      if (!active.active) return;
-      const tier: SubscriptionTier = subscription?.tier ?? 'free';
-      setQuota({
-        status: 'ready',
-        tier,
-        hasUsedFreeAnalysis: tier === 'free' && (count ?? 0) >= 1,
-      });
-    } catch {
-      if (!active.active) return;
+    if (!result.ok) {
       setQuota((current) => ({ status: 'error', lastKnown: lastKnownFrom(current) }));
+      return;
     }
+
+    setQuota({ status: 'ready', ...result.data });
   }, [userId]);
 
   // Home is the screen that's focused the instant it exists (Stack.Protected only renders
@@ -125,12 +123,20 @@ export default function HomeScreen() {
     }, [fetchQuota])
   );
 
-  // Disable the CTA ONLY when we positively know a free user has already spent their one
-  // lifetime analysis. Loading and error states deliberately leave it enabled: refusing on a
-  // quota we are unsure about would lock out a user who is actually fine, and reserve_analysis
-  // re-checks server-side anyway (it, not this, is the authority — CLAUDE.md).
-  const isOutOfQuota =
-    quota.status === 'ready' && quota.tier === 'free' && quota.hasUsedFreeAnalysis;
+  // The primary CTA's label/enabled/hint, all derived from `quota` — never computed twice with
+  // a chance to disagree with the caption above it (issue #15's root complaint: the old code
+  // could show an "available" caption over a CTA whose own, separately-computed disabled state
+  // didn't agree). Loading and error states deliberately default to the same treatment the
+  // original M1 build used: enabled, plain "Analyze my form" label, no hint — refusing on a
+  // quota we are unsure about would lock out a user who is actually fine, and `reserve_analysis`
+  // re-checks server-side regardless (it, not this screen, is the authority — CLAUDE.md).
+  const ctaKind = quota.status === 'ready' ? primaryCtaKind(quota) : 'analyze';
+  const ctaLabel = primaryCtaLabel(ctaKind);
+  const ctaEnabled = quota.status === 'ready' ? isPrimaryCtaEnabled(quota) : true;
+  const ctaHint = quota.status === 'ready' ? primaryCtaAccessibilityHint(quota) : null;
+  // Computed once here (not inline in the JSX below) so the primary caption Text and the CTA's
+  // hint above can both read the same `QuotaCaption` object rather than each recomputing it.
+  const readyCaption = quota.status === 'ready' ? describeQuota(quota) : null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -165,16 +171,23 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {quota.status === 'ready' && (
-            <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
-              {describeReadyQuota(quota)}
-            </Text>
+          {quota.status === 'ready' && readyCaption && (
+            <View style={styles.quotaReadyBlock}>
+              <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
+                {readyCaption.primary}
+              </Text>
+              {/* Pro/Elite's "Renews {date}" secondary line, or issue #6's anti-farm "blocked"
+                  notice — never both; see lib/quota.ts's `describeQuota`. */}
+              {readyCaption.secondary !== null && (
+                <Text style={styles.quotaStaleCaption}>{readyCaption.secondary}</Text>
+              )}
+            </View>
           )}
 
           {quota.status === 'error' && (
             <View style={styles.quotaErrorBlock}>
               <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
-                {quota.lastKnown ? describeReadyQuota(quota.lastKnown) : Copy.home.quota.error.failed}
+                {quota.lastKnown ? describeQuota(quota.lastKnown).primary : Copy.home.quota.error.failed}
               </Text>
               {/* Only pair the "last known" caption with an actual last-known value — showing
                   it next to the plain failure line above would imply a cached value exists
@@ -199,30 +212,37 @@ export default function HomeScreen() {
               MVP gate ("a stranger can go sign-up -> analysis -> result with no dead end")
               cannot pass.
 
-              Gated on a KNOWN-exhausted free quota only. That is a display decision, not a
-              business rule: the server re-checks in reserve_analysis regardless, and it stays
-              the sole authority (CLAUDE.md). We disable rather than let an out-of-quota user
-              film a clip and only then be refused — that wastes their effort to tell them
-              something we already knew. When quota is loading or errored we leave the CTA
-              ENABLED: refusing on a state we are unsure of would lock out a user who is
-              actually fine, and the server would have caught it anyway.
+              Issues #54/#15: the label, enabled state, and a11y hint above are all derived from
+              the SAME `quota` this screen fetched — the caption and the CTA can no longer
+              disagree with each other the way the old client-side mirror sometimes could.
+              Gating is still a display decision, not a business rule: `reserve_analysis`
+              re-checks server-side regardless and stays the sole authority (CLAUDE.md).
 
-              Tier/quota CTA relabeling ("Upgrade to analyze", copy deck Ambiguities #1) is
-              still M5's, since that is where the paywall it would route to gets built. */}
+              HANDOFF (issue #52, `app/paywall.tsx` / `lib/subscription.ts` — a parallel
+              worktree, not merged as of this commit, and out of this file's lane): when
+              `ctaKind` is `'upgradeToAnalyze'` or `'upgradeForMore'`, the deck
+              (docs/design/copy-deck.md §Screen 2) wants this CTA ENABLED and routed to Paywall.
+              This build has no Paywall route to verify props/params against, so — rather than
+              guess — both render correctly labelled but disabled, paired with
+              `Copy.home.cta.upgradeUnavailable`. Once #52 merges: drop `ctaKind !== 'analyze'`
+              from `isPrimaryCtaEnabled`'s exclusion in lib/quota.ts, and add an else-branch here
+              — `else { router.push('/paywall'); }` (confirm the exact call against that file's
+              actual props once it exists) — to the `onPress` below. */}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={Copy.home.cta.analyze}
-            accessibilityState={{ disabled: isOutOfQuota }}
-            disabled={isOutOfQuota}
+            accessibilityLabel={ctaLabel}
+            accessibilityHint={ctaHint ?? undefined}
+            accessibilityState={{ disabled: !ctaEnabled }}
+            disabled={!ctaEnabled}
             onPress={() => {
               router.push('/capture');
             }}
             style={({ pressed }) => [
               styles.primaryButton,
-              isOutOfQuota && styles.primaryButtonDisabled,
-              pressed && !isOutOfQuota && styles.pressed,
+              !ctaEnabled && styles.primaryButtonDisabled,
+              pressed && ctaEnabled && styles.pressed,
             ]}>
-            <Text style={styles.primaryButtonText}>{Copy.home.cta.analyze}</Text>
+            <Text style={styles.primaryButtonText}>{ctaLabel}</Text>
           </Pressable>
 
           <Text style={styles.emptyCaption}>{Copy.home.empty.caption}</Text>
@@ -230,21 +250,6 @@ export default function HomeScreen() {
       </ScrollView>
     </SafeAreaView>
   );
-}
-
-function describeReadyQuota(quota: ReadyQuota): string {
-  if (quota.tier === 'free') {
-    return quota.hasUsedFreeAnalysis
-      ? Copy.home.quota.exhausted.free
-      : Copy.home.quota.free.available;
-  }
-  // Pro/Elite period-based quota copy ("{remaining} of {limit} analyses left this period")
-  // needs the quota-status edge function and currentPeriod() read — M5's `purchase-tier`/
-  // `quota-status` wiring, not yet built. This branch is unreachable today (subscriptions
-  // can only hold 'pro'/'elite' once that RPC exists), but a plain tier-name fallback beats
-  // either crashing or fabricating a free-tier caption for a paid user.
-  const tierName = quota.tier === 'pro' ? Copy.home.quota.tier.pro : Copy.home.quota.tier.elite;
-  return `${tierName} plan`;
 }
 
 function createStyles(colors: ThemeColors) {
@@ -298,6 +303,10 @@ function createStyles(colors: ThemeColors) {
       fontSize: FontSize.md,
       color: colors.text.secondary,
       textAlign: 'center',
+    },
+    quotaReadyBlock: {
+      alignItems: 'center',
+      gap: Spacing.xs,
     },
     quotaErrorBlock: {
       alignItems: 'center',
