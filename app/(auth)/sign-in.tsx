@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -33,6 +33,7 @@ import { mapAuthError, validateSignInForm } from '@/lib/auth-errors';
 import { checkPasswordBreached } from '@/lib/hibp';
 import { useSession } from '@/lib/session-provider';
 import { supabase } from '@/lib/supabase';
+import { useAnnounce } from '@/lib/use-announce';
 
 type Mode = 'signIn' | 'signUp';
 type PendingAction = 'google' | 'email' | null;
@@ -49,6 +50,9 @@ export default function SignInScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const isBusy = pendingAction !== null;
+  // Focus-chaining target for the email field's `onSubmitEditing` (issue #28) — the return key
+  // advances email -> password instead of dead-ending the keyboard.
+  const passwordInputRef = useRef<TextInput>(null);
 
   // Two failure channels reach this screen from OUTSIDE its own try/catch, and both have
   // nowhere else to surface — hence both are carried on the session context:
@@ -69,6 +73,10 @@ export default function SignInScreen() {
   const { deepLinkAuthError, clearDeepLinkAuthError, corruptedSessionError, clearCorruptedSessionError } =
     useSession();
   const displayedError = errorMessage ?? deepLinkAuthError ?? corruptedSessionError;
+  // Issue #11: `accessibilityLiveRegion="polite"` on the error Text below is Android-only — a
+  // no-op on iOS. This is the iOS-side complement, firing an explicit VoiceOver announcement
+  // whenever the displayed error changes. Keep both; they're complementary, not alternatives.
+  useAnnounce(displayedError);
 
   function clearErrors() {
     setErrorMessage(null);
@@ -78,6 +86,11 @@ export default function SignInScreen() {
 
   function toggleMode() {
     setMode((current) => (current === 'signIn' ? 'signUp' : 'signIn'));
+    // Issue #16: every other consumer of `mode` lives inside the email form, which is hidden by
+    // default — without this, tapping "New here? Create an account" changed exactly one string
+    // (this link's own text) and nothing else was visible to move. Opening the form makes the
+    // tap do something the user can see.
+    setShowEmailForm(true);
     clearErrors();
   }
 
@@ -190,26 +203,31 @@ export default function SignInScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            <Text style={styles.wordmark}>{Copy.auth.wordmark}</Text>
+            <Text style={styles.wordmark} accessibilityRole="header">
+              {Copy.auth.wordmark}
+            </Text>
             <Text style={styles.valueProp}>{Copy.auth.valueProp}</Text>
           </View>
 
           <View style={styles.actions}>
+            {/* Issue #20: the primary CTA, per Ian's decision — Google is the lowest-friction
+                path and the one most likely to succeed, so it's the one control on first paint
+                carrying `Accent.value`. "Continue with email" below stays secondary. */}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={Copy.auth.cta.google}
+              accessibilityState={{ busy: pendingAction === 'google' }}
               onPress={handleGoogleSignIn}
               disabled={isBusy}
               style={({ pressed }) => [
-                styles.secondaryButton,
-                styles.secondaryButtonRaised,
+                styles.primaryButton,
                 isBusy && styles.buttonDisabled,
                 pressed && styles.buttonPressed,
               ]}>
               {pendingAction === 'google' ? (
-                <ActivityIndicator color={colors.text.primary} />
+                <ActivityIndicator color={Accent.onAccent} />
               ) : (
-                <Text style={styles.secondaryButtonText}>{Copy.auth.cta.google}</Text>
+                <Text style={styles.primaryButtonText}>{Copy.auth.cta.google}</Text>
               )}
             </Pressable>
 
@@ -242,9 +260,13 @@ export default function SignInScreen() {
                   autoCorrect={false}
                   keyboardType="email-address"
                   textContentType="emailAddress"
+                  autoComplete="email"
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordInputRef.current?.focus()}
                   editable={!isBusy}
                 />
                 <TextInput
+                  ref={passwordInputRef}
                   style={styles.input}
                   placeholder={Copy.auth.password.placeholder}
                   accessibilityLabel={Copy.auth.password.placeholder}
@@ -256,6 +278,9 @@ export default function SignInScreen() {
                   secureTextEntry
                   autoCapitalize="none"
                   textContentType={mode === 'signUp' ? 'newPassword' : 'password'}
+                  autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
+                  returnKeyType="go"
+                  onSubmitEditing={handleEmailSubmit}
                   editable={!isBusy}
                 />
                 {/* Proactive rule, sign-up mode only — noise in sign-in mode, where the rule
@@ -272,6 +297,7 @@ export default function SignInScreen() {
                   accessibilityLabel={
                     mode === 'signUp' ? Copy.auth.signUp.submit : Copy.auth.signIn.submit
                   }
+                  accessibilityState={{ busy: pendingAction === 'email' }}
                   onPress={handleEmailSubmit}
                   disabled={isBusy}
                   style={({ pressed }) => [
@@ -355,14 +381,12 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       justifyContent: 'center',
       paddingHorizontal: Spacing.lg,
     },
-    // `surface.raised` is theme.ts's "one raised element per screen" — Google is the
-    // lower-friction path (brief §4.1 lists it first), so it gets the raised treatment; the
-    // email button below is `surface.base` instead, kept legible as a button by the shared
-    // `control.border` above (issue #25). That border is `control.border`, not `hairline`:
-    // it is the only thing marking these as controls, so WCAG 1.4.11 requires >=3:1 (issue #96).
-    secondaryButtonRaised: {
-      backgroundColor: colors.surface.raised,
-    },
+    // Issue #20 moved Google onto `primaryButton` (Accent-filled) below, as the screen's one
+    // primary CTA — "Continue with email" is the only consumer of `secondaryButton` left, kept
+    // legible as a control by the shared `control.border` above (issue #25) even though its
+    // fill (`surface.base`) is otherwise near-invisible against `background`. That border is
+    // `control.border`, not `hairline`: it is the only thing marking this as a control, so WCAG
+    // 1.4.11 requires >=3:1 (issue #96).
     secondaryButtonBase: {
       backgroundColor: colors.surface.base,
     },
