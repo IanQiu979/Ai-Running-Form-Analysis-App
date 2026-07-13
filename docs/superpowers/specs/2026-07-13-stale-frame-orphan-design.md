@@ -156,16 +156,21 @@ deps (`supabase/functions/analyze-form/__tests__/flow.deno.test.ts`); Jest tests
 
 ### Existing tests that must change
 
+Four, all of which encode the old ordering:
+
 - `flow.deno.test.ts:685` — *"gate ordering is auth → consent → gate → reserve → settle"* becomes
-  `… → reserve → settle → upload → attach`. This test **is** the §3 invariant, expressed executably.
+  `… → reserve → settle → attach`. This test **is** the §3 invariant, expressed executably.
 - `flow.deno.test.ts:478` — *"a settle that refuses still releases"* gains the assertion that closes
   §1.1: **when the settle refuses, `storage.upload` was called zero times.**
 
-### The existing test that must keep passing untouched
-
 - `flow.deno.test.ts:504` — *"a storage outage does NOT fail the request, and does NOT release."*
-  Under this design the outage now happens *after* the settle, so this test is the proof that
-  `safeAttachFrames` is genuinely non-fatal. If the design were wrong, this is what would break.
+  Its **assertions** are the proof that `safeAttachFrames` is genuinely non-fatal — under this
+  design the outage now happens *after* the settle, and the request must still return 200 and still
+  not release. Those two assertions carry over unchanged. Its third assertion does not: it currently
+  reads `settle_analysis[0].args.p_media_paths === []`, and `settle_analysis` no longer receives
+  media paths at all, so that assertion moves to "`attach_media_paths` was never called."
+- `flow.deno.test.ts:267` — *"frames are uploaded under the JWT user id, inside the row's own
+  namespace"* — same edit: the paths it asserts on now arrive at `attach_media_paths`.
 
 ### New tests
 
