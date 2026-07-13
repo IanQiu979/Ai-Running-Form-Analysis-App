@@ -1,0 +1,120 @@
+# ============================================================================================
+# Issue #86 — the M7 gate: "a stranger can go sign-up -> analysis -> result with no dead end."
+#
+# READ ../README.md BEFORE RUNNING THIS. Short version: this flow is UNVERIFIED — it has never
+# been executed, because running it needs an EAS development build (issue #84, not built yet;
+# Expo Go cannot open this project's dev-client deep link). It is written against the real
+# source in app/ + components/ + constants/copy.ts as of 2026-07-13, and against
+# docs/design/copy-deck.md where the screen isn't wired yet.
+#
+# WHAT THIS FLOW ACTUALLY PROVES, TODAY, ONCE #84 LANDS:
+#   sign-up -> consent -> record a clip -> extract frames -> "Frames ready" -> Home -> Settings
+#   -> sign out.
+#
+# WHAT IT DOES NOT REACH, AND WHY — this is not a scripting gap, the app genuinely does not
+# connect these screens yet:
+#   - analyze / result: app/capture/extracting.tsx's "Frames ready" screen has exactly one
+#     control, "Done", and it returns to Home (see that file's own header comment: "M4 replaces
+#     this ready-state branch with the real handoff"). Nothing calls
+#     `setPendingAnalyzeFormRequest` + navigates to `/analyzing` anywhere in the app today.
+#     `app/analyzing.tsx` (issue #80) exists but is reachable only by a manual deep link — see
+#     issue #128. Even reaching it that way wouldn't help: `lib/analyze-form.ts`'s
+#     `analyzeFormClient` is hard-bound to a mock client with a hardcoded 'success' outcome, so
+#     there's no real analysis to produce a real result today either way.
+#   - history / delete: `(tabs)/history` (issue #55) does not exist as a route.
+#     `constants/copy.ts` has no `history.*` namespace yet (only docs/design/copy-deck.md does).
+#
+# The commented-out block near the bottom sketches the intended continuation once those land —
+# it is not live YAML, it is a maintenance TODO for whoever picks this up next.
+# ============================================================================================
+
+appId: com.ian.paceanalysisai
+---
+- launchApp:
+    clearState: true
+
+# --- Sign-up (subflow leaves us on Home, freshly authenticated) --------------------------------
+- runFlow: subflows/sign-up.yaml
+
+# --- Home -> source picker ----------------------------------------------------------------------
+- tapOn: "Analyze my form"
+- assertVisible: "Add your run"
+
+# --- Capture via in-app record (chosen over the library-upload path — see README's "Why record,
+# not upload" note: no native Photos-picker grid to blindly tap, and `record-button` already
+# has a testID). First-ever tap for this account triggers the consent gate before the camera
+# permission dance even starts (app/capture/index.tsx's handleCardPress). ---------------------
+- tapOn:
+    id: "source-card-record"
+- runFlow: subflows/grant-consent.yaml
+
+# consent granted -> handleConsented() -> goToRecord() -> pushes /capture/record
+- assertVisible: "Record your run"
+
+# Camera permission soft-ask (first time only). The OS system dialog's exact button text is
+# iOS-version-dependent ("Allow"/"OK"/"Don't Allow" have all shipped across iOS releases) —
+# verify against the actual simulator's iOS version before trusting this line; see README.
+- tapOn: "Allow camera access"
+- tapOn: "OK" # <- OS permission dialog. ADJUST to match the simulator's actual iOS version.
+
+# Record a short clip. `record-button` (testID, app/capture/record.tsx) toggles start/stop;
+# CameraView auto-caps at MAX_CLIP_DURATION_MS (15s) regardless, so 2s here is a deliberately
+# short, well-under-cap clip -- long enough that `durationMs > 0` (the guard `handleRecordPress`
+# checks before navigating on) is comfortably satisfied.
+- tapOn:
+    id: "record-button"
+- wait: 2000
+- tapOn:
+    id: "record-button"
+
+# --- Extraction ---------------------------------------------------------------------------------
+- assertVisible: "Preparing your analysis"
+- assertVisible: "Extracting frames"
+- extendedWaitUntil:
+    visible: "Frames ready"
+    timeout: 20000
+
+- tapOn: "Done"
+- assertVisible: "Analyze my form" # back on Home — see the header block above for why this is
+                                    # the real, current end of the wired path, not a script bug.
+
+# --- Settings -> sign out (independently real and reachable — does not depend on an analysis
+# existing, so it's exercised here even though the flow above never produced one). Ideally this
+# step runs AFTER the history/delete legs once #128 unblocks them, so it also proves an analysis
+# and its history entry survive right up to sign-out; TODO once that lands. -----------------
+- tapOn: "Settings"
+- assertVisible: "Settings"
+- tapOn: "Sign out"
+- assertVisible: "Sign out?" # native Alert confirm (Settings' confirmSignOut) — Alert is modal,
+                              # so the second "Sign out" tap below can only hit the Alert's own
+                              # button, not the row that opened it.
+- tapOn: "Sign out"
+- assertVisible: "Continue with Google" # back at sign-in — session cleared, guard swapped
+
+# ============================================================================================
+# INTENDED CONTINUATION — not live YAML, sketched for whoever unblocks it. Slot this in between
+# "Frames ready" and the Settings/sign-out block above once each dependency lands.
+#
+# - tapOn: "Done"  # TODO(#128): once extracting.tsx hands off for real, this becomes whatever
+#                   # the wired CTA turns out to be — setPendingAnalyzeFormRequest() +
+#                   # router.push('/analyzing'), or an explicit new button. Copy-deck precedent:
+#                   # `upload.ready.cta` ("Done") is documented as exactly this stopgap.
+# - assertVisible: "Analyzing"
+# - extendedWaitUntil: { visible: { text: "Overall" }, timeout: 90000 }  # analyzing.title ->
+#                   # result screen's PaceReadout — TODO(#128): needs #44 deployed + the mock
+#                   # binding swapped, per issue #128.
+# - assertVisible: "Back to Home"  # result.cta.done
+# - tapOn: "Back to Home"
+# - tapOn: "History"  # TODO(#55): (tabs)/history does not exist yet. Needs a `tab-history`
+#                   # testID (tab bar labels are exactly the case where a stable id beats text —
+#                   # see HANDOFF in ../README.md) plus a per-item testID, e.g.
+#                   # `history-item-{id}`, since rows are dynamic/list-based.
+# - tapOn: { id: "history-item-0" }  # most-recent analysis, per history.item.a11yLabel's shape
+# - longPressOn: { id: "history-item-0" }  # or swipe-to-delete, per whichever gesture #55 ships
+# - assertVisible: "Delete this analysis?"  # history.delete.confirm.title
+# - tapOn: "Delete analysis"  # history.delete.confirm.cta.primary — TODO(#57): the
+#                   # DELETE /functions/v1/analysis/:id function this calls is written+tested
+#                   # but NOT DEPLOYED, so even a shipped #55 UI would still fail server-side
+#                   # here until #57 deploys too.
+# - assertNotVisible: { id: "history-item-0" }
+# ============================================================================================

@@ -1,0 +1,8 @@
+# Maestro workspace config — issue #86 (the M7 "no dead end" gate).
+#
+# Scopes `maestro test .maestro` to the TOP-LEVEL flow files only. Files under
+# `flows/subflows/` are plain command lists meant to be pulled in with `runFlow:`, not run
+# standalone — most of them assume prior state (e.g. a fresh `clearState` launch) that only a
+# top-level flow sets up first.
+flows:
+  - "flows/*.yaml"

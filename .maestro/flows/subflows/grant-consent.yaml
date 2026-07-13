@@ -1,0 +1,26 @@
+# Subflow — the Art. 9 consent gate (components/consent-gate.tsx, issue #68), first time only.
+#
+# Not a standalone test. Assumes the caller just tapped either source-picker card
+# (app/capture/index.tsx's `source-card-upload` / `source-card-record`) as a first-ever attempt
+# for this account, so `ConsentGate` is currently mounted in place of the source-picker cards
+# (handleCardPress -> pendingAction set -> the gate renders, replacing the cards entirely).
+#
+# All three testIDs used here already exist on `main` (components/consent-gate.tsx) — this is
+# the one leg of the whole capture flow that needs no new testIDs at all.
+
+- assertVisible: "Before you upload"
+- assertVisible: "I consent to my images being analysed to produce health-related feedback, and to Anthropic processing them to do so."
+
+- tapOn:
+    id: "consent-checkbox"
+
+# The primary CTA is disabled until the checkbox is ticked (ConsentGate's whole point — an
+# affirmative, unbundled opt-in, not a "by continuing" notice) — assert that BEFORE ticking, so
+# this subflow also proves the gate can't be skipped, not just that it can be passed.
+- tapOn:
+    id: "consent-cta-primary"
+
+# grantConsent() succeeded -> onConsented() -> the host (app/capture/index.tsx) unmounts this
+# gate and proceeds into whichever card was originally tapped. Proving THAT happened is the
+# caller's job (it knows which action it started), not this subflow's.
+- assertNotVisible: "Before you upload"
