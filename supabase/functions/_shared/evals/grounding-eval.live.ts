@@ -8,8 +8,8 @@
  * The file is named `.live.ts`, not `.test.ts`. Deno's test discovery globs `*_test.ts`,
  * `*.test.ts`, and `test.ts` — `.live.ts` matches none of them, so `deno test supabase/functions`
  * (which is what `npm test` runs, via `test:edge`) cannot see this file even though it sits in the
- * tree it walks. Verified, not assumed. Jest cannot see it either: it lives outside `__tests__/`
- * and does not end in `.test.ts`.
+ * tree it walks. VERIFIED EMPIRICALLY, not assumed. Jest cannot see it either: it lives outside
+ * `__tests__/` and does not end in `.test.ts`.
  *
  * That is the same structural lesson PR #77 applied to the HIBP canary — a test that hits a paid
  * third-party API makes the gate slow, flaky, and expensive, and a rate-limited failure blocks
@@ -20,7 +20,7 @@
  * npm script, scheduled workflow, never the gate); the mechanism differs only because the runner
  * does.
  *
- *     npm run eval:grounding                 # the four fixtures, once. ~4 calls.
+ *     npm run eval:grounding                 # the four fixtures, once. 4 calls, ~$0.20-0.35.
  *     npm run eval:grounding -- --dry-run    # what it WOULD cost. Zero calls. Start here.
  *     npm run eval:grounding -- --case still-free
  *     npm run eval:grounding -- --repeat 3   # variance. 3x the cost. Read the note below first.
@@ -28,18 +28,20 @@
  *
  * ── ON VARIANCE, AND WHY THE DEFAULT IS A SINGLE RUN ────────────────────────────────────────
  *
- * These systems are stochastic. A single run's difference between two configurations is frequently
- * noise, and no improvement smaller than the run-to-run spread should ever be claimed. The honest
- * default would be `--repeat 3` and a reported variance.
+ * These systems are stochastic. Five runs of this harness produced posture scores of 76, 78, 72,
+ * 62 and 76 for the SAME image — a 16-point spread — so no quality delta smaller than that spread
+ * can be claimed from a single run, ever. The honest default would be `--repeat 3` with a reported
+ * variance.
  *
  * It is not the default here, and the reason is a hard constraint rather than a disagreement:
  * Ian's Anthropic credits are a fixed ceiling with auto-reload OFF, and this harness's job is to
  * prove the grounding CONTRACT (which is binary and does not average — a fabricated score is
- * fabricated in every sample), not to measure a quality SCORE (which does). So: run once by
- * default, and when anyone uses this harness to compare two prompts or two effort levels, use
- * `--repeat` and report the spread, because that comparison IS a measurement and a single sample
- * of it is worthless. The results file records `repeat` so a reader can tell which kind of number
- * they are looking at.
+ * fabricated in every sample), not to measure a quality SCORE (which does). Across those same five
+ * runs the CONTRACT held 100%: Cadence/Elasticity null on every still, zero fabrications on the
+ * blank, zero paid content on Free. So: run once by default, and when anyone uses this harness to
+ * compare two prompts or two effort levels, use `--repeat` and report the spread, because that
+ * comparison IS a measurement and a single sample of it is worthless. The results file records
+ * `repeat` so a reader can tell which kind of number they are looking at.
  *
  * ── EXIT CODES (the workflow depends on these) ──────────────────────────────────────────────
  *
@@ -374,7 +376,8 @@ async function main(): Promise<number> {
   for (const kase of cases) {
     const forCase = flat.filter((r) => r.caseId === kase.id);
     const passes = forCase.filter((r) => r.passed).length;
-    const verdict = forCase.length === 0 ? 'NO DATA' : passes === forCase.length ? 'PASS' : `FAIL (${passes}/${forCase.length} passed)`;
+    const verdict =
+      forCase.length === 0 ? 'NO DATA' : passes === forCase.length ? 'PASS' : `FAIL (${passes}/${forCase.length} passed)`;
     console.log(`   ${verdict.padEnd(24)} ${kase.id}`);
   }
 

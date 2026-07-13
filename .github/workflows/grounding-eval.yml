@@ -1,0 +1,205 @@
+# The PACE grounding eval (issue #42) — M3's gate, run against the live model.
+#
+# THIS WORKFLOW SPENDS MONEY. Every run makes 4 real Anthropic calls (~$0.20-0.35 at list price).
+# That is why it is here and not in `ci.yml`: a paid third-party call in the commit gate would make
+# every unrelated PR slow, flaky, and billed, and a rate-limited failure would block work that has
+# nothing to do with the prompt. Same structural lesson as `hibp-canary.yml` (PR #77).
+#
+# It is NOT a required check and must never become one.
+#
+# WHAT RUNS FOR FREE, ON EVERY COMMIT, ELSEWHERE: gate 1 — "the certified knowledge is verbatim in
+# the assembled prompt" — is a pure string assertion in
+# `supabase/functions/_shared/evals/grounding-eval.deno.test.ts`, which `npm test` already runs. The
+# expensive half is only the part that genuinely needs a model: does it OBEY.
+name: Grounding eval (#42)
+
+on:
+  # "Run on every prompt or knowledge-file change" (issue #42's scope). POST-MERGE, on main — not on
+  # PRs. A PR trigger would bill every push to every branch and would tempt someone into making it a
+  # required check, which is exactly what PR #77 established must not happen.
+  push:
+    branches: [main]
+    paths:
+      - 'knowledge/**'
+      - 'supabase/functions/_shared/analyze-form-prompt.ts'
+      - 'supabase/functions/_shared/knowledge.generated.ts'
+      - 'supabase/functions/_shared/pace.ts'
+      - 'supabase/functions/_shared/evals/**'
+  # A weekly heartbeat: the prompt can rot without anyone touching it, because the MODEL moves
+  # underneath it. Sonnet is not a fixed artefact, and "the analysis silently stopped obeying the
+  # certified corpus" is not something any commit would announce.
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: 'Runs per case (>1 gives variance; multiplies the cost)'
+        required: false
+        default: '1'
+      effort:
+        description: 'output_config.effort — low | medium | high | xhigh | max'
+        required: false
+        default: 'medium'
+
+concurrency:
+  group: grounding-eval
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  ALARM_TITLE: 'Grounding eval is red — the analysis is no longer provably grounded'
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Pinned to match `ci.yml` and CLAUDE.md's local install. Bump all three together.
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: '2.9.2'
+
+      # NO RETRY LOOP — and this is a deliberate departure from `hibp-canary.yml`, which retries 3x
+      # with backoff. That canary hits a FREE endpoint, so retrying a blip costs nothing but time.
+      # Here every attempt is billed, and the two failure kinds are not alike:
+      #
+      #   exit 1 = a GRADER failed. Deterministic. The model fabricated a score, invented a drill, or
+      #            leaked paid content to Free. Retrying pays a second time for the identical red.
+      #   exit 2 = INFRASTRUCTURE failed (non-2xx, network, timeout, missing key). Nothing was
+      #            learned, and ONE retry is legitimate.
+      #
+      # So: retry exit 2 exactly once; never retry exit 1.
+      - name: Run the grounding eval
+        id: eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY}" ]; then
+            echo "::error::ANTHROPIC_API_KEY is not set, so the grounding eval cannot run. It is UNARMED — the prompt could already have stopped obeying the certified corpus and nothing would notice. Add the ANTHROPIC_API_KEY repo secret to arm it. Failing deliberately rather than passing green: a check that silently does nothing is worse than no check, because it looks like coverage."
+            echo "result=unarmed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ARGS="--repeat ${{ github.event.inputs.repeat || '1' }} --effort ${{ github.event.inputs.effort || 'medium' }}"
+
+          set +e
+          npm run eval:grounding -- $ARGS
+          code=$?
+          set -e
+
+          if [ "$code" -eq 2 ]; then
+            echo "Infrastructure failure (exit 2). Nothing was learned — retrying ONCE."
+            sleep 30
+            set +e
+            npm run eval:grounding -- $ARGS
+            code=$?
+            set -e
+          fi
+
+          case "$code" in
+            0) echo "result=pass" >> "$GITHUB_OUTPUT" ;;
+            1) echo "result=fail" >> "$GITHUB_OUTPUT" ;;
+            *) echo "result=infrastructure" >> "$GITHUB_OUTPUT" ;;
+          esac
+          exit 0
+
+      # The per-case diff, the token counts, and the real dollar cost of the run. An eval whose
+      # results are not recorded anywhere is an eval that gets re-argued from memory.
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grounding-eval-results
+          path: supabase/functions/_shared/evals/grounding-eval.results.json
+          if-no-files-found: warn
+
+      - name: Ensure the label exists
+        if: steps.eval.outputs.result == 'fail'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create grounding-eval \
+            --color 5319E7 \
+            --description "Raised automatically by the #42 grounding eval" \
+            --force
+
+      - name: Open or update the alarm issue
+        if: steps.eval.outputs.result == 'fail'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Scoped by exact title as well as label: the label alone can be applied by anyone with
+          # triage permission to an unrelated open issue, which would silently downgrade a real
+          # failure to a comment on that issue instead of a visible new alarm.
+          existing="$(gh issue list --label grounding-eval --state open --limit 20 --json number,title \
+            | jq -r --arg t "${ALARM_TITLE}" '[.[] | select(.title == $t)][0].number // empty')"
+
+          body="$(cat <<EOF
+          The grounding eval (#42) FAILED a deterministic grader. This is not a flake — the graders
+          make no model calls of their own and do not drift; a red here means the ANALYSIS changed.
+
+          **What may have broken**, in the order worth checking:
+          - a **fabricated score** — a pillar the media cannot support came back with a number
+            (Cadence from a single still), or \`overall\` is not the mean of the pillars actually
+            scored. This is the banned Echo V1 mistake and it is invisible to a user.
+          - an **invented drill or injury flag** — one that traces to nothing in \`knowledge/\`. The
+            model has stopped being grounded in the certified corpus.
+          - **paid-tier content leaked to Free** — Free must emit \`[]\` for flags and drills.
+          - **false precision** (#112) — a point SPM figure, a ground-contact time in ms, or a
+            vertical oscillation in cm, none of which the approximate frame timestamps can support.
+
+          Download the \`grounding-eval-results\` artifact from the run for the per-case diff.
+
+          **Reproduce locally:** \`npm run eval:grounding\`  (~\$0.20-0.35 in Anthropic spend)
+          **Free half, no spend:** \`npm test\` already asserts the certified knowledge is verbatim
+          in the prompt.
+
+          Failing run: ${RUN_URL}
+          Refs #42
+          EOF
+          )"
+
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --body "Still failing as of ${RUN_URL}"
+          else
+            gh issue create --title "${ALARM_TITLE}" --label grounding-eval --body "${body}"
+          fi
+
+      # Self-healing: recovery closes the alarm, so a stale red issue never accumulates and the
+      # signal keeps meaning something.
+      - name: Close the alarm issue on recovery
+        if: steps.eval.outputs.result == 'pass'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          existing="$(gh issue list --label grounding-eval --state open --limit 20 --json number,title \
+            | jq -r --arg t "${ALARM_TITLE}" '[.[] | select(.title == $t)][0].number // empty')"
+          if [ -n "${existing}" ]; then
+            gh issue close "${existing}" \
+              --comment "Grounding eval is green again as of ${RUN_URL}. Closing automatically."
+          fi
+
+      # `unarmed` fails on purpose — see the run step. An infrastructure failure after one retry is
+      # also a failure: it means we could not evaluate at all, which is not the same as passing.
+      - name: Fail the job if the eval is red
+        if: steps.eval.outputs.result != 'pass'
+        run: |
+          echo "Grounding eval result: ${{ steps.eval.outputs.result }}"
+          exit 1

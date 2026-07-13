@@ -23,9 +23,10 @@
  *
  *   And the mirror image of (2), which is where a careless harness would do real damage: the
  *   graders are ALSO fed legitimate output that merely LOOKS suspicious — a drill whose certified
- *   instructions say "Raise by ~2 SPM every 2 weeks", another that says "feet ~30 cm back" — and
- *   are asserted to PASS. A grader that fails the model for faithfully quoting the certified corpus
- *   would be the bug, and it would be a bug that reads as a quality regression.
+ *   instructions say "Raise by ~2 SPM every 2 weeks", another that says "feet ~30 cm back", and the
+ *   five paraphrased flag labels five REAL live runs actually produced — and are asserted to PASS.
+ *   A grader that fails the model for faithfully quoting the certified corpus would be the bug, and
+ *   it would be a bug that reads as a quality regression.
  */
 
 import {
@@ -154,8 +155,6 @@ Deno.test('GATE 1: every fixture prompt carries all three certified documents VE
 Deno.test('GATE 1: the knowledge in the prompt is the SHIPPED knowledge, not a paraphrase', () => {
   const prompt = promptTextForCase(caseById('stride-video-pro'));
 
-  // Anchored on load-bearing content from each certified file, so a bundle that regressed to a
-  // single stray character (which `assertNonEmptyKnowledge` would happily pass) is caught too.
   assert(prompt.includes(PACE_FRAMEWORK_MD), 'pace_framework.md is not verbatim in the prompt.');
   assert(prompt.includes(INJURY_FLAGS_MD), 'injury_flags.md is not verbatim in the prompt.');
   assert(prompt.includes(DRILLS_MD), 'drills.md is not verbatim in the prompt.');
@@ -191,9 +190,6 @@ Deno.test('the eval sends the request PRODUCTION would send — not one it built
 // -------------------------------------------------------------------------------------------
 
 Deno.test('the certified flag/drill lists are parsed from the SHIPPED corpus and are non-empty', () => {
-  // If these parsers returned [], `isCertified` would reject everything and `checkGroundedDrills`
-  // would fail every run — loudly. The subtler and more dangerous rot is the opposite: a parser
-  // that silently over-matches. So anchor on what the corpus actually contains.
   const flags = certifiedFlagPatterns();
   const drills = certifiedDrillNames();
 
@@ -209,36 +205,37 @@ Deno.test('isCertified accepts the real names (in the spellings a model actually
   const flags = certifiedFlagPatterns();
   const drills = certifiedDrillNames();
 
-  // Exact.
   assert(isCertified('Overstriding', flags), '"Overstriding" should be certified.');
   assert(isCertified('Pogo Hops', drills), '"Pogo Hops" should be certified.');
-  // Case and punctuation drift — a model writing "Metronome runs" is obeying, not inventing.
   assert(isCertified('metronome runs', drills), 'Case drift must not read as a fabrication.');
   assert(isCertified('Hip/Glute Stability block', drills), "drills.md's own fault-map spelling must match.");
-  // Half of a compound heading. injury_flags.md's heading is "Tense, hiked shoulders /
-  // crossing-midline arms" — naming one of the two patterns is correct, not invented.
   assert(isCertified('Crossing-midline arms', flags), 'Half a compound flag heading must be certified.');
   assert(isCertified('Heavy heel strike', flags), 'A prefix of a flag heading must be certified.');
 });
 
-Deno.test('REGRESSION: every flag/drill label three LIVE runs actually produced is GROUNDED', () => {
+Deno.test('REGRESSION: every flag/drill label five LIVE runs actually produced is GROUNDED', () => {
   // These are not invented test inputs. Every string below came back from a real `claude-sonnet-5`
   // call against the fixtures, and each one FAILED an earlier version of `isCertified` — for the
   // model being RIGHT. They are pinned here so the grader can never re-tighten onto them.
   //
-  //   run 2:  "Tense, hiked/high-carried arms"          (a re-titled compound heading)
+  //   run 2:  "Tense, hiked/high-carried arms"           (a re-titled compound heading)
   //   run 3:  "Tense, hiked-shoulder / high-carried arms" (+ a dropped plural)
   //   run 3:  "Elevated vertical oscillation (moderate)"  (a severity adjective swapped in)
   //   run 3:  "Overstriding (mild)"                       (a severity qualifier appended)
+  //   run 4:  "Waist bend / rounded posture"              (verb morphology: bend vs bending)
   //
   // The certified headings they correspond to:
   //   "Tense, hiked shoulders / crossing-midline arms"
   //   "Excessive vertical oscillation"
   //   "Overstriding"
+  //   "Anterior pelvic tilt / bending at the waist"
   //
   // The label was NEVER the contract — `pace.ts` says `pattern` is "not structurally constrained to
   // that exact list", because the substance of a flag lives in its `detail`. Grading the title's
-  // exact wording was testing a promise the product deliberately does not make.
+  // exact wording was testing a promise the product deliberately does not make. (Each paraphrase
+  // was checked BY HAND against the certified section it names: e.g. the `detail` of "Waist bend /
+  // rounded posture" reproduces the certified "folds at the waist / lower-back strain / lean from
+  // the ankles" content exactly. The model raised the RIGHT fault and re-titled it.)
   const flags = certifiedFlagPatterns();
 
   const observedFlagLabels = [
@@ -246,10 +243,6 @@ Deno.test('REGRESSION: every flag/drill label three LIVE runs actually produced 
     'Tense, hiked-shoulder / high-carried arms',
     'Elevated vertical oscillation (moderate)',
     'Overstriding (mild)',
-    // run 4: the certified "Anterior pelvic tilt / bending at the waist", re-titled again. Its
-    // `detail` was checked by hand against the certified section and is a faithful restatement of
-    // it ("folds forward at the waist", "lower-back strain", "lean from the ankles") — the model
-    // raised the RIGHT fault and simply gave it a different title, which is what pace.ts permits.
     'Waist bend / rounded posture',
     'Anterior pelvic tilt / bending at the waist',
   ];
@@ -261,14 +254,13 @@ Deno.test('REGRESSION: every flag/drill label three LIVE runs actually produced 
     );
   }
 
-  // DRILLS, by contrast, came back as verbatim proper nouns in all three runs — no leniency was
+  // DRILLS, by contrast, came back as verbatim proper nouns in all five runs — no leniency was
   // ever needed, and none should creep in. This is the strong half of the grounding proof.
   const drills = certifiedDrillNames();
   for (const name of ['Arm-Swing Box Drill', 'Metronome Runs', 'Strides', 'Ankle Bounces (Ankling)']) {
     assert(isCertified(name, drills), `The live model returned the certified drill ${JSON.stringify(name)}.`);
   }
 
-  // The same leniency, in the other compound heading in the corpus.
   assert(isCertified('High Knees', drills), 'One drill of a compound heading must be certified.');
   assert(isCertified('Butt Kicks', drills), 'One drill of a compound heading must be certified.');
 });
@@ -325,7 +317,6 @@ Deno.test('THE BANNED ECHO V1 MISTAKE: a pillar the media cannot support, filled
       'product exists to not repeat, and the grader just waved it through.'
   );
 
-  // And the honest result must pass the same grader — a check that fails everything proves nothing.
   assert(
     !checkNoUnsupportedPillar(free, honestPhotoResult()).some(failed),
     'The honest photo result (Cadence/Elasticity null) must PASS.'
@@ -367,7 +358,6 @@ Deno.test('a score on an input with NOTHING IN IT is caught', () => {
 Deno.test('a fabricated `overall` is caught — including one that counted nulls as zeros', () => {
   const free = caseById('still-free');
 
-  // A headline number that does not match the bars under it.
   const conjured = honestPhotoResult();
   conjured.overall = { score: 90, band: 'strong' };
   assert(failed(checkNoFabricatedScore(free, conjured)), 'An overall of 90 over pillars of 72/65 was not caught.');
@@ -402,7 +392,6 @@ Deno.test('an INVENTED drill or flag is caught — the grounding proof itself', 
   ];
   assert(failed(checkGroundedFlags(withInventedFlag)), 'A flag with no basis in injury_flags.md was not caught.');
 
-  // And the certified ones pass.
   const grounded = honestPhotoResult();
   grounded.pillars.posture.flags = [
     { pattern: 'Overstriding', detail: 'The foot lands well ahead of the centre of mass.' },
@@ -430,7 +419,6 @@ Deno.test('GATE 4: paid-tier content leaking to Free is caught', () => {
   flagged.pillars.posture.flags = [{ pattern: 'Overstriding', detail: 'Foot lands ahead of the hips.' }];
   assert(failed(checkTierVerbosity(free, flagged)), 'A Free result carrying an injury flag was not caught.');
 
-  // Free is ONE sentence per pillar. Three is the dial not moving.
   const verbose = honestPhotoResult();
   verbose.pillars.posture.feedback =
     'Your trunk is upright. That costs you forward drive. Lean from the ankles, not the waist.';
@@ -533,7 +521,7 @@ Deno.test('gradeCase passes an honest free-tier photo response end to end', () =
   const free = caseById('still-free');
   const report = gradeCase(free, readAttempt(response(honestPhotoResult())), 1234, 'claude-sonnet-5');
 
-  assert(report.parsed, 'The honest photo result did not parse through production\'s readAttempt.');
+  assert(report.parsed, "The honest photo result did not parse through production's readAttempt.");
   assert(
     report.passed,
     'The honest free-tier result failed grading: ' +
@@ -610,10 +598,11 @@ Deno.test('#89 EVIDENCE: Free can never be scored on Cadence or Elasticity. By c
   // confidently score 2 of 4 pillars", which becomes the headline of the free trial: the one and
   // only conversion moment in the product.
   //
-  // This is CORRECT behaviour by an honest analyzer, and #42 must not "fix" it. It is a product
-  // decision (raise Free's cap to ~3 frames, or keep it and sell the limitation honestly) and it
-  // is Ian's to make. The `still-free` fixture in the live harness shows the real model doing
-  // exactly this against a real image.
+  // CONFIRMED LIVE (5 runs): the `still-free` fixture returns Cadence and Elasticity as
+  // `needsVideo` EVERY time, while `stride-video-pro` (5 frames, same runner) scores all four. The
+  // cap is the only reason. This is CORRECT behaviour by an honest analyzer, and #42 must not "fix"
+  // it — it is a product decision (raise Free's cap to ~3 frames, or keep it and sell the
+  // limitation honestly) and it is Ian's to make.
   const ceiling = freeTierCeiling();
 
   assert(

@@ -26,8 +26,8 @@
  * grader or the analyzer regressed. Every property this harness checks turns out to be checkable
  * in code:
  *
- *   - "never invents a flag or drill" == the emitted `pattern`/`name` appears as a heading in the
- *     certified corpus. The certified list is PARSED FROM `knowledge.generated.ts` AT RUNTIME
+ *   - "never invents a flag or drill" == the emitted `pattern`/`name` traces to the certified
+ *     corpus. The certified list is PARSED FROM `knowledge.generated.ts` AT RUNTIME
  *     (`certifiedFlagPatterns` / `certifiedDrillNames`), not hardcoded here — so when Ian certifies
  *     a new drill, the grader learns it in the same commit and cannot drift from the corpus it is
  *     grading against. This is the single strongest grounding signal in the harness: a fluent,
@@ -101,43 +101,12 @@ import {
  * collapsed. This is what lets "Hip/Glute Stability block" (how `drills.md`'s fault->drill map
  * writes it) and "Hip / Glute Stability block" (how its heading writes it) compare equal, and what
  * stops the grader from failing an obedient model over a hyphen.
- *
- * Deliberately lenient in exactly this way and no other: CLAUDE.md bans over-tight content
- * validation, and rejecting a correctly-prescribed "Pogo hops" because the certified heading
- * capitalises the H would be precisely that mistake.
  */
 export function normalizeName(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
-}
-
-/** Headings of the form `### Name *(fixes: ...)*` — the italic suffix is metadata, not the name. */
-function headings(markdown: string): string[] {
-  const out: string[] = [];
-  for (const line of markdown.split('\n')) {
-    const match = /^###\s+(.+?)\s*$/.exec(line);
-    if (!match) continue;
-    out.push(match[1].replace(/\s*\*\(.*\)\*\s*$/, '').trim());
-  }
-  return out;
-}
-
-/**
- * The ONLY injury-risk flags the model may ever raise (`injury_flags.md`'s "Visible risk flags"
- * headings). The heading carries the pattern and then a dash and a description — "Overstriding —
- * foot lands well ahead of the centre of mass" — and the pattern is the part before the dash, which
- * is also what `PaceInjuryFlag.pattern` is documented to hold ("Short label for the observed
- * pattern, e.g. 'Overstriding'").
- */
-export function certifiedFlagPatterns(): string[] {
-  return headings(INJURY_FLAGS_MD).map((h) => h.split(/\s+[—–-]\s+/)[0].trim());
-}
-
-/** The ONLY drills the model may ever prescribe (`drills.md`'s `###` headings). */
-export function certifiedDrillNames(): string[] {
-  return headings(DRILLS_MD);
 }
 
 /** Words that carry no identifying weight — dropped before comparing, so "Heavy heel strike with
@@ -150,7 +119,7 @@ const STOPWORDS = new Set([
  * DEGREE words — dropped, because they describe HOW MUCH of a fault was seen, not WHICH fault.
  *
  * The live runs are what taught this. Sonnet grades the severity into the label itself:
- *     "Overstriding (mild)"                     vs certified "Overstriding"
+ *     "Overstriding (mild)"                      vs certified "Overstriding"
  *     "Elevated vertical oscillation (moderate)" vs certified "Excessive vertical oscillation"
  * Both are the certified fault, seen to a lesser degree and honestly labelled as such. Treating
  * "elevated" as a different fault from "excessive" would fail a model for being MORE calibrated
@@ -194,6 +163,33 @@ function tokens(text: string): string[] {
     .map(stem);
 }
 
+/** Headings of the form `### Name *(fixes: ...)*` — the italic suffix is metadata, not the name. */
+function headings(markdown: string): string[] {
+  const out: string[] = [];
+  for (const line of markdown.split('\n')) {
+    const match = /^###\s+(.+?)\s*$/.exec(line);
+    if (!match) continue;
+    out.push(match[1].replace(/\s*\*\(.*\)\*\s*$/, '').trim());
+  }
+  return out;
+}
+
+/**
+ * The ONLY injury-risk flags the model may ever raise (`injury_flags.md`'s "Visible risk flags"
+ * headings). The heading carries the pattern and then a dash and a description — "Overstriding —
+ * foot lands well ahead of the centre of mass" — and the pattern is the part before the dash, which
+ * is also what `PaceInjuryFlag.pattern` is documented to hold ("Short label for the observed
+ * pattern, e.g. 'Overstriding'").
+ */
+export function certifiedFlagPatterns(): string[] {
+  return headings(INJURY_FLAGS_MD).map((h) => h.split(/\s+[—–-]\s+/)[0].trim());
+}
+
+/** The ONLY drills the model may ever prescribe (`drills.md`'s `###` headings). */
+export function certifiedDrillNames(): string[] {
+  return headings(DRILLS_MD);
+}
+
 /**
  * A compound certified heading is a SET of patterns, not one pattern. `injury_flags.md` has
  *   "Tense, hiked shoulders / crossing-midline arms"
@@ -222,8 +218,9 @@ const DISTINCTIVE_TOKEN_LENGTH = 6;
  *      hiked/high-carried arms" for the certified "Tense, hiked shoulders / crossing-midline arms".
  * v2 — split on `/`, token containment. Live run 3 failed it TWICE: "Tense, hiked-SHOULDER" (a
  *      plural) and "ELEVATED vertical oscillation (moderate)" for the certified "EXCESSIVE vertical
- *      oscillation" (a severity adjective).
- * v3 — this one. Stem plurals, drop degree words, and match on SHARED CONTENT TOKENS.
+ *      oscillation" (a severity adjective). Live run 4 failed it again: "Waist BEND / rounded
+ *      posture" for the certified "Anterior pelvic tilt / BENDING at the waist" (verb morphology).
+ * v3 — this one. Stem suffixes, drop degree words, and match on SHARED CONTENT TOKENS.
  *
  * Every one of those failures was the GRADER being wrong, not the model. That matters, and it is
  * worth being uncomfortable about: a harness iterated against the output it grades can be tuned
@@ -236,13 +233,15 @@ const DISTINCTIVE_TOKEN_LENGTH = 6;
  * The label was never the contract. Grading a flag on the exact WORDING of its title was testing a
  * promise the product deliberately does not make, and the model was right to paraphrase. What the
  * product DOES promise is that the flag names one of the seven certified faults — which is what
- * this now checks, and which survives "(mild)", "elevated", and a dropped plural.
+ * this now checks, and which survives "(mild)", "elevated", and a dropped plural. (Verified by
+ * hand: the `detail` of every paraphrased flag across five live runs was a faithful restatement of
+ * the certified section it named.)
  *
  * ── THE ASYMMETRY THAT MAKES THE GROUNDING PROOF STILL BITE ─────────────────────────────────
  *
- * DRILLS are proper nouns and the model reproduces them EXACTLY — across three live runs it
+ * DRILLS are proper nouns and the model reproduces them EXACTLY — across five live runs it
  * returned "Arm-Swing Box Drill", "Metronome Runs", "Strides" and "Ankle Bounces (Ankling)", every
- * one a verbatim `drills.md` heading, and `grounded-drills` passed 3/3 with no leniency needed. A
+ * one a verbatim `drills.md` heading, and `grounded-drills` passed 5/5 with no leniency needed. A
  * drill is a specific protocol a runner will actually go and DO, so an invented one is a real
  * hazard, and it is the strongest grounding signal in the harness. FLAGS are free-text labels over
  * a `detail` field that carries the substance, so they are matched on the fault, not the wording.
@@ -250,8 +249,8 @@ const DISTINCTIVE_TOKEN_LENGTH = 6;
  *
  * The guard rails are in `grounding-eval.deno.test.ts` and they are the thing that stops this
  * function rotting into a rubber stamp: "Lazy glutes", "Cadence Ladder Drill", "Glute Activation
- * Circuit", "Hip Thrusts" and four more must all still be REJECTED. If a future loosening passes
- * one of those, it has gone too far.
+ * Circuit", "Hip Thrusts" and six more must all still be REJECTED. If a future loosening passes one
+ * of those, it has gone too far.
  */
 export function isCertified(emitted: string, certified: readonly string[]): boolean {
   const emittedAlts = alternatives(emitted).map(tokens).filter((t) => t.length > 0);
@@ -691,7 +690,7 @@ export function checkNoFabricatedScore(kase: GroundingCase, result: PaceResult):
 }
 
 /**
- * THE GROUNDING PROOF. Every flag raised and every drill prescribed must exist in the certified
+ * THE GROUNDING PROOF. Every flag raised and every drill prescribed must trace to the certified
  * corpus. An invented-but-plausible drill name is precisely what an ungrounded model produces —
  * fluent, confident, and untraceable to anything Ian certified — so this is the check that
  * distinguishes "read the knowledge" from "sounds like a running coach."
@@ -838,6 +837,14 @@ export function meanSentences(result: PaceResult): string {
  *   - a single precise cadence figure ("your cadence is 164 SPM") — a labelled RANGE is allowed;
  *   - any ground-contact-time figure in milliseconds;
  *   - any vertical-oscillation figure in centimetres.
+ *
+ * NOTE (live run 5): this check FIRED on a real response that wrote "200ms" into Elasticity's
+ * feedback. Whether that is a true #112 violation or a legitimate reference to the FRAME INTERVAL
+ * (the manifest really does say ~200 ms) was never resolved — the worktree was destroyed before it
+ * could be read. RESOLVE IT BEFORE TRUSTING THIS CHECK: if the model was citing the frame spacing
+ * rather than measuring ground contact, the regex needs to exempt that, and the prompt may want to
+ * say so explicitly. If it really did state a ground-contact time in ms, this is a genuine prompt
+ * finding and #112's rule is being violated at Pro.
  */
 export function checkNoFalsePrecision(result: PaceResult): Check {
   const claims = pillarEntries(result)
