@@ -921,14 +921,14 @@ export const Copy = {
         body: 'Something went wrong preparing your frames. Try again or choose a different clip.',
       },
     },
-    // NEW — not in the deck. `analyze-form` (M4, issue #44) doesn't exist yet, so this is
-    // where the frame set currently has to stop — see app/capture/extracting.tsx's header
-    // comment. "Done" is the deck's own shared.cta.done ("Dismisses a screen with no further
-    // action needed"), which is exactly true today.
+    // NEW — not in the deck. Was a genuine stopping point ("Done" -> Home) until issue #135
+    // wired this screen's one control to hand off into `/analyzing` — reuses `home.cta.analyze`'s
+    // exact wording ("Analyze my form") rather than inventing a distinct label for what is, from
+    // the user's point of view, the same action: starting an analysis of what's now ready.
     ready: {
       title: 'Frames ready',
       body: (frameCount: number) => `${frameCount} frame${frameCount === 1 ? '' : 's'} extracted and ready for analysis.`,
-      cta: 'Done',
+      cta: 'Analyze my form',
     },
   },
   // Cross-cutting — Offline (issue #93). Lifted verbatim from copy-deck.md's own "Cross-cutting —
