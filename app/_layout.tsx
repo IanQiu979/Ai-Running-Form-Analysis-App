@@ -16,7 +16,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 
 import { OfflineBanner } from '@/components/offline-banner';
@@ -77,9 +77,17 @@ function RootLayoutNav() {
       <View style={styles.stackAndBannerContainer}>
         {/* The only animation that exists in this app today is expo-router's default stack
             push/pop transition (the auth <-> tabs swap below) — gated behind the OS Reduce
-            Motion setting (issue #29). `animation: 'none'` vs. the native-stack default is the
-            full extent of the wiring; no new motion is introduced here. */}
-        <Stack screenOptions={{ animation: reduceMotion ? 'none' : 'default' }}>
+            Motion setting (issue #29), per docs/design/motion-consult.md's reduced-motion map:
+            "Android: forced animation: 'fade' via useReducedMotion(); iOS: native automatic
+            (iOS keys this to 'Prefer Cross-Fade Transitions', a distinct setting)". So the
+            override below only ever applies on Android — iOS always gets the native-stack
+            default and lets UIKit's own cross-fade preference govern it, rather than this
+            screen re-deciding that from a different OS setting (Reduce Motion) than the one iOS
+            actually uses for it. No new motion is introduced here either way. */}
+        <Stack
+          screenOptions={{
+            animation: Platform.OS === 'android' && reduceMotion ? 'fade' : 'default',
+          }}>
           {/* Stack.Protected omits its screen from the navigator entirely (not just hides it)
               while its guard is false, so a signed-out user's Stack literally has no route
               at (tabs) to navigate to, and vice versa — this is what makes sign-in/sign-out
