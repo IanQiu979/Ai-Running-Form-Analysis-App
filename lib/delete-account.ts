@@ -5,6 +5,13 @@
  * `supabase.functions.invoke` implementation, a dev/test-only mock, and the binding the screen
  * actually uses.
  *
+ * `submitToEdgeFunction` below calls through issue #46's shared `lib/functions-client.ts`
+ * (`invokeFunction`) rather than `supabase.functions.invoke` directly — that file now owns the
+ * `FunctionsHttpError`/`FunctionsRelayError`/`FunctionsFetchError` unwrap this file used to do
+ * inline; see its header for why. This file is left owning only what's specific to THIS endpoint:
+ * the 200 success shape, and narrowing the wrapper's generic `code: string` to the three codes
+ * `delete-account` actually emits.
+ *
  * ⚠️ HISTORY, because it matters for what to trust here: this file originally shipped bound to the
  * mock, on the theory that #58 (the edge function) would "drop its real implementation in by
  * replacing that one binding." A security audit on PR #122 (F1) caught that this handoff had no
@@ -43,9 +50,7 @@
  * ever delete a row, an object, or a user itself, and an `{ ok: true }` here means the SERVER said
  * it purged, never that this file decided it did.
  */
-import { FunctionsHttpError } from '@supabase/supabase-js';
-
-import { supabase } from './supabase';
+import { invokeFunction } from './functions-client';
 
 const EDGE_FUNCTION_NAME = 'delete-account';
 
@@ -145,61 +150,42 @@ function parseSuccessBody(body: unknown): DeleteAccountSuccess | null {
   return { outcome: record.orphansRemaining === true ? 'orphansRemaining' : 'deleted' };
 }
 
-/** Defensive, narrow parse of a non-2xx JSON body. */
-function parseErrorBody(body: unknown): { error: string; code: unknown } | null {
-  if (!body || typeof body !== 'object') return null;
-  const record = body as Record<string, unknown>;
-  if (typeof record.error !== 'string') return null;
-  return { error: record.error, code: record.code };
-}
-
 const GENERIC_UNKNOWN_ERROR: DeleteAccountError = {
   error: 'The account could not be deleted.',
   code: 'unknown',
 };
 
 /**
- * Calls the real `delete-account` edge function. `supabase.functions.invoke` resolves — it does
- * NOT reject — for both a success and an HTTP-error response (verified against the installed
- * `@supabase/functions-js`'s `FunctionsClient.invoke`, whose whole body is wrapped in a try/catch
- * that returns `{ data: null, error }` rather than letting anything escape as a rejection); a
- * `catch` around the call below exists only as a last-resort backstop for something even that
- * implementation doesn't anticipate, matching this file's own `DeleteAccountClient` contract
- * ("MAY reject only for a genuinely unexpected failure").
+ * Calls the real `delete-account` edge function through issue #46's shared `invokeFunction`
+ * wrapper, which already does the `supabase.functions.invoke` unwrap (a `FunctionsHttpError`'s
+ * body is only reachable via `await error.context.json()` — see `lib/functions-client.ts`'s
+ * header) and NEVER REJECTS. The only thing left for this file to do is what's specific to THIS
+ * endpoint: parse the 200 success shape, and narrow `invokeFunction`'s generic `code: string` down
+ * to the three codes `delete-account` actually emits via `isServerDeleteAccountErrorCode` —
+ * `invokeFunction` deliberately does not know any one endpoint's code set (see its header).
  */
 async function submitToEdgeFunction(): Promise<DeleteAccountResult> {
-  try {
-    const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, { method: 'POST' });
+  const result = await invokeFunction(EDGE_FUNCTION_NAME, { method: 'POST' });
 
-    if (!error) {
-      const success = parseSuccessBody(data);
-      if (success) {
-        return { ok: true, data: success };
-      }
-      // A 200 whose body we don't recognize is not a success we can act on.
-      return { ok: false, error: GENERIC_UNKNOWN_ERROR };
+  if (result.ok) {
+    const success = parseSuccessBody(result.data);
+    if (success) {
+      return { ok: true, data: success };
     }
-
-    // `FunctionsHttpError` is the ONLY branch with a real, documented `{ error, code }` body to
-    // read — a `FunctionsRelayError` (Supabase's relay couldn't reach the function) or a
-    // `FunctionsFetchError` (the request never got a response at all) carry no such body, and
-    // both collapse into the same generic, honestly-unknown failure below.
-    if (error instanceof FunctionsHttpError) {
-      try {
-        const body = parseErrorBody(await (error.context as Response).json());
-        if (body && isServerDeleteAccountErrorCode(body.code)) {
-          return { ok: false, error: { error: body.error, code: body.code } };
-        }
-      } catch {
-        // The error response wasn't valid JSON (or had none) — e.g. the function doesn't exist
-        // yet (a 404, plain text) because #58/#121 isn't deployed. Fall through.
-      }
-    }
-
-    return { ok: false, error: GENERIC_UNKNOWN_ERROR };
-  } catch {
+    // A 200 whose body we don't recognize is not a success we can act on.
     return { ok: false, error: GENERIC_UNKNOWN_ERROR };
   }
+
+  // `kind: 'http'` is the only branch with a real, server-authored `code` to read — `'network'`
+  // (a relay/fetch failure) and `'malformed'` (a non-2xx response whose body wasn't the documented
+  // shape, e.g. the function doesn't exist yet — a 404, plain text, because #58/#121 isn't
+  // deployed) both carry no such code, and collapse into the same generic, honestly-unknown
+  // failure below — as does an HTTP code this endpoint doesn't recognize as one of its own.
+  if (result.error.kind === 'http' && isServerDeleteAccountErrorCode(result.error.code)) {
+    return { ok: false, error: { error: result.error.error, code: result.error.code } };
+  }
+
+  return { ok: false, error: GENERIC_UNKNOWN_ERROR };
 }
 
 /** The real client. Bound below as `deleteAccountClient` — the binding a production build ships. */
