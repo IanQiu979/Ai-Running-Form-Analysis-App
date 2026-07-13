@@ -96,11 +96,27 @@ export function captionPhaseForElapsed(elapsedMs: number): AnalyzingCaptionPhase
 // Retry) means for what's on screen.
 // -------------------------------------------------------------------------------------------
 
+/**
+ * `'released'` (issue #64): reached ONLY by `reconciledReleased` below, never by `failed` or a
+ * client-side `timedOut` — those two mean "the call this screen made came back bad or never came
+ * back"; `'released'` means "we checked the row directly (because the app was backgrounded while
+ * waiting) and the SERVER already gave up on it while we were away." The two are kept as
+ * distinct phases, not folded into `failed`, because `failed`/`timedOut` legitimately offer a
+ * Retry that resubmits with the same idempotency key — useful when nothing has settled yet — but
+ * a `released` row is already a terminal, settled outcome for that key: `reserve_analysis`
+ * returns an idempotency match "as-is, whatever its status" (see
+ * supabase/migrations/20260711150400_quota_reserve_settle_release.sql), so resubmitting here
+ * would just hand back the same `released` row again, not actually try again. That is exactly the
+ * "otherwise spin forever" case the issue calls out — this phase carries no `attempt`, and the
+ * reducer's `retry` case (below) does not list it, so a stray Retry tap from here is a no-op by
+ * construction rather than a dead-end resubmit.
+ */
 export type AnalyzingState =
   | { phase: 'waiting'; attempt: number }
   | { phase: 'succeeded'; outcome: PaceAnalysisOutcome; analysisId: string }
   | { phase: 'failed'; attempt: number }
-  | { phase: 'timedOut'; attempt: number };
+  | { phase: 'timedOut'; attempt: number }
+  | { phase: 'released'; analysisId: string };
 
 export const INITIAL_ANALYZING_STATE: AnalyzingState = { phase: 'waiting', attempt: 1 };
 
@@ -108,7 +124,17 @@ export type AnalyzingEvent =
   | { type: 'succeeded'; attempt: number; outcome: PaceAnalysisOutcome; analysisId: string }
   | { type: 'failed'; attempt: number }
   | { type: 'timedOut'; attempt: number }
-  | { type: 'retry' };
+  | { type: 'retry' }
+  /**
+   * Issue #64: dispatched by `app/analyzing.tsx` when a foreground-triggered reconciliation read
+   * of the `analyses` row (matched by idempotency key, since the row's own id is not known
+   * client-side until a real `succeeded`) finds `status: 'released'` — the analysis failed
+   * server-side while the app was backgrounded. A `'delivered'` row reconciles through the
+   * EXISTING `succeeded` event above instead (same fields it already carries: `outcome` +
+   * `analysisId`); a `'reserved'` row needs no event at all — see that effect's own comment for
+   * why doing nothing is the correct handling of "still genuinely in flight."
+   */
+  | { type: 'reconciledReleased'; attempt: number; analysisId: string };
 
 /**
  * True only while `state` is still `waiting` on exactly this `attempt`. A submit promise or a
@@ -130,10 +156,19 @@ export function analyzingReducer(state: AnalyzingState, event: AnalyzingEvent): 
       return isCurrentAttempt(state, event.attempt) ? { phase: 'failed', attempt: event.attempt } : state;
     case 'timedOut':
       return isCurrentAttempt(state, event.attempt) ? { phase: 'timedOut', attempt: event.attempt } : state;
+    case 'reconciledReleased':
+      // Same staleness guard as every other attempt-tagged event: a reconciliation read that was
+      // already in flight when a Retry (or an earlier reconcile) moved the machine off this
+      // attempt must not clobber whatever the machine has already moved on to.
+      return isCurrentAttempt(state, event.attempt)
+        ? { phase: 'released', analysisId: event.analysisId }
+        : state;
     case 'retry':
       // Only a `failed`/`timedOut` screen shows a Retry button in the first place — this guard
       // just keeps the reducer honest about that instead of trusting the caller never to fire a
-      // stray 'retry' from `waiting`/`succeeded`.
+      // stray 'retry' from `waiting`/`succeeded`. `'released'` is deliberately excluded too — see
+      // that phase's own doc comment above for why a Retry from there would silently do nothing
+      // useful rather than actually retry.
       return state.phase === 'failed' || state.phase === 'timedOut'
         ? { phase: 'waiting', attempt: state.attempt + 1 }
         : state;

@@ -32,6 +32,10 @@ export const supabase = createClient<Database>(supabaseUrl, supabasePublishableK
     // design (SecureStore's ~2KB value limit vs. a full session payload), the transparent
     // migration for sessions written by the old plaintext adapter, and the web fallback.
     storage: secureSessionStorage,
+    // Necessary but NOT sufficient on mobile on its own — the refresh ticker this enables does
+    // not run while JS is suspended. lib/app-state.ts's AppState listener (started once from
+    // lib/session-provider.tsx, issue #10) is what re-arms it on foreground / stops it on
+    // background; see that file's header for the full contract.
     autoRefreshToken: true,
     persistSession: true,
     // The client never parses a session out of the current URL — deep-link OAuth

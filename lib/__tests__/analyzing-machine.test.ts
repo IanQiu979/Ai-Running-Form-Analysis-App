@@ -178,4 +178,51 @@ describe('analyzingReducer', () => {
     const waitingOnTwo: AnalyzingState = { phase: 'waiting', attempt: 2 };
     expect(analyzingReducer(waitingOnTwo, { type: 'failed', attempt: 1 })).toBe(waitingOnTwo);
   });
+
+  // Issue #64 — the three-case foreground reconciliation. A 'delivered' row reconciles through
+  // the EXISTING 'succeeded' transition tested above (same fields, no new case needed); these
+  // cover the genuinely new case, 'released' — "the state that will otherwise spin forever"
+  // without it.
+  describe('reconciledReleased (issue #64)', () => {
+    it('moves a matching-attempt reconciliation to the released phase, carrying the analysis id', () => {
+      const next = analyzingReducer(INITIAL_ANALYZING_STATE, {
+        type: 'reconciledReleased',
+        attempt: 1,
+        analysisId: 'analysis-3',
+      });
+
+      expect(next).toEqual({ phase: 'released', analysisId: 'analysis-3' });
+    });
+
+    // Same staleness guard every other attempt-tagged event gets: a reconciliation read that was
+    // already in flight when a Retry moved the machine to a new attempt must not clobber it.
+    it('drops a stale reconciledReleased event from an old attempt after a Retry has already started a new one', () => {
+      const retried: AnalyzingState = { phase: 'waiting', attempt: 2 };
+      const next = analyzingReducer(retried, {
+        type: 'reconciledReleased',
+        attempt: 1,
+        analysisId: 'analysis-stale',
+      });
+      expect(next).toBe(retried);
+    });
+
+    it('ignores a reconciledReleased event once the attempt has already succeeded', () => {
+      const succeeded: AnalyzingState = { phase: 'succeeded', outcome: mockOutcome, analysisId: 'a' };
+      const next = analyzingReducer(succeeded, {
+        type: 'reconciledReleased',
+        attempt: 1,
+        analysisId: 'analysis-late',
+      });
+      expect(next).toBe(succeeded);
+    });
+
+    // The load-bearing case for "otherwise spin forever": released must NOT be retriable via the
+    // normal retry path, because a retry would resubmit the SAME idempotency key and
+    // reserve_analysis returns an idempotency match "as-is, whatever its status" — i.e. the same
+    // released row again, never an actual new attempt. The reducer must not pretend otherwise.
+    it('ignores a retry event from the released phase (no working retry exists for a released row)', () => {
+      const released: AnalyzingState = { phase: 'released', analysisId: 'analysis-4' };
+      expect(analyzingReducer(released, { type: 'retry' })).toBe(released);
+    });
+  });
 });
