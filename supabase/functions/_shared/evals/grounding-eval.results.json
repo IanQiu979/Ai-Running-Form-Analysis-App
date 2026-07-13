@@ -1,0 +1,488 @@
+{
+  "generatedAt": "2026-07-13T13:23:41.528Z",
+  "commit": null,
+  "model": "claude-sonnet-5",
+  "effort": "medium",
+  "repeat": 1,
+  "note": "Fixtures are drawn figures (see grounding-eval-images.ts). This proves the analysis is GROUNDED, STRUCTURED and HONEST. It does NOT prove the coaching is accurate on a real human body — that needs real consented clips with a coach-labelled ground truth.",
+  "totals": {
+    "inputTokens": 12172,
+    "outputTokens": 8660,
+    "cacheReadInputTokens": 43684,
+    "cacheCreationInputTokens": 43578,
+    "costUsd": 0.3429387,
+    "cases": 4,
+    "passed": 3,
+    "failed": 1
+  },
+  "cases": [
+    {
+      "caseId": "still-free",
+      "tier": "free",
+      "media": "photo",
+      "frameCount": 1,
+      "proves": [
+        "gate 2 (pillars + parse)",
+        "gate 3 (no unsupported pillar)",
+        "gate 4 (Free: no drills)"
+      ],
+      "passed": true,
+      "parsed": true,
+      "failure": null,
+      "stopReason": "end_turn",
+      "checks": [
+        {
+          "id": "structure",
+          "status": "pass",
+          "detail": "Parsed as a complete PaceResult."
+        },
+        {
+          "id": "four-pillars",
+          "status": "pass",
+          "detail": "All four PACE pillars present, each with feedback."
+        },
+        {
+          "id": "no-unsupported-pillar",
+          "status": "pass",
+          "detail": "Correctly withheld: cadence, elasticity (score: null)."
+        },
+        {
+          "id": "no-fabricated-score",
+          "status": "pass",
+          "detail": "overall=65 is the mean of the 2 pillar(s) actually scored."
+        },
+        {
+          "id": "grounded-flags",
+          "status": "pass",
+          "detail": "0 flag(s), every one traceable to injury_flags.md."
+        },
+        {
+          "id": "grounded-drills",
+          "status": "pass",
+          "detail": "0 drill(s), every one traceable to drills.md."
+        },
+        {
+          "id": "tier-verbosity",
+          "status": "pass",
+          "detail": "Free: 0 flags, 0 drills, <=2 sentences per pillar (1.0 mean)."
+        },
+        {
+          "id": "no-false-precision",
+          "status": "pass",
+          "detail": "No point cadence figure, no GCT in ms, no vertical oscillation in cm."
+        },
+        {
+          "id": "no-disclaimer-echo",
+          "status": "pass",
+          "detail": "No disclaimer echoed into feedback."
+        }
+      ],
+      "result": {
+        "pillars": {
+          "posture": {
+            "score": 72,
+            "band": "good",
+            "feedback": "There's a clear, consistent forward lean from the ankles through a tall trunk, which is close to the efficient range, though the head is tipped slightly down.",
+            "flags": [],
+            "drills": []
+          },
+          "armSwing": {
+            "score": 58,
+            "band": "mid",
+            "feedback": "The visible arm is bent well past 90 degrees and swinging high toward the chest rather than in a compact hip-to-rib box, which is a position-only read from this single frame.",
+            "flags": [],
+            "drills": []
+          },
+          "cadence": {
+            "score": null,
+            "band": null,
+            "feedback": "This one frame does show a long, reaching front leg landing well ahead of the torso with a fairly extended knee, but cadence itself is a step-rate measure over time that a single photo cannot show — a short side-on video would let this be scored properly.",
+            "notAssessedReason": "needsVideo",
+            "flags": [],
+            "drills": []
+          },
+          "elasticity": {
+            "score": null,
+            "band": null,
+            "feedback": "Ground contact quality and vertical bounce can only be judged across multiple frames of motion, so this can't be assessed from a single photo — a short side-on video would unlock it.",
+            "notAssessedReason": "needsVideo",
+            "flags": [],
+            "drills": []
+          }
+        },
+        "overall": {
+          "score": 65,
+          "band": "mid"
+        }
+      },
+      "usage": {
+        "inputTokens": 1921,
+        "outputTokens": 435,
+        "cacheCreationInputTokens": 21842,
+        "cacheReadInputTokens": 0
+      },
+      "costUsd": 0.094196,
+      "latencyMs": 9527
+    },
+    {
+      "caseId": "still-pro",
+      "tier": "pro",
+      "media": "photo",
+      "frameCount": 1,
+      "proves": [
+        "gate 3 (paid tier cannot unlock an unsupported pillar)",
+        "gate 4 (Pro: drills allowed)"
+      ],
+      "passed": true,
+      "parsed": true,
+      "failure": null,
+      "stopReason": "end_turn",
+      "checks": [
+        {
+          "id": "structure",
+          "status": "pass",
+          "detail": "Parsed as a complete PaceResult."
+        },
+        {
+          "id": "four-pillars",
+          "status": "pass",
+          "detail": "All four PACE pillars present, each with feedback."
+        },
+        {
+          "id": "no-unsupported-pillar",
+          "status": "pass",
+          "detail": "Correctly withheld: cadence, elasticity (score: null)."
+        },
+        {
+          "id": "no-fabricated-score",
+          "status": "pass",
+          "detail": "overall=68 is the mean of the 2 pillar(s) actually scored."
+        },
+        {
+          "id": "grounded-flags",
+          "status": "pass",
+          "detail": "1 flag(s), every one traceable to injury_flags.md."
+        },
+        {
+          "id": "grounded-drills",
+          "status": "pass",
+          "detail": "2 drill(s), every one traceable to drills.md."
+        },
+        {
+          "id": "tier-verbosity",
+          "status": "pass",
+          "detail": "pro: 1 flag(s), 2 drill(s), 3.0 mean sentences/pillar."
+        },
+        {
+          "id": "no-false-precision",
+          "status": "pass",
+          "detail": "No point cadence figure, no GCT in ms, no vertical oscillation in cm."
+        },
+        {
+          "id": "no-disclaimer-echo",
+          "status": "pass",
+          "detail": "No disclaimer echoed into feedback."
+        }
+      ],
+      "result": {
+        "pillars": {
+          "posture": {
+            "score": 62,
+            "band": "mid",
+            "feedback": "The trunk shows a forward lean, but it looks like it's coming from a fold at the waist rather than a clean hinge from the ankles — the head is also dropped forward rather than staying level with eyes up. This kind of C-curve lean loses the gravity-assist benefit of a true ankle lean and puts extra strain through the lower back over a run. This is the pillar most worth fixing first here: cleaning up the lean point will also help the front leg land closer under the hips, which would help everything downstream (arm carriage, stride length, contact quality). Cue it as 'tall hips, lean from the ankles, not the waist,' and practice the lean drill below.",
+            "flags": [
+              {
+                "pattern": "Anterior pelvic tilt / bending at the waist",
+                "detail": "The torso appears to fold forward at the waist with the head dropping rather than a straight ankle-to-head lean line. This pattern is associated with lower-back strain and less efficient use of gravity for forward propulsion. Safe next step: practice the wall forward-lean drill and cue 'tall hips, lean from the ankles.'"
+              }
+            ],
+            "drills": [
+              {
+                "name": "Wall Forward-Lean Drill",
+                "instructions": "Stand facing a wall, feet ~30 cm back. Keeping the body in one straight line, tilt forward from the ankles (not the waist) until the hands touch the wall — a ~10–15° lean. Feel that line from ankle to head; hold 3–5 s; return upright. 10 reps. On the run, apply a smaller ~5–8° version. Cue: 'fall forward, catch yourself.'"
+              },
+              {
+                "name": "Posture Reset (in-run cue)",
+                "instructions": "Every ~5–10 minutes: drop the shoulders, level the head, lift tall from the hips, re-set the ankle lean. One breath. Rebuilds posture the moment fatigue erodes it."
+              }
+            ]
+          },
+          "armSwing": {
+            "score": 74,
+            "band": "good",
+            "feedback": "From this single frame the visible arm position looks reasonable: one elbow is bent to roughly 90 degrees and swinging back, the other reaches forward without crossing the body's midline. Hands stay in a fairly compact position rather than being carried high and tense near the chest. This is a snapshot of position only — swing arc, symmetry, and rhythm over time can't be judged from one photo, so treat this as a solid starting read rather than a full picture.",
+            "flags": [],
+            "drills": []
+          },
+          "cadence": {
+            "score": null,
+            "band": null,
+            "feedback": "Cadence is step rate over time and simply cannot be read from a single still frame, no matter how the foot position looks in this instant. A short side-on video (even a few seconds, full body, level camera, ~10 m away, good light) would let this pillar actually be scored, including whether the foot is landing under the hips or reaching out ahead of the body.",
+            "notAssessedReason": "needsVideo",
+            "flags": [],
+            "drills": []
+          },
+          "elasticity": {
+            "score": null,
+            "band": null,
+            "feedback": "Elasticity — how springy and light the ground contact is, and how much the body bounces vertically — is only visible across multiple frames of motion, not in one photo. A short video clip would let this pillar be scored by watching how the torso rises and falls step to step and how the landing looks (springy vs. heavy).",
+            "notAssessedReason": "needsVideo",
+            "flags": [],
+            "drills": []
+          }
+        },
+        "overall": {
+          "score": 68,
+          "band": "mid"
+        }
+      },
+      "usage": {
+        "inputTokens": 1896,
+        "outputTokens": 3241,
+        "cacheCreationInputTokens": 0,
+        "cacheReadInputTokens": 21842
+      },
+      "costUsd": 0.060856,
+      "latencyMs": 42983
+    },
+    {
+      "caseId": "blank-pro",
+      "tier": "pro",
+      "media": "photo",
+      "frameCount": 1,
+      "proves": [
+        "gate 3 (never a fabricated score)"
+      ],
+      "passed": true,
+      "parsed": true,
+      "failure": null,
+      "stopReason": "end_turn",
+      "checks": [
+        {
+          "id": "structure",
+          "status": "pass",
+          "detail": "Parsed as a complete PaceResult."
+        },
+        {
+          "id": "four-pillars",
+          "status": "pass",
+          "detail": "All four PACE pillars present, each with feedback."
+        },
+        {
+          "id": "no-unsupported-pillar",
+          "status": "pass",
+          "detail": "Correctly withheld: posture, armSwing, cadence, elasticity (score: null)."
+        },
+        {
+          "id": "no-fabricated-score",
+          "status": "pass",
+          "detail": "Nothing was assessable and nothing was scored. Honest."
+        },
+        {
+          "id": "grounded-flags",
+          "status": "pass",
+          "detail": "0 flag(s), every one traceable to injury_flags.md."
+        },
+        {
+          "id": "grounded-drills",
+          "status": "pass",
+          "detail": "0 drill(s), every one traceable to drills.md."
+        },
+        {
+          "id": "tier-verbosity",
+          "status": "pass",
+          "detail": "pro: 0 flag(s), 0 drill(s), 2.3 mean sentences/pillar (no flags raised, so no drills owed — a legitimate answer)."
+        },
+        {
+          "id": "no-false-precision",
+          "status": "pass",
+          "detail": "No point cadence figure, no GCT in ms, no vertical oscillation in cm."
+        },
+        {
+          "id": "no-disclaimer-echo",
+          "status": "pass",
+          "detail": "No disclaimer echoed into feedback."
+        }
+      ],
+      "result": {
+        "pillars": {
+          "posture": {
+            "score": null,
+            "band": null,
+            "feedback": "This frame does not show a visible runner — it appears to be a blank or corrupted image (a plain gray field with a thin divider line), with no body, limbs, or ground visible. Posture can't be judged without a clear side-on view of the runner's head, trunk, and pelvis. Please submit a photo that actually captures the runner full-body, side-on, roughly 10 m away, in good light.",
+            "notAssessedReason": "angle",
+            "flags": [],
+            "drills": []
+          },
+          "armSwing": {
+            "score": null,
+            "band": null,
+            "feedback": "No runner is visible in this image, so arm position can't be assessed at all — there's nothing here to judge elbow angle or hand placement from. Please resubmit a clear photo or short video showing the runner's upper body from the side or front.",
+            "notAssessedReason": "angle",
+            "flags": [],
+            "drills": []
+          },
+          "cadence": {
+            "score": null,
+            "band": null,
+            "feedback": "Cadence requires motion over multiple frames, and this submission is a single still — but beyond that, the image itself doesn't contain a visible runner to evaluate. A short side-on video of the runner in motion is needed to assess this pillar.",
+            "notAssessedReason": "needsVideo",
+            "flags": [],
+            "drills": []
+          },
+          "elasticity": {
+            "score": null,
+            "band": null,
+            "feedback": "Elasticity depends on watching ground contact and bounce across frames of motion, which a single photo can't show — and this particular image has no visible runner in it at all. A short side-on video, full body, level camera, in good light would let this be assessed.",
+            "notAssessedReason": "needsVideo",
+            "flags": [],
+            "drills": []
+          }
+        },
+        "overall": {
+          "score": null,
+          "band": null
+        }
+      },
+      "usage": {
+        "inputTokens": 1896,
+        "outputTokens": 662,
+        "cacheCreationInputTokens": 0,
+        "cacheReadInputTokens": 21842
+      },
+      "costUsd": 0.022171,
+      "latencyMs": 10043
+    },
+    {
+      "caseId": "stride-video-pro",
+      "tier": "pro",
+      "media": "video",
+      "frameCount": 5,
+      "proves": [
+        "gate 2 (all four pillars scoreable with motion)",
+        "gate 4 (flags -> certified drills)",
+        "#112 (no false precision from approximate timestamps)"
+      ],
+      "passed": false,
+      "parsed": true,
+      "failure": null,
+      "stopReason": "end_turn",
+      "checks": [
+        {
+          "id": "structure",
+          "status": "pass",
+          "detail": "Parsed as a complete PaceResult."
+        },
+        {
+          "id": "four-pillars",
+          "status": "pass",
+          "detail": "All four PACE pillars present, each with feedback."
+        },
+        {
+          "id": "no-unsupported-pillar",
+          "status": "pass",
+          "detail": "No pillar is out of reach for this input; nothing to withhold."
+        },
+        {
+          "id": "no-fabricated-score",
+          "status": "pass",
+          "detail": "overall=65 is the mean of the 4 pillar(s) actually scored."
+        },
+        {
+          "id": "grounded-flags",
+          "status": "fail",
+          "detail": "INVENTED injury flag(s) with no basis in injury_flags.md: posture: \"Waist bend / rounded posture\". Certified: [Overstriding | Hip drop (pelvic instability) | Heavy heel strike with an extended knee | Excessive vertical oscillation | Overpronation / knee valgus (knee caves inward) | Anterior pelvic tilt / bending at the waist | Tense, hiked shoulders / crossing-midline arms]."
+        },
+        {
+          "id": "grounded-drills",
+          "status": "pass",
+          "detail": "4 drill(s), every one traceable to drills.md."
+        },
+        {
+          "id": "tier-verbosity",
+          "status": "pass",
+          "detail": "pro: 1 flag(s), 4 drill(s), 3.3 mean sentences/pillar."
+        },
+        {
+          "id": "no-false-precision",
+          "status": "pass",
+          "detail": "No point cadence figure, no GCT in ms, no vertical oscillation in cm."
+        },
+        {
+          "id": "no-disclaimer-echo",
+          "status": "pass",
+          "detail": "No disclaimer echoed into feedback."
+        }
+      ],
+      "result": {
+        "pillars": {
+          "posture": {
+            "score": 58,
+            "band": "mid",
+            "feedback": "Across the frames the trunk shows a forward lean, but the curve looks like it's coming from a rounded upper back and a bend at the waist rather than a straight line pitched forward from the ankles — the white spine-line curves noticeably and the head sits low and forward of the shoulders in frames 1, 2, 4 and 5. This kind of C-curve slump reduces the gravity-assist a clean ankle lean gives you and adds load through the lower back. The fix is to think 'tall hips, lean from the ankles' rather than folding forward at the belt line.",
+            "notAssessedReason": "angle",
+            "flags": [
+              {
+                "pattern": "Waist bend / rounded posture",
+                "detail": "The trunk shows a forward curve concentrated at the waist/upper back rather than a straight ankle-to-head lean; this pattern is associated with increased lower-back strain and less efficient use of gravity for propulsion. Worth reinforcing an ankle-hinged lean on easy runs."
+              }
+            ],
+            "drills": [
+              {
+                "name": "Wall Forward-Lean Drill",
+                "instructions": "Stand facing a wall, feet ~30 cm back. Keeping the body in one straight line, tilt forward from the ankles (not the waist) until the hands touch the wall — a ~10-15° lean. Hold 3-5 s, 10 reps. On the run, apply a smaller ~5-8° version. Cue: 'fall forward, catch yourself.'"
+              },
+              {
+                "name": "Posture Reset (in-run cue)",
+                "instructions": "Every ~5-10 minutes: drop the shoulders, level the head, lift tall from the hips, re-set the ankle lean. One breath. Rebuilds posture the moment fatigue erodes it."
+              }
+            ]
+          },
+          "armSwing": {
+            "score": 68,
+            "band": "mid",
+            "feedback": "The elbow angle looks roughly 90 degrees and the motion is a compact front-to-back swing rather than a wild arc, which is the right shape. But in frames 1 and 5 the leading hand travels quite high, up near the chin/face, rather than staying in the hip-to-lower-rib 'box' the framework describes. That higher carry tends to bring tension into the shoulders. Bringing the hand height down slightly would keep the swing quieter and more efficient.",
+            "flags": [],
+            "drills": [
+              {
+                "name": "Arm-Swing Box Drill",
+                "instructions": "Standing or slow jog, set elbows to ~90°, hands relaxed. Drive the motion front-to-back from the shoulder inside an imaginary vertical box — elbows back, hands travelling roughly hip to lower-rib. Nothing crosses the midline or rides above chest height. 3×30 s. Cue: 'elbows drive straight back, hands in the box.'"
+              }
+            ]
+          },
+          "cadence": {
+            "score": 72,
+            "band": "good",
+            "feedback": "In the landing frames (3 and 5) the lead foot touches down with a visibly bent knee and lands roughly under or just slightly ahead of the torso rather than with a straight, reaching leg out front — that's the main thing worth judging here, since it doesn't depend on timing. I don't see the classic overstriding signature (near-straight knee, foot well ahead of the hips). Note: any step-rate number from these frames would only be a rough, approximate range given the requested timestamps aren't exact intervals, so I'm not giving one — the strike geometry is the more trustworthy signal here and it looks reasonably compact.",
+            "flags": [],
+            "drills": []
+          },
+          "elasticity": {
+            "score": 60,
+            "band": "mid",
+            "feedback": "Comparing head/torso height across the sequence, the figure sits noticeably lower in the crouched/contact-looking frames (1, 2, 4) and rises higher in the frames that look like toe-off/flight (3, 5) — a visible up-and-down travel that suggests some energy is going vertically rather than purely forward. The stance-frame knee bend looks moderate rather than clearly springy or clearly stiff, so contact quality reads as average rather than obviously light. Because the true spacing between these frames isn't reliable, treat this as a general impression of moderate bounce rather than a measured oscillation, and it's a reasonable starting point to build a bit more spring with light entry-level plyometric work.",
+            "flags": [],
+            "drills": [
+              {
+                "name": "Ankle Bounces (Ankling)",
+                "instructions": "Small, fast bounces off the balls of the feet, knees nearly straight, minimal height — like a soft skipping-rope rhythm without the rope. 2-3 × 20 contacts. Teaches a quick, reactive foot. Build a strength base first and keep this at the entry level before progressing."
+              }
+            ]
+          }
+        },
+        "overall": {
+          "score": 65,
+          "band": "mid"
+        }
+      },
+      "usage": {
+        "inputTokens": 6459,
+        "outputTokens": 4322,
+        "cacheCreationInputTokens": 21736,
+        "cacheReadInputTokens": 0
+      },
+      "costUsd": 0.165717,
+      "latencyMs": 54316
+    }
+  ]
+}
