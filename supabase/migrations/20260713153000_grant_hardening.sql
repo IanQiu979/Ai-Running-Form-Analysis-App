@@ -1,0 +1,148 @@
+-- Privilege-layer hardening for public.profiles, public.subscriptions, public.analyses, and
+-- storage.objects (issues #100 and #4 — the same workstream, closed together so they cannot fight
+-- each other over the same grant surface). Mirrors 20260712030617_consents_grant_hardening.sql's
+-- discipline: RLS only filters/rejects rows for a privilege the role already holds — it does not
+-- narrow which columns a statement may name, and it does not apply to TRUNCATE at all, which is a
+-- table-level privilege checked independently of any policy. Supabase's legacy default `grant all`
+-- on table creation left every client-facing role holding that privilege underneath correct RLS on
+-- four tables. This migration closes the privilege layer under all four. It does not touch RLS.
+--
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+-- GROUND TRUTH, established before writing a single statement below
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+--
+-- Both #100 and #4 are dated 2026-07-12; several migrations have landed since, on both this branch
+-- and others already merged. Read every prior migration in `supabase/migrations/` in chronological
+-- order, then cross-checked against the LIVE project (vputdomdlknvthnzritt) via
+-- `information_schema.role_table_grants` immediately before writing this file:
+--
+--   public.analyses   — ALREADY FULLY HARDENED, live, today. 20260712040000_analyses_quota_
+--     soft_delete.sql ran `revoke all on public.analyses from authenticated, anon` and re-granted
+--     only `select` (plus a since-superseded `update (deleted_at)`); 20260712230000_analyses_
+--     client_delete_removed.sql then revoked that `update (deleted_at)` grant too. Live query
+--     confirms: `authenticated` holds exactly SELECT on `public.analyses`, table-level, no other
+--     privilege of any kind (not even REFERENCES/TRIGGER — `revoke all` took those too); `anon`
+--     holds nothing. #100's own text named `analyses` as part of the problem, but that finding
+--     predates both fixes above and is stale. Nothing to do here except confirm it, which section 3
+--     below does (as an idempotent restatement, not new work) so this migration is a complete,
+--     self-contained closure of both issues rather than one that depends on reading three other
+--     migrations to know the full picture.
+--
+--   public.subscriptions, public.profiles — PARTIALLY HARDENED, in the repo, NOT YET LIVE.
+--     20260713120000_purchase_tier_function.sql (timestamped before this file, so it applies first)
+--     already runs `revoke insert, update, delete, truncate on public.subscriptions/profiles from
+--     authenticated, anon`, deliberately leaving SELECT/REFERENCES/TRIGGER in place to match
+--     consents_grant_hardening's own precedent of not touching privileges PostgREST never exposes
+--     and NOLOGIN roles can never use directly. Per `list_migrations` against the live project, that
+--     migration has NOT been applied yet (live migration history stops at 20260712230000) — live
+--     `role_table_grants` still shows the full legacy `DELETE, INSERT, REFERENCES, SELECT, TRIGGER,
+--     TRUNCATE, UPDATE` on both tables for both roles, confirming #4's original finding is accurate
+--     for the CURRENT live state, but will be superseded once 20260713120000 is pushed. Section 2
+--     below does not fight that migration — REVOKE is idempotent (revoking an already-revoked
+--     privilege is a no-op, never an error) — it goes one step further: `anon` never has any policy
+--     on either table (both tables' one SELECT policy is `to authenticated` only), so the leftover
+--     SELECT/REFERENCES/TRIGGER that migration deliberately left for `anon` specifically serves no
+--     purpose and is removed here, matching the stricter, no-stray-grants posture `analyses` already
+--     landed on. `authenticated` keeps SELECT (genuinely needed — Settings screen tier display,
+--     `app/(tabs)/index.tsx` quota display); REFERENCES/TRIGGER are removed for symmetry with
+--     `analyses` and because nothing legitimate ever used them (`authenticated`/`anon` are NOLOGIN
+--     roles with no direct SQL session, and PostgREST exposes neither privilege).
+--
+--   storage.objects — NOT HARDENED AT ALL. THE REAL WORK OF THIS MIGRATION.
+--     20260712123606_frame_upload_ordering.sql dropped the client's INSERT and DELETE RLS *policies*
+--     on this table (the client no longer writes to the bucket — frames upload server-side, under
+--     the service-role key, only after the model call succeeds; see CLAUDE.md's "Uploaded media is
+--     sensitive" section) but never touched the table-level *grant*, because dropping the policies
+--     was that migration's whole fix and it never claimed to touch privileges (see its own file,
+--     which contains zero grant/revoke statements). Live query confirms both `anon` and
+--     `authenticated` still hold the full legacy `DELETE, INSERT, REFERENCES, SELECT, TRIGGER,
+--     TRUNCATE, UPDATE` grant-all on `storage.objects` — unlike `analyses`, `subscriptions`, and
+--     `profiles`, nothing has ever narrowed this. This is the sharper edge named in #100: the grant
+--     is shared across every bucket this project might ever add, not scoped to the private `media`
+--     bucket alone, and the bucket holds images of people's bodies. TRUNCATE in particular bypasses
+--     RLS entirely — it is a table privilege, not a row privilege, so even a table with zero policies
+--     naming it is not protected. Section 1 below is the actual fix.
+--
+--   public.set_updated_at() — rider from #4's own audit, not previously fixed anywhere in the repo
+--     (grepped every migration; confirmed live: `has_function_privilege` returns true for both
+--     `anon` and `authenticated`). Harmless in practice — Postgres fires a trigger regardless of the
+--     trigger function's own EXECUTE grants, the same reasoning 20260711150000_profiles.sql's own
+--     comment gives for why revoking `handle_new_user`'s EXECUTE doesn't affect its trigger — but
+--     inconsistent with `handle_new_user`, which was correctly revoked in the same file. #4 asked
+--     for this to be folded into the grant-hardening pass rather than filed and deferred. Section 4.
+--
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+-- COORDINATION — a per-user storage budget migration (issue #7-in-flight, `*_storage_user_budget.
+-- sql`) is landing in a sibling worktree on top of storage.objects and has been told to assume this
+-- migration's revoke already applies. This file is timestamped LAST among the migrations known to
+-- exist as of this writing specifically so it runs after that one. The `revoke all` in section 1
+-- below removes every privilege currently held by `authenticated`/`anon` on `storage.objects` other
+-- than the SELECT this file re-grants — if the budget migration relies on the client holding any
+-- OTHER table-level or column-level grant on this table (e.g. a client-facing INSERT for a
+-- budget-checked upload path), that would contradict CLAUDE.md's settled "the client never writes
+-- to the bucket" contract and should be caught at review regardless of this migration. RLS POLICIES
+-- are untouched by anything here — GRANT/REVOKE and CREATE/DROP POLICY are independent DDL — so a
+-- new policy the budget migration adds survives this file unconditionally; only the underlying
+-- privilege layer is being narrowed, and only down to exactly what CLAUDE.md already documents as
+-- the client's genuine need (SELECT, for signed URLs).
+
+-- ───────────────────────────────────────────────────────────────────────────────────────────────
+-- 1. storage.objects — the real fix. Shared across every bucket; not scoped to `media` alone.
+-- ───────────────────────────────────────────────────────────────────────────────────────────────
+-- SELECT stays, table-level (not column-restricted): the client mints short-TTL signed URLs for the
+-- M6 frame strip (`app/result/[id].tsx`'s `createSignedUrl` call), which needs SELECT on the object
+-- row, and unlike an INSERT/UPDATE, a SELECT grant has no "hostile value" surface for column-level
+-- restriction to defend against — the existing owner-scoped SELECT policy already limits which ROWS
+-- are visible; this only ensures the PRIVILEGE requires that policy to do any work at all. Nothing
+-- else survives: no INSERT (the client never uploads directly, per CLAUDE.md), no UPDATE (frames are
+-- write-once/delete, never edited in place), no DELETE (purge is exclusively server-side, by prefix,
+-- since 20260712123606 — a client DELETE grant would let the client strand or bypass that contract),
+-- no TRUNCATE (bypasses RLS entirely regardless of any policy; the sharpest edge #100 names).
+revoke all on storage.objects from authenticated, anon;
+grant select on storage.objects to authenticated;
+-- anon gets nothing: the bucket is private and no storage.objects policy has ever targeted anon
+-- (every policy on this table, including the one still standing, is `to authenticated`).
+
+-- ───────────────────────────────────────────────────────────────────────────────────────────────
+-- 2. public.subscriptions, public.profiles — tighten past 20260713120000's partial revoke.
+-- ───────────────────────────────────────────────────────────────────────────────────────────────
+-- 20260713120000_purchase_tier_function.sql already revokes insert/update/delete/truncate from both
+-- roles on both tables (see GROUND TRUTH above) but deliberately leaves SELECT/REFERENCES/TRIGGER,
+-- matching consents_grant_hardening's choice not to touch privileges nothing can reach. This section
+-- does not undo that reasoning for `authenticated` (SELECT is genuinely used — tier/quota display) —
+-- it only removes what NEITHER table's RLS has ever granted `anon` any use for: `anon` holds no
+-- policy on `subscriptions` or `profiles` at all (both tables' sole SELECT policy is `to
+-- authenticated`), so `anon` retaining even SELECT is a stray grant with zero legitimate purpose,
+-- same conclusion `analyses` already reached (`anon gets nothing: no policy on this table has ever
+-- targeted anon`, 20260712040000's own comment). `revoke all` is used rather than the narrower verb
+-- list so this migration doesn't depend on 20260713120000 having applied first — REVOKE of an
+-- already-revoked privilege is a documented Postgres no-op, not an error, so this is safe to run
+-- whichever order the two end up applied in.
+revoke all on public.subscriptions from authenticated, anon;
+grant select on public.subscriptions to authenticated;
+
+revoke all on public.profiles from authenticated, anon;
+grant select on public.profiles to authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────────────────────────────
+-- 3. public.analyses — already fully hardened live; restated here, not new work.
+-- ───────────────────────────────────────────────────────────────────────────────────────────────
+-- See GROUND TRUTH above: confirmed live that `authenticated` already holds exactly SELECT and
+-- `anon` holds nothing, entirely via 20260712040000 + 20260712230000. This restatement is a no-op
+-- against the live grant state today. It exists so this one file is the complete, self-contained
+-- answer to "what closes #100 and #4 across all four tables those issues name" without requiring a
+-- reader to also open two other migrations to confirm `analyses` isn't still a gap.
+revoke all on public.analyses from authenticated, anon;
+grant select on public.analyses to authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────────────────────────────
+-- 4. public.set_updated_at() — #4's rider: EXECUTE was never revoked, unlike handle_new_user().
+-- ───────────────────────────────────────────────────────────────────────────────────────────────
+-- Trigger functions fire regardless of their own EXECUTE grants (Postgres does not consult
+-- PostgREST-style privilege checks for a trigger invocation) — see 20260711150000_profiles.sql's own
+-- comment on handle_new_user() for the identical reasoning. This revoke is therefore inert for
+-- subscriptions_updated_at / analyses_updated_at / the two ai_spend_guardrails triggers that call
+-- this function; it exists only so set_updated_at() stops being the one function in this schema that
+-- is SECURITY-DEFINER-adjacent trigger plumbing yet still client-EXECUTE-able, an inconsistency #4's
+-- audit flagged by name.
+revoke execute on function public.set_updated_at() from public, anon, authenticated;
