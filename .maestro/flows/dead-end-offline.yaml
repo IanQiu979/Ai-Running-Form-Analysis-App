@@ -1,0 +1,71 @@
+# ============================================================================================
+# Dead-end case: connectivity drops mid-flow. Per docs/design/copy-deck.md's "never claim a
+# state that isn't true" rule (brief §5), the app must say plainly that nothing was sent and
+# offer a Retry — never silently hang, never imply a save/queue that isn't implemented.
+#
+# STATUS: entirely blocked, and not just on issue #84. Issue #93 ("Offline is a specified state
+# that nothing implements — the copy deck has the strings, the app has no connectivity
+# detection") is open and unowned. Confirmed directly: `constants/copy.ts` has no `offline.*`
+# namespace at all — grepped for it, zero hits — only docs/design/copy-deck.md's "Cross-cutting
+# — Offline" section has these strings. There is no NetInfo (or equivalent) listener anywhere
+# in app/ or lib/, no offline banner component, and nothing in app/capture/index.tsx or
+# app/analyzing.tsx branches on connectivity. This flow is written against the copy deck only —
+# every assertion below targets UI that does not exist yet on `main`.
+#
+# Once #93 lands, this needs a way to force the app offline deterministically. `setAirplaneMode`
+# below is Maestro's built-in mechanism for that — verify it against `maestro -v`'s installed
+# version before relying on it; it has historically been far more reliable against an Android
+# emulator than an iOS Simulator (the Simulator has no real radio to toggle — Xcode's Network
+# Link Conditioner, driven outside Maestro, is the more realistic iOS equivalent). This flow is
+# written iOS-first to match the rest of this directory (see ../README.md), so budget time to
+# re-verify this specific step on whichever platform #84's dev build actually targets first.
+# ============================================================================================
+
+appId: com.ian.paceanalysisai
+---
+- launchApp:
+    clearState: true
+
+- assertVisible: "Continue with Google"
+- tapOn: "Continue with email"
+- tapOn: "Email"
+- inputText: "${MAESTRO_OFFLINE_TEST_EMAIL}"
+- tapOn: "Password"
+- inputText: "${MAESTRO_OFFLINE_TEST_PASSWORD}"
+- tapOn: "Sign in"
+- assertVisible: "Analyze my form"
+
+- tapOn: "Analyze my form"
+- assertVisible: "Add your run"
+
+# Drop connectivity BEFORE attempting anything network-dependent. Capture itself must stay
+# usable offline per the deck ("Capture itself is not blocked; only the network-dependent steps
+# are") — this flow only exercises the blocked steps, not a full offline-capture-then-reconnect
+# pass.
+- setAirplaneMode: true
+
+# offline.banner — persistent light banner on the source picker per the deck. NOT implemented:
+# app/capture/index.tsx has no connectivity-aware render branch today.
+- assertVisible: "You're offline — capture still works, but upload and analysis need a connection."
+
+- tapOn:
+    id: "source-card-upload"
+
+# Consent write itself needs a connection (public.consents is a real Supabase table write) — if
+# consent was already granted in a prior run, this step is skipped entirely and the flow goes
+# straight to the next offline-blocked assertion below.
+- runFlow: subflows/grant-consent.yaml
+
+# offline.blocked.* — shown when the user attempts to upload/analyze while offline. NOT
+# implemented today: nothing in the capture flow currently checks connectivity before
+# proceeding, so this state cannot be reached by any path in the current build.
+- assertVisible: "You're offline" # offline.blocked.title
+- assertVisible: "This needs an internet connection. Reconnect and try again — nothing has been sent yet." # offline.blocked.body — the "nothing sent yet" clause specifically
+- assertVisible: "Retry" # offline.blocked.cta
+
+- setAirplaneMode: false
+- tapOn: "Retry"
+# Once reconnected, Retry must actually resume — not just dismiss the banner into a second,
+# silent dead end. What "resume" means isn't specified anywhere (deck or architecture.md) for
+# this exact state; flagging as a real open question for whoever builds #93, not guessing at an
+# assertion here.

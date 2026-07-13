@@ -1,0 +1,40 @@
+# Subflow — signs up a brand-new "stranger" via email/password and lands on Home.
+#
+# Not a standalone test (excluded from ../../config.yaml's `flows/*.yaml` glob). The caller is
+# expected to have already run `launchApp: { clearState: true }` — a real stranger has no
+# existing session, and this subflow doesn't force that itself so it can also be reused later
+# for a repeat-signup negative test without double-clearing app state.
+#
+# Sets ${output.e2eEmail} / ${output.e2ePassword} so the caller can assert against the same
+# account afterward (e.g. signing back in, or a future delete-account flow).
+#
+# Google/Apple sign-in are NOT scripted here — they need a real, credentialed browser OAuth
+# round-trip (Google) or an Apple Developer account that doesn't exist yet (blocked-on-apple.md).
+# Email/password is the only path a fully scripted "stranger" can take end to end.
+
+- evalScript: ${output.e2eEmail = 'maestro.e2e+' + Date.now() + '@example.com'}
+- evalScript: ${output.e2ePassword = 'Pace-e2e-' + Date.now() + '!Aa'}
+
+- assertVisible: "Continue with Google"
+
+# Toggle to sign-up mode BEFORE opening the email form. `toggleMode` (app/(auth)/sign-in.tsx)
+# only flips `mode` — it's always visible regardless of `showEmailForm` — so switching first
+# means the email form's submit button already reads "Create account" the moment it appears.
+- tapOn: "New here? Create an account"
+- tapOn: "Continue with email"
+
+# No testID on these two TextInputs today — matched by their placeholder text, which doubles as
+# their accessibilityLabel (app/(auth)/sign-in.tsx). See the HANDOFF block in ../../README.md:
+# `auth-email-input` / `auth-password-input` testIDs would make this more robust than a text
+# match, but aren't required for this to work.
+- tapOn: "Email"
+- inputText: "${output.e2eEmail}"
+- tapOn: "Password"
+- inputText: "${output.e2ePassword}"
+- tapOn: "Create account"
+
+# Supabase email confirmation is disabled for this MVP (supabase/config.toml) — the session
+# should exist immediately, and app/_layout.tsx's Stack.Protected should swap straight from
+# (auth) to (tabs). If this hangs, the most likely cause is `auth.error.generic` rendering
+# instead (see sign-in.tsx's signUp branch) — check for that text before assuming a Maestro bug.
+- assertVisible: "Analyze my form"

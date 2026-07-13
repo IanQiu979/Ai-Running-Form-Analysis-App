@@ -1,0 +1,76 @@
+# ============================================================================================
+# Dead-end case: a Free-tier user who has already used their one lifetime analysis must have a
+# way FORWARD (to the paywall), never just a disabled button and nowhere else to go. This is
+# the exact property issue #86 names: "Retry/Cancel must never trap the user — every error
+# state needs an exit," extended to the quota-exhausted state.
+#
+# STATUS: written against the INTENDED, correct contract (docs/design/copy-deck.md's Screen 2 +
+# Screen 10, and issue #52's own framing: "the only screen that turns 'you are out of analyses'
+# into a path forward rather than a dead end"). It is NOT written to match today's actual
+# behavior, which — confirmed by reading app/(tabs)/index.tsx and app/settings.tsx directly —
+# IS a genuine dead end right now:
+#   - Home's CTA, when `isOutOfQuota`, stays labeled "Analyze my form" and is simply `disabled`
+#     — `home.cta.upgradeToAnalyze` ("Upgrade to analyze") exists in docs/design/copy-deck.md
+#     but is never rendered anywhere in the app (grepped constants/copy.ts and every screen).
+#   - There is no "See plans" entry point anywhere in the shipped app. `constants/copy.ts` has
+#     a comment at line ~245 noting `settings.plan.cta` ("See plans") is deferred to issue #52,
+#     but the key itself is not implemented — Settings' Plan section only ever shows the tier
+#     name, never a CTA.
+#   - `paywall` is not a registered route (docs/architecture.md's route tree still lists it
+#     "planned (M5)"; no `app/paywall.tsx` file exists).
+# So today, tapping through this flow finds a disabled button and then nothing — issue #52
+# (paywall) and #54 (wiring Home's CTA/copy to it) are what turn this flow from "documents a
+# real dead end" into "proves the dead end is closed." Per the test-writing rule this repo's
+# CLAUDE.md and this run's own instructions both call for: do NOT rewrite this flow to assert
+# the current disabled-dead-end as correct just to make it pass — that would codify a bug the
+# issue that requested this flow exists specifically to catch.
+#
+# PRECONDITION THIS FLOW CANNOT SET UP ITSELF: a Free-tier account that has already spent its
+# one lifetime analysis needs a real `analyses` row with `status IN ('reserved','delivered')`
+# (app/(tabs)/index.tsx's own `hasUsedFreeAnalysis` query) — which needs a real, successful
+# `reserve_analysis`/`settle_analysis` RPC call, which needs `analyze-form` (#44) deployed. That
+# doesn't exist yet either (see ../flows/happy-path.yaml's header). Until then, this flow's
+# `${MAESTRO_QUOTA_EXHAUSTED_EMAIL}`/`${MAESTRO_QUOTA_EXHAUSTED_PASSWORD}` test account has to
+# be seeded out of band — e.g. a `seed-data`/`mocks-testdata` fixture that inserts one
+# 'delivered' `analyses` row directly (service-role, bypassing the RPC) for a known test user.
+# No such fixture exists in this repo today; see HANDOFF in ../README.md.
+#
+# Run with: maestro test --env MAESTRO_QUOTA_EXHAUSTED_EMAIL=... \
+#                          --env MAESTRO_QUOTA_EXHAUSTED_PASSWORD=... \
+#                          .maestro/flows/dead-end-quota-exhausted.yaml
+# ============================================================================================
+
+appId: com.ian.paceanalysisai
+---
+- launchApp:
+    clearState: true
+
+- assertVisible: "Continue with Google"
+- tapOn: "Continue with email"
+- tapOn: "Email"
+- inputText: "${MAESTRO_QUOTA_EXHAUSTED_EMAIL}"
+- tapOn: "Password"
+- inputText: "${MAESTRO_QUOTA_EXHAUSTED_PASSWORD}"
+- tapOn: "Sign in"
+
+- assertVisible: "You've used your free analysis" # home.quota.exhausted.free
+
+# Today this is "Analyze my form", disabled — the deck's relabel is issue #54's job, not yet
+# rendered anywhere. Written against the intended label so this line starts failing loudly
+# (element not found) rather than silently passing against the wrong string.
+- assertVisible: "Upgrade to analyze" # home.cta.upgradeToAnalyze
+- tapOn: "Upgrade to analyze"
+
+# The paywall itself — issue #52, not built. `app/paywall.tsx` does not exist; this is the
+# INTENDED landing screen per docs/design/copy-deck.md's Screen 10.
+- assertVisible: "Choose your plan" # paywall.title
+- assertVisible: "You've used your free analysis" # paywall.gate.free.title — restates why we're
+                                                    # here, per the deck's "never expose the raw
+                                                    # 402/code" rule
+- assertVisible: "Upgrade to Pro" # paywall.cta.upgrade.pro
+- assertVisible: "Upgrade to Elite" # paywall.cta.upgrade.elite
+
+# The actual no-dead-end assertion: there must be a way back out that ISN'T "stuck on the
+# paywall forever." The deck doesn't name an explicit back/cancel CTA for this screen — flagging
+# that as a real gap for whoever builds #52, not guessing at a control that may not exist.
+# See HANDOFF in ../README.md.

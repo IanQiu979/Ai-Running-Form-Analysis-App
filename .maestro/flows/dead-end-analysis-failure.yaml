@@ -1,0 +1,87 @@
+# ============================================================================================
+# Dead-end case: the model call comes back structurally invalid twice (retry-once-then-fail) or
+# times out. Copy deck: "This one wasn't counted against your quota — try again" — Retry and
+# Cancel must both be live, and Cancel must return to Home, never leave the user stuck on the
+# Analyzing screen. app/analyzing.tsx's `analyzingReducer` (lib/analyzing-machine.ts) already
+# implements and UNIT-TESTS exactly this (lib/__tests__/analyzing-machine.test.ts covers
+# `failed`, `timedOut`, and retry-from-either-state transitions) — what's missing is only the
+# END-TO-END trigger and the screen's own rendering of those states, neither of which the unit
+# tests touch (screens aren't unit-tested by convention, per CLAUDE.md's Testing section).
+#
+# STATUS: blocked on more than #84 — there is currently NO way to reach this state via UI
+# interaction alone, by design, not by oversight:
+#   1. app/capture/extracting.tsx's "Frames ready" screen never hands off to /analyzing at all
+#      (see ../flows/happy-path.yaml's header — issue #128). Reaching the Analyzing screen today
+#      needs a manual deep link, which is not something a "stranger walks the app" flow should
+#      script around — a real fix belongs in #128, not in a Maestro workaround here.
+#   2. Even via a deep link, `lib/analyze-form.ts`'s `analyzeFormClient` binding
+#      (`export const analyzeFormClient: AnalyzeFormClient = createMockAnalyzeFormClient();`)
+#      is hardcoded to zero-argument defaults — `outcome: 'success'`, `delayMs: 4000` — with NO
+#      runtime switch (no env var, no dev menu, no query param). The mock CAN produce 'failed',
+#      'timeout', or 'thrown' outcomes (see its `MockAnalyzeFormOutcome` union), but only via a
+#      source-code change to that one binding, which is exactly the kind of thing a black-box
+#      E2E script must not do.
+#   3. Once #44 (the real `analyze-form`) deploys, forcing a structural-validation failure or a
+#      timeout ON DEMAND from outside the app needs its own designed-in test hook — e.g. a
+#      documented magic idempotencyKey prefix, or a staging-only fault-injection flag — that
+#      does not exist in docs/architecture.md's API contract today. This is a genuine new
+#      requirement, not just a missing testID; see HANDOFF in ../README.md.
+#
+# This flow is written against the copy deck's Screen 6 (Analyzing) so it is ready to run the
+# moment (1)-(3) above are addressed, but it cannot be made to pass by writing more Maestro —
+# the trigger has to exist first.
+# ============================================================================================
+
+appId: com.ian.paceanalysisai
+---
+- launchApp:
+    clearState: true
+
+- assertVisible: "Continue with Google"
+- tapOn: "Continue with email"
+- tapOn: "Email"
+- inputText: "${MAESTRO_ANALYSIS_FAILURE_TEST_EMAIL}"
+- tapOn: "Password"
+- inputText: "${MAESTRO_ANALYSIS_FAILURE_TEST_PASSWORD}"
+- tapOn: "Sign in"
+- assertVisible: "Analyze my form"
+
+- tapOn: "Analyze my form"
+- tapOn:
+    id: "source-card-record"
+- runFlow: subflows/grant-consent.yaml
+- tapOn: "Allow camera access"
+- tapOn: "OK" # OS permission dialog — see happy-path.yaml's note on iOS-version wording
+- tapOn:
+    id: "record-button"
+- wait: 2000
+- tapOn:
+    id: "record-button"
+- extendedWaitUntil:
+    visible: "Frames ready"
+    timeout: 20000
+
+# --- Everything below this line needs the fixes described in the header comment before it can
+# run at all. Written against the intended contract, not a guess at today's non-existent UI. ---
+
+- tapOn: "Done" # TODO(#128): whatever the real handoff CTA turns out to be, once it exists.
+# TODO: some documented, deterministic way to force a failure/timeout outcome for THIS
+# analysis — e.g. `- inputText: "${MAESTRO_FORCE_ANALYZE_OUTCOME}"` into a to-be-designed
+# test-only field, or an env-configured build. Nothing in the current app takes such a signal.
+
+- assertVisible: "Analyzing" # analyzing.title
+- extendedWaitUntil:
+    visible: "Your analysis didn't go through" # analyzing.error.failed.title
+    timeout: 30000
+- assertVisible: "This one wasn't counted against your quota — try again" # analyzing.error.failed.body — the specific quota-honesty clause issue #86 calls out by name
+
+# Retry must be live, not decorative.
+- tapOn: "Retry" # analyzing.error.cta.retry
+- assertVisible: "Analyzing"
+
+# Force the SAME failure again (whatever mechanism landed above) so Cancel can be proven too.
+- extendedWaitUntil:
+    visible: "Your analysis didn't go through"
+    timeout: 30000
+- tapOn: "Cancel" # analyzing.error.cta.cancel — "Retry/Cancel must never trap the user"
+- assertVisible: "Analyze my form" # back on Home, not stuck on Analyzing
