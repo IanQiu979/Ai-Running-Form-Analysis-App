@@ -717,13 +717,16 @@ milestone "done" criteria.
     up. **Not done**: neither `app/analyzing.tsx`'s submit nor `app/capture/index.tsx`'s upload
     handoff calls `checkConnectivity()` first — a user in a dead zone can still tap Analyze,
     watch the wait screen, and only then discover the call never had a chance.
-31. **NEW — `.maestro/` E2E flows (issue #86, 2026-07-13) are written but UNVERIFIED — never
-    executed.** Four flows (`happy-path`, `dead-end-offline`, `dead-end-quota-exhausted`,
-    `dead-end-analysis-failure`) plus shared subflows, written against the documented screen
-    contracts for the M7 no-dead-end gate. **Blocked on issue #84** (no dev build exists — Maestro
-    drives a real installed app binary, not Metro/Expo Go). Do not treat these as a passing gate;
-    they are an unrun draft until #84 unblocks a real execution and someone runs `maestro test`
-    against it.
+31. **PARTIAL — `.maestro/` E2E flows (issue #86, 2026-07-13) executed for real for the first time
+    on 2026-07-25, but not yet a clean repeatable pass.** Four flows (`happy-path`,
+    `dead-end-offline`, `dead-end-quota-exhausted`, `dead-end-analysis-failure`) plus shared
+    subflows, written against the documented screen contracts for the M7 no-dead-end gate. Was
+    **blocked on issue #84** (no dev build); the `preview-local` EAS simulator build unblocked it
+    and `happy-path.yaml` was run against it, finding and fixing four real bugs in the flow files.
+    Sign-up through the sign-in screen is now confirmed correct; a full clean pass was not achieved
+    in this sandbox (a Maestro iOS accessibility-tree driver flakiness, not an app/script bug). Do
+    not yet treat these as a passing gate. See `docs/architecture.md`'s `.maestro/` E2E section and
+    `.maestro/README.md`'s 2026-07-25 update for the full diagnosis and how to get a clean run.
 32. **NEW — a per-user orphan-purge ACTION exists but is wired to no schedule (issue #7's action
     half, 2026-07-13).** `supabase/functions/_shared/storage-sweep.ts`'s
     `sweepOrphanedMediaPrefixes()` is pure, Deno-tested orchestration that calls the new
