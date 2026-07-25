@@ -3,9 +3,9 @@
  * because `analyses` had a client-facing DELETE policy while `reserve_analysis` counted live
  * rows to derive both the quota-used count and the 3-failed-attempt anti-farming count.
  *
- * There is no pgTAP or local Postgres available to this repo (no Docker in the sandbox this was
- * written in, and issue #92 means there is no non-production Supabase project to apply a real
- * migration against for a true end-to-end RLS test). So this suite is a TEXT-LEVEL contract on
+ * A local Docker Supabase stack now exists (issue #92, this branch), but this suite is
+ * deliberately still a pgTAP-style text-level check pending a separate, deliberate follow-up to
+ * decide whether to convert it to run against that local stack. So this suite is a TEXT-LEVEL contract on
  * the migration SQL itself, not a live database test — it proves the migration FILES say the
  * right thing, not that Postgres executes them as written. Treat it as a tripwire against
  * regressing the fix in a later migration, not as proof the RLS policies behave correctly live

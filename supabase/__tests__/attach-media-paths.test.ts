@@ -7,8 +7,10 @@
  * `media_paths`), the delivered-only guard, and the write-once guard — and that EXECUTE is
  * service_role-only.
  *
- * WHAT IT CANNOT PROVE: that the SQL is valid Postgres or behaves as written. There is no
- * non-production Supabase environment (#92), so behavioral verification happens when whoever
+ * WHAT IT CANNOT PROVE: that the SQL is valid Postgres or behaves as written. A local Docker
+ * Supabase stack now exists (issue #92, this branch), but this suite is deliberately still a
+ * text-level check pending a separate, deliberate follow-up to decide whether to convert it to
+ * run against that local stack; until then, behavioral verification happens when whoever
  * applies this migration (with #131's other three) runs it against the live database.
  */
 import { readFileSync } from 'fs';
