@@ -48,12 +48,15 @@ describe('a not-assessed pillar never reads as a zero (photoResult: Cadence + El
   it('renders the "needs video" reason, not a numeral, for Cadence and Elasticity', async () => {
     await render(<PaceReadout result={photoResult} />);
 
-    expect(screen.getByTestId('pillar-not-assessed-cadence').props.children).toBe(
-      Copy.result.pillar.notAssessed.needsVideo
-    );
-    expect(screen.getByTestId('pillar-not-assessed-elasticity').props.children).toBe(
-      Copy.result.pillar.notAssessed.needsVideo
-    );
+    // Issue #62 review follow-up: the not-assessed reason still renders visually but is now
+    // hidden from the a11y tree (the pillar header label already speaks it), so RNTL excludes it
+    // from testID queries unless we opt back into hidden elements.
+    expect(
+      screen.getByTestId('pillar-not-assessed-cadence', { includeHiddenElements: true }).props.children
+    ).toBe(Copy.result.pillar.notAssessed.needsVideo);
+    expect(
+      screen.getByTestId('pillar-not-assessed-elasticity', { includeHiddenElements: true }).props.children
+    ).toBe(Copy.result.pillar.notAssessed.needsVideo);
   });
 
   it('still renders real scores for Posture and Arm swing from the same photo', async () => {
@@ -75,12 +78,14 @@ describe('a not-assessed pillar never reads as a zero (photoResult: Cadence + El
 it('renders the "angle" reason distinctly from "needsVideo" for a badly-framed pillar', async () => {
   await render(<PaceReadout result={poorFramingPhotoResult} />);
 
-  expect(screen.getByTestId('pillar-not-assessed-posture').props.children).toBe(
-    Copy.result.pillar.notAssessed.angle
-  );
-  expect(screen.getByTestId('pillar-not-assessed-cadence').props.children).toBe(
-    Copy.result.pillar.notAssessed.needsVideo
-  );
+  // Issue #62 review follow-up: not-assessed reason renders visually but is hidden from the a11y
+  // tree, so opt back into hidden elements for the testID lookup (see the "needs video" test).
+  expect(
+    screen.getByTestId('pillar-not-assessed-posture', { includeHiddenElements: true }).props.children
+  ).toBe(Copy.result.pillar.notAssessed.angle);
+  expect(
+    screen.getByTestId('pillar-not-assessed-cadence', { includeHiddenElements: true }).props.children
+  ).toBe(Copy.result.pillar.notAssessed.needsVideo);
 });
 
 it('renders the overall headline as not-assessed, never a fabricated 0, when every pillar is null', async () => {
