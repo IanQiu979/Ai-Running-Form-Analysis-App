@@ -277,6 +277,90 @@ Deno.test('THE INVARIANT: the tier dial can never buy certainty — only depth',
   }
 });
 
+/**
+ * Both of the tests below were forced by the FIRST live grounding-eval run after #42's workflow was
+ * armed with an API key (2026-07-25, run 30151889372). It failed two of four cases, and neither
+ * failure was a grader bug:
+ *
+ *   still-pro :: grounded-flags — the model named an arm-swing flag "High, tense-looking arm
+ *                                 carriage" for the certified heading "Tense, hiked shoulders /
+ *                                 crossing-midline arms". A renamed certified fault.
+ *   blank-pro :: four-pillars   — on the deliberately unsupportable blank input, `posture` came
+ *                                 back with an EMPTY `feedback` string. It correctly withheld
+ *                                 every score; it just said nothing about one of them.
+ *
+ * Both fixes are prompt-layer, for the same reason issue #40's and #112's were: the certified files
+ * ship byte-for-byte under Ian's name and are not editable without his review (#39/#40).
+ */
+Deno.test('the flag-naming rule reaches every tier — a certified fault may not be renamed', () => {
+  const namingRules = [
+    "NAMING A FLAG OR A DRILL — USE THE CERTIFIED FILE'S OWN WORDS",
+    'copied as written',
+    'Do not paraphrase it, do not blend two headings into one',
+    'Everything you OBSERVED goes in `detail`, never in `pattern`',
+    'If what you see matches NO certified heading, raise no flag at all',
+  ];
+
+  for (const tier of TIERS) {
+    const prompt = fullPromptText(videoInput(tier));
+    for (const rule of namingRules) {
+      assertIncludes(
+        prompt,
+        rule,
+        `Tier "${tier}" is missing the flag-naming rule. Grounding is not a paid-tier entitlement.`
+      );
+    }
+  }
+});
+
+/**
+ * The naming rule teaches by contrast: it quotes one real certified heading as the RIGHT answer and
+ * the model's paraphrase as the wrong one. That only teaches anything while the quoted heading is
+ * genuinely in the certified file — so assert it byte-for-byte, exactly as § 5 does for the #112
+ * timing clauses. If a future certification pass rewords the heading, this fails loudly instead of
+ * leaving the prompt citing an example that no longer exists.
+ */
+Deno.test('the heading the naming rule quotes as correct really exists in injury_flags.md', () => {
+  const quoted = 'Tense, hiked shoulders / crossing-midline arms';
+
+  assert(
+    INJURY_FLAGS_MD.includes(quoted),
+    `The naming rule holds up ${JSON.stringify(quoted)} as the correct label for a certified ` +
+      `fault, but that heading is no longer in injury_flags.md. Re-point the example in ` +
+      `GROUNDED_NAMING_RULES at the heading's current wording.`
+  );
+
+  // ...and the counter-example must NOT be, or the rule would be teaching the wrong lesson.
+  assert(
+    !INJURY_FLAGS_MD.includes('High, tense-looking arm carriage'),
+    'The paraphrase the naming rule cites as WRONG has appeared in the certified file. The ' +
+      'example is now backwards and must be rewritten.'
+  );
+});
+
+Deno.test('`feedback` may never be empty — at any tier, including an all-null result', () => {
+  const emptyFeedbackRules = [
+    '`feedback` is NEVER an empty string, and never whitespace only, for ANY pillar at ANY tier',
+    'a silent pillar renders as a blank space the runner cannot interpret',
+    'This holds even when EVERY pillar is not-assessed',
+  ];
+
+  // Both media types: the blank-input case that failed was a photo, but an unusable video is just
+  // as capable of leaving every pillar null.
+  for (const tier of TIERS) {
+    for (const input of [videoInput(tier), photoInput(tier)]) {
+      const prompt = fullPromptText(input);
+      for (const rule of emptyFeedbackRules) {
+        assertIncludes(
+          prompt,
+          rule,
+          `Tier "${tier}" (${input.media}) is missing the never-empty-feedback rule.`
+        );
+      }
+    }
+  }
+});
+
 Deno.test('max_tokens matches the gate\'s OUTPUT reservation — which is what bounds thinking', () => {
   // With thinking ON, thinking tokens are billed as OUTPUT — so the obvious worry is that the
   // spend gate's output reservation now under-counts the same way its input estimate did.

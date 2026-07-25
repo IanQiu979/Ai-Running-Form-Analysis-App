@@ -547,6 +547,12 @@ const NOT_ASSESSED_RULES = [
   '- A not-assessed pillar still gets `feedback`: say plainly that it could not be assessed and',
   '  what shot would fix it (usually: "film side-on, full body, level camera, ~10 m away, in',
   '  good light"). Its `flags` and `drills` are `[]`.',
+  '- `feedback` is NEVER an empty string, and never whitespace only, for ANY pillar at ANY tier.',
+  '  There is always something to say: if you scored the pillar, say what you saw; if you could',
+  '  not, say why not and what shot would fix it. Returning nothing is not a way to stay honest —',
+  '  a silent pillar renders as a blank space the runner cannot interpret, which is strictly worse',
+  '  than "I could not see this from these frames". This holds even when EVERY pillar is',
+  '  not-assessed, which is exactly when a pillar is most likely to be left silent.',
   '- Assess ONLY what is actually visible. Camera angle, framing, lighting, or crop can all make',
   '  a pillar unscoreable — that is an `angle` reason, not an invitation to guess. A side-on',
   '  (sagittal) view is required for Posture, Cadence, and Elasticity.',
@@ -667,11 +673,53 @@ const INPUT_CHANNEL_RULES = [
   '  entry level, with its cautions attached.',
 ].join('\n');
 
+/**
+ * THE NAMING RULE. Forced by the first live grounding-eval run after the eval was armed
+ * (2026-07-25, run 30151889372): the `still-pro` case raised an arm-swing flag named
+ *   "High, tense-looking arm carriage"
+ * for the certified heading
+ *   "Tense, hiked shoulders / crossing-midline arms"
+ * and `grounded-flags` — correctly — called it invented.
+ *
+ * WHY THE FIX IS HERE AND NOT IN THE GRADER. `grounding-eval.ts`'s tracing function is already on
+ * its THIRD rewrite, and its own header warns that "a harness iterated against the output it grades
+ * can be tuned until it is green, which would make it worthless." Each previous loosening was
+ * justified by the contract (`pace.ts`: `pattern` is "not structurally constrained to that exact
+ * list"). This paraphrase is different in kind from those: it is not a plural, a severity adjective,
+ * or verb morphology away from the certified heading — it drops BOTH of the heading's markers
+ * (shoulders, crossing midline) and substitutes a new one (arm carriage). Loosening v3 far enough to
+ * admit it would stop the grader from proving anything. So the model is told to stop paraphrasing
+ * instead.
+ *
+ * This changes no contract: `pattern` remains a free `string` in `pace.ts` and remains unconstrained
+ * in the schema (an enum there would be a real contract change, and would need #39/#40's
+ * certification review to settle). It only removes the model's licence to rename a certified fault.
+ */
+const GROUNDED_NAMING_RULES = [
+  "NAMING A FLAG OR A DRILL — USE THE CERTIFIED FILE'S OWN WORDS:",
+  '- `pattern` is the HEADING of the `injury_flags.md` section you are raising, copied as written',
+  '  (the part before the dash). Do not paraphrase it, do not blend two headings into one, and do',
+  '  not coin a friendlier label. "Tense, hiked shoulders / crossing-midline arms" IS the name;',
+  '  "High, tense-looking arm carriage" is NOT, even though it describes the same fault.',
+  '- Where a heading names two faults either side of a `/`, naming just the one you can actually',
+  '  see is correct and expected.',
+  '- Everything you OBSERVED goes in `detail`, never in `pattern`. `detail` is where the specific,',
+  '  frame-grounded description belongs — what it looked like, which side, how pronounced.',
+  '  Keeping the observation out of the label is exactly what keeps the label traceable.',
+  '- Same rule for `drills[].name`: the drill\'s heading in `drills.md`, as written.',
+  '- If what you see matches NO certified heading, raise no flag at all. An observation you cannot',
+  "  name belongs in that pillar's `feedback` as coaching prose — never as an invented flag.",
+].join('\n');
+
 /** Everything the tier dial cannot touch, in one place. Assembled identically for free, pro, and
  * elite — the property `analyze-form-prompt.deno.test.ts` asserts directly. */
-const INVARIANT_RULES = [INPUT_CHANNEL_RULES, NOT_ASSESSED_RULES, TIMESTAMP_RULES, SAFETY_RULES].join(
-  '\n\n'
-);
+const INVARIANT_RULES = [
+  INPUT_CHANNEL_RULES,
+  NOT_ASSESSED_RULES,
+  GROUNDED_NAMING_RULES,
+  TIMESTAMP_RULES,
+  SAFETY_RULES,
+].join('\n\n');
 
 // -------------------------------------------------------------------------------------------
 // Assembly
