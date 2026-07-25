@@ -21,7 +21,21 @@ max_rows = 1000
 # without explicit GRANTs. When unset, new entities are NOT auto-exposed, matching the new cloud
 # default. Set to `true` to keep the legacy behaviour of auto-exposing new entities; this is
 # deprecated and the field is removed on 2026-10-30 once the always-revoked behaviour is permanent.
-# auto_expose_new_tables = true
+# Issue #92: left ON for local dev. Without it, a fresh `supabase start` does NOT grant
+# `service_role` table-level access to anything created after db init (`information_schema.
+# role_table_grants` shows only TRIGGER/REFERENCES/TRUNCATE for service_role on e.g.
+# `public.analyses`, no SELECT/INSERT/UPDATE/DELETE) — every edge function's service-role client
+# would fail locally with "permission denied for table X", which is what this setting fixes so the
+# local stack is usable for #92's integration tests. What was actually checked, once, after a
+# `supabase db reset` with this flag on: `information_schema.role_table_grants` for
+# `analyses`/`subscriptions`/`profiles` showed `authenticated` as SELECT-only and `anon` with no
+# grants — matching the RLS policies those tables already carry. That is a one-time observation
+# of this repo's current policies, not a proof of what the flag does in general — its own
+# description above states it governs `anon`/`authenticated`/`service_role` grants alike, so
+# revisit this comment (and re-check the grants) if a new table or policy is added here. Revisit
+# if the field is ever actually removed (2026-10-30) — the fix then is explicit
+# `grant ... to service_role` statements in a migration, not this flag.
+auto_expose_new_tables = true
 
 [api.tls]
 # Enable HTTPS endpoints locally using a self-signed certificate.

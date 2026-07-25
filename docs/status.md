@@ -427,15 +427,12 @@ milestone "done" criteria.
     follow-up is recommended before M6 is called done. The product-level mitigation in the
     meantime: the app's UI must always route a user's "delete" action through this endpoint, never
     call `supabase.from('analyses').update({ deleted_at })` directly.
-20. **NEW — the result route's path is named two different ways across the design docs (found
-    while building the Analyzing screen, issue #80, 2026-07-12).** `docs/architecture.md`'s route
-    tree says `result/[id]` (singular); `docs/design/motion-consult.md`'s item 3 example
-    (`router.replace('/results/[id]', ...)`) says `results/[id]` (plural). `app/analyzing.tsx`
-    navigates to `/result/[id]` (matching `architecture.md`, the more authoritative source) on a
-    completed analysis, forward-referenced via an `as Href` cast since the route doesn't exist in
-    that worktree — nothing enforces that whoever builds #56 picks the same name. Whoever builds
-    #56 must pick one and, if it's not `result/[id]`, update `app/analyzing.tsx`'s navigation call
-    in the same change.
+20. **RESOLVED — the result route's path was named two different ways across the design docs
+    (found while building the Analyzing screen, issue #80, 2026-07-12; fixed 2026-07-25).**
+    `docs/architecture.md`'s route tree said `result/[id]` (singular); `docs/design/motion-consult.md`'s
+    item 3 example (`router.replace('/results/[id]', ...)`) said `results/[id]` (plural). The
+    actual built route is `app/result/[id].tsx` (singular), matching what `app/analyzing.tsx`
+    navigates to — `motion-consult.md`'s example has been corrected to match; no code changed.
 21. **NEW — RELEASE BLOCKER: `purchase-tier` (issue #51) must never be deployed without its
     deployment gate switched on deliberately (security audit on PR #123, 2026-07-13).** Built and
     Deno-tested, **not deployed** (see the M5 row above) — but the audit found that once deployed
@@ -494,12 +491,17 @@ milestone "done" criteria.
       with a clean `{ error, code }` and nothing else. `DeleteAccountErrorCode` is now an exported
       discriminated union, not a bare `string`, so #122's client can exhaustively switch on it. A
       test asserts no response body, for any outcome, ever carries both `deleted` and `error`/`code`.
-    - **Issue #59's other half — still open.** The 25 tests here mock the Supabase client, so they
-      prove the *contract* (ordering, recursion, atomicity, idempotency, the response matrix). #59
-      also asks for the same properties against a real local Postgres **and** real Storage, because
-      the property under test is precisely that two different systems agree — a fake cannot fail
-      the way production fails. Not built; no local `supabase start` harness exists in this repo
-      yet.
+    - **Issue #59's other half — DONE, 2026-07-25.** The 25 tests here mock the Supabase client, so
+      they prove the *contract* (ordering, recursion, atomicity, idempotency, the response matrix).
+      #59 also asked for the same properties against a real local Postgres **and** real Storage,
+      because the property under test is precisely that two different systems agree — a fake
+      cannot fail the way production fails. Issue #92's local `supabase start` stack now exists,
+      and `supabase/functions/_shared/integration/delete-purge.local.ts` runs the actual
+      `deleteAnalysis`/`deleteAccount` code (via the same production client factories) against it,
+      asserting from the Storage side (`storage.list()` after the delete) that zero objects
+      remain. See `supabase/functions/_shared/integration/README.md` for how to run it
+      (`npm run test:edge:local`) — not part of the normal `npm test` gate, since it needs the
+      local stack running.
     - **The consent trail is purged, deliberately** (GDPR Art. 17(3)(e) reasoning in
       `_shared/delete-account.ts`'s header and `docs/architecture.md`), which keeps
       `docs/privacy-policy.md`'s "Deleting your account removes everything" literally true and
@@ -715,13 +717,16 @@ milestone "done" criteria.
     up. **Not done**: neither `app/analyzing.tsx`'s submit nor `app/capture/index.tsx`'s upload
     handoff calls `checkConnectivity()` first — a user in a dead zone can still tap Analyze,
     watch the wait screen, and only then discover the call never had a chance.
-31. **NEW — `.maestro/` E2E flows (issue #86, 2026-07-13) are written but UNVERIFIED — never
-    executed.** Four flows (`happy-path`, `dead-end-offline`, `dead-end-quota-exhausted`,
-    `dead-end-analysis-failure`) plus shared subflows, written against the documented screen
-    contracts for the M7 no-dead-end gate. **Blocked on issue #84** (no dev build exists — Maestro
-    drives a real installed app binary, not Metro/Expo Go). Do not treat these as a passing gate;
-    they are an unrun draft until #84 unblocks a real execution and someone runs `maestro test`
-    against it.
+31. **PARTIAL — `.maestro/` E2E flows (issue #86, 2026-07-13) executed for real for the first time
+    on 2026-07-25, but not yet a clean repeatable pass.** Four flows (`happy-path`,
+    `dead-end-offline`, `dead-end-quota-exhausted`, `dead-end-analysis-failure`) plus shared
+    subflows, written against the documented screen contracts for the M7 no-dead-end gate. Was
+    **blocked on issue #84** (no dev build); the `preview-local` EAS simulator build unblocked it
+    and `happy-path.yaml` was run against it, finding and fixing four real bugs in the flow files.
+    Sign-up through the sign-in screen is now confirmed correct; a full clean pass was not achieved
+    in this sandbox (a Maestro iOS accessibility-tree driver flakiness, not an app/script bug). Do
+    not yet treat these as a passing gate. See `docs/architecture.md`'s `.maestro/` E2E section and
+    `.maestro/README.md`'s 2026-07-25 update for the full diagnosis and how to get a clean run.
 32. **NEW — a per-user orphan-purge ACTION exists but is wired to no schedule (issue #7's action
     half, 2026-07-13).** `supabase/functions/_shared/storage-sweep.ts`'s
     `sweepOrphanedMediaPrefixes()` is pure, Deno-tested orchestration that calls the new

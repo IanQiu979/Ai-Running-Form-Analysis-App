@@ -4,8 +4,39 @@
 
 This directory is the first scripted attempt at proving that sentence — the MVP's actual
 acceptance gate, previously written down only as prose in `docs/mvp-build-prompt.md` and
-`docs/status.md`. Read this whole file before running anything; the short version is **these
-flows have never been executed and cannot be today.** See "What's blocked, and by what" below.
+`docs/status.md`.
+
+**UPDATE 2026-07-25 (issues #84, #86, #92) — executed for real, for the first time, against a
+real build.** A `preview-local` EAS simulator build (issue #84 — a standalone build, not
+`developmentClient`, so it needs no Metro connection and has no dev-menu overlay to fight; see
+`eas.json`) was built, installed on an iOS Simulator, and driven with
+`maestro test .maestro/flows/happy-path.yaml` against issue #92's local Supabase stack. That
+first real execution found and fixed FOUR real bugs that had been sitting in these
+checked-in-but-never-run flow files: a `wait:` command that isn't valid Maestro syntax (two
+files), subflow files missing the `appId` this Maestro CLI version (1.39.0) requires even for a
+`runFlow:`-only file, a stale `tapOn: "Continue with email"` step that no longer matches
+`sign-in.tsx` after issue #16 (`toggleMode()` now opens the email form itself), and a cold-launch
+race on the very first assertion. See each file's own 2026-07-25 comments for specifics.
+
+**Confirmed correct, by direct visual verification**: sign-up through the sign-in screen renders
+exactly as the flow expects — one full run made it past sign-up entirely into the capture flow
+before an unrelated driver hiccup. **Not confirmed as a clean, repeatable pass**: repeated runs in
+THIS sandbox hit a genuine Maestro-iOS-driver flakiness, not an app or script bug — proven, not
+assumed: on more than one run, the debug screenshot Maestro itself saved on an `assertVisible`
+FAILURE shows the correct screen with the exact expected text plainly visible, while
+`maestro.log` shows the driver polling a STABLE, unchanging view-hierarchy snapshot (same node
+depth, same content) for 20-50 straight seconds without ever matching text that is visibly right
+there. That is Maestro's own iOS accessibility-tree bridge intermittently failing to
+resolve/refresh, not a timing race this flow's timeouts can fix (45s wasn't enough either) and
+not a build/environment/backend problem — this sandbox also runs other agents concurrently on the
+same simulator pool, which plausibly aggravates it (one run's screenshot briefly showed a
+different project's screen mid-test), but the root symptom is the driver, not contention alone.
+Re-run `maestro test .maestro/flows/happy-path.yaml` against a `preview-local` build on an
+otherwise-idle host — and consider `maestro --version` for a newer CLI, since this exact iOS
+accessibility-snapshot flakiness is a known category of issue in the Maestro project — to get a
+clean pass. See "What's runnable today" below for what's now believed correct vs still genuinely
+unverified end-to-end (that section was independently re-verified against the code the same day
+this execution report was written, and its conclusions stand alongside this one).
 
 ## Install Maestro
 
@@ -38,14 +69,19 @@ local iOS Simulator / Android emulator.)
    (`config.yaml` scopes that to `flows/*.yaml` — files under `flows/subflows/` are pulled in
    via `runFlow:` and are not meant to run standalone.)
 
-2. **No non-production environment exists (issue #92).** `analyze-form` (once #44 deploys) will
-   be developed and tested against the **production** Supabase project and the **production**
-   Anthropic key — there is no staging DB, no staging bucket, no staging AI budget. Concretely:
-   do **not** run `happy-path.yaml` past its extraction step, and do not run
-   `dead-end-analysis-failure.yaml` at all, against a real backend without a disposable test
-   account and full awareness that a real Anthropic call and real spend would be involved the
-   moment the capture→analyze handoff (#128) exists. Today neither flow can reach that point
-   regardless (see below) — this note is for the day they can.
+2. **A local, non-production Supabase environment now exists (issue #92, resolved 2026-07-25) —
+   use it, never production.** `supabase start` (local Docker) stands up a full local project;
+   see `docs/architecture.md`'s "Current — local Supabase stack" section for setup. Point
+   whatever build you install on the simulator/emulator at the LOCAL stack's URL and
+   anon/publishable key (an isolated `eas.json` build profile, not the shared "development"
+   environment on the EAS dashboard, is how the first build under issue #84 did this — see that
+   profile's own comment). `happy-path.yaml` reaches "Analyzing"/"Result" today via
+   `lib/analyze-form.ts`'s mock client (issue #128, deliberately not swapped to the real
+   endpoint) — no edge function needs to be deployed or served for it to pass. Still true and
+   important: `analyze-form` itself is not deployed anywhere, and `dead-end-analysis-failure.yaml`
+   (which needs the mock's `outcome` forced to `'failed'`/`'timeout'`, not currently possible from
+   outside the app — see the HANDOFF section) must never be pointed at a real backend with a real
+   `ANTHROPIC_API_KEY` without a disposable test account and full awareness of real spend.
 
 3. **Simulator media, if you use the library-upload path instead of the in-app record path.**
    `happy-path.yaml` deliberately uses in-app **Record** (an `expo-camera` `CameraView`, which
@@ -103,8 +139,8 @@ written (see git history) was accurate when it said "these flows have never been
 Since then, in the same day's parallel batches: #135 (capture→analyze handoff), #55 (History
 tab), #52/#54 (paywall + wiring), and a partial #93 (offline) all landed on `main`. This section
 is rewritten against a direct re-read of the current code, not carried forward from the stale
-version. The flows themselves have ACTUALLY BEEN RUN as of this update — see the top-level
-report (PR/commit description) for the real `maestro test` output and what passed vs. failed.
+version. As of the 2026-07-25 execution report above, the flows have now actually been run
+against a real build — see that section for what passed vs. hit driver flakiness.
 
 **Real and scriptable today**, confirmed against `main`:
 - Sign-up (email/password) → Home.
@@ -163,8 +199,7 @@ full per-screen testID list. Summary of what's requested and why:
 
 Every flow in this directory was written by reading the actual screens in `app/` and
 `components/`, `constants/copy.ts`, `docs/design/copy-deck.md`, and `docs/architecture.md`'s
-route tree — not assumed from the copy deck alone. None of them has been executed; there is no
-development build to run them against (#84), and several of the screens they'd need to reach
-don't exist yet (#52, #55) or aren't wired (#128). Treat this directory as a **specification of
-the gate**, ready to run and start catching real regressions the moment those land — not as
-proof the gate currently passes. It does not.
+route tree — not assumed from the copy deck alone. As of the 2026-07-25 execution report at the
+top of this file, the happy path has been run for real against a built app; treat this directory
+as a **specification of the gate that has now started to be exercised**, not yet as proof the
+gate passes cleanly end to end — repeatable, driver-flakiness-free runs are still outstanding.

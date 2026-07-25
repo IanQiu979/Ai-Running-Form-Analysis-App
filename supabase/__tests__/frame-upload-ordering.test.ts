@@ -3,8 +3,9 @@
  * (`supabase/migrations/20260712123606_frame_upload_ordering.sql`).
  *
  * The repo has no pgTAP harness (see the design spec and implementation plan under
- * `docs/superpowers/`), and this migration was never applied to the live project — there is no
- * non-production Supabase environment (#92), so applying it would hit prod directly. Real
+ * `docs/superpowers/`). A local Docker Supabase stack now exists (issue #92, this branch), but
+ * this suite is deliberately still a text-level check pending a separate, deliberate follow-up to
+ * decide whether to convert it to run against that local stack. Real
  * behavioral verification (the RPCs actually enforce the namespace guard, the policies actually
  * gate PostgREST, `get_advisors` stays clean) has to happen against the live database, by
  * whoever applies this migration — see the plan's Task 2 for the exact queries to run.

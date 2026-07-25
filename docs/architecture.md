@@ -142,11 +142,10 @@ app/
   analyzing                 # current (issue #80, 2026-07-12) — Screen 6, the analyze-form wait
                           # screen; top-level route (not nested under (tabs)/capture), guarded
                           # the same as (tabs). See "Current — the Analyzing screen" below.
-  result/[id]                # current (issue #56) — the PACE readout. NOTE: docs/design/
-                          # motion-consult.md's own nav-param example names this route
-                          # `results/[id]` (plural) — a doc inconsistency, not yet reconciled;
-                          # see docs/status.md Known Issue #20. `app/analyzing.tsx` navigates to
-                          # `result/[id]` (singular, matching this table).
+  result/[id]                # current (issue #56) — the PACE readout. `app/analyzing.tsx`
+                          # navigates to `result/[id]` (singular, matching this table);
+                          # docs/design/motion-consult.md's nav-param example was corrected to
+                          # match (docs/status.md Known Issue #20, resolved).
   settings                   # current (issue #53) — top-level pushed route, not a tab; see
                           # "Current — the Settings screen" below.
   paywall                     # current (issue #52, 2026-07-13) — the M5 dummy paywall; see
@@ -2629,10 +2628,60 @@ precisely the moment it's needed. Fixed: `lib/session-provider.tsx` now tracks a
 New, uncertified `Copy.auth.reset.*` — not in the copy deck, needs review. See
 `docs/design/copy-deck.md`'s new-copy section.
 
-## `.maestro/` E2E flows (issue #86, 2026-07-13) — UNVERIFIED, never executed
+## Current — first EAS simulator build (issue #84, 2026-07-25)
+
+Two new `eas.json` build profiles, both isolated from the shared `development`/`preview` EAS
+Environments (which hold sensitive, presumably-production Supabase credentials this work must
+never touch): `development-local` (dev-client) and `preview-local` (standalone, no dev-client —
+the one actually used for E2E below, since a `developmentClient: true` build needs a live Metro
+connection and shows a first-run dev-menu overlay that fights scripted UI automation). Both set
+`EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` inline to issue #92's local
+stack (`http://127.0.0.1:54321` and the local stack's fixed demo publishable key — not secrets,
+safe to commit) rather than referencing an EAS Environment, so the build never depends on or
+risks touching whatever `development`/`preview` are wired to. `eas build --profile preview-local
+--platform ios` produced a real installable `.app` for the iOS Simulator; `eas build:run` installed
+and launched it. iOS Simulator networking reaches the Mac host's own `127.0.0.1` directly, so this
+needs no port-forwarding or tunnel.
+
+## `.maestro/` E2E flows (issue #86, 2026-07-13) — first real execution attempted 2026-07-25, still not a clean pass
 
 Four flows (`happy-path`, `dead-end-offline`, `dead-end-quota-exhausted`,
 `dead-end-analysis-failure`) plus shared subflows (`sign-up`, `grant-consent`), written against the
-documented screen contracts for the M7 no-dead-end gate. **Blocked on issue #84** (no dev build
-exists — Maestro drives a real app binary, not Metro/Expo Go) and never run against one. Treat as
-an unrun draft, not a passing gate, until #84 unblocks a real execution.
+documented screen contracts for the M7 no-dead-end gate. Was blocked on issue #84 (no dev build);
+the `preview-local` EAS simulator build above unblocked it, and `happy-path.yaml` was actually
+run against it for the first time. That run found and fixed four real bugs in the checked-in flow
+files (invalid `wait:` syntax, a missing `appId` this Maestro CLI version requires on subflows, a
+stale post-#16 tap target, a cold-launch timing race) — see `.maestro/README.md`'s 2026-07-25
+update and each fixed file's own comments. Sign-up through the sign-in screen is now confirmed
+correct by direct visual verification. A full clean pass was NOT achieved in this sandbox: repeat
+runs hit Maestro's iOS accessibility-tree bridge intermittently failing to resolve text that a
+screenshot from the same failed assertion shows is genuinely on screen — diagnosed from
+`maestro.log` (a stable, unchanging view-hierarchy poll for 20-50s straight), not a timing budget
+problem (45s wasn't enough either) and not an app or script bug. Re-run on an otherwise-idle host,
+or against a newer Maestro CLI, to get a clean pass — see `.maestro/README.md` for the full
+diagnosis.
+
+## Current — local Supabase stack (issue #92, 2026-07-25)
+
+`supabase start` (local Docker) now stands up a non-production Supabase project on this machine —
+the "cheapest path, needs no plan change" option issue #92 recommended over a second hosted
+project or Supabase branching (Pro-only). All 24 migrations apply cleanly to a fresh local
+Postgres (`supabase db reset` replays every file in `supabase/migrations/` in order).
+
+**`supabase/config.toml`'s `auto_expose_new_tables = true` is required**, and is now set. Without
+it, a fresh local stack does not grant `service_role` table-level access to anything created after
+db init — `information_schema.role_table_grants` shows only `TRIGGER`/`REFERENCES`/`TRUNCATE` for
+`service_role` on e.g. `public.analyses`, no `SELECT`/`INSERT`/`UPDATE`/`DELETE` — even though
+`service_role` was verified LIVE against the hosted production project to hold unrestricted
+table-level grants there (see `delete-analysis-client.ts`'s header comment). This flag is what
+makes a fresh local stack reproduce that already-live production grant state; it does not widen
+`anon`/`authenticated` (those come from RLS policies, unaffected by this flag — verified after a
+`db reset` that `authenticated` stayed `SELECT`-only and `anon` stayed grant-less on
+`analyses`/`subscriptions`/`profiles`). The field is slated for removal 2026-10-30 (CLI
+deprecation warning on every `db reset`/`start`); the fix at that point is explicit `grant ... to
+service_role` statements in a migration, not this flag — revisit then.
+
+This unblocked the two tests issue #49 and #59 said mocks cannot prove — see
+`supabase/functions/_shared/integration/README.md` for what they cover and how to run them
+(`npm run test:edge:local`, not part of the normal `npm test` gate since it needs the local stack
+running).

@@ -13,20 +13,33 @@
 #     by THIS flow (a fresh stranger never exhausts quota), but recorded here so the next reader
 #     doesn't re-discover it from scratch.
 #
+# Updated 2026-07-25 (issue #92's local Supabase stack + issue #84's first EAS simulator build):
+# ran this for real, for the first time, against a `preview-local` build. Confirmed by direct
+# read of `app/result/[id].tsx` and `lib/analysis-result.ts`, NOT the original assumption this
+# flow shipped with: `app/result/[id].tsx` always does a real `SELECT` on `public.analyses` by
+# `id` (issue #92's local stack serves this — no edge function needed), regardless of whether the
+# id is UUID-shaped. `lib/analyze-form.ts`'s mock mints a real `Crypto.randomUUID()` id (fixed
+# 2026-07-13, see that file's `mockAnalysisId` comment) but never writes an `analyses` row, so the
+# `SELECT` always comes back empty and `readAnalysisRow(null)` always resolves to `kind: 'notFound'`
+# — the exact same `unavailable` state a bad/deleted id would produce. That is a genuine, useful
+# finding for issue #86: even the mock's success path does not produce a dead end (a real Retry
+# AND "Back to Home" are both offered, per issue #56's own rule), but it also means this flow, run
+# only against the dev mock, CANNOT prove the real `PaceReadout` (pillar scores, hero image,
+# disclaimer) ever renders end to end — that needs #44 deployed.
+#
 # WHAT THIS FLOW PROVES, TODAY, given the dev-mock binding (see lib/analyze-form.ts's header —
 # `analyzeFormClient` is hardcoded to `createMockAnalyzeFormClient()`'s zero-arg defaults,
 # `outcome: 'success'`, `delayMs: 4000` — #44's real edge function is written but not deployed):
 #   sign-up -> consent -> record a clip -> extract frames -> "Frames ready" -> tap "Analyze my
-#   form" -> Analyzing (mock waits ~4s) -> Result (all four pillars scored, mock data, clearly
-#   fake) -> "Back to Home" -> Home -> History tab (EMPTY — the mock never writes an `analyses`
-#   row, so this genuinely proves the empty state, not a stubbed-out list) -> Settings -> sign
-#   out.
+#   form" -> Analyzing (mock waits ~4s) -> Result screen's honest not-found state (no real
+#   `analyses` row exists for the mock's id) -> "Back to Home" -> Home -> History tab (EMPTY — the
+#   mock never writes an `analyses` row, so this genuinely proves the empty state, not a
+#   stubbed-out list) -> Settings -> sign out.
 #
 # WHAT IT STILL DOES NOT REACH, AND WHY — not a scripting gap, the app genuinely can't get there:
-#   - A REAL analysis result: the mock's `MOCK_ASSESSED_PILLAR` (score 78, band 'good', feedback
-#     prefixed "[Mock]") is what renders — this flow is proving the WIRING (screen-to-screen
-#     handoff, no dead end), not that a real Claude call happened. #44 (deploy) + #128 flipping
-#     the seam's binding to the real implementation.
+#   - A REAL analysis result: this flow is proving the WIRING (screen-to-screen handoff, no dead
+#     end), not that a real Claude call happened or that a real PaceReadout renders. #44 (deploy)
+#     + #128 flipping the seam's binding to the real implementation.
 #   - History delete: `deleteHistoryAnalysis` (lib/history.ts) calls
 #     `DELETE /functions/v1/analysis/:id` (#57) — written+tested but NOT DEPLOYED, and moot here
 #     anyway since this flow's mock never creates a row to delete. See dead-end-quota-exhausted's
@@ -68,7 +81,8 @@ appId: com.ian.paceanalysisai
 # checks before navigating on) is comfortably satisfied.
 - tapOn:
     id: "record-button"
-- wait: 2000
+- waitForAnimationToEnd:
+    timeout: 2000
 - tapOn:
     id: "record-button"
 
@@ -89,25 +103,12 @@ appId: com.ian.paceanalysisai
 # The mock waits ~4s (lib/analyze-form.ts's default delayMs) before resolving 'success'. 15s
 # budgets generously past that plus the step-list pacing (~2.55s) and any simulator slowness.
 - extendedWaitUntil:
-    visible: "Back to Home" # result.cta.done — see the note below on WHY this is what actually
+    visible: "Back to Home" # result.cta.done — see the note above on WHY this is what actually
                              # renders, not a real PACE readout.
     timeout: 15000
 
-# --- Result screen — NOT the real readout. Confirmed by reading app/result/[id].tsx and
-# lib/analysis-result.ts directly (this was NOT the original assumption in this flow — fixed
-# after tracing it): the mock's `mockAnalysisId()` produces `mock-${Date.now()}-${random}`, which
-# does NOT match app/result/[id].tsx's `UUID_PATTERN` guard. That guard runs BEFORE any Supabase
-# fetch is even attempted, so the mock's "success" path lands on the SAME `unavailable` state a
-# bad/deleted id would — `Copy.result.error.notFound` ("We couldn't find this analysis"), with a
-# real Retry AND "Back to Home" both offered (issue #56's own "Retry/Cancel must never trap the
-# user", extended here). This is a genuine, useful finding for issue #86: even the mock's own
-# ID-shape gap does not produce a dead end — but it also means this flow, as currently only able
-# to run against the dev mock, CANNOT prove the real `PaceReadout` (pillar scores, hero image,
-# disclaimer) ever renders end to end. That needs #44 deployed. Flagged as a HANDOFF-worthy gap:
-# the mock's `mockAnalysisId()` could easily mint a UUID-shaped id instead (e.g. via
-# `Crypto.randomUUID()`, already imported elsewhere in this codebase) and this specific
-# not-quite-round-trip would go away — filed in the report, not fixed here (lib/ is out of this
-# worktree's file lane). ---------------------------------------------------------------------
+# --- Result screen — NOT the real readout; see the header note above for why the mock's success
+# path lands here (a real UUID id, but no matching `analyses` row to fetch). ---------------------
 - assertVisible: "We couldn't find this analysis." # result.error.notFound
 - assertVisible: "Retry" # result.error.retry — real, not decorative
 - assertVisible: "Back to Home" # result.cta.done
@@ -137,7 +138,9 @@ appId: com.ian.paceanalysisai
 
 # ============================================================================================
 # STILL NOT COVERED HERE — genuine remaining gaps, not oversights:
-#   - Delete-analysis (needs a real row — #44/#128 deploy plus #57 deploy).
+#   - Delete-analysis: `history-item-{id}` testID doesn't exist yet (rows are dynamic/list-based;
+#     only `history-frame-strip-{id}` / `history-frame-placeholder-{id}` do), and needs a real row
+#     — #44/#128 deploy plus #57 deploy.
 #   - Compare (Elite-only, #60) — this stranger is never Elite tier.
 #   - A cold-relaunch mid-analysis (#140's persisted marker) — needs killing/relaunching the
 #     simulator process mid-flow, a different Maestro mechanism (`stopApp` + `launchApp` without

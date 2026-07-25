@@ -30,8 +30,9 @@
  * rather than a guard that only protects call sites that remember to carry it.
  *
  * WHAT THIS SUITE CANNOT PROVE (same limitation as every other migration test in this directory —
- * no pgTAP, no local Postgres, no Docker in this sandbox, and issue #92 means there is no
- * non-production Supabase project to apply a real migration against):
+ * a local Docker Supabase stack now exists (issue #92, this branch), but this suite is
+ * deliberately still a pgTAP-style text-level check pending a separate, deliberate follow-up to
+ * decide whether to convert it to run against that local stack):
  *   - That Postgres actually accepts `plpgsql ... immutable` for pace_media_paths_within_namespace
  *     or that the CHECK constraint's function call resolves and evaluates the way this file
  *     assumes — only that the SQL text has the shape that should produce that behavior.

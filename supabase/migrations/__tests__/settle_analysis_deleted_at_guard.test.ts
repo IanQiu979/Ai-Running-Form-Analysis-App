@@ -7,9 +7,10 @@
  * same trigger, one function over.
  *
  * Same constraint as every other migration test suite in this repo (see
- * analyses_quota_soft_delete.test.ts and anti_farm_release_reason_fix.test.ts): no pgTAP or local
- * Postgres is available here (no Docker in this sandbox, and issue #92 means there is no
- * non-production Supabase project to apply a real migration against). So this suite is a
+ * analyses_quota_soft_delete.test.ts and anti_farm_release_reason_fix.test.ts): a local Docker
+ * Supabase stack now exists (issue #92, this branch), but this suite is deliberately still a
+ * pgTAP-style text-level check pending a separate, deliberate follow-up to decide whether to
+ * convert it to run against that local stack. So this suite is a
  * TEXT-LEVEL contract on the migration SQL itself — it proves the migration FILE says the right
  * thing, not that Postgres executes it as written. Treat it as a tripwire against regressing the
  * fix in a later migration, not as proof the guard behaves correctly live.

@@ -6,9 +6,9 @@
  * 20260712030617_consents_grant_hardening.sql's precedent.
  *
  * Same caveat as `analyses_quota_soft_delete.test.ts` (read first, and read again here because it
- * matters even more for this file): there is no pgTAP or local Postgres available to this repo (no
- * Docker in the sandbox this was written in, and issue #92 means there is no non-production Supabase
- * project to apply a real migration against). This suite is a TEXT-LEVEL contract on the migration
+ * matters even more for this file): a local Docker Supabase stack now exists (issue #92, this
+ * branch), but this suite is deliberately still a pgTAP-style text-level check pending a separate,
+ * deliberate follow-up to decide whether to convert it to run against that local stack. This suite is a TEXT-LEVEL contract on the migration
  * SQL itself — it proves the migration FILE says the right thing, not that Postgres executes it as
  * written or that PostgREST's behavior actually changes. Ground truth for what grants exist RIGHT
  * NOW was established separately, by hand, via `information_schema.role_table_grants` /

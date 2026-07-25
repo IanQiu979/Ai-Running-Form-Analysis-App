@@ -16,8 +16,14 @@
 # for this account, so `ConsentGate` is currently mounted in place of the source-picker cards
 # (handleCardPress -> pendingAction set -> the gate renders, replacing the cards entirely).
 #
-# Every testID used here already exists on `main` (components/consent-gate.tsx).
-
+# Every testID used here already exists on `main` (components/consent-gate.tsx) — this is
+# the one leg of the whole capture flow that needs no new testIDs at all.
+#
+# The installed Maestro CLI (1.39.0) requires every file it loads — including a runFlow:
+# subflow — to declare appId, even though it's inert here. See sign-up.yaml's identical note,
+# added 2026-07-25 after the first real execution attempt.
+appId: com.ian.paceanalysisai
+---
 # --- Phase 1 ('health'): two once-ever checkboxes, both required. ------------------------------
 - assertVisible: "Before you upload" # consent.upload.title
 - assertVisible: "I consent to my images being analysed to produce health-related feedback, and to Anthropic processing them to do so." # consent.upload.checkbox

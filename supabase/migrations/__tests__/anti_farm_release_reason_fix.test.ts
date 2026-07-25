@@ -19,9 +19,10 @@
  * `planning/03`, `docs/mvp-build-prompt.md:223`).
  *
  * Same constraint as the other migration test suites in this repo (see
- * analyses_quota_soft_delete.test.ts and supabase/__tests__/frame-upload-ordering.test.ts): no
- * pgTAP or local Postgres is available here (no Docker, and #92 means there is no non-production
- * Supabase project), so this is a TEXT-LEVEL contract on the migration SQL itself — it proves the
+ * analyses_quota_soft_delete.test.ts and supabase/__tests__/frame-upload-ordering.test.ts): a
+ * local Docker Supabase stack now exists (issue #92, this branch), but this suite is deliberately
+ * still a pgTAP-style text-level check pending a separate, deliberate follow-up to decide whether
+ * to convert it to run against that local stack, so this is a TEXT-LEVEL contract on the migration SQL itself — it proves the
  * migration FILE says the right thing, not that Postgres executes it as written. The live
  * behavior (the CHECK constraint actually rejects an unknown reason, the classifier actually
  * returns the right boolean, reserve_analysis actually stops counting a model_error release, the
