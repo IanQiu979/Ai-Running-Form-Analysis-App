@@ -7,6 +7,26 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-07-25 (Bucket A infra + test hardening — local Supabase stack, real-Postgres property tests)
 
+- **#62 — M7 full-app accessibility pass.** `accessibility-reviewer`° swept every screen in
+  `app/` and shared component in `components/` (M2–M6 screens, now that they all exist) against
+  the design-brief §7 floor; `accessibility-implementer` fixed what it found. Full defect list at
+  `docs/a11y-audit-62.md`. Highlights: **`components/pace-readout.tsx`'s `PillarRow` was
+  collapsing its entire body into one opaque VoiceOver/TalkBack node** — `accessible` +
+  `accessibilityLabel` sat on the row's outer container, so every pillar's `feedback`, `flags`,
+  and `drills` (the paid tier's whole coaching payload) were structurally unreachable on every
+  result screen and in `app/compare.tsx`; now scoped to just the header summary. Past Analyses'
+  per-row Delete button announced the static word "Delete" for every row regardless of which
+  analysis it would remove — now interpolates date/score via a new
+  `formatHistoryItemDeleteA11yLabel` (`lib/history.ts`), mirroring the existing
+  `formatHistoryItemA11yLabel` pattern. `components/consent-gate.tsx`'s `useAnnounce` only ever
+  spoke `error`; phase transitions (`checking` → `health`/`subject`, `health` → `subject`) swapped
+  the whole screen silently — folded into the same announcement, mirroring
+  `app/capture/extracting.tsx`. Four screen titles (`app/analyzing.tsx`, `app/capture/index.tsx`,
+  `app/(tabs)/history.tsx`, `app/(tabs)/index.tsx`) were missing `accessibilityRole="header"`
+  that their sibling screens already had, breaking VoiceOver rotor navigation. One hit target
+  (`app/(tabs)/index.tsx`'s `pendingReleasedDismiss`) had `minHeight: HitTarget.min` but no
+  matching `minWidth`. Contrast (61-assertion token test), Dynamic Type, reduced motion, and
+  decorative-element hiding were all audited and found already correct — no changes needed there.
 - **#92 — a local, non-production Supabase environment now exists.** `supabase start` (local
   Docker) stands up the full stack; all 24 migrations apply cleanly via `supabase db reset`.
   Required `supabase/config.toml`'s `auto_expose_new_tables = true` to be set — without it a fresh

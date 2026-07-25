@@ -120,5 +120,34 @@ describe('tier gating via array emptiness only — no client-side tier re-deriva
 it('gives every pillar row an accessible label with score, band, and pillar name', async () => {
   await render(<PaceReadout result={proTierVideoResult} />);
 
-  expect(screen.getByTestId('pillar-row-posture').props.accessibilityLabel).toBe('Posture, 78 out of 100, Solid.');
+  // Issue #62 fix #1: `accessible`/`accessibilityLabel` now live on the inner header block
+  // (`pillar-header-${id}`), not the outer row (`pillar-row-${id}`) — the outer row must NOT
+  // collapse the rest of the row (feedback/flags/drills) into this one opaque node.
+  expect(screen.getByTestId('pillar-header-posture').props.accessibilityLabel).toBe(
+    'Posture, 78 out of 100, Solid.'
+  );
+});
+
+// Issue #62 audit finding #1 (Blocker): before the fix, the outer `pillar-row-*` View carried
+// `accessible` + `accessibilityLabel`, which collapses the ENTIRE row — including
+// `pillar.feedback`, every `flags` pattern/detail, and every `drills` name/instructions — into
+// one opaque VoiceOver/TalkBack node, making all of that paid-tier coaching content structurally
+// unreachable. This proves each piece survives as its own individually-queryable text node.
+it('does not swallow feedback, flags, and drills into the row-level accessible node', async () => {
+  await render(<PaceReadout result={proTierVideoResult} />);
+
+  // Cadence carries feedback, a flag, and a drill in this fixture.
+  expect(
+    screen.getByText('Foot is landing well ahead of the hips with a near-straight knee — the clearest fix available here.')
+  ).toBeTruthy();
+  expect(screen.getByText('Overstriding')).toBeTruthy();
+  expect(
+    screen.getByText(
+      'Foot lands ahead of the centre of mass with an extended knee, amplifying braking force. Associated with shin splints and patellofemoral pain — shorten and quicken the stride.'
+    )
+  ).toBeTruthy();
+  expect(screen.getByText('Metronome Runs')).toBeTruthy();
+  expect(
+    screen.getByText('Set a metronome +2–3 SPM above baseline, 10 min on / 5 min off, 2–3x.')
+  ).toBeTruthy();
 });

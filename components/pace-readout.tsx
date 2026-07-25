@@ -173,12 +173,12 @@ function PillarRow({
   const label = pillarLabel(pillarId);
 
   return (
-    <View
-      testID={`pillar-row-${pillarId}`}
-      style={styles.pillarRow}
-      accessible
-      accessibilityLabel={pillarA11yLabel(label, pillar)}>
-      <View style={styles.pillarHeaderRow}>
+    <View testID={`pillar-row-${pillarId}`} style={styles.pillarRow}>
+      <View
+        testID={`pillar-header-${pillarId}`}
+        style={styles.pillarHeaderRow}
+        accessible
+        accessibilityLabel={pillarA11yLabel(label, pillar)}>
         <Text style={styles.pillarLetter}>{pillarLetter(pillarId)}</Text>
         <Text style={styles.pillarName}>{label}</Text>
         {pillar.score !== null && pillar.band !== null ? (
