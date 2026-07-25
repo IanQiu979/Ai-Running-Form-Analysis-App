@@ -41,6 +41,7 @@ import {
   fetchHistoryList,
   formatHistoryDate,
   formatHistoryItemA11yLabel,
+  formatHistoryItemDeleteA11yLabel,
   parseSignedUrlBatch,
   readHistoryRow,
   readHistoryRows,
@@ -165,6 +166,53 @@ describe('formatHistoryItemA11yLabel', () => {
     const label = formatHistoryItemA11yLabel(item, 'Jul 12, 2026');
 
     expect(label).toBe('Analysis from Jul 12, 2026, overall 61 out of 100, Developing.');
+  });
+});
+
+// -------------------------------------------------------------------------------------------
+// formatHistoryItemDeleteA11yLabel — issue #62 audit finding #2: the per-row Delete button used
+// to announce the bare static string "Delete" for every row, indistinguishable from any other
+// row's Delete control. This mirrors formatHistoryItemA11yLabel's own honesty rule and its test
+// coverage above.
+// -------------------------------------------------------------------------------------------
+
+describe('formatHistoryItemDeleteA11yLabel', () => {
+  it('fills in date, score, and band for a scored overall', () => {
+    const item = readHistoryRow(baseRow())!;
+    const label = formatHistoryItemDeleteA11yLabel(item, 'Jul 12, 2026');
+
+    expect(label).toBe('Delete analysis from Jul 12, 2026, overall 64 out of 100, Developing.');
+  });
+
+  // THE HONESTY LOCK, same as formatHistoryItemA11yLabel: a null overall must never render as
+  // "overall null out of 100" or "overall 0 out of 100".
+  it('never stringifies a null overall score — falls back to the not-assessed sentence', () => {
+    const row = baseRow({ result: allNotAssessedOutcome.result, is_fallback: allNotAssessedOutcome.isFallback });
+    const item = readHistoryRow(row)!;
+    const label = formatHistoryItemDeleteA11yLabel(item, 'Jul 12, 2026');
+
+    expect(label).toBe('Delete analysis from Jul 12, 2026, not assessed.');
+    expect(label).not.toMatch(/null|undefined|NaN/);
+  });
+
+  // Distinguishes one row's Delete label from another's — the whole point of the fix (a
+  // screen-reader user could not previously tell which row a given Delete button would remove).
+  it('produces a different label per item, not a static "Delete"', () => {
+    const scored = readHistoryRow(baseRow({ id: 'a0000000-0000-0000-0000-000000000001' }))!;
+    const notAssessed = readHistoryRow(
+      baseRow({
+        id: 'a0000000-0000-0000-0000-000000000002',
+        result: allNotAssessedOutcome.result,
+        is_fallback: allNotAssessedOutcome.isFallback,
+      })
+    )!;
+
+    const scoredLabel = formatHistoryItemDeleteA11yLabel(scored, 'Jul 12, 2026');
+    const notAssessedLabel = formatHistoryItemDeleteA11yLabel(notAssessed, 'Jul 13, 2026');
+
+    expect(scoredLabel).not.toBe(notAssessedLabel);
+    expect(scoredLabel).not.toBe('Delete');
+    expect(notAssessedLabel).not.toBe('Delete');
   });
 });
 

@@ -195,7 +195,7 @@ export default function SourcePickerScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
-          <Text style={styles.header}>{Copy.sourcePicker.title}</Text>
+          <Text style={styles.header} accessibilityRole="header">{Copy.sourcePicker.title}</Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back"

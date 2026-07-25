@@ -211,7 +211,7 @@ export default function HomeScreen() {
           of clipping (design brief §7: layouts reflow, never clip). */}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
-          <Text style={styles.header}>{Copy.home.title}</Text>
+          <Text style={styles.header} accessibilityRole="header">{Copy.home.title}</Text>
           {/* Sign-out USED to live here as an M1 stub. Issue #53 moved it to Settings — its real
               home, alongside delete-account — and this link is now the entry point to that screen.
               Issue #27 (sign-out was fire-and-forget, so a failed global token revoke was silent)
@@ -411,6 +411,7 @@ function createStyles(colors: ThemeColors) {
     pendingReleasedDismiss: {
       alignSelf: 'flex-start',
       minHeight: HitTarget.min,
+      minWidth: HitTarget.min,
       justifyContent: 'center',
       paddingVertical: Spacing.xs,
     },

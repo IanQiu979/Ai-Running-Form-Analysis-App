@@ -50,6 +50,7 @@ import {
   fetchHistoryList,
   formatHistoryDate,
   formatHistoryItemA11yLabel,
+  formatHistoryItemDeleteA11yLabel,
   signFrameStrip,
   type HistoryListItem,
 } from '@/lib/history';
@@ -215,7 +216,7 @@ export default function HistoryScreen() {
     // second time.
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.headerRow}>
-        <Text style={styles.header}>{Copy.history.title}</Text>
+        <Text style={styles.header} accessibilityRole="header">{Copy.history.title}</Text>
       </View>
 
       {state.status === 'loading' && (
@@ -337,7 +338,7 @@ function HistoryRow({
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={Copy.history.item.deleteCta}
+        accessibilityLabel={formatHistoryItemDeleteA11yLabel(item, dateLabel)}
         accessibilityState={{ disabled: isDeleting }}
         disabled={isDeleting}
         onPress={onDelete}

@@ -364,7 +364,7 @@ export default function AnalyzingScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <Text style={styles.header}>{Copy.analyzing.title}</Text>
+        <Text style={styles.header} accessibilityRole="header">{Copy.analyzing.title}</Text>
 
         {state.phase === 'waiting' && (
           <ScreenCenter styles={styles}>

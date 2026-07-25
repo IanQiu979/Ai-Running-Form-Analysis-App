@@ -462,6 +462,51 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
   });
 });
 
+// Issue #62 audit finding #3: `useAnnounce` only ever covered the `error` state — the
+// 'checking' -> 'health'/'subject' and 'health' -> 'subject' phase transitions silently swapped
+// the whole screen's title/content with no VoiceOver announcement at all. Fixed by folding the
+// active phase's title into the same `useAnnounce` call.
+describe('phase-transition announcements on iOS (issue #62)', () => {
+  it('announces the phase-health title once the gate settles into phase health', async () => {
+    const originalOS = Platform.OS;
+    Platform.OS = 'ios';
+    try {
+      await renderAtHealthPhase();
+
+      await waitFor(() => expect(mockAnnounce).toHaveBeenCalledWith(Copy.consent.upload.title));
+    } finally {
+      Platform.OS = originalOS;
+    }
+  });
+
+  it('announces the phase-subject title when advancing from phase health to phase subject', async () => {
+    const originalOS = Platform.OS;
+    Platform.OS = 'ios';
+    try {
+      await advanceToSubjectPhase();
+
+      await waitFor(() => expect(mockAnnounce).toHaveBeenCalledWith(Copy.consent.upload.subject.title));
+      // The health-phase announcement must still have fired first — the transition is announced,
+      // not just the final destination.
+      expect(mockAnnounce).toHaveBeenCalledWith(Copy.consent.upload.title);
+    } finally {
+      Platform.OS = originalOS;
+    }
+  });
+
+  it('does not announce a phase title on Android — accessibilityLiveRegion covers it there (issue #11)', async () => {
+    const originalOS = Platform.OS;
+    Platform.OS = 'android';
+    try {
+      await renderAtHealthPhase();
+
+      expect(mockAnnounce).not.toHaveBeenCalled();
+    } finally {
+      Platform.OS = originalOS;
+    }
+  });
+});
+
 describe('end-to-end: a first-time user who is filming someone else', () => {
   it('walks through phase health then phase subject, recording all three distinct consents', async () => {
     const { onConsented } = await advanceToSubjectPhase();

@@ -142,6 +142,25 @@ export function formatHistoryItemA11yLabel(item: HistoryListItem, formattedDate:
     .replace('{band}', ScoreBandLabel[overall.band]);
 }
 
+/**
+ * `history.item.deleteA11yLabel` ("Delete analysis from {date}, overall {score} out of 100,
+ * {band}.") with its placeholders filled in — the per-row Delete control's own label, built from
+ * the same date/score context as `formatHistoryItemA11yLabel` (issue #62 audit finding #2: the
+ * bare static "Delete" label couldn't tell a screen-reader user which row's Delete they were
+ * about to press). Falls back to `history.item.deleteA11yLabelNotAssessed` for the same honest
+ * "never stringify null as a score" reason `formatHistoryItemA11yLabel` does.
+ */
+export function formatHistoryItemDeleteA11yLabel(item: HistoryListItem, formattedDate: string): string {
+  const { overall } = item.outcome.result;
+  if (overall.score === null || overall.band === null) {
+    return Copy.history.item.deleteA11yLabelNotAssessed.replace('{date}', formattedDate);
+  }
+  return Copy.history.item.deleteA11yLabel
+    .replace('{date}', formattedDate)
+    .replace('{score}', String(overall.score))
+    .replace('{band}', ScoreBandLabel[overall.band]);
+}
+
 // -------------------------------------------------------------------------------------------
 // Listing — a plain RLS-guarded read (docs/architecture.md: "Direct Supabase-client reads
 // (RLS-guarded, `user_id = auth.uid()`): list own `analyses`"), not an edge function.

@@ -413,6 +413,15 @@ export const Copy = {
       // is a tappable control per row (design brief §8 offers "swipe/long-press" as alternatives;
       // a persistent tap target reads correctly to VoiceOver without a gesture to discover).
       deleteCta: 'Delete',
+      // --- issue #62 NEW keys start — NOT in docs/design/copy-deck.md, NOT copy-certified (a11y
+      // announcement text, never rendered visually). Per-row delete label, so VoiceOver/TalkBack
+      // tells the user WHICH analysis a given Delete control removes instead of announcing the
+      // bare word "Delete" identically for every row (issue #62 audit finding #2). Mirrors
+      // `a11yLabel` / `a11yLabelNotAssessed` above: a not-assessed overall still gets an honest
+      // sentence, never a fabricated score.
+      deleteA11yLabel: 'Delete analysis from {date}, overall {score} out of 100, {band}.',
+      deleteA11yLabelNotAssessed: 'Delete analysis from {date}, not assessed.',
+      // --- issue #62 NEW keys end ---
       // --- issue #55 NEW keys end ---
     },
     delete: {

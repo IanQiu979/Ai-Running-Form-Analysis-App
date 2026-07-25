@@ -94,8 +94,20 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
   const [error, setError] = useState<string | null>(null);
   // Issue #11: `accessibilityLiveRegion="polite"` on the error Texts below (both phases share
   // this one piece of state) is Android-only — this is the iOS complement, same pattern as
-  // app/(auth)/sign-in.tsx.
-  useAnnounce(error);
+  // app/(auth)/sign-in.tsx. Issue #62: folded in alongside the phase transitions below (mirroring
+  // app/capture/extracting.tsx's single `useAnnounce` covering every state) — without this, the
+  // 'checking' -> 'health'/'subject' and 'health' -> 'subject' phase swaps silently replaced the
+  // whole screen's title/content with no announcement at all. `error` still takes priority when
+  // both are truthy at once, same precedence the original code gave it.
+  useAnnounce(
+    error
+      ? error
+      : phase === 'health'
+        ? Copy.consent.upload.title
+        : phase === 'subject'
+          ? Copy.consent.upload.subject.title
+          : null
+  );
   // Flipped the instant Cancel is pressed, including mid-write, AND on unmount — see
   // components/__tests__/consent-gate.test.tsx's race tests. Unmounting (what the host does on
   // cancel/consent, per this component's contract) does not cancel an in-flight promise below —
