@@ -8,27 +8,43 @@
 # END-TO-END trigger and the screen's own rendering of those states, neither of which the unit
 # tests touch (screens aren't unit-tested by convention, per CLAUDE.md's Testing section).
 #
-# STATUS: blocked on more than #84 — there is currently NO way to reach this state via UI
-# interaction alone, by design, not by oversight:
-#   1. app/capture/extracting.tsx's "Frames ready" screen never hands off to /analyzing at all
-#      (see ../flows/happy-path.yaml's header — issue #128). Reaching the Analyzing screen today
-#      needs a manual deep link, which is not something a "stranger walks the app" flow should
-#      script around — a real fix belongs in #128, not in a Maestro workaround here.
-#   2. Even via a deep link, `lib/analyze-form.ts`'s `analyzeFormClient` binding
-#      (`export const analyzeFormClient: AnalyzeFormClient = createMockAnalyzeFormClient();`)
-#      is hardcoded to zero-argument defaults — `outcome: 'success'`, `delayMs: 4000` — with NO
-#      runtime switch (no env var, no dev menu, no query param). The mock CAN produce 'failed',
-#      'timeout', or 'thrown' outcomes (see its `MockAnalyzeFormOutcome` union), but only via a
-#      source-code change to that one binding, which is exactly the kind of thing a black-box
-#      E2E script must not do.
-#   3. Once #44 (the real `analyze-form`) deploys, forcing a structural-validation failure or a
+# UPDATED 2026-07-13, same day as the original — re-verified against current `main`, not just
+# copied forward. Part (1) below is FIXED (#135 landed) and this flow's steps have been updated
+# to use the real handoff. Part (2) is STILL BLOCKED, confirmed by reading
+# `lib/analyze-form.ts` directly just now — this is the one remaining, genuine reason this flow
+# cannot be made to pass:
+#   1. ~~app/capture/extracting.tsx's "Frames ready" screen never hands off to /analyzing~~ FIXED
+#      by #135: the ready-state CTA now reads "Analyze my form" and calls
+#      `setPendingAnalyzeFormRequest()` + `router.replace('/analyzing')`. See
+#      ../flows/happy-path.yaml, which exercises this same handoff for the success case. So this
+#      flow's `tapOn: "Done"` below is now WRONG and has been updated to match.
+#   2. STILL TRUE: `lib/analyze-form.ts`'s `analyzeFormClient` binding —
+#      `export const analyzeFormClient: AnalyzeFormClient = createMockAnalyzeFormClient();` —
+#      is hardcoded to zero-argument defaults, `outcome: 'success'`, `delayMs: 4000`, with NO
+#      runtime switch (no env var, no dev menu, no query param — grepped for
+#      `MOCK_ANALYZE`/`EXPO_PUBLIC.*MOCK` across lib/, app/, constants/: zero hits). The mock CAN
+#      produce 'failed', 'timeout', or 'thrown' outcomes (see its `MockAnalyzeFormOutcome`
+#      union), but only via a source-code change to that one binding — exactly the kind of thing
+#      a black-box E2E script must not do, and outside this worktree's file lane regardless
+#      (`.maestro/` only — `lib/` belongs to other agents right now).
+#   3. Racing the mock's own 4s success against the screen's OWN 120s client-side timeout
+#      (`ANALYZING_TIMEOUT_MS`, lib/analyzing-machine.ts) does not help either — the mock always
+#      wins that race by ~116s, so no path exists today to observe `timedOut` without either the
+#      source change in (2) or an impractically long test.
+#   4. Once #44 (the real `analyze-form`) deploys, forcing a structural-validation failure or a
 #      timeout ON DEMAND from outside the app needs its own designed-in test hook — e.g. a
 #      documented magic idempotencyKey prefix, or a staging-only fault-injection flag — that
 #      does not exist in docs/architecture.md's API contract today. This is a genuine new
 #      requirement, not just a missing testID; see HANDOFF in ../README.md.
 #
+# NOTE: the sibling flow ../dead-end-offline.yaml DOES reach a live Retry/Cancel error panel
+# today (the `offline` phase, a different trigger than this file's `failed`/`timedOut`) — so
+# "Retry/Cancel never traps the user" IS partially proven for real, just not via THIS flow's
+# specific failure mode. Don't read this file's blocked status as "no error state is provable" —
+# see dead-end-offline.yaml.
+#
 # This flow is written against the copy deck's Screen 6 (Analyzing) so it is ready to run the
-# moment (1)-(3) above are addressed, but it cannot be made to pass by writing more Maestro —
+# moment (2)-(4) above are addressed, but it cannot be made to pass by writing more Maestro —
 # the trigger has to exist first.
 # ============================================================================================
 
@@ -61,13 +77,16 @@ appId: com.ian.paceanalysisai
     visible: "Frames ready"
     timeout: 20000
 
-# --- Everything below this line needs the fixes described in the header comment before it can
-# run at all. Written against the intended contract, not a guess at today's non-existent UI. ---
+# --- The handoff itself is real now (#135) — this line runs fine. Everything AFTER it still
+# needs the fix described in the header comment (#2: no way to force a non-success outcome). ---
 
-- tapOn: "Done" # TODO(#128): whatever the real handoff CTA turns out to be, once it exists.
+- tapOn: "Analyze my form" # upload.ready.cta — the real handoff, matches happy-path.yaml
 # TODO: some documented, deterministic way to force a failure/timeout outcome for THIS
 # analysis — e.g. `- inputText: "${MAESTRO_FORCE_ANALYZE_OUTCOME}"` into a to-be-designed
-# test-only field, or an env-configured build. Nothing in the current app takes such a signal.
+# test-only field, or an env-configured build. Nothing in the current app takes such a signal —
+# without it, the two assertions below will FAIL (loudly, correctly) against the mock's
+# hardcoded 'success' outcome: "Analyzing" resolves straight to the result screen instead of
+# ever showing "Your analysis didn't go through".
 
 - assertVisible: "Analyzing" # analyzing.title
 - extendedWaitUntil:
