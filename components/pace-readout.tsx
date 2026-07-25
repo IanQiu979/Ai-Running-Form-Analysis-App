@@ -213,7 +213,11 @@ function PillarRow({
       </View>
 
       {pillar.score === null || pillar.band === null ? (
-        <Text testID={`pillar-not-assessed-${pillarId}`} style={styles.notAssessedText}>
+        <Text
+          testID={`pillar-not-assessed-${pillarId}`}
+          style={styles.notAssessedText}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants">
           {notAssessedCopy(pillar.notAssessedReason)}
         </Text>
       ) : null}
