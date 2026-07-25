@@ -54,6 +54,7 @@ import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
+  ContentWidth,
   ControlHeight,
   FontFamily,
   FontSize,

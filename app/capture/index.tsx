@@ -28,6 +28,7 @@ import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
+  ContentWidth,
   ControlHeight,
   FontFamily,
   FontSize,
@@ -192,7 +193,7 @@ export default function SourcePickerScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <Text style={styles.header}>{Copy.sourcePicker.title}</Text>
           <Pressable
@@ -380,11 +381,23 @@ function createStyles(colors: ThemeColors) {
     },
     consentWrap: {
       flex: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
       justifyContent: 'center',
       padding: Spacing.lg,
     },
+    // Centers the (width-capped) content within the ScrollView's own viewport — a no-op on any
+    // phone, and what keeps a tablet's readable column centered instead of flush-left (issue
+    // #63; see ContentWidth's own comment in constants/theme.ts).
+    scroll: {
+      flex: 1,
+      alignItems: 'center',
+    },
     content: {
       flexGrow: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
       padding: Spacing.xl,
       gap: Spacing.lg,
     },

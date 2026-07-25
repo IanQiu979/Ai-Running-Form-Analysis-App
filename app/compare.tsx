@@ -591,7 +591,9 @@ function createStyles(colors: ThemeColors) {
       fontFamily: FontFamily.display.semiBold,
       fontSize: FontSize.md,
       color: colors.text.primary,
-      width: Spacing.xl,
+      // minWidth, not width — same Dynamic Type clipping fix as
+      // components/pace-readout.tsx's own `pillarLetter` (issue #63).
+      minWidth: Spacing.xl,
     },
     deltaText: {
       fontFamily: FontFamily.mono.regular,

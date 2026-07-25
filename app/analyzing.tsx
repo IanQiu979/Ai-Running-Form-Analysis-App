@@ -52,6 +52,7 @@ import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
+  ContentWidth,
   ControlHeight,
   ControlWidth,
   FontFamily,
@@ -362,7 +363,7 @@ export default function AnalyzingScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <Text style={styles.header}>{Copy.analyzing.title}</Text>
 
         {state.phase === 'waiting' && (
@@ -512,10 +513,19 @@ function createStyles(colors: ThemeColors) {
       flex: 1,
       backgroundColor: colors.background,
     },
+    // Centers the (width-capped) content within the ScrollView's own viewport — a no-op on any
+    // phone, and what keeps a tablet's readable column centered instead of flush-left (issue
+    // #63; see ContentWidth's own comment in constants/theme.ts).
+    scroll: {
+      flex: 1,
+      alignItems: 'center',
+    },
     content: {
       // flexGrow, not flex — matches app/(tabs)/index.tsx: fills the viewport when short, scrolls
       // instead of clipping at the largest Dynamic Type sizes (design brief §7).
       flexGrow: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
       padding: Spacing.xl,
       gap: Spacing.xxl,
     },

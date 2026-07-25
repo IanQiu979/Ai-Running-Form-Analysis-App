@@ -29,13 +29,14 @@
 import * as Crypto from 'expo-crypto';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
+  ContentWidth,
   ControlHeight,
   ControlWidth,
   FontFamily,
@@ -175,7 +176,11 @@ export default function ExtractingScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.content}>
+      {/* ScrollView + flexGrow, not a plain flex:1 View (issue #63) — same Dynamic Type
+          reflow-not-clip pattern as app/(tabs)/index.tsx: the error state stacks a title, body,
+          and up to two buttons, which could otherwise overflow a small phone at the largest
+          accessibility text sizes with no way to reach the second button. */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <Text style={styles.title}>{Copy.upload.title}</Text>
 
         {state.status === 'extracting' && (
@@ -235,7 +240,7 @@ export default function ExtractingScreen() {
             </Pressable>
           </View>
         )}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -252,8 +257,19 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       flex: 1,
       backgroundColor: colors.background,
     },
-    content: {
+    // Centers the (width-capped) content within the ScrollView's own viewport — a no-op on any
+    // phone, and what keeps a tablet's readable column centered instead of flush-left (issue
+    // #63; see ContentWidth's own comment in constants/theme.ts).
+    scroll: {
       flex: 1,
+      alignItems: 'center',
+    },
+    content: {
+      // flexGrow, not flex — this is now a ScrollView contentContainerStyle (issue #63): fills
+      // the viewport when the content is short, scrolls instead of clipping when it isn't.
+      flexGrow: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
       padding: Spacing.xl,
       gap: Spacing.xl,
     },
