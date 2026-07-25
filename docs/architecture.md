@@ -142,11 +142,10 @@ app/
   analyzing                 # current (issue #80, 2026-07-12) — Screen 6, the analyze-form wait
                           # screen; top-level route (not nested under (tabs)/capture), guarded
                           # the same as (tabs). See "Current — the Analyzing screen" below.
-  result/[id]                # current (issue #56) — the PACE readout. NOTE: docs/design/
-                          # motion-consult.md's own nav-param example names this route
-                          # `results/[id]` (plural) — a doc inconsistency, not yet reconciled;
-                          # see docs/status.md Known Issue #20. `app/analyzing.tsx` navigates to
-                          # `result/[id]` (singular, matching this table).
+  result/[id]                # current (issue #56) — the PACE readout. `app/analyzing.tsx`
+                          # navigates to `result/[id]` (singular, matching this table);
+                          # docs/design/motion-consult.md's nav-param example was corrected to
+                          # match (docs/status.md Known Issue #20, resolved).
   settings                   # current (issue #53) — top-level pushed route, not a tab; see
                           # "Current — the Settings screen" below.
   paywall                     # current (issue #52, 2026-07-13) — the M5 dummy paywall; see

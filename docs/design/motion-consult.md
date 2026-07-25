@@ -17,7 +17,7 @@
    `setState`. IBM Plex Mono's tabular figures keep the width stable.
 3. **First-reveal vs history-reopen flag:** ephemeral only — a nav param / in-memory signal set
    immediately after the analyze call succeeds (e.g.
-   `router.replace('/results/[id]', { params: { justAnalyzed: '1' } })`). Never derived from
+   `router.replace('/result/[id]', { params: { justAnalyzed: '1' } })`). Never derived from
    AsyncStorage or a DB field, so it can't replay after relaunch nor suppress a genuine first
    view. Re-open from history sets shared values straight to target (no animation).
 4. **Reveal trigger = first-visible, not on-mount.** Fire the readout reveal via
