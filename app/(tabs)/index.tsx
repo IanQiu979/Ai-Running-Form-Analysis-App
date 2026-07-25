@@ -345,12 +345,12 @@ function createStyles(colors: ThemeColors) {
       flex: 1,
       backgroundColor: colors.background,
     },
-    // Centers the (width-capped) content container within the ScrollView's own viewport — a
-    // no-op on any phone (see ContentWidth's own comment), and what keeps a tablet's readable
-    // column from sitting flush against the left edge instead of centered (issue #63).
+    // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
+    // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
+    // through the contentContainerStyle prop." The readable column is therefore centred by
+    // `alignSelf: 'center'` on the contentContainerStyle below, not from here (issue #63).
     scroll: {
       flex: 1,
-      alignItems: 'center',
     },
     content: {
       // flexGrow (not flex) — this is a ScrollView contentContainerStyle now: it fills the
@@ -358,6 +358,7 @@ function createStyles(colors: ThemeColors) {
       flexGrow: 1,
       width: '100%',
       maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
       padding: Spacing.xl,
       gap: Spacing.xxl,
     },
