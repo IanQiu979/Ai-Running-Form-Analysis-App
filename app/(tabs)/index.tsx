@@ -7,6 +7,7 @@ import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
+  ContentWidth,
   ControlHeight,
   ControlWidth,
   FontFamily,
@@ -198,11 +199,17 @@ export default function HomeScreen() {
   useAnnounce(pendingReleased ? Copy.home.pending.released.title : null);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    // edges excludes 'bottom' (issue #63): this screen renders under the tab bar, and
+    // @react-navigation/bottom-tabs already pads the tab bar itself by the device's bottom
+    // safe-area inset (verified in node_modules/@react-navigation/bottom-tabs's own
+    // BottomTabBar — its height calculation adds `insets.bottom`) — a SafeAreaView here with the
+    // default all-edges set would apply that same inset a second time, opening a dead gap
+    // between this screen's content and the tab bar's top edge.
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       {/* Same ScrollView + flexGrow:1 pattern as app/(auth)/sign-in.tsx: the content still
           centers when there is room, but at the largest Dynamic Type sizes it scrolls instead
           of clipping (design brief §7: layouts reflow, never clip). */}
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <Text style={styles.header}>{Copy.home.title}</Text>
           {/* Sign-out USED to live here as an M1 stub. Issue #53 moved it to Settings — its real
@@ -338,10 +345,19 @@ function createStyles(colors: ThemeColors) {
       flex: 1,
       backgroundColor: colors.background,
     },
+    // Centers the (width-capped) content container within the ScrollView's own viewport — a
+    // no-op on any phone (see ContentWidth's own comment), and what keeps a tablet's readable
+    // column from sitting flush against the left edge instead of centered (issue #63).
+    scroll: {
+      flex: 1,
+      alignItems: 'center',
+    },
     content: {
       // flexGrow (not flex) — this is a ScrollView contentContainerStyle now: it fills the
       // viewport when the content is short, and grows past it when Dynamic Type makes it tall.
       flexGrow: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
       padding: Spacing.xl,
       gap: Spacing.xxl,
     },

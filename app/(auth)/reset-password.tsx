@@ -34,6 +34,7 @@ import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
+  ContentWidth,
   ControlHeight,
   FontFamily,
   FontSize,
@@ -119,6 +120,7 @@ export default function ResetPasswordScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
+          style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
@@ -186,8 +188,21 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     flex: {
       flex: 1,
     },
+    // Centers the (width-capped) content within the ScrollView's own viewport — a no-op on any
+    // phone, and what keeps a tablet's readable column centered instead of flush-left (issue
+    // #63; see ContentWidth's own comment in constants/theme.ts).
+    scroll: {
+      flex: 1,
+      alignItems: 'center',
+    },
+    // alignSelf here covers BOTH this style's uses below: the plain `<View>` on the 'sent'
+    // success state (centered by SafeAreaView's own default stretch->override) and the
+    // `<ScrollView contentContainerStyle>` on the form state (centered via `scroll` above).
     scrollContent: {
       flexGrow: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
       justifyContent: 'center',
       padding: Spacing.xl,
       gap: Spacing.xxl,

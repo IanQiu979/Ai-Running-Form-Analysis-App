@@ -15,7 +15,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FramingGuide } from '@/components/framing-guide';
@@ -23,6 +23,7 @@ import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
+  ContentWidth,
   ControlHeight,
   FontFamily,
   FontSize,
@@ -135,7 +136,11 @@ export default function RecordScreen() {
   if (permissionState === 'undetermined') {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.permissionPanel}>
+        {/* ScrollView + flexGrow, not a plain flex:1 View (issue #63) — same Dynamic Type
+            reflow-not-clip pattern as app/(tabs)/index.tsx: this panel's title/body/two buttons
+            could otherwise overflow a small phone at the largest accessibility text sizes with
+            no way to reach the second button. */}
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.permissionPanel}>
           <Text style={styles.permissionTitle}>{Copy.capture.permission.camera.title}</Text>
           <Text style={styles.permissionBody}>{Copy.capture.permission.camera.body}</Text>
           <Pressable
@@ -153,7 +158,7 @@ export default function RecordScreen() {
             style={({ pressed }) => [styles.secondaryCta, pressed && styles.pressed]}>
             <Text style={styles.secondaryCtaText}>Back</Text>
           </Pressable>
-        </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -161,7 +166,8 @@ export default function RecordScreen() {
   if (permissionState === 'denied') {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.permissionPanel}>
+        {/* Same ScrollView + flexGrow reflow fix as the 'undetermined' panel above (issue #63). */}
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.permissionPanel}>
           <Text style={styles.permissionTitle}>{Copy.capture.permission.camera.denied.title}</Text>
           <Text style={styles.permissionBody}>{Copy.capture.permission.camera.denied.body}</Text>
           <Pressable
@@ -179,7 +185,7 @@ export default function RecordScreen() {
             style={({ pressed }) => [styles.secondaryCta, pressed && styles.pressed]}>
             <Text style={styles.secondaryCtaText}>{Copy.capture.permission.camera.denied.secondary}</Text>
           </Pressable>
-        </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -247,8 +253,17 @@ function createStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
     },
-    permissionPanel: {
+    // Centers the (width-capped) content within the ScrollView's own viewport — a no-op on any
+    // phone, and what keeps a tablet's readable column centered instead of flush-left (issue
+    // #63; see ContentWidth's own comment in constants/theme.ts).
+    scroll: {
       flex: 1,
+      alignItems: 'center',
+    },
+    permissionPanel: {
+      flexGrow: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
       justifyContent: 'center',
       padding: Spacing.xl,
       gap: Spacing.md,

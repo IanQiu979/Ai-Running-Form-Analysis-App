@@ -59,6 +59,7 @@ import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
+  ContentWidth,
   ControlHeight,
   FontFamily,
   FontSize,
@@ -231,6 +232,7 @@ export default function UpdatePasswordScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
+          style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
@@ -294,14 +296,30 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     flex: {
       flex: 1,
     },
+    // Centers the (width-capped) content within the ScrollView's own viewport — a no-op on any
+    // phone, and what keeps a tablet's readable column centered instead of flush-left (issue
+    // #63; see ContentWidth's own comment in constants/theme.ts).
+    scroll: {
+      flex: 1,
+      alignItems: 'center',
+    },
     scrollContent: {
       flexGrow: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
       justifyContent: 'center',
       padding: Spacing.xl,
       gap: Spacing.xxl,
     },
+    // Same readable-column cap as scrollContent above — this style backs the plain (non-scroll)
+    // checking/expired/success states, each already centered vertically by `flex: 1,
+    // justifyContent: 'center'`; width/maxWidth/alignSelf caps and centers them horizontally too.
     centered: {
       flex: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
       alignItems: 'center',
       justifyContent: 'center',
       padding: Spacing.xl,

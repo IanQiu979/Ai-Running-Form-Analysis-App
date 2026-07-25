@@ -306,7 +306,11 @@ function createStyles(colors: ThemeColors) {
       color: colors.text.primary,
       fontFamily: FontFamily.display.semiBold,
       fontSize: FontSize.lg,
-      width: Spacing.xl,
+      // minWidth, not width (issue #63): a fixed `width` clips this single-character glyph the
+      // moment Dynamic Type scales `FontSize.lg` past what 24pt of column can hold — minWidth
+      // keeps the base-size column alignment but lets the glyph grow past it at large text
+      // sizes instead of being cut off.
+      minWidth: Spacing.xl,
     },
     pillarName: {
       color: colors.text.primary,

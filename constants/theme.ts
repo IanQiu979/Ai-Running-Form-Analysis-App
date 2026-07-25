@@ -315,6 +315,26 @@ export const ControlWidth = {
   primaryButton: 220,
 } as const;
 
+// -------------------------------------------------------------------------------------------
+// Content width — issue #63 (M7 responsive pass). `app.json`'s `supportsTablet: true` means
+// every screen below can render in a viewport as wide as an iPad's ~1024pt, not just a phone's
+// ~375-430pt — verified live: on an 11" iPad simulator, sign-in's buttons and body copy stretch
+// edge-to-edge into a single ~650pt+ line, which is both an unreadably long line length and not
+// a design anyone drew. `readable` caps a screen's outer content column at a phone-native width
+// even on a wide viewport (applied as `width: '100%', maxWidth: ContentWidth.readable` on the
+// screen's existing outer content container, cross-axis-centered by the screen's existing
+// ScrollView/SafeAreaView — never a new wrapper node). Below this width (every real phone) it is
+// always a no-op: `100%` stays smaller than the cap, so nothing here changes phone layout at all.
+// Not tied to any specific device's point width — this is a readable-column decision, not a
+// breakpoint copied from one simulator.
+// -------------------------------------------------------------------------------------------
+
+export const ContentWidth = {
+  /** The single, app-wide readable-column cap for a screen's outer content — see block comment
+   *  above. One value, not a per-screen guess, so every screen caps at the same width. */
+  readable: 560,
+} as const;
+
 export const HitTarget = {
   /** Minimum tappable square for a text-only/icon-only control (e.g. Home's Sign out link). */
   min: 44,

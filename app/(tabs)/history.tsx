@@ -32,6 +32,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Copy } from '@/constants/copy';
 import {
   Colors,
+  ContentWidth,
   FontFamily,
   FontSize,
   HitTarget,
@@ -209,7 +210,10 @@ export default function HistoryScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    // edges excludes 'bottom' — same reasoning as app/(tabs)/index.tsx (issue #63): the tab bar
+    // already pads itself by the bottom safe-area inset, so this screen must not pad it a
+    // second time.
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.headerRow}>
         <Text style={styles.header}>{Copy.history.title}</Text>
       </View>
@@ -256,6 +260,7 @@ export default function HistoryScreen() {
         <FlatList
           data={state.items}
           keyExtractor={(item) => item.id}
+          style={styles.list}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
             <HistoryRow
@@ -349,7 +354,13 @@ function createStyles(colors: ThemeColors) {
       flex: 1,
       backgroundColor: colors.background,
     },
+    // width/maxWidth/alignSelf here and on centerBlock/listContent below: the same tablet
+    // readable-column cap as app/(tabs)/index.tsx (issue #63) — a no-op on any phone, see
+    // ContentWidth's own comment in constants/theme.ts.
     headerRow: {
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
       paddingHorizontal: Spacing.xl,
       paddingTop: Spacing.xl,
       paddingBottom: Spacing.lg,
@@ -361,6 +372,9 @@ function createStyles(colors: ThemeColors) {
     },
     centerBlock: {
       flex: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
       alignItems: 'center',
       justifyContent: 'center',
       gap: Spacing.lg,
@@ -412,7 +426,13 @@ function createStyles(colors: ThemeColors) {
     disabled: {
       opacity: Opacity.disabled,
     },
+    list: {
+      flex: 1,
+    },
     listContent: {
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
       paddingHorizontal: Spacing.xl,
       paddingBottom: Spacing.xl,
       gap: Spacing.md,
