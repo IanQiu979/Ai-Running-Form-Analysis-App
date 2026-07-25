@@ -491,12 +491,17 @@ milestone "done" criteria.
       with a clean `{ error, code }` and nothing else. `DeleteAccountErrorCode` is now an exported
       discriminated union, not a bare `string`, so #122's client can exhaustively switch on it. A
       test asserts no response body, for any outcome, ever carries both `deleted` and `error`/`code`.
-    - **Issue #59's other half — still open.** The 25 tests here mock the Supabase client, so they
-      prove the *contract* (ordering, recursion, atomicity, idempotency, the response matrix). #59
-      also asks for the same properties against a real local Postgres **and** real Storage, because
-      the property under test is precisely that two different systems agree — a fake cannot fail
-      the way production fails. Not built; no local `supabase start` harness exists in this repo
-      yet.
+    - **Issue #59's other half — DONE, 2026-07-25.** The 25 tests here mock the Supabase client, so
+      they prove the *contract* (ordering, recursion, atomicity, idempotency, the response matrix).
+      #59 also asked for the same properties against a real local Postgres **and** real Storage,
+      because the property under test is precisely that two different systems agree — a fake
+      cannot fail the way production fails. Issue #92's local `supabase start` stack now exists,
+      and `supabase/functions/_shared/integration/delete-purge.local.ts` runs the actual
+      `deleteAnalysis`/`deleteAccount` code (via the same production client factories) against it,
+      asserting from the Storage side (`storage.list()` after the delete) that zero objects
+      remain. See `supabase/functions/_shared/integration/README.md` for how to run it
+      (`npm run test:edge:local`) — not part of the normal `npm test` gate, since it needs the
+      local stack running.
     - **The consent trail is purged, deliberately** (GDPR Art. 17(3)(e) reasoning in
       `_shared/delete-account.ts`'s header and `docs/architecture.md`), which keeps
       `docs/privacy-policy.md`'s "Deleting your account removes everything" literally true and

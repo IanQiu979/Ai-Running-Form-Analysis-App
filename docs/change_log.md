@@ -5,6 +5,32 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-25 (Bucket A infra + test hardening — local Supabase stack, real-Postgres property tests)
+
+- **#92 — a local, non-production Supabase environment now exists.** `supabase start` (local
+  Docker) stands up the full stack; all 24 migrations apply cleanly via `supabase db reset`.
+  Required `supabase/config.toml`'s `auto_expose_new_tables = true` to be set — without it a fresh
+  local stack does not grant `service_role` table access the way the live production project
+  already has (verified live). See `docs/architecture.md`'s "Current — local Supabase stack"
+  section for the full story.
+- **#49 — RPC concurrency, idempotent replay, and month-end period arithmetic, proved against a
+  real Postgres.** New `supabase/functions/_shared/integration/quota-rpc.local.ts`: two concurrent
+  `reserve_analysis` calls for the same user's last slot (exactly one wins), a same-idempotency-key
+  race (never double-reserves), replaying a `released` reservation (returns the existing row, not a
+  new one), the documented `pace_add_months_clamped` walk (Jan 31 → Feb 28 → Mar 31 → Apr 30, a
+  leap-year Feb 29, and a negative `n`), and free-lifetime vs. pro-period quota enforcement.
+- **#59 — zero-orphaned-storage-objects, proved against real Postgres and real Storage.** New
+  `supabase/functions/_shared/integration/delete-purge.local.ts`: calls the actual
+  `deleteAnalysis`/`deleteAccount` functions (via their real production client factories) against
+  real uploaded frames, asserting from the Storage side (`storage.list()` after the delete) — never
+  from the row side — that nothing survives, across nested `{user}/{analysis}/` prefixes and
+  multiple analyses per account, plus idempotent-retry-after-delete for both.
+- Both new test files are named `*.local.ts` (not `*.test.ts`/`*.deno.test.ts`) so they stay out of
+  `npm test`'s default discovery — they need the local stack running. Run via
+  `npm run test:edge:local` (see `supabase/functions/_shared/integration/README.md`).
+- **Known Issue #20 resolved** — `docs/design/motion-consult.md`'s nav-param example said
+  `results/[id]` (plural); corrected to `result/[id]` (singular), matching the actual built route.
+
 ## 2026-07-13 (second parallel batch — 10 worktrees; the core flow finally connects end to end)
 
 A second same-day batch, dispatched one worktree + one agent per issue. All merged to
