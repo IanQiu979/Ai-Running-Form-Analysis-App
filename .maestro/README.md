@@ -96,14 +96,34 @@ without colliding on "email already registered."
       grant-consent.yaml                    # reusable: the Art. 9 consent gate, first-time-only
 ```
 
-## What's runnable today (once #84 lands) vs what's blocked, and by what
+## What's runnable today vs what's blocked, and by what
 
-**Real and scriptable today**, all built against `main` as of 2026-07-13:
+**REWRITTEN 2026-07-13, same day as the rest of this directory** — this section as originally
+written (see git history) was accurate when it said "these flows have never been executed."
+Since then, in the same day's parallel batches: #135 (capture→analyze handoff), #55 (History
+tab), #52/#54 (paywall + wiring), and a partial #93 (offline) all landed on `main`. This section
+is rewritten against a direct re-read of the current code, not carried forward from the stale
+version. The flows themselves have ACTUALLY BEEN RUN as of this update — see the top-level
+report (PR/commit description) for the real `maestro test` output and what passed vs. failed.
+
+**Real and scriptable today**, confirmed against `main`:
 - Sign-up (email/password) → Home.
-- The consent gate (`components/consent-gate.tsx`) — fully wired, all three testIDs it needs
-  already exist.
+- The consent gate (`components/consent-gate.tsx`) — fully wired.
 - Source picker → in-app Record → camera permission dance → a recorded clip → frame extraction
-  → "Frames ready".
+  → "Frames ready" → **"Analyze my form" → `/analyzing` → mock resolves (~4s, hardcoded
+  `'success'`) → Result screen with the mock's clearly-fake data → "Back to Home"** (#135, new).
+- **History tab** (#55, new) — `(tabs)/history` is a real route; the happy path proves its
+  EMPTY state honestly (the mock never writes an `analyses` row).
+- **The offline dead-end at `/analyzing`** (#93, partial) — a real, live pre-flight
+  `checkConnectivity()` gate in `app/analyzing.tsx`, wired into the ONE call site that exists so
+  far (not the source picker). `setAirplaneMode: true` before tapping the ready-screen's
+  "Analyze my form" CTA reaches a genuine `offline.blocked.*` panel with a working Retry
+  (re-checks connectivity, resumes) and Cancel (returns to Home). See `dead-end-offline.yaml`'s
+  header for the exact call-site and what's still NOT wired (the source picker itself).
+- **The quota-exhausted paywall UI** (#52/#54, new) — Home's CTA genuinely relabels and routes
+  to `/paywall`, which is a real screen with a live "Back" button. Still blocked from an E2E
+  run only by the precondition below (no way to seed a quota-exhausted account), not by
+  missing UI.
 - Settings → Sign out (does **not** depend on an analysis existing — it's exercised in
   `happy-path.yaml` on a zero-analysis account for exactly that reason).
 
@@ -111,13 +131,11 @@ without colliding on "email already registered."
 
 | Gap | Issue(s) | What's missing |
 |---|---|---|
-| Capture never hands off to analysis | **#128** | `app/capture/extracting.tsx`'s "Frames ready" screen has one control, "Done", and it returns to Home — confirmed by reading the file, not inferred from docs. `app/analyzing.tsx` (#80) exists but nothing navigates to it. |
-| Analysis result is always fake even if reached | **#44**, **#128** | `lib/analyze-form.ts`'s `analyzeFormClient` is hard-bound to a mock with a hardcoded `'success'` outcome — no runtime switch. The real `analyze-form` edge function is written but not deployed. |
-| No deterministic way to force a failure/timeout | **#44**, **#128** (new ask, see HANDOFF) | Even once the handoff exists, nothing lets an E2E script choose the mock's `'failed'`/`'timeout'` outcome, and the real endpoint has no documented fault-injection hook either. |
-| Past Analyses tab doesn't exist | **#55** | `(tabs)/history` is not a registered route. `constants/copy.ts` has no `history.*` namespace (only `docs/design/copy-deck.md` does). |
-| Delete-analysis has nothing to call it from | **#55**, **#57** | Even once #55 ships a UI, `DELETE /functions/v1/analysis/:id` (#57) is written+tested but **not deployed**. |
-| Quota-exhausted Free user has no way forward | **#52**, **#54** | Confirmed a real, current dead end by reading the code: Home's CTA stays labeled "Analyze my form" and is just `disabled`; `constants/copy.ts` never renders `home.cta.upgradeToAnalyze`. There is no "See plans" entry point anywhere in the shipped app — `settings.plan.cta` is referenced only in a code comment, never implemented. `app/paywall.tsx` does not exist. This is exactly the dead end #52 itself names in its own issue body. |
-| Offline has zero implementation | **#93** | Confirmed: no `offline.*` in `constants/copy.ts`, no connectivity listener anywhere in `app/` or `lib/`. Only the copy deck has these strings. |
+| Analysis result is always fake | **#44** | `lib/analyze-form.ts`'s `analyzeFormClient` is hard-bound to a dev mock with a hardcoded `'success'` outcome — no runtime switch (no env var, no dev menu, no query param; grepped). The real `analyze-form` edge function is written but **not deployed**. |
+| No deterministic way to force a failure/timeout | **#44** (new ask, see HANDOFF) | Nothing lets an E2E script choose the mock's `'failed'`/`'timeout'` outcome from outside a source change, and the real endpoint has no documented fault-injection hook either. `dead-end-analysis-failure.yaml` is written and ready but cannot pass until this exists. Racing the mock's 4s success against the screen's own 120s client timeout does not help — the mock always wins. |
+| Delete-analysis has nothing to call it from | **#57** | `DELETE /functions/v1/analysis/:id` is written+tested but **not deployed** — moot anyway today since no real `analyses` row can be created (see next row). |
+| No way to seed a quota-exhausted account | **#44** | A Free user with a spent quota needs a real `analyses` row via `reserve_analysis`/`settle_analysis` — which needs #44 deployed. The mock in `lib/analyze-form.ts` never calls Supabase at all, so even unlimited happy-path runs never produce one. `dead-end-quota-exhausted.yaml` is written and ready, blocked only on this seed data (or #44 deploying so it can be produced for real). |
+| Offline check only covers one call site | **#93** (remainder) | `lib/connectivity.ts`'s `checkConnectivity()` is wired into `app/analyzing.tsx` only. `app/capture/index.tsx` (the source picker) has no connectivity check — capture works uninterrupted offline today, arguably by design ("capture itself is not blocked" per the deck) but not signposted beyond the passive global banner at that stage. |
 
 Every flow file's own header comment repeats the specific issue numbers it's blocked on, so
 this table and the flows can't silently drift apart.

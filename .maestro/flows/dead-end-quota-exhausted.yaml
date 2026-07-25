@@ -4,36 +4,40 @@
 # the exact property issue #86 names: "Retry/Cancel must never trap the user — every error
 # state needs an exit," extended to the quota-exhausted state.
 #
-# STATUS: written against the INTENDED, correct contract (docs/design/copy-deck.md's Screen 2 +
-# Screen 10, and issue #52's own framing: "the only screen that turns 'you are out of analyses'
-# into a path forward rather than a dead end"). It is NOT written to match today's actual
-# behavior, which — confirmed by reading app/(tabs)/index.tsx and app/settings.tsx directly —
-# IS a genuine dead end right now:
-#   - Home's CTA, when `isOutOfQuota`, stays labeled "Analyze my form" and is simply `disabled`
-#     — `home.cta.upgradeToAnalyze` ("Upgrade to analyze") exists in docs/design/copy-deck.md
-#     but is never rendered anywhere in the app (grepped constants/copy.ts and every screen).
-#   - There is no "See plans" entry point anywhere in the shipped app. `constants/copy.ts` has
-#     a comment at line ~245 noting `settings.plan.cta` ("See plans") is deferred to issue #52,
-#     but the key itself is not implemented — Settings' Plan section only ever shows the tier
-#     name, never a CTA.
-#   - `paywall` is not a registered route (docs/architecture.md's route tree still lists it
-#     "planned (M5)"; no `app/paywall.tsx` file exists).
-# So today, tapping through this flow finds a disabled button and then nothing — issue #52
-# (paywall) and #54 (wiring Home's CTA/copy to it) are what turn this flow from "documents a
-# real dead end" into "proves the dead end is closed." Per the test-writing rule this repo's
-# CLAUDE.md and this run's own instructions both call for: do NOT rewrite this flow to assert
-# the current disabled-dead-end as correct just to make it pass — that would codify a bug the
-# issue that requested this flow exists specifically to catch.
+# UPDATED 2026-07-13, same day as the original — re-verified against current `main`, not just
+# copied forward. GOOD NEWS: the dead end this flow was written to catch is CLOSED in the code
+# now, confirmed by reading app/(tabs)/index.tsx and app/paywall.tsx directly:
+#   - Home's CTA DOES relabel when `isOutOfQuota` — `ctaKind === 'upgradeToAnalyze' ||
+#     'upgradeForMore'` routes to `router.push('/paywall')` (app/(tabs)/index.tsx line ~314-315).
+#     `home.cta.upgradeToAnalyze` IS rendered now, not just present in copy.ts.
+#   - `app/paywall.tsx` EXISTS (issue #52 landed) — a real screen with loading/ready/error
+#     states, a quota-derived gate banner, and per-tier upgrade CTAs, all reading LIVE
+#     `getQuotaStatus()` rather than a route param (see that file's own header).
+#   - Issue #136 also wires the SERVER side of this: a real 402 `quota_exceeded` from
+#     `analyze-form` routes app/analyzing.tsx straight to `/paywall` too (its `failed` effect,
+#     `state.code === 'quota_exceeded'` branch) — a second, independent way to reach the same
+#     no-dead-end destination.
+# So issue #52's own framing — "the only screen that turns 'you are out of analyses' into a path
+# forward rather than a dead end" — is genuinely true on `main` today. This flow is still
+# BLOCKED, but only on the precondition below, not on missing UI.
 #
-# PRECONDITION THIS FLOW CANNOT SET UP ITSELF: a Free-tier account that has already spent its
-# one lifetime analysis needs a real `analyses` row with `status IN ('reserved','delivered')`
+# PRECONDITION THIS FLOW STILL CANNOT SET UP ITSELF: a Free-tier account that has already spent
+# its one lifetime analysis needs a real `analyses` row with `status IN ('reserved','delivered')`
 # (app/(tabs)/index.tsx's own `hasUsedFreeAnalysis` query) — which needs a real, successful
-# `reserve_analysis`/`settle_analysis` RPC call, which needs `analyze-form` (#44) deployed. That
-# doesn't exist yet either (see ../flows/happy-path.yaml's header). Until then, this flow's
-# `${MAESTRO_QUOTA_EXHAUSTED_EMAIL}`/`${MAESTRO_QUOTA_EXHAUSTED_PASSWORD}` test account has to
-# be seeded out of band — e.g. a `seed-data`/`mocks-testdata` fixture that inserts one
-# 'delivered' `analyses` row directly (service-role, bypassing the RPC) for a known test user.
-# No such fixture exists in this repo today; see HANDOFF in ../README.md.
+# `reserve_analysis`/`settle_analysis` RPC call, which needs `analyze-form` (#44) DEPLOYED (it is
+# written but not deployed — see ../flows/happy-path.yaml's header) and the capture->analyze
+# handoff, which is real now (#135) but talks to the dev MOCK, which never calls
+# `reserve_analysis`/writes a DB row (lib/analyze-form.ts's header: "nothing here calls the
+# Anthropic API, Supabase, or any edge function"). So even a full pass of happy-path.yaml,
+# repeated any number of times, cannot organically produce a quota-exhausted account today.
+# Until #44 deploys, this flow's `${MAESTRO_QUOTA_EXHAUSTED_EMAIL}`/
+# `${MAESTRO_QUOTA_EXHAUSTED_PASSWORD}` test account has to be seeded out of band — e.g. a
+# `seed-data`/`mocks-testdata` fixture that inserts one 'delivered' `analyses` row directly
+# (service-role, bypassing the RPC) for a known test user. No such fixture exists in this repo
+# today, and this worktree does not have service-role production access to seed one by hand
+# either (out of scope for the `.maestro/`-only file lane this issue's run was given, and CLAUDE.md's
+# "uploaded media is sensitive" / no-defense-in-depth cautions argue against ad hoc production
+# writes from an E2E script regardless). See HANDOFF in ../README.md.
 #
 # Run with: maestro test --env MAESTRO_QUOTA_EXHAUSTED_EMAIL=... \
 #                          --env MAESTRO_QUOTA_EXHAUSTED_PASSWORD=... \
@@ -55,14 +59,14 @@ appId: com.ian.paceanalysisai
 
 - assertVisible: "You've used your free analysis" # home.quota.exhausted.free
 
-# Today this is "Analyze my form", disabled — the deck's relabel is issue #54's job, not yet
-# rendered anywhere. Written against the intended label so this line starts failing loudly
-# (element not found) rather than silently passing against the wrong string.
+# #54 landed — this is now real, wired UI, not an aspirational assertion.
 - assertVisible: "Upgrade to analyze" # home.cta.upgradeToAnalyze
 - tapOn: "Upgrade to analyze"
 
-# The paywall itself — issue #52, not built. `app/paywall.tsx` does not exist; this is the
-# INTENDED landing screen per docs/design/copy-deck.md's Screen 10.
+# The paywall itself — issue #52, now built (app/paywall.tsx exists). Copy below is written
+# against docs/design/copy-deck.md's Screen 10; re-verify the exact strings against
+# constants/copy.ts's `paywall` namespace before trusting this block if paywall.tsx's copy has
+# been re-certified since — this flow was not able to run to confirm it (see ../README.md).
 - assertVisible: "Choose your plan" # paywall.title
 - assertVisible: "You've used your free analysis" # paywall.gate.free.title — restates why we're
                                                     # here, per the deck's "never expose the raw
@@ -71,6 +75,9 @@ appId: com.ian.paceanalysisai
 - assertVisible: "Upgrade to Elite" # paywall.cta.upgrade.elite
 
 # The actual no-dead-end assertion: there must be a way back out that ISN'T "stuck on the
-# paywall forever." The deck doesn't name an explicit back/cancel CTA for this screen — flagging
-# that as a real gap for whoever builds #52, not guessing at a control that may not exist.
-# See HANDOFF in ../README.md.
+# paywall forever." Confirmed by reading app/paywall.tsx directly: a real text "Back" button
+# (Copy.paywall.back, styled like app/settings.tsx's own back button) calls `router.back()`.
+- assertVisible: "Back" # paywall.back
+- tapOn: "Back"
+- assertVisible: "You've used your free analysis" # home.quota.exhausted.free — back on Home,
+                                                    # not stuck on the paywall

@@ -3,22 +3,42 @@
 # state that isn't true" rule (brief §5), the app must say plainly that nothing was sent and
 # offer a Retry — never silently hang, never imply a save/queue that isn't implemented.
 #
-# STATUS: entirely blocked, and not just on issue #84. Issue #93 ("Offline is a specified state
-# that nothing implements — the copy deck has the strings, the app has no connectivity
-# detection") is open and unowned. Confirmed directly: `constants/copy.ts` has no `offline.*`
-# namespace at all — grepped for it, zero hits — only docs/design/copy-deck.md's "Cross-cutting
-# — Offline" section has these strings. There is no NetInfo (or equivalent) listener anywhere
-# in app/ or lib/, no offline banner component, and nothing in app/capture/index.tsx or
-# app/analyzing.tsx branches on connectivity. This flow is written against the copy deck only —
-# every assertion below targets UI that does not exist yet on `main`.
+# REWRITTEN 2026-07-13, same day as the original version, after re-reading lib/connectivity.ts,
+# components/offline-banner.tsx, and app/analyzing.tsx directly. The ORIGINAL version of this
+# file (see git history) targeted a gate on the SOURCE-PICKER screen (`source-card-upload` ->
+# immediate "You're offline" block) that was never real — #93 was filed for exactly that gap and
+# it is still true that app/capture/index.tsx has no connectivity check. But #93 has PARTIALLY
+# landed since: there IS now a real, live, two-part offline implementation —
+#   1. `components/offline-banner.tsx` — a passive, global, non-blocking banner
+#      (`Copy.offline.banner`) mounted once in app/_layout.tsx. Confirmed live: it renders
+#      nothing while online (no empty shell) and the banner text the moment `useIsOffline()`
+#      flips true, from ANY screen, not just capture.
+#   2. `lib/connectivity.ts`'s `checkConnectivity()` — a ONE-SHOT pre-flight gate. It is wired
+#      into exactly ONE call site today: app/analyzing.tsx's submit effect, which checks
+#      connectivity BEFORE calling `analyzeFormClient.submit()`. An offline reading dispatches
+#      the machine's `offline` phase, renders `offline.blocked.*` (title "You're offline", body
+#      literally true here — "nothing has been sent yet" — because submit() is never called),
+#      and offers a live Retry (re-runs the same pre-flight check) and Cancel (returns to Home,
+#      clearing the #140 pending-analysis marker). Confirmed by reading app/analyzing.tsx lines
+#      ~140-165 and ~399-405 directly — this is real code, not aspirational.
+#   3. NOT wired: app/capture/index.tsx (the source picker) has no connectivity check of its own
+#      — `checkConnectivity()`'s own header names this as a known, deliberately out-of-scope gap
+#      ("both are owned by other in-flight work, so this module only exports the guard"). So a
+#      user who goes offline BEFORE tapping into capture gets no warning until they reach
+#      Analyzing — capture, extraction, and the "Frames ready" screen all work uninterrupted
+#      offline (device-local, no network calls), which is arguably correct per the deck's own
+#      "capture itself is not blocked" line, just not signposted with a banner at that stage
+#      beyond the passive global one.
 #
-# Once #93 lands, this needs a way to force the app offline deterministically. `setAirplaneMode`
-# below is Maestro's built-in mechanism for that — verify it against `maestro -v`'s installed
-# version before relying on it; it has historically been far more reliable against an Android
-# emulator than an iOS Simulator (the Simulator has no real radio to toggle — Xcode's Network
-# Link Conditioner, driven outside Maestro, is the more realistic iOS equivalent). This flow is
-# written iOS-first to match the rest of this directory (see ../README.md), so budget time to
-# re-verify this specific step on whichever platform #84's dev build actually targets first.
+# This flow now exercises the REAL, reachable gate (#2 above) instead of the imagined one. It
+# mints a fresh stranger (same subflow happy-path.yaml uses) rather than requiring a seeded
+# account via `--env`, since any signed-up account works for this and there's no reason to make
+# the caller supply one.
+#
+# `setAirplaneMode` is Maestro's mechanism for this on iOS Simulator — verify against the
+# installed `maestro -v` version and the actual simulator's behavior before trusting it; the
+# Simulator has no real radio, so this exercises whatever NetInfo reports for "no interface,"
+# which should still satisfy `isConnectivityUsable`'s `isConnected !== true` branch.
 # ============================================================================================
 
 appId: com.ian.paceanalysisai
@@ -26,46 +46,64 @@ appId: com.ian.paceanalysisai
 - launchApp:
     clearState: true
 
-- assertVisible: "Continue with Google"
-- tapOn: "Continue with email"
-- tapOn: "Email"
-- inputText: "${MAESTRO_OFFLINE_TEST_EMAIL}"
-- tapOn: "Password"
-- inputText: "${MAESTRO_OFFLINE_TEST_PASSWORD}"
-- tapOn: "Sign in"
-- assertVisible: "Analyze my form"
+- runFlow: subflows/sign-up.yaml
 
 - tapOn: "Analyze my form"
 - assertVisible: "Add your run"
+- tapOn:
+    id: "source-card-record"
+- runFlow: subflows/grant-consent.yaml
+- assertVisible: "Record your run"
+- tapOn: "Allow camera access"
+- tapOn: "OK" # OS permission dialog — see happy-path.yaml's note on iOS-version wording
+- tapOn:
+    id: "record-button"
+- wait: 2000
+- tapOn:
+    id: "record-button"
+- extendedWaitUntil:
+    visible: "Frames ready"
+    timeout: 20000
 
-# Drop connectivity BEFORE attempting anything network-dependent. Capture itself must stay
-# usable offline per the deck ("Capture itself is not blocked; only the network-dependent steps
-# are") — this flow only exercises the blocked steps, not a full offline-capture-then-reconnect
-# pass.
+# Go offline BEFORE tapping the analyze CTA, so the pre-flight check (which fires the instant
+# app/analyzing.tsx's submit effect runs) is guaranteed to see the offline state rather than
+# racing it.
 - setAirplaneMode: true
 
-# offline.banner — persistent light banner on the source picker per the deck. NOT implemented:
-# app/capture/index.tsx has no connectivity-aware render branch today.
-- assertVisible: "You're offline — capture still works, but upload and analysis need a connection."
+- tapOn: "Analyze my form" # upload.ready.cta -> hands off into /analyzing
+- assertVisible: "Analyzing" # analyzing.title renders immediately; the pre-flight check runs
+                              # inside the 'waiting' phase, so this is not itself proof of
+                              # anything yet — the next assertion is.
 
-- tapOn:
-    id: "source-card-upload"
-
-# Consent write itself needs a connection (public.consents is a real Supabase table write) — if
-# consent was already granted in a prior run, this step is skipped entirely and the flow goes
-# straight to the next offline-blocked assertion below.
-- runFlow: subflows/grant-consent.yaml
-
-# offline.blocked.* — shown when the user attempts to upload/analyze while offline. NOT
-# implemented today: nothing in the capture flow currently checks connectivity before
-# proceeding, so this state cannot be reached by any path in the current build.
+# The actual no-dead-end assertion: offline.blocked.* must render, with a live Retry and Cancel,
+# NOT a spinner that hangs forever.
 - assertVisible: "You're offline" # offline.blocked.title
-- assertVisible: "This needs an internet connection. Reconnect and try again — nothing has been sent yet." # offline.blocked.body — the "nothing sent yet" clause specifically
-- assertVisible: "Retry" # offline.blocked.cta
+- assertVisible: "This needs an internet connection. Reconnect and try again — nothing has been sent yet." # offline.blocked.body
+- assertVisible: "Retry" # analyzing.error.cta.retry (shared label, reused for this phase)
+- assertVisible: "Cancel" # analyzing.error.cta.cancel
 
+# Prove Retry actually resumes once reconnected — not just dismisses into a second dead end.
 - setAirplaneMode: false
 - tapOn: "Retry"
-# Once reconnected, Retry must actually resume — not just dismiss the banner into a second,
-# silent dead end. What "resume" means isn't specified anywhere (deck or architecture.md) for
-# this exact state; flagging as a real open question for whoever builds #93, not guessing at an
-# assertion here.
+- assertVisible: "Analyzing"
+# Retry re-runs checkConnectivity() then, if online, analyzeFormClient.submit() — the mock
+# resolves 'success' after ~4s (see happy-path.yaml's identical budget/reasoning). NOTE: this
+# lands on the SAME "unavailable" result state happy-path.yaml does, not a real PaceReadout — the
+# mock's non-UUID `analysisId` fails app/result/[id].tsx's UUID_PATTERN guard before any fetch is
+# even attempted. See happy-path.yaml's own note on this for the full explanation; the point
+# THIS flow cares about is unchanged either way: Retry-after-reconnect reaches a real screen with
+# a real exit, not a second, silent dead end.
+- extendedWaitUntil:
+    visible: "Back to Home"
+    timeout: 15000
+- assertVisible: "We couldn't find this analysis." # result.error.notFound — see note above
+
+# ============================================================================================
+# ALSO WORTH TESTING, NOT DONE HERE: Cancel's own exit (asserting it returns to Home rather than
+# Retry) — split into its own run rather than this one so this file can still assert the
+# Retry-then-succeed path in one pass; re-running this flow with `tapOn: "Cancel"` substituted
+# for the Retry block above is the intended second pass. Also not covered: going offline WHILE
+# app/analyzing.tsx is already in `waiting` (mid-request) rather than before it — that's the
+# `timedOut`/backgrounding-recovery path (#64), a different mechanism (client-side timeout, not
+# this pre-flight gate), and out of this flow's scope.
+# ============================================================================================
