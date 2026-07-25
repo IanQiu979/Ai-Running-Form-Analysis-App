@@ -67,6 +67,14 @@ import { PACE_FRAME_CAP, type PaceTier } from '@shared/pace';
 // tier without guessing at one this screen has no way to confirm.
 const EXTRACTION_TIER: PaceTier = 'free';
 
+// Mirrors `lib/parse-capture-params.ts`'s private helper of the same name — kept local rather
+// than exported/shared so this file's only-file-touched-by-#147 fix doesn't ripple into that
+// module. Used below to pull scalar values out of route params for a stable useMemo dependency
+// list (see the comment on `media`).
+function firstString(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 type ExtractState =
   | { status: 'extracting'; done: number; total: number }
   // Carries the full PaceFrameSet, not just a count — goToAnalyzing needs the actual frames to
@@ -89,7 +97,28 @@ export default function ExtractingScreen() {
   const colors = Colors[scheme];
   const styles = createStyles(colors, scheme);
 
-  const media = useMemo<PaceMediaInput | null>(() => parseCaptureParams(params), [params]);
+  // Issue #147: `params` (expo-router's useLocalSearchParams()) is a NEW object reference every
+  // render, so a useMemo keyed on `params` itself recomputes every render, which fed a fresh
+  // `media` into the effect below on every pass and looped it forever ("Maximum update depth
+  // exceeded"). Keying on the parsed scalar strings instead — pulled via `firstString` to also
+  // cover the string[] case for a repeated param — makes the memo (and the effect depending on
+  // `media`) stable across renders that don't actually change the input. Do not go back to
+  // `[params]`.
+  const paramUri = firstString(params.uri);
+  const paramMediaType = firstString(params.mediaType);
+  const paramDurationMs = firstString(params.durationMs);
+  const paramWidth = firstString(params.width);
+  const paramHeight = firstString(params.height);
+  // Deliberately NOT `params` itself (see the comment above); these primitives are the real,
+  // stable dependency set.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const media = useMemo<PaceMediaInput | null>(() => parseCaptureParams(params), [
+    paramUri,
+    paramMediaType,
+    paramDurationMs,
+    paramWidth,
+    paramHeight,
+  ]);
   const total = media ? (media.mediaType === 'photo' ? 1 : PACE_FRAME_CAP[EXTRACTION_TIER]) : 0;
 
   const [state, setState] = useState<ExtractState>({ status: 'extracting', done: 0, total });
