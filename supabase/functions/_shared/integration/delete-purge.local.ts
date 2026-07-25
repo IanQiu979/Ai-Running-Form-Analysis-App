@@ -172,16 +172,21 @@ Deno.test('DELETE account: purges every prefix under {user}/, across MULTIPLE an
 Deno.test('DELETE account: retrying on an already-deleted account converges instead of erroring', async () => {
   const admin = serviceRoleClient();
   const userId = await createTestUser(admin, 'delete-account-retry');
+  try {
+    const { rows, storage, auth } = createDeleteAccountDeps();
+    const first = await deleteAccount(rows, storage, auth, { userId });
+    assertEquals(first.outcome, 'deleted');
 
-  const { rows, storage, auth } = createDeleteAccountDeps();
-  const first = await deleteAccount(rows, storage, auth, { userId });
-  assertEquals(first.outcome, 'deleted');
-
-  // The account (and its auth.users row) is now genuinely gone. A retry with the same userId must
-  // still converge safely — every step (list-and-remove on an already-empty prefix, deleting
-  // already-absent rows, deleting an already-absent auth user) is documented as idempotent.
-  const retry = await deleteAccount(rows, storage, auth, { userId });
-  assertEquals(retry.outcome, 'deleted');
-  assertEquals((retry as { purgedObjectCount: number }).purgedObjectCount, 0);
-  assertEquals((retry as { profileExisted: boolean }).profileExisted, false);
+    // The account (and its auth.users row) is now genuinely gone. A retry with the same userId must
+    // still converge safely — every step (list-and-remove on an already-empty prefix, deleting
+    // already-absent rows, deleting an already-absent auth user) is documented as idempotent.
+    const retry = await deleteAccount(rows, storage, auth, { userId });
+    assertEquals(retry.outcome, 'deleted');
+    assertEquals((retry as { purgedObjectCount: number }).purgedObjectCount, 0);
+    assertEquals((retry as { profileExisted: boolean }).profileExisted, false);
+  } finally {
+    // Best-effort: if the first deleteAccount call threw before the account was actually
+    // deleted, still clean up rather than leaking a test user (same pattern as the tests above).
+    await deleteTestUser(admin, userId);
+  }
 });

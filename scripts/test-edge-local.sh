@@ -26,6 +26,12 @@ STATUS_ENV="$(supabase status -o env 2>/dev/null)" || {
 # shellcheck disable=SC2086
 eval "$STATUS_ENV"
 
+if [ -z "${API_URL:-}" ] || [ -z "${SERVICE_ROLE_KEY:-}" ]; then
+  echo "error: 'supabase status -o env' did not set API_URL/SERVICE_ROLE_KEY as expected." >&2
+  echo "  (its output format may have changed — check 'supabase status -o env' directly)" >&2
+  exit 1
+fi
+
 export SUPABASE_URL="$API_URL"
 # The JWT-based SERVICE_ROLE_KEY, not the new sb_secret_... SECRET_KEY: PostgREST needs the
 # "role": "service_role" claim to bypass RLS, and the local stack's Kong gateway does not

@@ -14,7 +14,7 @@
  * `grounding-eval.live.ts` already uses in this repo for a test that needs infra `npm test` cannot
  * assume is present.
  */
-import { assert, assertEquals, assertNotEquals } from 'jsr:@std/assert@1';
+import { assert, assertEquals } from 'jsr:@std/assert@1';
 import { createTestUser, deleteTestUser, serviceRoleClient } from './client.ts';
 
 const client = serviceRoleClient();
@@ -216,7 +216,9 @@ Deno.test('reserve_analysis: pro tier quota (limit 10) is enforced via pace_curr
     assertEquals(eleventh.allowed, false);
     assertEquals(eleventh.reason, 'quota_exceeded');
     assertEquals(eleventh.limit, 10);
-    assertNotEquals(eleventh.limit, 1); // sanity: not silently falling back to the free-tier limit
+    // Confirmed independently from the row side — the rejected 11th call must not have inserted
+    // anything, not just returned allowed: false.
+    assertEquals(await activeAnalysisCount(userId), 10);
   } finally {
     await deleteTestUser(client, userId);
   }
