@@ -11,17 +11,36 @@
 # Google/Apple sign-in are NOT scripted here — they need a real, credentialed browser OAuth
 # round-trip (Google) or an Apple Developer account that doesn't exist yet (blocked-on-apple.md).
 # Email/password is the only path a fully scripted "stranger" can take end to end.
-
+#
+# The installed Maestro CLI (1.39.0) requires every file it loads — including a runFlow:
+# subflow — to declare appId, even though it's inert here (the caller's launchApp already set the
+# target app). Added below 2026-07-25 after the first real execution attempt failed to parse
+# without it; contrary to this comment block's original assumption, "not a standalone test" does
+# not exempt a file from this version's parser.
+appId: com.ian.paceanalysisai
+---
 - evalScript: ${output.e2eEmail = 'maestro.e2e+' + Date.now() + '@example.com'}
 - evalScript: ${output.e2ePassword = 'Pace-e2e-' + Date.now() + '!Aa'}
 
-- assertVisible: "Continue with Google"
+# extendedWaitUntil, not a bare assertVisible: a cold app launch (right after launchApp's
+# clearState) takes noticeably longer to reach the sign-in screen than a warm one, and Maestro's
+# own iOS driver can take 15-20s just to finish connecting on a loaded host before it can query
+# anything at all. 45s gives real headroom for both — but see ../../README.md's 2026-07-25 update
+# before assuming a longer timeout alone fixes a failure here: this exact assertion has also
+# failed with 45s of budget while Maestro's own failure screenshot showed the correct screen and
+# maestro.log showed a STABLE, unchanging view-hierarchy poll the whole time. That is the iOS
+# accessibility-tree bridge itself intermittently failing to resolve, not something a bigger
+# number fixes — if you hit this, it's the driver, not this flow or the app under test.
+- extendedWaitUntil:
+    visible: "Continue with Google"
+    timeout: 45000
 
-# Toggle to sign-up mode BEFORE opening the email form. `toggleMode` (app/(auth)/sign-in.tsx)
-# only flips `mode` — it's always visible regardless of `showEmailForm` — so switching first
-# means the email form's submit button already reads "Create account" the moment it appears.
+# Toggle to sign-up mode. `toggleMode()` (app/(auth)/sign-in.tsx, issue #16) sets BOTH `mode` and
+# `showEmailForm(true)` in one call — "New here? Create an account" alone already opens the email
+# form with its submit button reading "Create account". Corrected 2026-07-25: this subflow used
+# to also tap a "Continue with email" button here, which no longer exists once the form is
+# already open — the first real execution attempt against a built app failed on it.
 - tapOn: "New here? Create an account"
-- tapOn: "Continue with email"
 
 # No testID on these two TextInputs today — matched by their placeholder text, which doubles as
 # their accessibilityLabel (app/(auth)/sign-in.tsx). See the HANDOFF block in ../../README.md:

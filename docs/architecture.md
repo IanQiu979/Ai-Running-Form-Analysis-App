@@ -2628,13 +2628,38 @@ precisely the moment it's needed. Fixed: `lib/session-provider.tsx` now tracks a
 New, uncertified `Copy.auth.reset.*` — not in the copy deck, needs review. See
 `docs/design/copy-deck.md`'s new-copy section.
 
-## `.maestro/` E2E flows (issue #86, 2026-07-13) — UNVERIFIED, never executed
+## Current — first EAS simulator build (issue #84, 2026-07-25)
+
+Two new `eas.json` build profiles, both isolated from the shared `development`/`preview` EAS
+Environments (which hold sensitive, presumably-production Supabase credentials this work must
+never touch): `development-local` (dev-client) and `preview-local` (standalone, no dev-client —
+the one actually used for E2E below, since a `developmentClient: true` build needs a live Metro
+connection and shows a first-run dev-menu overlay that fights scripted UI automation). Both set
+`EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` inline to issue #92's local
+stack (`http://127.0.0.1:54321` and the local stack's fixed demo publishable key — not secrets,
+safe to commit) rather than referencing an EAS Environment, so the build never depends on or
+risks touching whatever `development`/`preview` are wired to. `eas build --profile preview-local
+--platform ios` produced a real installable `.app` for the iOS Simulator; `eas build:run` installed
+and launched it. iOS Simulator networking reaches the Mac host's own `127.0.0.1` directly, so this
+needs no port-forwarding or tunnel.
+
+## `.maestro/` E2E flows (issue #86, 2026-07-13) — first real execution attempted 2026-07-25, still not a clean pass
 
 Four flows (`happy-path`, `dead-end-offline`, `dead-end-quota-exhausted`,
 `dead-end-analysis-failure`) plus shared subflows (`sign-up`, `grant-consent`), written against the
-documented screen contracts for the M7 no-dead-end gate. **Blocked on issue #84** (no dev build
-exists — Maestro drives a real app binary, not Metro/Expo Go) and never run against one. Treat as
-an unrun draft, not a passing gate, until #84 unblocks a real execution.
+documented screen contracts for the M7 no-dead-end gate. Was blocked on issue #84 (no dev build);
+the `preview-local` EAS simulator build above unblocked it, and `happy-path.yaml` was actually
+run against it for the first time. That run found and fixed four real bugs in the checked-in flow
+files (invalid `wait:` syntax, a missing `appId` this Maestro CLI version requires on subflows, a
+stale post-#16 tap target, a cold-launch timing race) — see `.maestro/README.md`'s 2026-07-25
+update and each fixed file's own comments. Sign-up through the sign-in screen is now confirmed
+correct by direct visual verification. A full clean pass was NOT achieved in this sandbox: repeat
+runs hit Maestro's iOS accessibility-tree bridge intermittently failing to resolve text that a
+screenshot from the same failed assertion shows is genuinely on screen — diagnosed from
+`maestro.log` (a stable, unchanging view-hierarchy poll for 20-50s straight), not a timing budget
+problem (45s wasn't enough either) and not an app or script bug. Re-run on an otherwise-idle host,
+or against a newer Maestro CLI, to get a clean pass — see `.maestro/README.md` for the full
+diagnosis.
 
 ## Current — local Supabase stack (issue #92, 2026-07-25)
 

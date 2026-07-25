@@ -30,6 +30,21 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   `npm run test:edge:local` (see `supabase/functions/_shared/integration/README.md`).
 - **Known Issue #20 resolved** — `docs/design/motion-consult.md`'s nav-param example said
   `results/[id]` (plural); corrected to `result/[id]` (singular), matching the actual built route.
+- **#84 — the first EAS simulator build.** Two new `eas.json` profiles, `development-local` and
+  `preview-local`, both with inline `env` pointing at issue #92's local Supabase stack rather than
+  the shared EAS `development`/`preview` Environments (which hold sensitive, presumably-production
+  credentials this work must never touch). `preview-local` (standalone, no dev-client) is the one
+  actually usable for E2E — a `developmentClient: true` build needs a live Metro connection and a
+  first-run dev-menu overlay that fights scripted automation.
+- **#86 — the `.maestro/` E2E flows executed for real for the first time**, against the
+  `preview-local` build. Found and fixed four real bugs sitting in the checked-in-but-never-run
+  flow files: an invalid `wait:` command (two files), subflows missing the `appId` this Maestro
+  CLI version requires, a stale tap target that predates issue #16's sign-in-form fix, and a
+  cold-launch timing race. Sign-up through the sign-in screen is now confirmed correct by direct
+  visual verification. A full clean pass was not achieved in this sandbox — diagnosed as Maestro's
+  own iOS accessibility-tree bridge intermittently failing to resolve text a screenshot from the
+  same failed assertion shows is genuinely on screen, not an app, script, or timing-budget problem.
+  See `.maestro/README.md`'s 2026-07-25 update for the full diagnosis and how to get a clean run.
 
 ## 2026-07-13 (second parallel batch — 10 worktrees; the core flow finally connects end to end)
 

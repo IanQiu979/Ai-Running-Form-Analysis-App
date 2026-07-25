@@ -70,7 +70,8 @@ appId: com.ian.paceanalysisai
 - tapOn: "OK" # OS permission dialog — see happy-path.yaml's note on iOS-version wording
 - tapOn:
     id: "record-button"
-- wait: 2000
+- waitForAnimationToEnd:
+    timeout: 2000
 - tapOn:
     id: "record-button"
 - extendedWaitUntil:
