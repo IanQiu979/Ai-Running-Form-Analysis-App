@@ -449,21 +449,19 @@ export default function AnalyzingScreen() {
 
         {/* Issue #64's third case — the one that otherwise spins forever: the app was backgrounded
             while waiting, and reconciliation found the row already 'released' (the server gave up
-            on it while we were away). Deliberately NO onRetry: resubmitting with this request's
-            idempotency key would just hand back the same released row again (`reserve_analysis`
-            returns an idempotency match "as-is, whatever its status"), not actually retry — see
-            lib/analyzing-machine.ts's 'released' phase doc comment. Reuses the `failed` copy as the
-            closest existing string (same "didn't go through" / "wasn't counted against your quota"
-            meaning) since no dedicated string exists yet — same reuse-and-flag precedent
-            lib/session-provider.tsx's corruptedSessionError already follows for `Copy.auth.error.generic`.
-            A dedicated `analyzing.error.releasedWhileAway.*` pair (without the "try again" line,
-            since there is no working retry here) is real future ux-copywriter work — see this
-            issue's DOCS block. */}
+            on it while we were away). This is the SAME released-reservation dead end the 409
+            `previous_attempt_failed` branch above handles, reached through reconciliation rather
+            than through a live response, so it renders the same copy and offers the same action.
+            Still deliberately NO Retry: resubmitting with this request's idempotency key would just
+            hand back the same released row again (`reserve_analysis` returns an idempotency match
+            "as-is, whatever its status"), not actually retry — see lib/analyzing-machine.ts's
+            'released' phase doc comment. */}
         {state.phase === 'released' && (
           <ErrorPanel
             styles={styles}
-            title={Copy.analyzing.error.failed.title}
-            body={Copy.analyzing.error.failed.body}
+            title={Copy.analyzing.error.previousAttemptFailed.title}
+            body={Copy.analyzing.error.previousAttemptFailed.body}
+            primary={{ label: Copy.analyzing.error.cta.startNew, onPress: handleStartNew }}
             onCancel={handleCancel}
           />
         )}
@@ -486,10 +484,10 @@ type ErrorPanelProps = {
   /**
    * The one recoverable action this phase actually has, if it has one. Retry for the phases where
    * re-submitting the same request can genuinely succeed (a plain failure, a timeout, an offline
-   * pre-flight block); "start a new analysis" for `previous_attempt_failed`, whose reservation is
-   * already released; omitted entirely for the `released` phase (issue #64) — see that render
-   * branch's comment. A label lives with its handler here so no phase can render a button whose
-   * wording promises something the handler cannot do.
+   * pre-flight block); "start a new analysis" for both released-reservation phases —
+   * `previous_attempt_failed` and issue #64's `released` — where re-submitting the same request can
+   * only ever return the same released row. A label lives with its handler here so no phase can
+   * render a button whose wording promises something the handler cannot do.
    */
   primary?: { label: string; onPress: () => void };
   onCancel: () => void;

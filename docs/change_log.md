@@ -59,6 +59,26 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   pro (limit 10 / frameCap 5) then elite (30 / 8), confirmed by `quota-status` and by the
   `subscriptions` row; `purchased_at` did **not** move on the repurchase, so the idempotent
   period anchor holds.
+- **The Analyzing screen no longer offers a Retry that cannot work.** Binding the real client made a
+  previously unreachable dead end live: Retry re-submits the same request with the same
+  `idempotencyKey` (by design — that rule is what stops a client-side timeout from double-running
+  the analysis or double-burning quota, and it is unchanged), but a failed attempt releases the
+  reservation, so `reserve_analysis` hands back the same released row and `analyze-form` answers
+  `409 previous_attempt_failed` forever. That code now renders its own panel — new copy
+  `analyzing.error.previousAttemptFailed.title`/`.body` — whose primary action is **Start a new
+  analysis** (`analyzing.error.cta.startNew`), routing back to `/capture` so the normal flow mints a
+  fresh key. Issue #64's `released` phase, reached by foreground reconciliation instead of by a live
+  response, is the same dead end and now shows the same panel and the same action; it previously
+  reused the `failed` copy, which ends "— try again", while offering no action but Cancel.
+- **`UNKNOWN_ANALYZE_FORM_ERROR` no longer promises the analysis wasn't counted against quota.**
+  That reassurance is true for the network and unreadable-body branches, but **false** on the branch
+  where the server returned a 200 the client then refused to render (a non-UUID `analysisId`, or a
+  result failing `isPaceAnalysisOutcome`): there the reservation was **settled**, not released, so
+  the quota was spent. One constant covers all three branches, so it now says only what is true on
+  all three — the analysis could not be displayed, check Past Analyses. The code stays `'unknown'`
+  and the unvalidatable body is still rejected.
+- The new `analyzing.error.previousAttemptFailed.*` and `cta.startNew` strings are **uncertified** —
+  added to `docs/status.md` Known Issue #34's inventory awaiting `ux-copywriter`/Ian review.
 
 ## 2026-07-25 (Bucket A infra + test hardening — local Supabase stack, real-Postgres property tests)
 

@@ -314,10 +314,11 @@ export const Copy = {
         title: 'Analysis timed out',
         body: "The read took too long to finish. This one wasn't counted against your quota — try again.",
       },
-      // NEW (not in docs/design/copy-deck.md): the server's 409 `previous_attempt_failed` case.
-      // Retrying reuses the same idempotency key, which `reserve_analysis` answers with the same
-      // already-released row — so a Retry here can only ever fail the same way. Wording mirrors the
-      // server's own message ("Start a new analysis to try again").
+      // NEW (not in docs/design/copy-deck.md): both released-reservation dead ends — the server's
+      // 409 `previous_attempt_failed`, and issue #64's `released` phase found by foreground
+      // reconciliation. Retrying reuses the same idempotency key, which `reserve_analysis` answers
+      // with the same already-released row — so a Retry in either case can only ever fail the same
+      // way. Wording mirrors the server's own message ("Start a new analysis to try again").
       previousAttemptFailed: {
         title: "That analysis didn't finish",
         body: "An earlier attempt at this one stopped before it completed. It wasn't counted against your quota — start a new analysis to try again.",

@@ -14,7 +14,11 @@
  * named `.deno.test.ts` so `jest.config.js`'s `testPathIgnorePatterns` skips it and only
  * `deno test` (`npm run test:edge`) runs it. Unlike most `_shared` suites this one genuinely
  * cannot run under Jest — the subject reads `Deno.env`, which is why `test:edge` passes
- * `--allow-env`.
+ * `--allow-env=SUPABASE_PUBLISHABLE_KEYS,SUPABASE_SECRET_KEYS,SUPABASE_URL`. That list is scoped on
+ * purpose (same precedent as `eval:grounding`): no edge test, or anything it transitively imports,
+ * should be able to read `ANTHROPIC_API_KEY` out of a developer's shell, and an accidental
+ * import-time read of any other name must keep failing loudly. Adding a name here means adding it
+ * to that flag too.
  */
 import { getPublishableKey, getSecretKey, getSupabaseUrl } from '../supabase-keys.ts';
 
