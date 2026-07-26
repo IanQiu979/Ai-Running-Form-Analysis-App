@@ -164,7 +164,14 @@ describe('ExtractingScreen — video frame cap comes from the server (the paid-t
   ] as const)('extracts a %s caller\'s full %i frames, and shows that same total', async (tier, cap) => {
     mockQuotaFetch.mockResolvedValue(quotaResult(tier, cap));
 
-    render(<ExtractingScreen />);
+    // `render` (this installed `@testing-library/react-native`, v14) is ASYNC — it returns a
+    // Promise, not the result object. An un-awaited call here raced the `act()` flush inside
+    // `render` against the `waitFor` below: usually `waitFor`'s polling outlasted it, but under
+    // CI's slower/loaded runners the race occasionally lost, leaving the module-level `screen`
+    // singleton unset (`node_modules/@testing-library/react-native/dist/screen.js`) when this
+    // test went on to query it — "`render` function has not been called". Awaiting it removes the
+    // race outright.
+    const { getByText } = await render(<ExtractingScreen />);
 
     await waitFor(() => expect(mockExtractFrames).toHaveBeenCalledTimes(1), WAIT);
 
@@ -174,18 +181,18 @@ describe('ExtractingScreen — video frame cap comes from the server (the paid-t
     expect(extractedFrameCount()).not.toBe(PACE_FRAME_CAP.free);
     // ...and what the caption promises, which must be the same number. These were two independent
     // reads of one hardcoded constant before the fix; now they are one value used twice.
-    expect(screen.getByText(Copy.upload.step.extracting(0, cap))).toBeTruthy();
+    expect(getByText(Copy.upload.step.extracting(0, cap))).toBeTruthy();
   });
 
   it('leaves a free caller at one frame per video', async () => {
     mockQuotaFetch.mockResolvedValue(quotaResult('free', PACE_FRAME_CAP.free));
 
-    render(<ExtractingScreen />);
+    const { getByText } = await render(<ExtractingScreen />);
 
     await waitFor(() => expect(mockExtractFrames).toHaveBeenCalledTimes(1), WAIT);
 
     expect(extractedFrameCount()).toBe(1);
-    expect(screen.getByText(Copy.upload.step.extracting(0, 1))).toBeTruthy();
+    expect(getByText(Copy.upload.step.extracting(0, 1))).toBeTruthy();
   });
 
   // The deliberate, visible fallback. Falling back to free on failure is the accepted behavior —
@@ -196,12 +203,12 @@ describe('ExtractingScreen — video frame cap comes from the server (the paid-t
     async (code) => {
       mockQuotaFetch.mockResolvedValue({ ok: false, error: { error: `simulated ${code}`, code } });
 
-      render(<ExtractingScreen />);
+      const { getByText } = await render(<ExtractingScreen />);
 
       await waitFor(() => expect(mockExtractFrames).toHaveBeenCalledTimes(1), WAIT);
 
       expect(extractedFrameCount()).toBe(PACE_FRAME_CAP.free);
-      expect(screen.getByText(Copy.upload.step.extracting(0, PACE_FRAME_CAP.free))).toBeTruthy();
+      expect(getByText(Copy.upload.step.extracting(0, PACE_FRAME_CAP.free))).toBeTruthy();
     }
   );
 
@@ -234,13 +241,13 @@ describe('ExtractingScreen — photos are unaffected', () => {
   // A photo is exactly one frame at every tier, so this path must not consult quota at all: no
   // round trip, no waiting, no way for a quota failure to change what a photo submission does.
   it('extracts one frame without ever calling quota-status', async () => {
-    render(<ExtractingScreen />);
+    const { getByText } = await render(<ExtractingScreen />);
 
     await waitFor(() => expect(mockExtractFrames).toHaveBeenCalledTimes(1), WAIT);
 
     expect(mockQuotaFetch).not.toHaveBeenCalled();
     expect(extractedFrameCount()).toBe(1);
-    expect(screen.getByText(Copy.upload.step.extracting(0, 1))).toBeTruthy();
+    expect(getByText(Copy.upload.step.extracting(0, 1))).toBeTruthy();
   });
 });
 
@@ -263,7 +270,7 @@ describe('ExtractingScreen (issue #147 render-loop regression)', () => {
     mockRouteParams = { ...VIDEO_PARAMS };
     mockQuotaFetch.mockResolvedValue(quotaResult('elite', PACE_FRAME_CAP.elite));
 
-    render(<ExtractingScreen />);
+    await render(<ExtractingScreen />);
     await waitFor(() => expect(mockExtractFrames).toHaveBeenCalledTimes(1), WAIT);
 
     expect(renderCount).toBeLessThan(10);

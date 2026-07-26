@@ -73,7 +73,7 @@ describe('AnalyzingScreen terminal branches', () => {
       error: { error: 'That analysis was already released.', code: 'previous_attempt_failed' },
     });
 
-    render(<AnalyzingScreen />);
+    await render(<AnalyzingScreen />);
 
     await waitFor(() =>
       expect(screen.getByText(Copy.analyzing.error.previousAttemptFailed.title)).toBeTruthy()
@@ -89,7 +89,7 @@ describe('AnalyzingScreen terminal branches', () => {
       error: { error: 'no usable result', code: 'validation_failed' },
     });
 
-    render(<AnalyzingScreen />);
+    await render(<AnalyzingScreen />);
 
     await waitFor(() => expect(screen.getByText(Copy.analyzing.error.failed.title)).toBeTruthy());
     expect(screen.getByText(Copy.analyzing.error.cta.retry)).toBeTruthy();
@@ -104,7 +104,7 @@ describe('AnalyzingScreen terminal branches', () => {
       error: { error: 'out of analyses', code: 'quota_exceeded' },
     });
 
-    render(<AnalyzingScreen />);
+    await render(<AnalyzingScreen />);
 
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/paywall'));
     expect(screen.queryByText(Copy.analyzing.error.failed.title)).toBeNull();
@@ -123,7 +123,7 @@ describe('AnalyzingScreen terminal branches', () => {
       },
     });
 
-    render(<AnalyzingScreen />);
+    await render(<AnalyzingScreen />);
 
     await waitFor(() =>
       expect(mockReplace).toHaveBeenCalledWith({
