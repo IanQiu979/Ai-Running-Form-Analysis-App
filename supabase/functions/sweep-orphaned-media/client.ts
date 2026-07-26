@@ -27,24 +27,9 @@
 // NEVER be the same value as any client-facing key and must NEVER get an `EXPO_PUBLIC_` prefix.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.110.2';
 import type { RpcClient, StorageBucket } from '../_shared/storage-sweep.ts';
+import { getSecretKey } from '../_shared/supabase-keys.ts';
 
 const MEDIA_BUCKET = 'media';
-
-function getSecretKey(): string {
-  const raw = Deno.env.get('SUPABASE_SECRET_KEYS');
-  if (!raw) {
-    throw new Error('SUPABASE_SECRET_KEYS is not set in the edge function environment');
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
-      return parsed[0];
-    }
-  } catch {
-    // Not JSON — a single bare key string. Fall through and use it as-is.
-  }
-  return raw;
-}
 
 /** Deliberately NOT thrown on missing — `checkCronAuth` (`core.ts`) treats a missing/undefined
  * expected secret as an explicit `missing_secret_config` deny, not a crash. A 500 here would be

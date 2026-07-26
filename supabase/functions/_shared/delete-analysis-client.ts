@@ -16,24 +16,9 @@
 // file).
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.110.2';
 import type { AnalysesTable, AnalysisOwnershipRow, StorageBucket } from './delete-analysis.ts';
+import { getSecretKey } from './supabase-keys.ts';
 
 const MEDIA_BUCKET = 'media';
-
-function getSecretKey(): string {
-  const raw = Deno.env.get('SUPABASE_SECRET_KEYS');
-  if (!raw) {
-    throw new Error('SUPABASE_SECRET_KEYS is not set in the edge function environment');
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
-      return parsed[0];
-    }
-  } catch {
-    // Not JSON — a single bare key string. Fall through and use it as-is.
-  }
-  return raw;
-}
 
 /**
  * A service-role Supabase client's `analyses`/Storage surface, satisfying `AnalysesTable` and

@@ -39,18 +39,26 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   all 24 repo migrations, including `pace_quota_status` and `pace_purchase_tier`, were already
   present on the live database with `SECURITY DEFINER` + pinned `search_path` intact;
   `docs/status.md`'s M5 row claiming they were "not applied to any database" was stale.
-- **⚠️ FOUND, NOT FIXED — every authenticated edge function on the live project has been answering
-  `401 unauthorized` for ~13 days.** `quota-status`, `analyze-form`, `purchase-tier`, and
-  `delete-account` all reject valid, freshly-issued JWTs; edge logs show `quota-status` returning
-  401 on *every* call back through 2026-07-25 (the captain's own app included). Root cause: the
-  platform-injected `SUPABASE_PUBLISHABLE_KEYS` / `SUPABASE_SECRET_KEYS` are **shadowed by
-  hand-set secrets** (dated 2026-07-13) whose values match **no current project key in any format**
-  — the exact thing CLAUDE.md § Secrets forbids ("Supabase auto-injects … Never set these by
-  hand"). The same function code authenticates the same token successfully when run locally
-  against the real publishable key, which isolates it to the stored secret value, not the code.
-  Left for a decision rather than fixed unilaterally, because correcting it changes live secrets
-  for every function at once. **Until it is fixed, the analysis path cannot complete end to end no
-  matter what the client does.**
+- **FIXED — every authenticated edge function was answering `401 unauthorized` to valid JWTs.**
+  `quota-status`, `analyze-form`, `purchase-tier`, and `delete-account` all rejected freshly-minted
+  tokens; edge logs show `quota-status` 401ing on *every* invocation in the retained window,
+  the captain's own app included. Cause: `SUPABASE_PUBLISHABLE_KEYS`/`SUPABASE_SECRET_KEYS` hold a
+  JSON **object** keyed by name (`{"default":"sb_publishable_..."}`), but a parser duplicated in
+  **ten** files only accepted a JSON *array* and fell through to `return raw` — handing the entire
+  JSON string to `createClient()` as the API key. Fixed with one shared
+  `_shared/supabase-keys.ts`; all ten copies now delegate to it. Verified live: `quota-status` now
+  returns real data. **`delete-account`, `analysis`, and `sweep-orphaned-media` are fixed in the
+  repo but NOT redeployed** — outside this task's deploy authority; they still 401 in production.
+- **VERIFIED LIVE — the analysis flow now works end to end.** A real upload produced
+  `public.analyses` row `b144d29b-…` with `status: delivered`, `is_fallback: false`, a structurally
+  valid PACE result (overall 55/mid; cadence and elasticity honestly `null` for a single photo),
+  and one frame at `{user_id}/{analysis_id}/frame-01.jpg` in the private bucket. Read back through
+  RLS as the owner, `readAnalysisRow` resolves to `ready` — a real result screen. `analyses` went
+  from **0 rows, ever** to a delivered row. Quota moved 0 → 1 used.
+- **VERIFIED LIVE — the dummy purchase moves tier.** `purchase-tier` with `source: "dummy"` granted
+  pro (limit 10 / frameCap 5) then elite (30 / 8), confirmed by `quota-status` and by the
+  `subscriptions` row; `purchased_at` did **not** move on the repurchase, so the idempotent
+  period anchor holds.
 
 ## 2026-07-25 (Bucket A infra + test hardening — local Supabase stack, real-Postgres property tests)
 

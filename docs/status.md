@@ -810,47 +810,49 @@ milestone "done" criteria.
     marks each with a delimited "NEW — awaiting certification" note, following issue #95's
     established precedent for backfilling settled copy — except these are explicitly NOT settled
     yet. Review and certify before any of these four screens ships to real users.
-35. **🔴 NEW — CRITICAL, LIVE, UNFIXED: EVERY authenticated edge function on the live project
-    returns `401 unauthorized`, and has for ~13 days (found 2026-07-26 while verifying issue
-    #128).** `quota-status`, `analyze-form`, `purchase-tier`, and `delete-account` all reject
-    valid, freshly-minted JWTs. Nothing that requires a signed-in user works against the live
-    backend today — including the entire analysis flow, so **issue #128's client fix cannot be
-    observed working end to end until this is fixed**.
+35. **RESOLVED 2026-07-26 — every authenticated edge function returned `401` because
+    `getPublishableKey()` misparsed the platform's key env var. Found while verifying issue #128;
+    fixed in the same batch.** `quota-status`, `analyze-form`, `purchase-tier`, and `delete-account`
+    all rejected valid, freshly-minted JWTs. Edge logs showed `quota-status` returning `401` on
+    **every** invocation in the retained window — the captain's own app included. Nothing requiring
+    a signed-in user had ever worked against the live backend.
 
-    **Evidence.** A password-grant token for a real user is accepted by `GET /auth/v1/user`
-    (`200`) and rejected by all four functions (`401 {"code":"unauthorized"}`) in the same
-    minute. Edge logs show `quota-status` returning `401` on **every** invocation going back
-    through 2026-07-25 — the captain's own app included; there is no successful call in the
-    retained window. Running `resolveCallerUserId`'s exact code (same `supabase-js@2.110.2`, same
-    `createClient(url, publishableKey, { global: { headers: { Authorization } } })` +
-    `auth.getUser()`) **locally** against the real publishable key returns the correct user id.
-    So the code is fine; the value it is handed at runtime is not.
+    **Root cause — a ten-times-duplicated parser, not a secret problem.** `SUPABASE_PUBLISHABLE_KEYS`
+    and `SUPABASE_SECRET_KEYS` hold a **JSON object keyed by key name** —
+    `{"default":"sb_publishable_..."}` — per Supabase's own "Environment Variables" and new-API-keys
+    guides. Every caller carried its own copy of a parser that only accepted a JSON **array**:
 
-    **Root cause.** `SUPABASE_PUBLISHABLE_KEYS` and `SUPABASE_SECRET_KEYS` were **set by hand as
-    project secrets on 2026-07-13** (alongside `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
-    `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`, `SUPABASE_JWKS` — all sharing that timestamp),
-    which **shadows the platform's auto-injected values**. Comparing the SHA-256 digests the
-    secrets API exposes against every current project key, in bare / JSON-array / bracketed /
-    comma-joined form, `SUPABASE_PUBLISHABLE_KEYS` and `SUPABASE_SECRET_KEYS` match **no current
-    key in any format** (whereas the hand-set `SUPABASE_ANON_KEY` digest exactly equals today's
-    publishable key, and `SUPABASE_URL` is correct — so the comparison method is sound). They are
-    stale or malformed. This is precisely what CLAUDE.md § Secrets forbids: *"Supabase auto-injects
-    `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEYS`, `SUPABASE_SECRET_KEYS` into edge functions at
-    runtime. Never set these by hand."*
-
-    Note the second blast radius: `analyze-form`'s `deps.ts` builds its **service-role** client
-    from `SUPABASE_SECRET_KEYS`, so even if auth passed, every `reserve_analysis` /
-    `settle_analysis` / Storage call would fail too.
-
-    **The fix (NOT applied — it changes live secrets for every function at once, so it was left
-    for a deliberate decision):** unset the hand-set overrides and let the platform inject its own.
+    ```ts
+    if (Array.isArray(parsed) && typeof parsed[0] === 'string') return parsed[0];
+    ...
+    return raw;   // <- an object is not an array, so every call landed here
     ```
-    supabase secrets unset SUPABASE_PUBLISHABLE_KEYS SUPABASE_SECRET_KEYS --project-ref vputdomdlknvthnzritt
-    ```
-    Then redeploy (or wait for isolate recycling) and re-test one authed function before assuming
-    it worked. Consider unsetting the other hand-set `SUPABASE_*` names in the same pass for the
-    same reason. **Verify by observation, never by assumption** — the whole reason this went
-    unnoticed for 13 days is that every deploy "succeeded" while every request 401'd.
+
+    The value parses, but it is an object, so the guard never matched and each function fell through
+    to `return raw`, handing the **entire JSON string** to `createClient()` as the API key. GoTrue
+    rejects that as an invalid `apikey`, so `auth.getUser()` errored and every request became a 401
+    regardless of the caller's JWT. `SUPABASE_SECRET_KEYS` was misparsed identically, so the
+    service-role clients (`reserve_analysis`, `settle_analysis`, Storage) were broken too.
+
+    **Proven twice before fixing**, because an earlier guess at this had already been wrong: against
+    the documentation above, and empirically — `sha256(JSON.stringify({default: <this project's
+    publishable key>}))` matches the digest the secrets API reports for `SUPABASE_PUBLISHABLE_KEYS`
+    exactly. A retracted earlier theory (that these were stale hand-set secrets shadowing the
+    platform's) was disproved when `supabase secrets unset` refused: **they are platform-reserved
+    and cannot be unset.** Do not try — the CLI returns "You can't delete a reserved secret."
+
+    **The fix:** one shared `supabase/functions/_shared/supabase-keys.ts`
+    (`getPublishableKey`/`getSecretKey`/`getSupabaseUrl`) that reads the documented object shape,
+    still accepts the legacy bare-string and array forms, and **throws** rather than handing a
+    non-key to `createClient()`. All ten duplicated copies now delegate to it. This deliberately
+    reverses each copy's "a local copy limits the blast radius of concurrent multi-agent work" note:
+    the duplication did not limit a blast radius, it multiplied one — a single misreading of an env
+    var format was written ten times and had to be found ten times. Add new callers there, not
+    another copy.
+
+    ⚠️ **`delete-account`, `analysis`, and `sweep-orphaned-media` are FIXED IN THE REPO BUT NOT
+    REDEPLOYED** — this task's deploy authority covered only `analyze-form`, `quota-status`, and
+    `purchase-tier`. Until someone deploys them, those three still 401 in production.
 
 ## Next action
 

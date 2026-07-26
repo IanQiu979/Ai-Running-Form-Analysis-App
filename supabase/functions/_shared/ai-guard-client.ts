@@ -15,22 +15,7 @@
 // and always uses the first entry, so it works whichever shape the runtime hands back.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.110.2';
 import type { RpcClient } from './ai-guard.ts';
-
-function getSecretKey(): string {
-  const raw = Deno.env.get('SUPABASE_SECRET_KEYS');
-  if (!raw) {
-    throw new Error('SUPABASE_SECRET_KEYS is not set in the edge function environment');
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
-      return parsed[0];
-    }
-  } catch {
-    // Not JSON — a single bare key string. Fall through and use it as-is.
-  }
-  return raw;
-}
+import { getSecretKey } from './supabase-keys.ts';
 
 /**
  * A service-role Supabase client, satisfying the minimal `RpcClient` interface `gateAiCall()`
