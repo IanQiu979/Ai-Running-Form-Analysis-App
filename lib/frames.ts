@@ -11,11 +11,16 @@
  * silently degrade — if that payload would blow the shared request-body budget. No network call,
  * no Supabase client, no Storage SDK anywhere in this file.
  *
- * FRAME COUNT IS DISPLAY-ONLY HERE (CLAUDE.md: "No business rules in the client"). `PACE_FRAME_CAP`
- * (`supabase/functions/_shared/pace.ts`, imported via the `@shared/*` alias, issue #90) is read to
- * decide how many frames to *extract* for a video so the request looks reasonable, but
- * `reserve_analysis` re-checks the tier's real cap server-side regardless of what this file sends
- * — a build that sent more frames than its tier allows would still be rejected there, not here.
+ * THIS FILE HOLDS NO CAP OF ITS OWN, AND DOES NOT MAP A TIER TO ONE. `extractFrames` is handed the
+ * number of video frames to extract; it never looks a tier up in a table. That is deliberate:
+ * the authoritative per-caller `frameCap` comes from the server (`GET /functions/v1/quota-status`,
+ * resolved by `lib/extraction-frame-cap.ts`), and CLAUDE.md is explicit that "Tier, quota, frame
+ * cap, and analysis are server-only (edge functions); the client may display tier/quota state but
+ * is never the authority for it." This module used to take a `PaceTier` and index `PACE_FRAME_CAP`
+ * itself, which is what let `app/capture/extracting.tsx` quietly pin every caller — including
+ * paying ones — to Free's 1 frame by passing a hardcoded `'free'`. Whatever count arrives here,
+ * `reserve_analysis` still re-checks the tier's real cap server-side, so a client that asked for
+ * more than its tier allows is rejected there, not here.
  *
  * TIMESTAMP ACCURACY — ISSUE #112, READ BEFORE TRUSTING `timestampMs`.
  * `docs/architecture.md` used to promise that this file records the frame extractor's *actual*
@@ -53,10 +58,10 @@
  * WHAT THIS FILE DOES:
  *   - `photo` input: exactly one frame, always (`docs/architecture.md`: "a photo submission is
  *     always exactly 1 frame regardless of tier"), timestamped 0 (there is no clip to place it in).
- *   - `video` input: `PACE_FRAME_CAP[tier]` frames, sampled evenly across the 5%-95% duration
- *     window (never t=0 or t=duration — extractor edge failures) via `sampleTimestamps`, one
- *     sequential `expo-video-thumbnails` call per frame (it has no batch API) reported through
- *     `onProgress`.
+ *   - `video` input: exactly `videoFrameCap` frames (the caller's server-resolved cap), sampled
+ *     evenly across the 5%-95% duration window (never t=0 or t=duration — extractor edge
+ *     failures) via `sampleTimestamps`, one sequential `expo-video-thumbnails` call per frame (it
+ *     has no batch API) reported through `onProgress`.
  *   - Every frame is downscaled to ≤1568px long edge (Anthropic's optimum; never upscaled) and
  *     re-encoded at JPEG q≈0.7 via `expo-image-manipulator`, targeting ~150-350KB/frame.
  *   - The full set is summed against `PACE_MAX_REQUEST_BODY_BYTES` (5MB) BEFORE returning
@@ -67,7 +72,7 @@
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
-import { PACE_FRAME_CAP, PACE_MAX_REQUEST_BODY_BYTES, type PaceTier } from '@shared/pace';
+import { PACE_MAX_REQUEST_BODY_BYTES } from '@shared/pace';
 
 /** Anthropic's documented optimum long-edge size for a full-resolution vision encode; a larger
  * image is resized down before analysis anyway, so sending more pixels than this only inflates
@@ -215,10 +220,10 @@ async function extractPhotoFrame(
 
 async function extractVideoFrames(
   input: Extract<PaceMediaInput, { mediaType: 'video' }>,
-  tier: PaceTier,
+  videoFrameCap: number,
   onProgress?: FrameExtractionProgress,
 ): Promise<PaceFrame[]> {
-  const timestamps = sampleTimestamps(input.durationMs, PACE_FRAME_CAP[tier]);
+  const timestamps = sampleTimestamps(input.durationMs, videoFrameCap);
   const frames: PaceFrame[] = [];
 
   // expo-video-thumbnails has no batch API — N frames is N sequential calls (issue #34's scope).
@@ -247,16 +252,20 @@ function assertWithinBudget(totalBytes: number, frameCount: number): void {
  * Extract, downscale, and budget-check a photo or video's frames for the `analyze-form` request
  * body. See the file header for what this does and does not guarantee.
  *
- * `tier` decides how many frames a VIDEO gets (`PACE_FRAME_CAP[tier]`, display-only — see the
- * file header). A photo is always exactly one frame regardless of `tier`.
+ * `videoFrameCap` is how many frames a VIDEO gets — the caller's authoritative, server-resolved
+ * `frameCap` (`lib/extraction-frame-cap.ts`), NOT a tier this function maps to a number itself; see
+ * the file header for why that indirection was removed. A photo is always exactly one frame
+ * regardless of `videoFrameCap`, so a caller with a photo may pass any value.
  */
 export async function extractFrames(
   input: PaceMediaInput,
-  tier: PaceTier,
+  videoFrameCap: number,
   onProgress?: FrameExtractionProgress,
 ): Promise<PaceFrameSet> {
   const frames =
-    input.mediaType === 'photo' ? await extractPhotoFrame(input, onProgress) : await extractVideoFrames(input, tier, onProgress);
+    input.mediaType === 'photo'
+      ? await extractPhotoFrame(input, onProgress)
+      : await extractVideoFrames(input, videoFrameCap, onProgress);
 
   const totalBytes = frames.reduce((sum, frame) => sum + base64Bytes(frame.base64), 0);
   assertWithinBudget(totalBytes, frames.length);

@@ -5,6 +5,15 @@
  * honest progress readout (not theatre — `onProgress` reports the actual Nth of N sequential
  * `expo-video-thumbnails` calls).
  *
+ * HOW MANY FRAMES A VIDEO GETS: the caller's own `frameCap`, read off the server. This screen
+ * awaits `lib/extraction-frame-cap.ts`'s `fetchVideoFrameCap()` (one bounded `quota-status` call)
+ * before extracting, and feeds the single number it returns to BOTH the progress total and
+ * `extractFrames`, so the caption can never promise a count the extraction will not produce. It
+ * does NOT read `quota.tier` and index a client-side table — CLAUDE.md: "Tier, quota, frame cap,
+ * and analysis are server-only ... the client may display tier/quota state but is never the
+ * authority for it." A failed, unauthorized, or slow lookup degrades to the free cap on purpose,
+ * never to a higher one. A photo skips all of this: always exactly one frame, no quota call.
+ *
  * No client-side "uploading %" step: since issue #88 (live), the client never uploads anything —
  * `analyze-form` writes the frames server-side, after the model call. This screen's whole job
  * ends at a valid, budget-compliant `PaceFrameSet` in memory (the M2 gate: "Both sources hand a
@@ -51,21 +60,18 @@ import {
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { setPendingAnalyzeFormRequest, toAnalyzeFormRequest } from '@/lib/analyze-form';
+import { FALLBACK_VIDEO_FRAME_CAP, fetchVideoFrameCap } from '@/lib/extraction-frame-cap';
 import { extractFrames, FrameBudgetExceededError, type PaceFrameSet, type PaceMediaInput } from '@/lib/frames';
 import { checkMediaCaps, type MediaCapViolation } from '@/lib/media-caps';
 import { readFileSizeBytes } from '@/lib/media-file-size';
 import { parseCaptureParams } from '@/lib/parse-capture-params';
 import { useAnnounce } from '@/lib/use-announce';
 
-import { PACE_FRAME_CAP, type PaceTier } from '@shared/pace';
-
-// Real tier plumbing is M5's job (`lib/subscription.ts`, "Not started" per docs/status.md) —
-// there is no wired, authoritative way to read the caller's tier on the client yet, and
-// `PACE_FRAME_CAP`/frame count here are display-only regardless (CLAUDE.md: "No business rules
-// in the client" — reserve_analysis re-checks server-side). Free's cap (1 frame/video) is the
-// smallest of the three and therefore the only one guaranteed valid+budget-compliant for every
-// tier without guessing at one this screen has no way to confirm.
-const EXTRACTION_TIER: PaceTier = 'free';
+// A photo submission is ALWAYS exactly one frame, at every tier (`docs/architecture.md`: "a photo
+// submission is always exactly 1 frame regardless of tier"), so this path never consults quota at
+// all — no `quota-status` round trip is made for a photo, and nothing about it changed when video
+// gained a real cap.
+const PHOTO_FRAME_COUNT = 1;
 
 // Mirrors `lib/parse-capture-params.ts`'s private helper of the same name — kept local rather
 // than exported/shared so this file's only-file-touched-by-#147 fix doesn't ripple into that
@@ -76,6 +82,13 @@ function firstString(value: string | string[] | undefined): string | undefined {
 }
 
 type ExtractState =
+  // Resolving the caller's authoritative video frame cap off `quota-status` before any thumbnail
+  // work starts. Deliberately has NO frame numbers to show: the progress caption's total must
+  // never name a count the extraction might not produce, and until this resolves the real total is
+  // genuinely unknown. Bounded by `QUOTA_WAIT_TIMEOUT_MS`, so it cannot outlast one round trip;
+  // the screen's own always-rendered title ("Preparing your analysis") is what describes it.
+  // Never entered for a photo — see `PHOTO_FRAME_COUNT`.
+  | { status: 'preparing' }
   | { status: 'extracting'; done: number; total: number }
   // Carries the full PaceFrameSet, not just a count — goToAnalyzing needs the actual frames to
   // build the AnalyzeFormRequest; frameCount for display is just `frameSet.frames.length`.
@@ -119,9 +132,8 @@ export default function ExtractingScreen() {
     paramWidth,
     paramHeight,
   ]);
-  const total = media ? (media.mediaType === 'photo' ? 1 : PACE_FRAME_CAP[EXTRACTION_TIER]) : 0;
 
-  const [state, setState] = useState<ExtractState>({ status: 'extracting', done: 0, total });
+  const [state, setState] = useState<ExtractState>({ status: 'preparing' });
   const [attempt, setAttempt] = useState(0);
   // Issue #11: the extracting-progress caption below carries `accessibilityLiveRegion="polite"`,
   // Android-only — this is the iOS complement. The ready/error branches carried no live region on
@@ -144,44 +156,70 @@ export default function ExtractingScreen() {
       return;
     }
 
+    const input = media;
     let cancelled = false;
-    setState({ status: 'extracting', done: 0, total });
+    setState({ status: 'preparing' });
 
     // Pre-flight re-check (defense in depth): app/capture/index.tsx and record.tsx already
     // checked their own inputs, but this screen is the one place both paths converge, so it's
     // also the cheapest place to catch anything that slipped through — e.g. a stale/expired
     // cache uri whose size now reads differently.
     const violation = checkMediaCaps({
-      durationMs: media.mediaType === 'video' ? media.durationMs : null,
-      fileSizeBytes: readFileSizeBytes(media.uri),
+      durationMs: input.mediaType === 'video' ? input.durationMs : null,
+      fileSizeBytes: readFileSizeBytes(input.uri),
     });
     if (violation) {
       setState({ status: 'error', kind: 'capViolation', violation });
       return;
     }
 
-    extractFrames(media, EXTRACTION_TIER, (done, framesTotal) => {
-      if (!cancelled) setState({ status: 'extracting', done, total: framesTotal });
-    })
-      .then((frameSet) => {
-        if (!cancelled) setState({ status: 'ready', frameSet });
+    // ONE number drives both the progress total and the extraction itself — that is the whole
+    // structural point of this function. They used to be two independent reads of the same
+    // hardcoded constant, which is precisely the shape that let the caption promise a count the
+    // extraction did not produce. There is now no way to change one without the other.
+    function startExtraction(frameCount: number) {
+      setState({ status: 'extracting', done: 0, total: frameCount });
+
+      extractFrames(input, frameCount, (done, framesTotal) => {
+        if (!cancelled) setState({ status: 'extracting', done, total: framesTotal });
       })
-      .catch((error) => {
-        if (cancelled) return;
-        if (error instanceof FrameBudgetExceededError) {
-          setState({ status: 'error', kind: 'budgetExceeded' });
-        } else {
-          setState({ status: 'error', kind: 'extractionFailed' });
-        }
-      });
+        .then((frameSet) => {
+          if (!cancelled) setState({ status: 'ready', frameSet });
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          if (error instanceof FrameBudgetExceededError) {
+            setState({ status: 'error', kind: 'budgetExceeded' });
+          } else {
+            setState({ status: 'error', kind: 'extractionFailed' });
+          }
+        });
+    }
+
+    if (input.mediaType === 'photo') {
+      // Synchronously, with no quota round trip and no `preparing` frame in between: a photo is
+      // always exactly one frame at every tier, so there is nothing to ask the server about.
+      startExtraction(PHOTO_FRAME_COUNT);
+    } else {
+      // A video's cap is the caller's own, read off `quota-status` — the bug this screen shipped
+      // with was hardcoding Free's 1 frame here for everyone, silently degrading every paying
+      // user's analysis (Cadence and Elasticity cannot score off a single still). This resolves to
+      // the free cap on a failed/unauthorized/slow lookup and never to a higher one; see
+      // `lib/extraction-frame-cap.ts` for each branch.
+      fetchVideoFrameCap()
+        // Contractually unreachable (`fetchVideoFrameCap` folds every failure into a usable count),
+        // but a rejection escaping here would strand the screen in `preparing` forever. Falling
+        // back keeps the submission working instead of hanging on a spinner.
+        .catch(() => FALLBACK_VIDEO_FRAME_CAP)
+        .then((frameCount) => {
+          if (!cancelled) startExtraction(frameCount);
+        });
+    }
 
     return () => {
       cancelled = true;
     };
-    // `total` is deterministically derived from `media` (see the `useMemo` above it), so
-    // including it here never causes an extra run for the same input — just documents the real
-    // dependency instead of suppressing the lint rule.
-  }, [media, total, attempt]);
+  }, [media, attempt]);
 
   function goToSourcePicker() {
     router.replace('/capture');
@@ -211,6 +249,16 @@ export default function ExtractingScreen() {
           accessibility text sizes with no way to reach the second button. */}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <Text style={styles.title}>{Copy.upload.title}</Text>
+
+        {/* Spinner only, and no numeric caption or progress bar — the total is not known yet and
+            this screen must not name one it might not honour. The always-rendered title above
+            ("Preparing your analysis") already describes this state, so no new copy-deck string is
+            invented for it. Bounded by QUOTA_WAIT_TIMEOUT_MS. */}
+        {state.status === 'preparing' && (
+          <View style={styles.centered}>
+            <ActivityIndicator color={colors.text.secondary} />
+          </View>
+        )}
 
         {state.status === 'extracting' && (
           <View style={styles.centered}>

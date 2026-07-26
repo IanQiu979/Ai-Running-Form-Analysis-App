@@ -229,6 +229,18 @@ lib/
                           # ride in the analyze-form request body as base64 and the edge function
                           # writes them to the bucket itself, after the model call. Exports
                           # PaceFrame/PaceFrameSet, consumed by lib/analyze-form.ts below.
+                          # extractFrames takes a `videoFrameCap: number`, NOT a tier — it holds
+                          # no per-tier table and does not import PACE_FRAME_CAP; the caller
+                          # supplies the server-resolved count (see extraction-frame-cap.ts).
+  extraction-frame-cap.ts  # current (2026-07-26) — decides how many frames a VIDEO gets, from
+                          # the server's authoritative `frameCap` (quota-status), never from a
+                          # client-side PACE_FRAME_CAP[tier] lookup. `resolveVideoFrameCap` is the
+                          # pure mapping; `fetchVideoFrameCap` makes one call bounded by
+                          # QUOTA_WAIT_TIMEOUT_MS (4s) and resolves — never rejects — so a failed,
+                          # unauthorized, timed-out, or nonsensical response degrades to
+                          # FALLBACK_VIDEO_FRAME_CAP (= PACE_FRAME_CAP.free) and never upward.
+                          # Fixes the bug where app/capture/extracting.tsx hardcoded 'free' and
+                          # silently extracted every paying user's video down to 1 frame.
   analyze-form.ts          # current (issue #80, 2026-07-12) — the analyze-form CLIENT seam:
                           # AnalyzeFormRequest/AnalyzeFormClient types matching the documented
                           # wire contract, toAnalyzeFormRequest() (flattens a PaceFrameSet into
@@ -862,11 +874,16 @@ app/capture/
   extracting.tsx # Extracting (screen 5, "Uploading / Extracting" in the deck): runs
                 # lib/frames.ts's extractFrames with real onProgress-driven counts
                 # (upload.step.extracting) against whatever the other two screens handed off via
-                # router.push params. Tier is hardcoded to 'free' for frame-count purposes (a
-                # comment at the call site explains why: lib/subscription.ts is M5, "Not
-                # started", and frame count is display-only regardless per CLAUDE.md — Free's
-                # cap, the smallest, is the only one this screen can pick without guessing at
-                # something it has no way to confirm). Surfaces `FrameBudgetExceededError`
+                # router.push params. A VIDEO's frame count is the caller's authoritative
+                # `frameCap`, read off `quota-status` via lib/extraction-frame-cap.ts's
+                # fetchVideoFrameCap() — NOT a client-side PACE_FRAME_CAP[tier] lookup, and no
+                # longer the hardcoded 'free' that silently capped every paying user at 1 frame.
+                # One resolved number feeds both the progress total and extractFrames, so the
+                # caption cannot promise a count the extraction won't produce; a bounded
+                # `preparing` state (spinner under the existing title, no new copy) covers the
+                # window before it is known. A failed/unauthorized/slow lookup degrades to the
+                # free cap on purpose, never upward. A PHOTO is always exactly 1 frame and makes
+                # no quota call at all. Surfaces `FrameBudgetExceededError`
                 # (`upload.error.budgetExceeded`, no Retry — the same input would fail again) and
                 # a generic extraction failure (`upload.error.extractionFailed`, Retry + Back)
                 # as distinct, real states, not a raw alert. On success: `upload.ready.*` (NEW
@@ -1028,7 +1045,10 @@ the original video (see "Media pipeline" below).
    over time, so the prompt (step 7) is required to present these intervals as approximate — see
    "Current — the `analyze-form` prompt" below. The frames ride in the request body as base64 and
    are **not** uploaded by the client — the server writes them to the bucket itself, after the
-   model call (#88). Frame count per tier: Free 1 / Pro 5 / Elite 8.
+   model call (#88). Frame count per tier: Free 1 / Pro 5 / Elite 8 — the client learns which
+   applies to a given caller from `quota-status`'s authoritative `frameCap` field
+   (`lib/extraction-frame-cap.ts`), never by indexing its own per-tier table, and
+   `reserve_analysis` re-checks the real cap server-side regardless.
 7. **Build the grounded prompt** — **built, issue #41**: `supabase/functions/_shared/analyze-form-prompt.ts`.
    System message = the certified PACE knowledge (framework + injury flags + drills, bundled with
    the function, not fetched per call), then the image block(s) each labelled with their
