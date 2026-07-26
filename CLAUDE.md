@@ -127,9 +127,17 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
 
 ## Testing
 
-`jest-expo` is installed via `jest.config.js`, with `passWithNoTests: true` since the repo has
-no test files yet. New logic added to `lib/` (once it exists) should get a test alongside it.
-Screens are not unit-tested for now.
+`jest-expo` is installed via `jest.config.js` (`passWithNoTests: true` is a leftover from when the
+repo had no tests; it now has a large suite — run `npm test` for the current count, app + edge).
+New logic added to `lib/` gets a test alongside it — that rule is load-bearing, not aspirational.
+
+**Screens ARE unit-tested when the bug class needs it** (this line used to say they were not, which
+went stale). Two precedents, both regression locks for bugs that shipped:
+`app/capture/__tests__/extracting.test.tsx` (issue #147's render loop, and the frame-cap bug — a
+screen-level test is the only thing that can prove which arguments a screen actually passes
+downstream) and `components/__tests__/`. Prefer a pure function in `lib/` with its own test where
+the logic can be hoisted out; reach for a React Native Testing Library render when the defect lives
+in the wiring itself rather than in a mapping.
 
 ## Keep these docs updated
 

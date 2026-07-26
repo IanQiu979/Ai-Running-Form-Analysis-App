@@ -5,6 +5,49 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-26 (paying users were silently getting free-tier frame extraction)
+
+- **Pro/Elite videos are now extracted at the caller's real frame cap, read off the server.**
+  `app/capture/extracting.tsx` hardcoded `const EXTRACTION_TIER: PaceTier = 'free'` and used it for
+  both the progress total and the actual `extractFrames` call, so **every paying user's video was
+  extracted down to Free's single frame**. Cadence and Elasticity are the two PACE pillars derived
+  from motion over time and cannot be scored from one still, so a Pro/Elite user paid for an
+  analysis that was quietly degraded to the free product. The hardcode's justifying comment ("there
+  is no wired, authoritative way to read the caller's tier on the client yet") was true when written
+  and had since gone stale: `quota-status` went live 2026-07-26 and its `QuotaStatus` already
+  carries an authoritative `frameCap`.
+- **The cap comes from the server's `frameCap`, never from a client-side per-tier lookup.** New
+  `lib/extraction-frame-cap.ts` owns the decision: `resolveVideoFrameCap` (pure) maps a
+  `QuotaStatusResult` to a frame count, and `fetchVideoFrameCap` performs one `quota-status` call
+  bounded by `QUOTA_WAIT_TIMEOUT_MS` (4s — same single-network-call budget as `lib/hibp.ts`'s
+  `TOTAL_TIMEOUT_MS`). There is deliberately no `PACE_FRAME_CAP[quota.tier]` anywhere in it:
+  CLAUDE.md is explicit that the client is never the authority for a frame cap, so re-deriving a
+  paid entitlement from a client table would have reintroduced the same class of bug it fixes.
+- **`extractFrames` no longer takes a tier.** `lib/frames.ts`'s second parameter changed from
+  `tier: PaceTier` to `videoFrameCap: number`, and the module no longer imports `PACE_FRAME_CAP` at
+  all — the tier→cap table lookup that made the hardcode possible is gone from the extraction path.
+  `PACE_FRAME_CAP` is still pinned against `reserve_analysis`'s own hardcoded caps by the existing
+  agreement test.
+- **Failure degrades to the free cap, deliberately and visibly; never upward.** A failed,
+  unauthorized, timed-out, or nonsensical (`0`/negative/`NaN`/fractional) response resolves to
+  `FALLBACK_VIDEO_FRAME_CAP` (= `PACE_FRAME_CAP.free`), because a lookup that failed tells us
+  nothing about entitlement and assuming a paid cap would hand a free or signed-out user Elite's
+  frame count on a network blip. An absurd server value is clamped to the same global ceiling
+  `analyze-form` already enforces, so it cannot become thousands of on-device thumbnail calls.
+- **Progress total and extracted count can no longer disagree.** They were two independent reads of
+  the same constant; the screen now resolves one number and passes it to both the caption and
+  `extractFrames`. A new bounded `preparing` state (spinner only, under the screen's existing
+  "Preparing your analysis" title — no new copy-deck string) covers the window before the total is
+  known, so the caption never names a frame count the extraction will not produce.
+- **Photos are untouched:** always exactly one frame, and that path makes no `quota-status` call at
+  all, so no quota failure can affect a photo submission.
+- **Tests:** new `lib/__tests__/extraction-frame-cap.test.ts` (21 cases) covers the paid-tier path,
+  every documented error code, the timeout, and the nonsense-`frameCap` branches; the screen suite
+  `app/capture/__tests__/extracting.test.tsx` grew end-to-end locks asserting the count
+  `extractFrames` is actually *called* with for Pro/Elite, the free-cap fallback, that photos never
+  call quota, and that the new async phase did not reintroduce issue #147's render loop. Verified by
+  mutation: forcing the resolver back to always-free fails 10 of the 31 new cases.
+
 ## 2026-07-26 (issue #128 — the analyze-form client is real; first live backend deploy of the analysis path)
 
 - **🚨 `PURCHASE_TIER_DUMMY_ENABLED=true` IS NOW SET ON THE LIVE PROJECT, AND IT IS A RELEASE

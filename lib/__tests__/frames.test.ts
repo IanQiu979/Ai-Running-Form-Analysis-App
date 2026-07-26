@@ -9,9 +9,12 @@
  * every branch in `lib/frames.ts`.
  *
  * The load-bearing cases here are:
- *   1. Frame count per tier comes from `PACE_FRAME_CAP` (`@shared/pace`), not a locally
- *      redeclared cap — a regression that hardcoded `5` here would still pass every other test.
- *   2. A photo is always exactly one frame, timestamped 0, regardless of tier.
+ *   1. A video gets exactly the frame count it was handed — `extractFrames` takes a resolved
+ *      `videoFrameCap`, and no longer maps a tier to a number itself. Where that number comes
+ *      from (the server's authoritative `frameCap`, via `quota-status`) and how a failed lookup
+ *      degrades is `lib/extraction-frame-cap.ts`'s job, covered by its own suite; the per-tier
+ *      values are still pinned against `reserve_analysis` by the last describe block below.
+ *   2. A photo is always exactly one frame, timestamped 0, regardless of the cap passed.
  *   3. `sampleTimestamps` never touches t=0 or t=duration, and the SAME values it returns are
  *      what `extractFrames` records as `timestampMs` for a video (see `lib/frames.ts`'s "Timestamp
  *      accuracy" header note for why this is "requested", not independently-verified-actual).
@@ -21,7 +24,7 @@
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
-import { PACE_FRAME_CAP, type PaceTier } from '@shared/pace';
+import { PACE_FRAME_CAP } from '@shared/pace';
 
 import { extractFrames, FrameBudgetExceededError, sampleTimestamps } from '../frames';
 
@@ -121,13 +124,19 @@ describe('sampleTimestamps', () => {
 });
 
 describe('extractFrames — photo input', () => {
-  // Case 4: a photo is exactly one frame, timestamped 0, regardless of tier — 'elite' here is
-  // deliberately chosen to prove PACE_FRAME_CAP.elite (8) is NOT consulted for a photo.
-  it('produces exactly one frame timestamped 0, ignoring the tier frame cap', async () => {
+  // Case 4: a photo is exactly one frame, timestamped 0, regardless of the cap passed — Elite's 8
+  // is deliberately chosen here to prove the video cap is NOT consulted for a photo. This is the
+  // "Photos are unaffected" property: `app/capture/extracting.tsx` never even calls `quota-status`
+  // on the photo path, and `extractFrames` ignores the cap for it regardless.
+  it('produces exactly one frame timestamped 0, ignoring the video frame cap', async () => {
     const onProgress = jest.fn();
     queueManipulateResult('cGhvdG8=', { width: 800, height: 600 });
 
-    const result = await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 800, height: 600 }, 'elite', onProgress);
+    const result = await extractFrames(
+      { mediaType: 'photo', uri: 'file://photo.jpg', width: 800, height: 600 },
+      PACE_FRAME_CAP.elite,
+      onProgress,
+    );
 
     expect(result.frames).toEqual([{ base64: 'cGhvdG8=', timestampMs: 0 }]);
     expect(mockManipulate).toHaveBeenCalledTimes(1);
@@ -140,7 +149,7 @@ describe('extractFrames — photo input', () => {
   it('does not resize a photo already at or under the 1568px long edge', async () => {
     const { resize } = queueManipulateResult('c21hbGw=', { width: 1200, height: 800 });
 
-    await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 1200, height: 800 }, 'free');
+    await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 1200, height: 800 }, PACE_FRAME_CAP.free);
 
     expect(resize).not.toHaveBeenCalled();
   });
@@ -150,7 +159,7 @@ describe('extractFrames — photo input', () => {
   it('resizes a landscape photo over 1568px by width only, preserving aspect ratio', async () => {
     const { resize } = queueManipulateResult('bGFuZHNjYXBl', { width: 3136, height: 1568 });
 
-    await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 3136, height: 1568 }, 'free');
+    await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 3136, height: 1568 }, PACE_FRAME_CAP.free);
 
     expect(resize).toHaveBeenCalledTimes(1);
     expect(resize).toHaveBeenCalledWith({ width: 1568 });
@@ -161,7 +170,7 @@ describe('extractFrames — photo input', () => {
   it('resizes a portrait photo over 1568px by height only, preserving aspect ratio', async () => {
     const { resize } = queueManipulateResult('cG9ydHJhaXQ=', { width: 1080, height: 2400 });
 
-    await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 1080, height: 2400 }, 'free');
+    await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 1080, height: 2400 }, PACE_FRAME_CAP.free);
 
     expect(resize).toHaveBeenCalledTimes(1);
     expect(resize).toHaveBeenCalledWith({ height: 1568 });
@@ -171,7 +180,7 @@ describe('extractFrames — photo input', () => {
   it('saves every frame as JPEG at q0.7 with base64 requested', async () => {
     const { saveAsync } = queueManipulateResult('cQ==');
 
-    await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 100, height: 100 }, 'free');
+    await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 100, height: 100 }, PACE_FRAME_CAP.free);
 
     expect(saveAsync).toHaveBeenCalledWith({ compress: 0.7, format: SaveFormat.JPEG, base64: true });
   });
@@ -179,20 +188,22 @@ describe('extractFrames — photo input', () => {
   it('throws when expo-image-manipulator returns no base64 data', async () => {
     queueManipulateResult(undefined);
 
-    await expect(extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 100, height: 100 }, 'free')).rejects.toThrow(
-      'did not return base64 data',
-    );
+    await expect(
+      extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 100, height: 100 }, PACE_FRAME_CAP.free),
+    ).rejects.toThrow('did not return base64 data');
   });
 });
 
 describe('extractFrames — video input', () => {
-  // Case 9: THE frame-cap-authority lock. Free/Pro/Elite must each request exactly
-  // PACE_FRAME_CAP[tier] frames, sourced from @shared/pace — not a locally redeclared number.
+  // Case 9: THE frame-count lock. Whatever cap arrives is exactly how many frames get extracted —
+  // no rounding, no ceiling of its own, no substitution. Parameterized over all three real tier
+  // caps so a regression that pinned this function to any single one (the shipped bug pinned the
+  // SCREEN to Free's 1) fails here for the other two.
   it.each([
     ['free', PACE_FRAME_CAP.free],
     ['pro', PACE_FRAME_CAP.pro],
     ['elite', PACE_FRAME_CAP.elite],
-  ] as const)('requests PACE_FRAME_CAP.%s (%i) frames for a video at that tier', async (tier, cap) => {
+  ] as const)('requests exactly the given cap (%s = %i) frames for a video', async (tier, cap) => {
     const durationMs = 10_000;
     const expectedTimestamps = sampleTimestamps(durationMs, cap);
     for (let i = 0; i < cap; i++) {
@@ -200,7 +211,11 @@ describe('extractFrames — video input', () => {
       queueManipulateResult(`ZnJhbWU${i}`);
     }
 
-    const result = await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, tier);
+    // Ties the number under test back to the tier it is meant to represent, so this suite still
+    // fails if `@shared/pace` and this table ever disagree about what a tier's cap is.
+    expect(PACE_FRAME_CAP[tier]).toBe(cap);
+
+    const result = await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, cap);
 
     expect(mockGetThumbnailAsync).toHaveBeenCalledTimes(cap);
     expect(result.frames).toHaveLength(cap);
@@ -223,7 +238,7 @@ describe('extractFrames — video input', () => {
       queueManipulateResult(`ZnJhbWU${i}`);
     }
 
-    await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, 'pro', onProgress);
+    await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, cap, onProgress);
 
     expect(onProgress).toHaveBeenCalledTimes(cap);
     for (let i = 0; i < cap; i++) {
@@ -237,7 +252,7 @@ describe('extractFrames — video input', () => {
     queueThumbnail('file://thumb-0.jpg', 3200, 1600);
     const { resize } = queueManipulateResult('ZnJhbWUw', { width: 3200, height: 1600 });
 
-    await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs: 10_000 }, 'free');
+    await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs: 10_000 }, PACE_FRAME_CAP.free);
 
     expect(resize).toHaveBeenCalledWith({ width: 1568 });
   });
@@ -257,7 +272,7 @@ describe('extractFrames — budget check', () => {
       queueManipulateResult(oversizedBase64);
     }
 
-    await expect(extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, 'elite')).rejects.toThrow(
+    await expect(extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, cap)).rejects.toThrow(
       FrameBudgetExceededError,
     );
 
@@ -277,7 +292,7 @@ describe('extractFrames — budget check', () => {
 
     let caught: unknown;
     try {
-      await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs: 10_000 }, 'elite');
+      await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs: 10_000 }, cap);
     } catch (error) {
       caught = error;
     }
@@ -293,7 +308,7 @@ describe('extractFrames — budget check', () => {
   // exact sum of every frame's base64 length (what actually rides the wire, not a decoded size).
   it('resolves with the exact summed base64 length when under budget', async () => {
     queueManipulateResult('QUJD'); // 4 chars
-    const result = await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 100, height: 100 }, 'free');
+    const result = await extractFrames({ mediaType: 'photo', uri: 'file://photo.jpg', width: 100, height: 100 }, PACE_FRAME_CAP.free);
 
     expect(result.totalBytes).toBe(4);
   });
@@ -317,20 +332,21 @@ describe('extractFrames — client/server tier-cap agreement (reserve_analysis a
   });
 
   // Case: THE fail-safe-DIRECTION lock. `extractVideoFrames` has no ceiling of its own — it
-  // trusts `PACE_FRAME_CAP[tier]` completely (case 9's "not a locally redeclared cap"). So the one
-  // place a real client-side disagreement could still show up is an unrecognized tier reaching
-  // `PACE_FRAME_CAP[tier]` at runtime — impossible through `extractFrames`'s own `PaceTier`-typed
-  // signature, but not impossible for a caller that bypasses TypeScript (e.g. an unvalidated tier
-  // string read back from storage). `PACE_FRAME_CAP[tier]` is then `undefined`, and — per the
-  // `sampleTimestamps` case of the same name above — that resolves to REQUESTING ZERO FRAMES, not
-  // falling back to some other (and specifically not a LARGER) count. A zero-frame submission is
-  // one `reserve_analysis` cleanly rejects too (`p_frame_count < 1` -> `invalid_frame_count`), so
-  // the failure stays a clean rejection end to end. This is the property the issue asks for:
-  // disagreement fails toward fewer frames, never more.
-  it('requests zero frames — never a fallback or inflated count — for a tier PACE_FRAME_CAP does not recognize', async () => {
-    const unknownTier = 'legacy-tier' as unknown as PaceTier;
+  // extracts exactly the count it is handed (case 9). So the one place a client-side disagreement
+  // can still show up is an unusable count reaching it at runtime — impossible through
+  // `extractFrames`'s own `number`-typed signature, but not impossible for a caller that bypasses
+  // TypeScript, and the reason `lib/extraction-frame-cap.ts` validates the server's `frameCap`
+  // before it ever gets here (see that module's own suite for the `0`/negative/NaN/fractional
+  // branches, which all degrade to the free floor rather than reaching this function at all).
+  // Should one slip through anyway, this is the direction it fails in: REQUESTING ZERO FRAMES —
+  // never falling back to some other, and specifically never a LARGER, count. A zero-frame
+  // submission is one `reserve_analysis` cleanly rejects too (`p_frame_count < 1` ->
+  // `invalid_frame_count`), so the failure stays a clean rejection end to end. Disagreement fails
+  // toward fewer frames, never more.
+  it('requests zero frames — never a fallback or inflated count — for a cap that is not a usable number', async () => {
+    const unusableCap = undefined as unknown as number;
 
-    const result = await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs: 10_000 }, unknownTier);
+    const result = await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs: 10_000 }, unusableCap);
 
     expect(result).toEqual({ frames: [], totalBytes: 0 });
     expect(mockGetThumbnailAsync).not.toHaveBeenCalled();
