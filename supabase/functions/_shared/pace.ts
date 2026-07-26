@@ -178,7 +178,7 @@ export interface PaceAnalysisOutcome {
 }
 
 // -------------------------------------------------------------------------------------------
-// Tier frame caps & payload budget — docs/architecture.md "Planned — media pipeline"
+// Tier frame caps & payload budget — docs/architecture.md "Current — media pipeline"
 // -------------------------------------------------------------------------------------------
 
 /** The three analysis tiers (matches `analyses.tier_at_run`'s DB enum). Scoped to this file's
@@ -187,7 +187,7 @@ export interface PaceAnalysisOutcome {
 export type PaceTier = 'free' | 'pro' | 'elite';
 
 /**
- * Max frames sent to one vision call, per tier (`docs/architecture.md` "Planned — media
+ * Max frames sent to one vision call, per tier (`docs/architecture.md` "Current — media
  * pipeline" Caps: "Frame count per tier: Free 1 / Pro 5 / Elite 8"; a photo submission is always
  * exactly 1 frame regardless of tier). Descriptive data only, not the enforcement point —
  * `reserve_analysis` (`SECURITY DEFINER`, service-role only) is the sole authority (CLAUDE.md:
@@ -202,7 +202,7 @@ export const PACE_FRAME_CAP: Record<PaceTier, number> = {
 
 /**
  * Max size, in bytes, of the `analyze-form` request body — base64 frame data plus metadata
- * (`docs/architecture.md` "Planned — media pipeline": "total request body ≤5MB, enforced
+ * (`docs/architecture.md` "Current — media pipeline": "total request body ≤5MB, enforced
  * client-side and re-checked server-side"). The frame-extraction caps that produce a body this
  * size (clip length, downscale target, JPEG quality) belong to the planned `lib/frames.ts` (M2),
  * not here — this is the one number both the client (to stop building an oversize request) and

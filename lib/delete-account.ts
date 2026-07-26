@@ -22,23 +22,18 @@
  * real client directly, against the contract below. The mock is TEST-ONLY, and is made impossible
  * to bind in a release build — see `createMockDeleteAccountClient`'s `__DEV__` guard.
  *
- * ⚠️ THE CONTRACT BELOW MAY STILL DRIFT. `supabase/functions/_shared/delete-account.ts` (PR #121,
- * branch `feat/58-delete-account`) is the real source of truth and was mid-flight in a parallel
- * worktree when this was written; it does not exist on `main` yet, and this file — bound by the
- * hard constraint "do NOT edit anything under `supabase/functions/`" — cannot import its types.
- * `DeleteAccountErrorCode` below is therefore a HAND-MAINTAINED MIRROR of
- * `DeleteAccountResult['outcome']` from that file, not an import of it. Once #121/#58 merges,
- * whoever does it should replace this mirror with `import type { DeleteAccountErrorCode } from
- * '@shared/delete-account'` (the same `@shared/*` alias `@shared/pace` already uses) and delete
- * this warning once the codes are confirmed to match — see the type's own doc comment for the
- * exact table this was built against.
+ * `DeleteAccountErrorCode` below is a HAND-MAINTAINED MIRROR of
+ * `supabase/functions/_shared/delete-account.ts`'s `DeleteAccountErrorCode` (plus this client's own
+ * `reauth_required`/`unknown` additions), not an import of it — this file cannot import across the
+ * `supabase/functions/` boundary. #121/#58 merged and deployed 2026-07-26; the codes are confirmed
+ * to match as of this writing. If a future change to the server's outcome union isn't mirrored here,
+ * an unrecognized `code` on the `'http'` branch still folds safely into `GENERIC_UNKNOWN_ERROR`
+ * rather than crashing — see `isServerDeleteAccountErrorCode` below — so drift degrades gracefully,
+ * it does not break silently as a false success.
  *
- * ⚠️ THE FUNCTION IS NOT DEPLOYED. This client calls a real endpoint, but until #121 merges AND is
- * deployed to the live Supabase project (neither of which is this PR's job — "do not deploy
- * anything, do not touch the live Supabase project"), that endpoint does not exist. Calling it
- * today gets a 404, which `submitToEdgeFunction` below folds into the same honest, retryable
- * `{ ok: false, error: { code: 'unknown' } }` every other unrecognized failure gets — never a false
- * success. See `docs/status.md` for the up-to-date status of #121.
+ * `delete-account` (#58/#121) is deployed to the live project as of 2026-07-26, verified live end
+ * to end on a throwaway account (`docs/architecture.md`'s "Current — `POST /functions/v1/delete-account`"
+ * section; `docs/status.md` Known Issue #35). See `docs/status.md` for current status.
  *
  * WHY A SEAM, STILL, EVEN THOUGH THE REAL IMPLEMENTATION IS NOW HERE: `DeleteAccountClient` stays
  * an interface with an injectable mock so the screen's confirm/pending/success/failure states stay
@@ -389,11 +384,8 @@ export function createMockDeleteAccountClient(
 }
 
 /**
- * The seam's binding. THIS IS NOW THE REAL CLIENT — fixed 2026-07-13 (F1): tapping "Delete account
- * and data" calls the actual `delete-account` edge function via `supabase.functions.invoke`.
- *
- * See this file's header for the two caveats that still apply: the exact response contract may
- * still drift until #121/#58 actually merges, and the function is not deployed yet, so calling
- * this in the live app today safely fails (never a false success) rather than succeeding.
+ * The seam's binding. THIS IS THE REAL CLIENT — fixed 2026-07-13 (F1): tapping "Delete account
+ * and data" calls the actual `delete-account` edge function via `supabase.functions.invoke`, and
+ * that function has been deployed to the live project since 2026-07-26 — see this file's header.
  */
 export const deleteAccountClient: DeleteAccountClient = createDeleteAccountClient();

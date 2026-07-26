@@ -4,11 +4,11 @@
  *
  * Renders BOTH a fresh M4 result and a re-opened stored one with the SAME code path: this screen
  * always fetches its own `analyses` row by `id` and renders from that — a freshly-delivered
- * analysis is just a row whose insert happened moments ago (`analyze-form`, once #44 exists,
- * already persists the row before returning `{ result, analysisId, isFallback }` to the client —
- * see `docs/architecture.md` "Planned — analyze-form edge function flow" step 10), so there is
- * no second, parallel "render whatever the API call just returned" path to keep in sync with
- * this one.
+ * analysis is just a row whose insert happened moments ago (`analyze-form` (#44, deployed since
+ * issue #128) already persists the row before returning `{ result, analysisId, isFallback }` to
+ * the client — see `docs/architecture.md`'s "Current — `analyze-form` edge function" section),
+ * so there is no second, parallel "render whatever the API call just returned" path to keep in
+ * sync with this one.
  *
  * Business logic this screen deliberately does NOT contain (CLAUDE.md: "No business rules in the
  * client"): it never re-derives tier, quota, or which fields a Free vs. Pro/Elite result should
@@ -75,7 +75,7 @@ import type { PaceAnalysisOutcome } from '@shared/pace';
 // The private frame bucket (`supabase/migrations/20260711150500_media_storage_bucket.sql`) —
 // there are no public URLs, only owner-scoped signed reads (CLAUDE.md § Secrets & env).
 const MEDIA_BUCKET = 'media';
-// "~1h, regenerated on open" per docs/architecture.md's "Planned — media pipeline".
+// "~1h, regenerated on open" per docs/architecture.md's "Current — media pipeline".
 const HERO_SIGNED_URL_TTL_SECONDS = 60 * 60;
 // A representative running photo's typical portrait ratio. Not a `constants/theme.ts` token —
 // aspect ratio isn't one of that file's roles (colors/spacing/type/radii), and this issue's

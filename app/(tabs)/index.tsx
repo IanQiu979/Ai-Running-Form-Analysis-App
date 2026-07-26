@@ -130,9 +130,9 @@ export default function HomeScreen() {
     // completed for Pro/Elite — their quota is period-based and `pace_current_period`'s EXECUTE
     // is revoked from `authenticated`. `pace_quota_status` (server-side) now owns that counting
     // exactly once; this file only renders what it returns. See `lib/quota.ts`'s header for the
-    // full contract, including the caveat that the endpoint is not deployed to the live project
-    // yet — a failure here is expected until it is, and is handled by the `error` branch below,
-    // never papered over with a guessed quota.
+    // full contract. The endpoint has been deployed to the live project since 2026-07-26; any
+    // failure here is still handled by the `error` branch below, never papered over with a
+    // guessed quota.
     const result = await quotaStatusClient.fetch();
 
     if (!active.active) return;

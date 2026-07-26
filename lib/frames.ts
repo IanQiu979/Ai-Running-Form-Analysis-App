@@ -1,6 +1,6 @@
 /**
  * Frame extraction, downscaling, and pre-flight budget check (issue #34) — the client-side half
- * of the media pipeline (`docs/architecture.md` "Planned — media pipeline").
+ * of the media pipeline (`docs/architecture.md` "Current — media pipeline").
  *
  * THIS FILE DOES NOT UPLOAD ANYTHING. Since issue #88 (merged, applied to the live database),
  * the client never writes to Storage — `storage.objects` has no INSERT policy for `authenticated`
@@ -76,7 +76,7 @@ import { PACE_MAX_REQUEST_BODY_BYTES } from '@shared/pace';
 
 /** Anthropic's documented optimum long-edge size for a full-resolution vision encode; a larger
  * image is resized down before analysis anyway, so sending more pixels than this only inflates
- * the request body for no quality gain (`docs/architecture.md` "Planned — media pipeline"). */
+ * the request body for no quality gain (`docs/architecture.md` "Current — media pipeline"). */
 const MAX_LONG_EDGE_PX = 1568;
 
 /** JPEG compression level for every re-encoded frame (`docs/architecture.md`: "JPEG q≈0.7"). */

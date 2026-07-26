@@ -1,10 +1,10 @@
 /**
  * Screen 6 — Analyzing (issue #80): the wait screen shown while `analyze-form` is in flight.
  *
- * `analyze-form` (issue #44) does not exist yet, so this screen is built and reviewable entirely
- * against `lib/analyze-form.ts`'s injectable seam, currently bound to a mock (see that file's
- * header). Swapping the seam's binding for the real implementation is the only change #44 needs
- * to make here. The one exception to "nothing in this file talks to Supabase" is issue #64's
+ * Built against `lib/analyze-form.ts`'s injectable seam, originally reviewable without a live
+ * `analyze-form` (issue #44) via a dev mock. That seam is now bound to the real client — issue
+ * #128, 2026-07-26, see that file's header — and the mock is kept only for tests/dev, `__DEV__`-
+ * guarded so it throws in a release bundle. The one exception to "nothing in this file talks to Supabase" is issue #64's
  * reconciliation read below (`supabase.from('analyses')...`) — a plain RLS-scoped SELECT of this
  * user's own row, the same category of read `lib/consent.ts` and `app/result/[id].tsx` already
  * make directly from the client, not a privileged write.

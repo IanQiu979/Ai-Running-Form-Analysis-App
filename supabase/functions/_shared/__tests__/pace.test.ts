@@ -14,7 +14,7 @@
  *      `PacePillarResult` shapes by design).
  *
  * The numeric constants (case group 5) are locked against the exact values in
- * `docs/architecture.md` "Planned — media pipeline" and issue #45's decision table — a change to
+ * `docs/architecture.md` "Current — media pipeline" and issue #45's decision table — a change to
  * either should be a deliberate, visible diff here, not a silent drift.
  *
  * JEST-ONLY, DELIBERATELY (issue #90): like the sibling `ai-guard.test.ts`/`ai-pricing.test.ts`
@@ -291,7 +291,7 @@ describe('isPaceAnalysisOutcome', () => {
 });
 
 describe('shared constants', () => {
-  // Case 14: locked against docs/architecture.md "Planned — media pipeline" — "Frame count per
+  // Case 14: locked against docs/architecture.md "Current — media pipeline" — "Frame count per
   // tier: Free 1 / Pro 5 / Elite 8".
   it('PACE_FRAME_CAP matches Free 1 / Pro 5 / Elite 8', () => {
     expect(PACE_FRAME_CAP).toEqual({ free: 1, pro: 5, elite: 8 });

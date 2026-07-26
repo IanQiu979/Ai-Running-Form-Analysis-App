@@ -2,7 +2,7 @@
  * Screen 11 — Settings (issue #53; also closes #27).
  *
  * ROUTE PLACEMENT: a top-level pushed route (`/settings`), NOT a tab. `docs/architecture.md`'s
- * planned route tree already made this call — it lists `paywall, settings` at root, alongside
+ * route tree already made this call — it lists `paywall, settings` at root, alongside
  * `capture/` / `analyzing` / `result/[id]`, while explicitly nesting `(tabs)/history` as the tab
  * that M6 adds. Product-wise that is right: the tab bar is for co-equal primary surfaces (Home,
  * and later History), and Settings is a rare destination you push into and back out of. Giving it
@@ -21,9 +21,9 @@
  *     here. CLAUDE.md — "the client may display tier/quota state but is never the authority for it."
  *   - Delete account — a REAL `supabase.functions.invoke('delete-account')` call (fixed 2026-07-13,
  *     finding F1: the original mock binding had no owner to swap it for a real one, so it would
- *     have shipped silently lying about erasure). `delete-account`'s edge function (#58/#121) is
- *     built but not yet merged to `main` or deployed — see `lib/delete-account.ts`'s header for
- *     what that means for this screen today (an honest, retryable failure, never a false success).
+ *     have shipped silently lying about erasure). `delete-account`'s edge function (#58/#121) has
+ *     been deployed to the live project since 2026-07-26 — see `lib/delete-account.ts`'s header —
+ *     so this screen reaches it end to end.
  *     As of issue #124, the server can also reject the call with `code: 'reauth_required'` — a
  *     valid session is no longer enough on its own for this one destructive action. This screen
  *     handles that by prompting the user to re-present their credential (a password modal, or a

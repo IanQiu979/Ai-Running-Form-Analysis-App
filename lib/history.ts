@@ -10,7 +10,7 @@
  * PRIVATE. There are NO public URLs. Frames are reachable only via short-TTL signed URLs or an
  * authenticated read. `signFrameStrip` below is the only thing in this file that touches Storage,
  * and it always asks for a short TTL (`FRAME_STRIP_SIGNED_URL_TTL_SECONDS`, ~1h per
- * `docs/architecture.md` "Planned — media pipeline": "short-TTL (~1h, regenerated on open)"),
+ * `docs/architecture.md` "Current — media pipeline": "short-TTL (~1h, regenerated on open)"),
  * mints one fresh on every screen open rather than caching a long-lived one, and never logs the
  * signed URL it gets back — a leaked long-TTL link is a durable link to an image of someone's
  * body.
@@ -205,7 +205,7 @@ export async function fetchHistoryList(): Promise<HistoryListItem[]> {
  * same bucket name `app/result/[id].tsx` uses for its own hero-frame signed URL. */
 export const MEDIA_BUCKET = 'media';
 
-/** "~1h, regenerated on open" per `docs/architecture.md` "Planned — media pipeline" — matches
+/** "~1h, regenerated on open" per `docs/architecture.md` "Current — media pipeline" — matches
  * `app/result/[id].tsx`'s `HERO_SIGNED_URL_TTL_SECONDS` exactly; kept as this file's own named
  * constant rather than importing that screen's local one, since a screen's own constants aren't
  * meant to be a shared module (that file doesn't export it). */

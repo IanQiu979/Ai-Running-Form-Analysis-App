@@ -3,7 +3,7 @@
 // cap, and analysis are server-only (edge functions); the client may display tier/quota state but
 // is never the authority for it." `app/(tabs)/index.tsx:82` currently violates that by deriving
 // quota from its own `subscriptions` + `analyses` count query; this function is what #54 must
-// replace it with. See `docs/architecture.md`'s "Planned — API" table for the documented
+// replace it with. See `docs/architecture.md`'s "API" table for the documented
 // contract and `_shared/quota-status.ts`'s header comment for how this function's counting
 // agrees with `reserve_analysis`'s.
 //

@@ -1,6 +1,6 @@
 /**
  * The `analyze-form` client seam (issue #80) — request/response types matching
- * `docs/architecture.md`'s "Planned — analyze-form edge function flow" / "Planned — API" tables,
+ * `docs/architecture.md`'s "Current — `analyze-form` edge function" section and "API" table,
  * the injectable `AnalyzeFormClient` `app/analyzing.tsx` calls through, a dev-only mock
  * implementation, and the one-shot request handoff the screen reads from.
  *
@@ -39,8 +39,8 @@ import { isPaceAnalysisOutcome, PACE_PILLARS, type PacePillarId, type PacePillar
 export type AnalyzeFormMediaType = 'photo' | 'video';
 
 /**
- * `POST /functions/v1/analyze-form`'s documented request body (`docs/architecture.md` "Planned —
- * API"): `{ mediaType, frames: [base64...], timestamps: number[], idempotencyKey }` — two
+ * `POST /functions/v1/analyze-form`'s documented request body (`docs/architecture.md` "API"
+ * table): `{ mediaType, frames: [base64...], timestamps: number[], idempotencyKey }` — two
  * parallel arrays, not `PaceFrame[]`. This mirrors `lib/frames.ts`'s own header, which describes
  * its job as producing "the exact `{ frames: string[], timestamps: number[] }` pair analyze-form
  * expects." Build one from a freshly-extracted `PaceFrameSet` with `toAnalyzeFormRequest` below
@@ -78,7 +78,7 @@ export function toAnalyzeFormRequest(
 }
 
 /**
- * The documented 200 response (`docs/architecture.md` "Planned — API"): `{ result, analysisId,
+ * The documented 200 response (`docs/architecture.md` "API" table): `{ result, analysisId,
  * isFallback }`. A real success and an honest-partial fallback are the SAME shape — see
  * `@shared/pace`'s `PaceAnalysisOutcome` doc comment — differentiated only by `isFallback`, never
  * by a different response type. `app/analyzing.tsx` must route both to the result screen as a
