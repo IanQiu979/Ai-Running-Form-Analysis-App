@@ -26,8 +26,8 @@
 --   2. Whether `analyze-form` uploads frames before or after its own `settle_analysis` call is a
 --      question for `supabase/functions/analyze-form/**`, out of this migration's file lane
 --      entirely. Both orderings this repo has on file (`20260712123606`, live; and
---      `20260713140000_attach_media_paths.sql` + its "settle-before-upload" refinement, written
---      but not yet applied) already guarantee, by construction, that a `public.analyses` row with
+--      `20260713140000_attach_media_paths.sql` + its "settle-before-upload" refinement, also
+--      applied live) already guarantee, by construction, that a `public.analyses` row with
 --      the right id exists BEFORE any object naming it is written — see
 --      `20260712123606`'s own "THE INVARIANT". This migration's guard 1 below enforces that
 --      invariant at the one layer no application-layer bug can route around: the table itself.

@@ -615,7 +615,8 @@ Deno.test('two users purchasing concurrently do not collide — the row is keyed
 // ---------------------------------------------------------------------------
 // 5. MIGRATION-TEXT INVARIANTS — the bridge from the model above to the SQL that will actually run.
 //    These are the tests that would catch a wrong model, and they guard the two properties the
-//    entire issue turns on. (`pace_purchase_tier` is WRITTEN, NOT APPLIED — see the file header.)
+//    entire issue turns on. (`pace_purchase_tier` is now applied to the live project — see the
+//    migration's own header — but was written before that, hence the text-level check here.)
 // ---------------------------------------------------------------------------
 
 const MIGRATION_URL = new URL('../../../migrations/20260713120000_purchase_tier_function.sql', import.meta.url);

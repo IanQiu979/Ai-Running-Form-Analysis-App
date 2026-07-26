@@ -18,8 +18,8 @@
  * WHERE THE DECISIONS ACTUALLY LIVE: almost nowhere in this file. This module validates the
  * request shape and maps outcomes to HTTP; the tier write, the period anchoring, and the
  * idempotency semantics are all in ONE atomic SQL function, `pace_purchase_tier`
- * (`supabase/migrations/20260713120000_purchase_tier_function.sql` — WRITTEN, NOT APPLIED as of
- * issue #51; see its header). That is on purpose: `purchased_at` is the period anchor that
+ * (`supabase/migrations/20260713120000_purchase_tier_function.sql` — applied to the live project,
+ * confirmed 2026-07-26, issue #128; see its header). That is on purpose: `purchased_at` is the period anchor that
  * `pace_current_period` derives every quota window from, and a read-then-write split across the
  * network could re-anchor it under a race. Read that migration's header before touching this.
  *

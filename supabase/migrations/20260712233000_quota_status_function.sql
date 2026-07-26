@@ -4,15 +4,12 @@
 -- "no business rules in the client" rule already forbids and which cannot even be completed for
 -- Pro/Elite today: `pace_current_period`'s EXECUTE is revoked from `authenticated`.
 --
--- *** THIS MIGRATION IS WRITTEN, NOT APPLIED. ***
--- Per issue #50's hard constraint, this worktree (fix/50) never runs `supabase db push` /
--- `apply_migration` against the live project (`vputdomdlknvthnzritt`) and never deploys the
--- edge function that calls this. Until a later, explicitly-authorized step applies it, calling
--- `pace_quota_status` from `supabase/functions/quota-status/` will fail against production —
--- same footing #57's `DELETE /functions/v1/analysis/:id` shipped on (built + Deno-tested, not
--- deployed) and the same footing this repo's `anti_farm_release_reason_fix` migration was on
--- before today. Say this loudly rather than let a future reader assume it's live: check
--- `list_migrations` against the live project before trusting this function is callable.
+-- *** APPLIED to the live project — confirmed already present 2026-07-26 (issue #128). ***
+-- Per issue #50's original hard constraint, the worktree that wrote this (fix/50) never ran
+-- `supabase db push` / `apply_migration` against the live project (`vputdomdlknvthnzritt`); that
+-- constraint has since been lifted and this function was found already applied when checked
+-- live via `list_migrations`. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status`"
+-- section for the up-to-date deployment state.
 --
 -- WHY A NEW FUNCTION INSTEAD OF EXTENDING reserve_analysis: issue #50 explicitly forbids
 -- `create or replace`-ing `reserve_analysis`/`settle_analysis`/`release_analysis` in this

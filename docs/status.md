@@ -399,15 +399,15 @@ milestone "done" criteria.
     client is blocked by the *absence of a policy*, not by *lacking the privilege* — no defense
     in depth if a future migration ever adds a policy back carelessly, or if RLS is ever disabled
     on this table by mistake.
-    **Fix WRITTEN 2026-07-13, closed together with issue #4 — NOT YET APPLIED to the live
-    project.** `supabase/migrations/20260713153000_grant_hardening.sql` runs
-    `revoke all on storage.objects from authenticated, anon` and re-grants `authenticated` only
-    `SELECT` (also tightens `subscriptions`/`profiles`'s stray leftover `anon` grants and revokes
-    `set_updated_at()`'s EXECUTE — see `docs/change_log.md` 2026-07-13 for the full migration).
-    **Until `supabase db push` applies this migration, the live project is exactly as described
-    above — do not treat production as hardened.** `CLAUDE.md`'s "Uploaded media is sensitive"
-    section has been corrected to say the same thing. See also Known Issue #33 for the full,
-    current list of migrations written but not applied.
+    **Fix written 2026-07-13, closed together with issue #4; `supabase/migrations/
+    20260713153000_grant_hardening.sql` IS applied to the live project (Known Issue #33) but its
+    `revoke` no-ops — `storage.objects` is owned/granted by `supabase_storage_admin`, which no
+    migration running as `postgres` can revoke from.** `anon`/`authenticated` still hold full
+    `GRANT ALL` (including TRUNCATE) on `storage.objects`, unreachable in practice, with the
+    `pace_media_object_guard` BEFORE INSERT trigger as the actual control of record. **CLAUDE.md's
+    "Secrets & env" section (the `storage.objects` grant-all paragraph) is the authoritative,
+    up-to-date account of this — re-verified live 2026-07-13, issue #100. Do not treat this
+    paragraph as current; read that section instead.**
 19. **NEW — the client's direct soft-delete UPDATE policy (issue #2) can still leave frames
     orphaned without ever touching `DELETE /functions/v1/analysis/:id` (issue #57, found while
     building #57, 2026-07-12).** #2's `public.analyses` UPDATE policy (`deleted_at: null -> now()`
