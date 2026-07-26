@@ -2,14 +2,12 @@
 -- public.subscriptions. The dummy purchase for v1: no real money moves, no IAP, no Stripe
 -- (real IAP is Apple-gated and post-MVP — see docs/blocked-on-apple.md).
 --
--- *** THIS MIGRATION IS WRITTEN, NOT APPLIED. ***
--- Per issue #51's hard constraint, this worktree never runs `supabase db push` /
--- `apply_migration` against the live project and never deploys the edge function that calls
--- this. Until a later, explicitly-authorized step applies it, calling `pace_purchase_tier`
--- from `supabase/functions/purchase-tier/` will fail against production — the same footing
--- #57's `DELETE /functions/v1/analysis/:id` and #50's `pace_quota_status` already ship on
--- (built + Deno-tested, not deployed). Check `list_migrations` against the live project
--- before trusting this function is callable.
+-- *** APPLIED to the live project — confirmed already present 2026-07-26 (issue #128). ***
+-- Per issue #51's original hard constraint, the worktree that wrote this never ran
+-- `supabase db push` / `apply_migration` against the live project; that constraint has since
+-- been lifted and this function was found already applied when checked live via
+-- `list_migrations`. See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier`"
+-- section for the up-to-date deployment state.
 --
 -- ==========================================================================================
 -- WHY THIS IS A SERVICE-ROLE RPC AND NOT A CLIENT WRITE — READ BEFORE EDITING

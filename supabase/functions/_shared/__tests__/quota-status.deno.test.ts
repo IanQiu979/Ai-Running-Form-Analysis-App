@@ -9,10 +9,10 @@
  *      represent honestly: a user with quota remaining who is ALSO currently anti-farm-blocked.
  *
  *   2. Migration-text invariant tests: `pace_quota_status` (the DB function this module calls) is
- *      WRITTEN but NOT APPLIED to any database as of issue #50 (see
- *      `supabase/migrations/20260712233000_quota_status_function.sql`'s header — the hard
- *      constraint this worktree operates under forbids applying it, even locally). There is
- *      therefore no live Postgres this suite can run an integration test against. Instead, these
+ *      now applied to the live project (confirmed 2026-07-26, issue #128; see
+ *      `supabase/migrations/20260712233000_quota_status_function.sql`'s header), but at the time
+ *      these tests were written issue #50's hard constraint forbade applying it, even locally, so
+ *      there was no live Postgres this suite could run an integration test against. Instead, these
  *      tests read the migration file's own SQL text and assert the specific properties issue #50
  *      calls out by name — that it never filters on `deleted_at` (so a soft-deleted analysis
  *      keeps counting, matching `reserve_analysis`'s own behavior) and that its tier -> limit

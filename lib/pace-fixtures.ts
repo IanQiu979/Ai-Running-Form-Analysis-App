@@ -3,8 +3,9 @@
  * `components/__tests__` to prove the result screen renders every honest state the contract
  * allows, not just the fully-scored happy path.
  *
- * `analyze-form` (#44) doesn't exist yet and there are zero rows in `analyses` (docs/status.md's
- * M4 row), so these fixtures ARE the test of whether the rendering is honest — see
+ * Written when `analyze-form` (#44) did not yet exist and `analyses` had zero live rows to test
+ * against; `analyze-form` is deployed and live now (issue #128), but these fixtures remain the
+ * fast, deterministic way to exercise every honest state without a live model call — see
  * `components/pace-readout.tsx`'s header for the rule they exist to prove: a pillar the model
  * did not return is `score: null, band: null`, and must never render as "0" or a greyed-out
  * fake score.

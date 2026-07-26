@@ -12,9 +12,9 @@
  * `quota-status-client.ts`, imported only by `supabase/functions/quota-status/index.ts`.
  *
  * AGREEMENT WITH `reserve_analysis`, NOT A SECOND COPY OF IT: this module calls one RPC,
- * `pace_quota_status` (new function, `supabase/migrations/20260712233000_quota_status_function.sql`
- * — WRITTEN, NOT APPLIED to the live project as of issue #50; see that migration's header for
- * why). That function shares `reserve_analysis`'s own `pace_current_period`/
+ * `pace_quota_status` (function in `supabase/migrations/20260712233000_quota_status_function.sql`
+ * — applied to the live project, confirmed 2026-07-26, issue #128; see that migration's header).
+ * That function shares `reserve_analysis`'s own `pace_current_period`/
  * `pace_is_farming_signal` calls and mirrors its counting queries field-for-field (verified
  * against the live `reserve_analysis` body via `pg_get_functiondef` before writing either file).
  * This module's job is purely to shape that RPC's JSON into a typed response and map failures to

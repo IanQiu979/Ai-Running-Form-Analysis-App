@@ -386,7 +386,7 @@ a draft until certified.
 | `paywall.purchase.pending` | "Upgrading…" | The dummy `purchase-tier` call is in flight. |
 | `paywall.purchase.success.title` | "You're on {tierName} now" | A templated function, not a plain string. Purchase succeeded. |
 | `paywall.purchase.success.body` | "Your new plan is active." | |
-| `paywall.purchase.error.unavailable.title` | "Upgrading isn't available yet" | Code `not_found` — `purchase-tier` is deploy-gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) and/or not deployed at all. Both collapse to the same honest, non-alarming copy; it does not name the feature flag. |
+| `paywall.purchase.error.unavailable.title` | "Upgrading isn't available yet" | Code `not_found` — `purchase-tier` is deployed and live but gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF); see `constants/copy.ts`'s comment on this key for the current deployment state. Both cases collapse to the same honest, non-alarming copy; it does not name the feature flag. |
 | `paywall.purchase.error.unavailable.body` | "This build can't complete an upgrade right now. Check back soon." | |
 | `paywall.purchase.error.rateLimited.title` | "One at a time" | Code `rate_limited` — the same account called `purchase-tier` again within 3 seconds of its own last write. |
 | `paywall.purchase.error.rateLimited.body` | "Give it a moment before trying again." | |

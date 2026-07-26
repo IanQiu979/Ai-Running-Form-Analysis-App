@@ -117,7 +117,7 @@ function RootLayoutNav() {
             {/* result/[id] — the PACE readout (issue #56) — the payload. */}
             <Stack.Screen name="result/[id]" options={{ headerShown: false }} />
             {/* Screen 11 — Settings (issue #53). A pushed top-level route, not a tab, per
-                docs/architecture.md's planned route tree ("paywall, settings"), which nests only
+                docs/architecture.md's route tree ("paywall, settings"), which nests only
                 (tabs)/history. Declaring it INSIDE this guard is load-bearing for exactly the reason
                 the comment above says: an undeclared route file would be an always-available,
                 unguarded top-level screen — and this one hosts sign-out and account deletion. */}

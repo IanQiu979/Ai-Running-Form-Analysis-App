@@ -14,7 +14,7 @@ milestone "done" criteria.
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | **In progress** — the grounded prompt, tier verbosity dial, and structured-output contract landed 2026-07-12 (issue #41, `supabase/functions/_shared/analyze-form-prompt.ts`, 28 Deno tests, **no live model call made**), unblocking M4's #44/#45. The milestone's own gate — "prompt *provably* includes the framework text" — is proven statically today (the three certified files are asserted present **byte-for-byte** in the assembled prompt); proving the *output* references the PACE pillars still needs #42's live-call eval harness. Still open: **#39** (Ian certifies Elasticity + the pillar refinements — the prompt ships his name) and **#40** (the runner's-note guidance in `injury_flags.md`) — **re-verified 2026-07-25: #40's functional requirement is fully met and tested.** `INPUT_CHANNEL_RULES` in `analyze-form-prompt.ts` is wired into the assembled prompt and explicitly tells the model there is no runner's note and to treat every note-conditional clause in the certified files as inactive; `analyze-form-prompt.deno.test.ts` asserts the "There is NO runner's note" text is present. No prompt content instructs the model to weight a runner's note for the MVP path. What remains open is cosmetic only: the certified `injury_flags.md` file itself still reads "if the note reports…" in its own prose — editing that wording is a certified-content change per #39's constraint and needs Ian's sign-off, not an agent's; the file is otherwise inert on this point because the prompt layer already overrides it. |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | **In progress — the full path ran end to end against the live project 2026-07-26 (issue #128).** The AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. **The Analyzing screen (issue #80) shipped 2026-07-12**, built entirely against the documented `analyze-form` contract via an injectable `AnalyzeFormClient` seam (`lib/analyze-form.ts`). **UPDATED 2026-07-26 (issue #128):** the `analyze-form` edge function (#44) is built AND **deployed** to the live project, and that seam is now bound to the **real** client — the dev mock is kept but `__DEV__`-guarded so it throws in a release bundle, mirroring `lib/delete-account.ts`. Verified live end to end: `public.analyses` went from zero rows ever to a `delivered` row with a valid PACE result and one frame in the private bucket. See `docs/architecture.md`'s corresponding section and Known Issue #35. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed — and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. **Hardened 2026-07-13 after a security audit (PR #123): the function is gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — see Known Issue #21, a release blocker.** See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. **Every M5 screen now exists (2026-07-13)**: `app/paywall.tsx` + `lib/subscription.ts` (issue #52) is the dummy paywall, display-only by construction — no tier limit or frame cap is hardcoded, every count is read fresh off `quota-status`, locked by a regression test — and Home's quota-aware CTAs are real (issues #54/#15: the client-side quota mirror is deleted, replaced by one `lib/quota.ts` call to `quota-status`; exhausted CTAs now open the real Paywall route). See `docs/architecture.md`'s "Current — `app/paywall.tsx`" and "Current — Home quota" sections. **UPDATED 2026-07-26:** `purchase-tier` and `quota-status` are now **deployed** to the live project, and both `pace_quota_status` and `pace_purchase_tier` were found **already applied** to the live database (this row's earlier "not applied to any database" claim was stale — all 24 repo migrations are present). `PURCHASE_TIER_DUMMY_ENABLED=true` is set by captain decision — see Known Issue #21, still a release blocker. A second root cause found the same day — every authenticated edge function returning `401` to valid JWTs — was **the shared key parser misreading the platform's JSON-object key format** (`{"default":"sb_..."}`) as an array and falling through to the raw JSON string; **fixed in `_shared/supabase-keys.ts` and verified live**: a dummy purchase now grants pro (10/5) then elite (30/8), confirmed through `quota-status` and the `subscriptions` row, with `purchased_at` unmoved on repurchase. See Known Issue #35. |
-| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | **In progress — gained a real screen 2026-07-13.** `DELETE /functions/v1/analysis/:id` (issue #57, closing #3) is written, Deno-tested, and **confirmed DEPLOYED** (corrected 2026-07-13 — every earlier note here and in `docs/architecture.md` calling it "not deployed" was stale; see Known Issue #27 for the drift and why it matters). **It now also purges Storage a second time after the row is marked deleted (issue #132, 2026-07-13)**, closing the delete-during-upload orphan window issue #130 narrowed — see the (resolved) Known Issue #26 below; **redeployed 2026-07-26, so that code is live** (Known Issue #27). See Known Issue #19 for the residual gap #57 narrows but does not close. **`app/(tabs)/history.tsx` (issues #55/#12, 2026-07-13)** is the Past Analyses screen itself — list, per-row not-assessed/no-thumbnail states, delete, and a tab-bar chrome fix (partial — see Known Issue #28). Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **deployed and verified live 2026-07-26** — see Known Issues #22 and #35. Its account-level storage sweep is bounded-concurrency and resumable (issue #125, 2026-07-13), and it now also requires recent reauthentication (issue #124, 2026-07-13) — see Known Issue #22's updated sub-bullets; the client-side half is still on a mock pending #122. The Elite Compare screen is still unbuilt. |
+| M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | **In progress — gained a real screen 2026-07-13.** `DELETE /functions/v1/analysis/:id` (issue #57, closing #3) is written, Deno-tested, and **confirmed DEPLOYED** (corrected 2026-07-13 — every earlier note here and in `docs/architecture.md` calling it "not deployed" was stale; see Known Issue #27 for the drift and why it matters). **It now also purges Storage a second time after the row is marked deleted (issue #132, 2026-07-13)**, closing the delete-during-upload orphan window issue #130 narrowed — see the (resolved) Known Issue #26 below; **redeployed 2026-07-26, so that code is live** (Known Issue #27). See Known Issue #19 for the residual gap #57 narrows but does not close. **`app/(tabs)/history.tsx` (issues #55/#12, 2026-07-13)** is the Past Analyses screen itself — list, per-row not-assessed/no-thumbnail states, delete, and a tab-bar chrome fix (partial — see Known Issue #28). Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **deployed and verified live 2026-07-26** — see Known Issues #22 and #35. Its account-level storage sweep is bounded-concurrency and resumable (issue #125, 2026-07-13), and it now also requires recent reauthentication (issue #124, 2026-07-13) — see Known Issue #22's updated sub-bullets. The client (`lib/delete-account.ts`) has been bound to the real function since PR #122 (2026-07-13) — see Known Issue #23. The Elite Compare screen is still unbuilt. |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | **In progress — gained real offline/a11y/consent/recovery work 2026-07-13. UPDATED 2026-07-26: M4's `analyze-form` IS deployed and the full sign-up → analysis → result path ran end to end against the live project (issue #128), so this milestone's own gate is now testable rather than blocked; what remains is the polish/TestFlight work itemised below plus the release blockers in Known Issues #21 and #31.** The privacy slice of issue #68 landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. **The Art. 9 consent gate is now two-phase (issues #68 restatement + #94, 2026-07-13)**: health consent + a new 16+ age checkbox are once-ever; a "who is in this photo?" subject attestation is now asked on every upload, never skippable — see `docs/architecture.md`'s "Current — the two-phase consent gate" section. Server-side enforcement is still a binding M4 requirement — see Known Issue #14. **Connectivity detection landed 2026-07-13 (issue #93)**: a global offline banner is live, but the pre-flight gate before an `analyze-form` submit is exported and unwired — see Known Issue #30. **One `AppState` listener with foreground reconciliation landed 2026-07-13 (issues #10/#64)**: a backgrounded-then-foregrounded analysis recovers; a process kill does not — see Known Issue #29. **Password reset landed 2026-07-13 (issue #81)** — no privacy-label or consent implication, a pure account-recovery gap closed. **Sign-in a11y and hierarchy polish landed 2026-07-13 (issues #16/#20/#28/#11)**, including the first iOS `AccessibilityInfo.announceForAccessibility` usage in the repo. **`.maestro/` E2E flows for the M7 no-dead-end gate were written 2026-07-13 (issue #86) but never run** — see Known Issue #31. The repo gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74. **A second workflow, `.github/workflows/ci.yml` (issue #82, 2026-07-13), is the repo's first actual commit gate** — typecheck/lint/test on every push and PR to `main`, previously enforced by convention only; see `docs/architecture.md`'s "Current — CI" section for both. **The M7 full-app accessibility re-audit landed 2026-07-25 (issue #62)**: now that M2–M6 screens all exist, `accessibility-reviewer`° → `accessibility-implementer` swept the whole app against the design-brief §7 floor and fixed 5 defects, most notably `components/pace-readout.tsx`'s `PillarRow` collapsing its entire feedback/flags/drills body into one opaque VoiceOver node on every result screen — see `docs/a11y-audit-62.md` for the full defect list and `docs/change_log.md`'s 2026-07-25 entry. |
 
 ## Done so far
@@ -259,8 +259,8 @@ milestone "done" criteria.
       **The sweep half is now written (issue #47, 2026-07-13):**
       `supabase/migrations/20260713130000_stale_reservation_sweep.sql` adds
       `public.sweep_stale_reservations()` on a 5-minute `pg_cron` schedule, 15-minute staleness
-      threshold — **written, NOT applied** to the live project (confirmed via `supabase migration
-      list`). It only flips the row's `status`/`release_reason` and — since #130 (2026-07-13) —
+      threshold — **applied** to the live project (unapplied as of 2026-07-13; applied and verified
+      2026-07-26, see Known Issue #33). It only flips the row's `status`/`release_reason` and — since #130 (2026-07-13) —
       that is provably all it needs to do: `analyze-form` settles the row **before** it uploads any
       frames, so a `'reserved'` row can never have frames and a swept row has nothing to purge.
       Known Issue #16's storage-purge half is therefore **resolved by construction** rather than by
@@ -355,8 +355,8 @@ milestone "done" criteria.
       issue's remaining scope is now its two follow-ups: **#47** (the stale-`reserved` sweep must
       also purge the storage prefix, not just flip the row's status) is **built, and its
       storage-purge ask is resolved by construction as of 2026-07-13 (issue #130)** —
-      `supabase/migrations/20260713130000_stale_reservation_sweep.sql` (written, **NOT applied** to
-      the live project) flips the row's `status`/`release_reason` on a 5-minute `pg_cron` schedule
+      `supabase/migrations/20260713130000_stale_reservation_sweep.sql` (**applied** to the live
+      project, verified 2026-07-26 — see Known Issue #33) flips the row's `status`/`release_reason` on a 5-minute `pg_cron` schedule
       and never touches Storage, because `analyze-form` now settles **before** it uploads: a
       `'reserved'` row can never have frames, so a swept row has nothing to purge. See that
       migration's Design Decision 5, and Known Issue #26 for the one orphan path that ordering
@@ -399,15 +399,15 @@ milestone "done" criteria.
     client is blocked by the *absence of a policy*, not by *lacking the privilege* — no defense
     in depth if a future migration ever adds a policy back carelessly, or if RLS is ever disabled
     on this table by mistake.
-    **Fix WRITTEN 2026-07-13, closed together with issue #4 — NOT YET APPLIED to the live
-    project.** `supabase/migrations/20260713153000_grant_hardening.sql` runs
-    `revoke all on storage.objects from authenticated, anon` and re-grants `authenticated` only
-    `SELECT` (also tightens `subscriptions`/`profiles`'s stray leftover `anon` grants and revokes
-    `set_updated_at()`'s EXECUTE — see `docs/change_log.md` 2026-07-13 for the full migration).
-    **Until `supabase db push` applies this migration, the live project is exactly as described
-    above — do not treat production as hardened.** `CLAUDE.md`'s "Uploaded media is sensitive"
-    section has been corrected to say the same thing. See also Known Issue #33 for the full,
-    current list of migrations written but not applied.
+    **Fix written 2026-07-13, closed together with issue #4; `supabase/migrations/
+    20260713153000_grant_hardening.sql` IS applied to the live project (Known Issue #33) but its
+    `revoke` no-ops — `storage.objects` is owned/granted by `supabase_storage_admin`, which no
+    migration running as `postgres` can revoke from.** `anon`/`authenticated` still hold full
+    `GRANT ALL` (including TRUNCATE) on `storage.objects`, unreachable in practice, with the
+    `pace_media_object_guard` BEFORE INSERT trigger as the actual control of record. **CLAUDE.md's
+    "Secrets & env" section (the `storage.objects` grant-all paragraph) is the authoritative,
+    up-to-date account of this — re-verified live 2026-07-13, issue #100. Do not treat this
+    paragraph as current; read that section instead.**
 19. **NEW — the client's direct soft-delete UPDATE policy (issue #2) can still leave frames
     orphaned without ever touching `DELETE /functions/v1/analysis/:id` (issue #57, found while
     building #57, 2026-07-12).** #2's `public.analyses` UPDATE policy (`deleted_at: null -> now()`
@@ -488,13 +488,11 @@ milestone "done" criteria.
     Known Issue #18 have); and the `pace_purchase_tier` SQL function's optional `p_as_of` parameter
     (a caller-suppliable period anchor, unreachable today but one careless edit away from being
     threaded through) was removed entirely rather than merely guarded (LOW finding).
-22. **NEW — `delete-account` does not work end to end yet: the edge function is deployed and
-    verified live (2026-07-26, see Known Issue #35), but the client is still on a mock pending
-    #122's binding swap (issue #58, 2026-07-13; response-contract fixed post-review same date).**
-    Read this plainly: shipping this issue and shipping #122 are BOTH required before Guideline
-    5.1.1(v) is actually satisfied. Neither issue alone says that; read together without this note
-    they could be misread as "works once deployed" — it will not, because until #122 lands, the
-    Settings screen it builds is calling a mock, not this function.
+22. **RESOLVED — `delete-account` now works end to end: the edge function is deployed and verified
+    live (2026-07-26, see Known Issue #35), and the client has been bound to the real function since
+    PR #122 (2026-07-13, issue #58; response-contract fixed post-review same date) — see Known Issue
+    #23.** Both halves this entry originally tracked as blockers before Guideline 5.1.1(v) could be
+    satisfied are done. Kept for the record, corrected below where marked:
     - **`POST /functions/v1/delete-account`**: written and Deno-tested on `feat/58-delete-account`
       (25 tests: zero orphaned Storage objects, nested-prefix recursion, delete order, a mid-purge
       failure leaving the auth user alive, the consent-trail decision, the full response
@@ -505,8 +503,10 @@ milestone "done" criteria.
     - ~~**Not deployed.**~~ **Deployed 2026-07-26** (see Known Issue #35) and verified live: it
       returned `200 {"deleted": true}` on a purpose-made throwaway account, which was confirmed
       gone afterwards. No migration was needed — `service_role` already holds every grant this
-      function uses, so it was a deploy, not a schema change. The client-binding half of this
-      issue (the Settings screen still calling a mock pending #122) is unchanged.
+      function uses, so it was a deploy, not a schema change. ~~The client-binding half of this
+      issue (the Settings screen still calling a mock pending #122) is unchanged.~~ **Corrected —
+      this was wrong even at the time of writing: PR #122 (2026-07-13) already bound
+      `lib/delete-account.ts` to the real client before this note was added; see Known Issue #23.**
     - **Response contract, fixed on PR #121 after security/code review** (both reviewers confirmed
       the purge logic itself — ordering, prefix purge, `purgePrefix`'s export, no partial-failure
       path that deletes the auth user — was sound; this was the one real finding). The original
@@ -571,16 +571,17 @@ milestone "done" criteria.
     deleted nothing while telling the user it had. Fixed the same day: `lib/delete-account.ts` now
     calls the real `supabase.functions.invoke('delete-account')`, built against the response
     contract `purge_failed` / `rows_failed` / `auth_delete_failed` (503, retryable) and
-    `orphans_remaining` (200, a SUCCESS — the account is gone). Two things still narrow this:
-    - **The edge function itself (#58/#121) is built but not yet merged to `main` or deployed.**
-      Calling this in the live app today gets a 404, which the client folds into an honest,
-      retryable failure — never a false success (proven by test, not just asserted) — but the
-      button will not actually work end-to-end until #121 merges and is deployed.
-    - **The exact contract may still drift.** `DeleteAccountErrorCode` in `lib/delete-account.ts`
-      is a hand-maintained mirror of `supabase/functions/_shared/delete-account.ts`'s outcome union
-      — this PR is barred from touching anything under `supabase/functions/`, so it cannot import
-      the real type. Whoever merges #121 should replace the mirror with a real `@shared/*` import
-      and confirm the codes still match.
+    `orphans_remaining` (200, a SUCCESS — the account is gone). Two things narrowed this at the time
+    and are now resolved:
+    - ~~**The edge function itself (#58/#121) is built but not yet merged to `main` or deployed.**~~
+      **RESOLVED 2026-07-26.** #121/#58 merged and `delete-account` was deployed to the live project
+      the same day, verified live end to end (see Known Issue #35) — the button works end-to-end.
+    - ~~**The exact contract may still drift.**~~ **Confirmed matching, not yet replaced with a real
+      import.** `DeleteAccountErrorCode` in `lib/delete-account.ts` remains a hand-maintained mirror
+      of `supabase/functions/_shared/delete-account.ts`'s outcome union rather than a `@shared/*`
+      import — the two were checked against each other and agree (`purge_failed` / `rows_failed` /
+      `auth_delete_failed`, with `reauth_required` handled as its own 401 on both sides). Swapping the
+      mirror for a real import is still a worthwhile cleanup, not a correctness gap.
 24. **NEW — the Settings screen ships UNCERTIFIED copy (issue #53, 2026-07-13).** `constants/copy.ts`
     gained a clearly-delimited block of strings that are **not in `docs/design/copy-deck.md`** and
     have not been through `ux-copywriter` or Ian: two distinct sign-out failure alerts (the string
@@ -891,28 +892,58 @@ milestone "done" criteria.
 
 ## Next action
 
-The build is now driven by [`docs/mvp-build-prompt.md`](mvp-build-prompt.md) (three-lens audit +
-rulings + decision gate). **The decision gate is fully closed** — Ian answered every remaining
-item on 2026-07-11 (fallback/quota behavior, the clip-length/frame-count/upload-size numbers,
-the app name, Apple Developer timing, and the consent/privacy package), joining the four
-design/product decisions already locked on 2026-07-10 (distinct-but-related design, 0–100+band,
-frames-only storage, minimal Elite compare). All 14 rulings + the full decision gate are synced
-into `planning/*` and `docs/architecture.md`. Immediate:
+**RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the
+immediate next step long after M2–M7 were built and the full sign-up → analysis → result path
+went live end to end (issue #128). It went unedited for several milestones — see GitHub issue
+#154.** The Milestones table and Known Issues above are the authoritative, current source for
+what's built and what's open; this section points at them rather than re-describing their content,
+so it cannot drift out of sync with them the same way again. As of 2026-07-26, the concrete items
+still standing between here and a public/TestFlight release:
 
-1. ~~Build step 1: knowledge files~~ **done** — pending Ian's certification review of Elasticity.
-2. ~~Decision gate~~ **done 2026-07-11** — every item answered; see `docs/change_log.md`.
-3. ~~Phase 0.5: design layer~~ **done 2026-07-11** — copy deck, tokens + AA proof, motion
-   consult, privacy checklist all landed; pending Elasticity certification only (see #5 above).
-4. ~~Push `ANTHROPIC_API_KEY`~~ **done 2026-07-11** — rotated by Ian, in production secrets.
-5. ~~Phase 1 — the spine (M1)~~ **built & reviewed 2026-07-11 on `feat/m1-spine`** — DB spine (7
-   migrations live), auth spine (email + Google), empty Home, code-review fixes, security audit
-   (no Critical/High). Pending Ian's on-phone gate test and the PR merge.
-6. **Start Phase 2 — Capture (M2)** once the M1 PR merges: `lib/frames.ts` (extraction +
-   downscale; **no Storage upload** — that moved server-side under #88, see Known Issue #16) and
-   the capture/pick screens, per `docs/mvp-build-prompt.md`'s Phase 2. **The SecureStore
-   session-storage move (#13) is done** (2026-07-12, issue #38 — see Known Issue #13 above).
-   Neither #10 (runner's note, resolved) nor #12 (CAPTCHA) nor #14 (Phase 4 contract notes) block
-   M2 — #12 blocks M4 going live, #14 is scoped
-   to the M4 build itself. **#16's migration is applied and verified live as of 2026-07-12** —
-   M2/M4 code should be written straight against the new (`no mediaPaths`, server-side upload)
-   contract; there is no old contract left to accidentally target.
+- **Known Issue #21** — `PURCHASE_TIER_DUMMY_ENABLED` must be unset before any TestFlight or
+  public release (hard release gate; currently `true` on the live project by deliberate captain
+  decision, open to anyone who can sign up).
+- **Known Issue #12** — CAPTCHA is needed before `analyze-form` can go live publicly (needs Ian to
+  create provider keys; blocks M4 going live, not the M4 build itself).
+- **Known Issue #17** — a hard spend ceiling in the Anthropic Console is still unset (needs Ian's
+  Anthropic Console access).
+- **Known Issue #15** — `docs/privacy-policy.md` publication is on hold pending Ian's answer on
+  data controller identity (Individual vs. Organization Apple Developer enrollment) and a contact
+  email; the policy carries a `DO NOT PUBLISH` guard until then.
+- **Issue #39** (M3 milestone row above) — Ian's certification review of the Elasticity content is
+  still open; the prompt ships his name.
+- **Known Issue #31** — `.maestro/` E2E flows ran for the first time 2026-07-25 but are not yet a
+  clean, repeatable pass.
+- **Known Issue #24/#34** — several blocks of uncertified copy across Settings, consent, paywall,
+  history, and password-reset screens still need `ux-copywriter`/Ian review.
+- [`docs/blocked-on-apple.md`](blocked-on-apple.md) — everything gated on the Apple Developer
+  Program (the TestFlight pipeline, Sign in with Apple).
+
+Original text, kept for the record (accurate as of 2026-07-11, stale from 2026-07-12 onward once
+M2 shipped):
+
+> The build is now driven by [`docs/mvp-build-prompt.md`](mvp-build-prompt.md) (three-lens audit +
+> rulings + decision gate). **The decision gate is fully closed** — Ian answered every remaining
+> item on 2026-07-11 (fallback/quota behavior, the clip-length/frame-count/upload-size numbers,
+> the app name, Apple Developer timing, and the consent/privacy package), joining the four
+> design/product decisions already locked on 2026-07-10 (distinct-but-related design, 0–100+band,
+> frames-only storage, minimal Elite compare). All 14 rulings + the full decision gate are synced
+> into `planning/*` and `docs/architecture.md`. Immediate:
+>
+> 1. ~~Build step 1: knowledge files~~ **done** — pending Ian's certification review of Elasticity.
+> 2. ~~Decision gate~~ **done 2026-07-11** — every item answered; see `docs/change_log.md`.
+> 3. ~~Phase 0.5: design layer~~ **done 2026-07-11** — copy deck, tokens + AA proof, motion
+>    consult, privacy checklist all landed; pending Elasticity certification only (see #5 above).
+> 4. ~~Push `ANTHROPIC_API_KEY`~~ **done 2026-07-11** — rotated by Ian, in production secrets.
+> 5. ~~Phase 1 — the spine (M1)~~ **built & reviewed 2026-07-11 on `feat/m1-spine`** — DB spine (7
+>    migrations live), auth spine (email + Google), empty Home, code-review fixes, security audit
+>    (no Critical/High). Pending Ian's on-phone gate test and the PR merge.
+> 6. **Start Phase 2 — Capture (M2)** once the M1 PR merges: `lib/frames.ts` (extraction +
+>    downscale; **no Storage upload** — that moved server-side under #88, see Known Issue #16) and
+>    the capture/pick screens, per `docs/mvp-build-prompt.md`'s Phase 2. **The SecureStore
+>    session-storage move (#13) is done** (2026-07-12, issue #38 — see Known Issue #13 above).
+>    Neither #10 (runner's note, resolved) nor #12 (CAPTCHA) nor #14 (Phase 4 contract notes) block
+>    M2 — #12 blocks M4 going live, #14 is scoped
+>    to the M4 build itself. **#16's migration is applied and verified live as of 2026-07-12** —
+>    M2/M4 code should be written straight against the new (`no mediaPaths`, server-side upload)
+>    contract; there is no old contract left to accidentally target.

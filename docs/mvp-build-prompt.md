@@ -1,6 +1,13 @@
 # V2.3 MVP Build Prompt
 
-> **How to use:** open a Claude Code session in this repo and say:
+> **STALE AS A KICKOFF PROMPT — do not "Start with Phase 0."** This was the build's starting
+> instruction on 2026-07-10; M1–M7 have since been built and the sign-up → analysis → result path
+> is live end to end (issue #128, 2026-07-26). For what's actually built and what's still open, see
+> `docs/status.md`'s Milestones table and Known Issues, not this file's phase list. The **Rulings**
+> and **Decision gate** below remain a valid historical record of decisions made and are still
+> cited elsewhere in the docs — only the "start here and execute" framing is out of date.
+>
+> **How to use (historical):** open a Claude Code session in this repo and say:
 > *"Read `docs/mvp-build-prompt.md` and execute it. Start with Phase 0."*
 > Produced 2026-07-10 after a full three-lens audit (spec consistency vs Echo V1 ground truth,
 > UX/media feasibility, live DB state). Findings are baked in below as **Rulings** (apply,

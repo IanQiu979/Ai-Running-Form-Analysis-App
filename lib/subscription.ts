@@ -198,10 +198,11 @@ export interface PurchaseSuccess {
  * (`supabase/functions/purchase-tier/index.ts` + `_shared/purchase-tier.ts`):
  *   - `not_found` (404) — the deployment gate refused the request. This is the SAME response
  *     whether `PURCHASE_TIER_DUMMY_ENABLED` is off, the caller isn't on the optional allowlist,
- *     OR the function simply isn't deployed to this project yet (this project's actual state as
- *     of issue #51 — see `docs/architecture.md`: "Built, Deno-tested, not deployed"). All three
- *     read identically to a caller by design (the deployment gate's own point — see that file's
- *     header) and must read identically to a USER too: "not available right now", never
+ *     or the function isn't deployed to a given project at all — which of these is live for a
+ *     given project can change with the flag/allowlist config, so this client never assumes one
+ *     over another (`docs/status.md`'s M5 row has the current flag state for this project). All
+ *     three read identically to a caller by design (the deployment gate's own point — see that
+ *     file's header) and must read identically to a USER too: "not available right now", never
  *     "something broke."
  *   - `invalid_body` / `invalid_tier` / `invalid_source` (400) — this client always sends a
  *     well-formed `{ tier, source: 'dummy' }`, so these indicate a client bug, not a user-facing
@@ -269,8 +270,9 @@ export async function purchaseTier(tier: PurchasableTier): Promise<PurchaseResul
   // A non-JSON / unrecognized-shape 404 (kind: 'malformed') is this endpoint's OTHER "not
   // available" shape, not a distinct failure — see `PurchaseErrorCode`'s `not_found` doc above.
   // `purchase-tier` is either deployed-but-gated (a real `{ error, code: 'not_found' }` JSON
-  // body, kind: 'http') or not deployed to this project at all yet (a bare/HTML 404, kind:
-  // 'malformed') — and this project's own docs record it is CURRENTLY the latter. Both must read
+  // body, kind: 'http' — this project's actual state since `purchase-tier` deployed 2026-07-26,
+  // see `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier`" section) or not
+  // deployed to a given project at all (a bare/HTML 404, kind: 'malformed'). Both must read
   // identically to the user, which is exactly what collapsing them here buys `app/paywall.tsx`:
   // it never has to know the difference.
   if (result.error.kind === 'malformed') {

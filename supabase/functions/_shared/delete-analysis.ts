@@ -43,7 +43,7 @@
  * with its own test, not an accident of a WHERE clause.
  *
  * PURGE BY PREFIX, NEVER BY `media_paths` (the #88/#57 settled contract — see
- * `docs/architecture.md` "Planned — media pipeline" and CLAUDE.md's Secrets & env section): the
+ * `docs/architecture.md` "Current — media pipeline" and CLAUDE.md's Secrets & env section): the
  * prefix `{callerUserId}/{analysisId}/` is constructed from the caller's own id and the path
  * param alone, never read off the row. A crash between an upload and its `settle_analysis` call
  * can leave objects under a prefix whose row's `media_paths` is still empty — iterating

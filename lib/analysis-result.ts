@@ -40,7 +40,7 @@ export type AnalysisReadState =
  *     analysis has actually delivered;
  *   - the row failed outright (`status === 'released'` with no retry-partial delivered) — same
  *     reasoning: `result` was never written for a clean failure (`docs/architecture.md`
- *     "Planned — analyze-form edge function flow" step 9: "on a second failure ... else a clean
+ *     "Original design — analyze-form edge function flow" step 9: "on a second failure ... else a clean
  *     failure", and only a delivered fallback reaches `status: 'delivered'`).
  * From the caller's point of view all four read identically: "there is nothing to show here."
  *

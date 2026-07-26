@@ -2,8 +2,8 @@
 // orphaned its Storage frames forever). This is the ONLY user-facing hard-delete path in the
 // app: `public.analyses` grants the client SELECT plus a soft-delete UPDATE restricted to the
 // `deleted_at` column (issue #2), and `storage.objects` grants the client SELECT only (issue
-// #88) — neither role can remove anything on its own. See `docs/architecture.md`'s "Planned —
-// API" table and `_shared/delete-analysis.ts`'s header comment for the full design rationale
+// #88) — neither role can remove anything on its own. See `docs/architecture.md`'s "API" table
+// and `_shared/delete-analysis.ts`'s header comment for the full design rationale
 // (ordering, idempotency, and the authorization model). This file is deliberately thin: all
 // decision logic lives in `_shared/delete-analysis.ts` (fully unit-tested under Deno — see
 // `_shared/__tests__/delete-analysis.deno.test.ts`); this is just the HTTP/auth glue, same split

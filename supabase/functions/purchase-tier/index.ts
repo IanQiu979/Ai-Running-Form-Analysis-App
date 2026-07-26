@@ -8,12 +8,12 @@
 // verification without changing its shape. No real money moves in v1: there is no IAP and no
 // Stripe (real IAP is Apple-gated and post-MVP — `docs/blocked-on-apple.md`).
 //
-// *** DEPENDS ON A MIGRATION THAT IS WRITTEN, NOT APPLIED ***
-// `pace_purchase_tier` (`supabase/migrations/20260713120000_purchase_tier_function.sql`) has not
-// been pushed to the live project as of this commit — issue #51's hard constraint forbids applying
-// it from this worktree. This function will fail with `purchase_unavailable` (500) against
-// production until that migration lands. Same footing `quota-status` (#50) and `analysis` (#57)
-// shipped on: built and Deno-tested, not deployed.
+// DEPENDS ON `pace_purchase_tier`
+// (`supabase/migrations/20260713120000_purchase_tier_function.sql`), which is APPLIED to the live
+// project — verified 2026-07-26 (`docs/status.md` Known Issue #33) — and this function is itself
+// deployed there. Historically (issue #51) that migration was written but unapplied and this
+// function returned `purchase_unavailable` (500) against production; that is no longer the case.
+// Read the deployment gate below: it being live is exactly what makes that gate load-bearing.
 //
 // ============================================================================================
 // DEPLOYMENT GATE — READ THIS BEFORE DEPLOYING THIS FUNCTION, NOT AFTER

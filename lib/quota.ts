@@ -7,15 +7,14 @@
  * endpoint (via `lib/functions-client.ts`'s shared `invokeFunction` wrapper, same pattern as
  * `lib/delete-account.ts`) and structurally validates the response shape.
  *
- * ⚠️ THE ENDPOINT IS NOT DEPLOYED YET. `supabase/functions/quota-status/index.ts`'s own header
- * says it depends on a migration (`pace_quota_status`,
- * `supabase/migrations/20260712233000_quota_status_function.sql`) that is written but NOT
- * applied to the live project. Calling this today gets a non-2xx/relay failure —
- * `fetchFromEdgeFunction` below folds that into the same honest, retryable
- * `{ ok: false, error: { code: 'unknown' } }` result every other unrecognized failure gets, same
- * as `lib/delete-account.ts` does for its own not-yet-deployed function. `app/(tabs)/index.tsx`
- * shows this as its existing error state (last-known value + Retry) — it never fabricates a
- * quota reading to paper over the gap.
+ * `quota-status` and its `pace_quota_status` migration
+ * (`supabase/migrations/20260712233000_quota_status_function.sql`) have both been deployed/applied
+ * to the live project since 2026-07-26 (`docs/architecture.md`'s "Current —
+ * `GET /functions/v1/quota-status`" section; `docs/status.md` Known Issue #33). Any non-2xx/relay
+ * failure still folds into the same honest, retryable `{ ok: false, error: { code: 'unknown' } }`
+ * result every other unrecognized failure gets — `app/(tabs)/index.tsx` shows this as its existing
+ * error state (last-known value + Retry) — it never fabricates a quota reading to paper over a
+ * failure, whatever the cause.
  *
  * THE WIRE SHAPE READ HERE is `responseBodyForQuotaStatus`'s output
  * (`supabase/functions/_shared/quota-status.ts`) — the flattened, camelCase `QuotaStatus` object
@@ -158,7 +157,7 @@ async function fetchFromEdgeFunction(): Promise<QuotaStatusResult> {
 
   // `kind: 'http'` is the only branch with a real, server-authored `code` to read — `'network'`
   // (a relay/fetch failure) and `'malformed'` (a non-2xx response whose body wasn't the
-  // documented shape, e.g. the function doesn't exist yet — see this file's header) both carry
+  // documented shape, e.g. a gateway error page rather than this endpoint's JSON) both carry
   // no such code, and collapse into the same generic, honestly-unknown failure below, as does an
   // HTTP code this endpoint doesn't recognize as one of its own.
   if (result.error.kind === 'http' && isServerQuotaStatusErrorCode(result.error.code)) {

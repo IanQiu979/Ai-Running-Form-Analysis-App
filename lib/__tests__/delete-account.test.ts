@@ -140,7 +140,7 @@ describe('createDeleteAccountClient (the real implementation)', () => {
     expect(result.error.code).toBe('unknown');
   });
 
-  it('resolves — never rejects — a FunctionsHttpError whose body is not valid JSON (e.g. the function is not deployed yet: a 404)', async () => {
+  it('resolves — never rejects — a FunctionsHttpError whose body is not valid JSON (e.g. a gateway error page rather than this endpoint\'s JSON)', async () => {
     mockInvoke.mockResolvedValue({
       data: null,
       error: new FunctionsHttpError({
