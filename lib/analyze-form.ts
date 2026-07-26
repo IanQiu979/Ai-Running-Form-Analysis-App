@@ -4,20 +4,37 @@
  * the injectable `AnalyzeFormClient` `app/analyzing.tsx` calls through, a dev-only mock
  * implementation, and the one-shot request handoff the screen reads from.
  *
- * `analyze-form` (issue #44) DOES NOT EXIST YET. Nothing in this file calls the Anthropic API, a
- * Supabase edge function, or any network endpoint — `analyzeFormClient` below is bound to the
- * mock so the Analyzing screen is runnable and reviewable today. #44 drops its real
- * implementation in by replacing that one binding at the bottom of this file; every type above it
- * is the seam and should not need to change. The real implementation will lean on issue #46's
- * shared `{ error, code }` unwrapper to turn `supabase.functions.invoke`'s generic
- * `FunctionsHttpError` into `AnalyzeFormClientResult`'s error branch — this file only declares
- * the shape that unwrapper must produce, it is not a substitute for #46's own shared helper.
+ * ⚠️ HISTORY, because it is the whole reason this file reads the way it does (issue #128, fixed
+ * 2026-07-26): this file originally shipped bound to the mock, on the stated theory that #44
+ * would "drop its real implementation in by replacing that one binding." #44 landed
+ * `supabase/functions/analyze-form/` and never touched this file — its file list is entirely
+ * under `supabase/functions/` — so the promised swap had no owner and never happened. The mock
+ * stayed bound as the production client, and because it mints a `Crypto.randomUUID()` and writes
+ * NO database row, every single upload in the real app dead-ended on `app/result/[id].tsx`'s "We
+ * couldn't find this analysis." Verified live: `select count(*) from public.analyses` returned 0
+ * rows, ever. This is the identical failure mode a security audit caught in
+ * `lib/delete-account.ts` (PR #122, F1), and the fix here is deliberately the same one, so the
+ * two seams stay recognizably one pattern rather than two:
+ *   - `createAnalyzeFormClient()` below is the REAL client and is what `analyzeFormClient` binds;
+ *   - the mock is kept, because the Analyzing screen's every branch is still worth exercising
+ *     without a live model call, but it is DEV/TEST-ONLY and throws in a release bundle
+ *     (`__DEV__` guard in `createMockAnalyzeFormClient`), so it can never silently become the
+ *     production client again.
+ *
+ * The real client calls the `analyze-form` edge function through issue #46's shared
+ * `invokeFunction` wrapper (`lib/functions-client.ts`) rather than `supabase.functions.invoke`
+ * directly, per that file's own "every edge-function caller should go through this" rule: it
+ * already owns the `FunctionsHttpError` → `{ error, code }` unwrap (a non-2xx body is only
+ * reachable via `await error.context.json()`) and the `FunctionsRelayError`/`FunctionsFetchError`
+ * distinction. What is left for THIS file is only what is specific to this endpoint: proving the
+ * 200 body really is `{ result, analysisId, isFallback }` before handing it to the screen.
  */
 
 import * as Crypto from 'expo-crypto';
 
 import type { PaceFrameSet } from '@/lib/frames';
-import { PACE_PILLARS, type PacePillarId, type PacePillarResult, type PaceResult } from '@shared/pace';
+import { invokeFunction } from './functions-client';
+import { isPaceAnalysisOutcome, PACE_PILLARS, type PacePillarId, type PacePillarResult, type PaceResult } from '@shared/pace';
 
 export type AnalyzeFormMediaType = 'photo' | 'video';
 
@@ -106,7 +123,108 @@ export interface AnalyzeFormClient {
 }
 
 // -------------------------------------------------------------------------------------------
-// Dev mock — stands in for #44 so the Analyzing screen is runnable and reviewable today. Every
+// The real client (issue #128). This is what `analyzeFormClient` binds and what a production
+// build ships.
+// -------------------------------------------------------------------------------------------
+
+const EDGE_FUNCTION_NAME = 'analyze-form';
+
+/**
+ * The honest failure every path with no server-authored `code` collapses into: a relay/fetch
+ * failure, a non-2xx body that wasn't the documented `{ error, code }` shape (e.g. a bare 404 from
+ * a project the function isn't deployed to), or a 200 whose body didn't survive validation.
+ *
+ * The copy deliberately does NOT carry the "this one wasn't counted against your quota"
+ * reassurance the rest of `app/analyzing.tsx` uses. That claim rests on `analyze-form` releasing
+ * the reservation on every failure path (`docs/architecture.md` step 9), which is true for the
+ * relay/fetch and unreadable-body branches — but NOT for the 200-we-couldn't-validate branch: there
+ * the server settled the row and kept the quota, and only this client refused to render it. One
+ * constant covers all three, so it must say something true on all three. It instead points at Past
+ * Analyses, where a settled-but-unrendered analysis will in fact be waiting.
+ *
+ * `code` is `'unknown'` — this client's own bucket, never a fabricated server code — matching
+ * `lib/delete-account.ts` and `lib/subscription.ts`'s identical convention. Nothing downstream
+ * branches on it: `app/analyzing.tsx` only special-cases real server codes (`quota_exceeded` #136,
+ * `previous_attempt_failed`), which reach it through the `'http'` branch.
+ */
+const UNKNOWN_ANALYZE_FORM_ERROR: AnalyzeFormError = {
+  error: "Something went wrong running that analysis, and we couldn't show you a result. Check Past Analyses before trying again.",
+  code: 'unknown',
+};
+
+/** Mirrors `app/result/[id].tsx`'s own route-param guard — see `parseAnalyzeFormSuccess`. */
+const ANALYSIS_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Structural validation of the 200 body, in the same spirit as `lib/subscription.ts`'s
+ * `parseQuotaStatus` and `lib/analysis-result.ts`'s `readAnalysisRow` — and reusing `@shared/pace`'s
+ * own `isPaceAnalysisOutcome` for the `{ result, isFallback }` half rather than hand-rolling a
+ * second, driftable copy of the pillar-shape check.
+ *
+ * `analysisId` is checked against the SAME `UUID_PATTERN`-shaped requirement `app/result/[id].tsx`
+ * enforces on its route param, on purpose. That screen bails to "we couldn't find this analysis"
+ * before it ever queries Supabase if the id isn't a UUID — which is precisely how issue #128's
+ * mock produced a dead end. Rejecting a non-UUID id HERE turns that silent dead end into an honest
+ * failure on the Analyzing screen, which at least offers a Retry.
+ */
+export function parseAnalyzeFormSuccess(raw: unknown): AnalyzeFormSuccess | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const body = raw as Record<string, unknown>;
+
+  const { analysisId } = body;
+  if (typeof analysisId !== 'string' || !ANALYSIS_ID_PATTERN.test(analysisId)) return null;
+
+  const outcome = { result: body.result, isFallback: body.isFallback };
+  if (!isPaceAnalysisOutcome(outcome)) return null;
+
+  return { result: outcome.result, analysisId, isFallback: outcome.isFallback };
+}
+
+/**
+ * Calls the real `analyze-form` edge function. Resolves — never rejects — for every documented
+ * outcome, exactly as `AnalyzeFormClient`'s contract above requires, because `invokeFunction` is
+ * itself guaranteed never to reject.
+ *
+ * The `'http'` branch passes the server's `code` through VERBATIM and unnarrowed. That is
+ * deliberate and differs from `lib/delete-account.ts`, which whitelists its three codes: this
+ * endpoint's code set is both large and still growing (`quota_exceeded`, `frame_cap_exceeded`,
+ * `too_many_failed_attempts`, `validation_failed`, `consent_required`, `misconfigured`,
+ * `internal_error`, …), and `app/analyzing.tsx` already treats an unrecognized code as a plain
+ * failure. Whitelisting here would mean a newly-added server code silently degrading into
+ * `'unknown'` and losing, say, a future paywall route — the exact coupling issue #136 had to undo
+ * once already.
+ */
+async function submitToEdgeFunction(request: AnalyzeFormRequest): Promise<AnalyzeFormClientResult> {
+  const result = await invokeFunction(EDGE_FUNCTION_NAME, {
+    method: 'POST',
+    body: request,
+  });
+
+  if (result.ok) {
+    const success = parseAnalyzeFormSuccess(result.data);
+    if (success) return { ok: true, data: success };
+    // A 200 we can't prove the shape of is not a result we can render — and navigating to an
+    // unvalidated `analysisId` is how #128 dead-ended in the first place.
+    return { ok: false, error: UNKNOWN_ANALYZE_FORM_ERROR };
+  }
+
+  if (result.error.kind === 'http') {
+    return { ok: false, error: { error: result.error.error, code: result.error.code } };
+  }
+
+  // 'network' (no response was ever produced or relayed) and 'malformed' (a response arrived with
+  // no readable `{ error, code }`) both carry no server-authored code to report.
+  return { ok: false, error: UNKNOWN_ANALYZE_FORM_ERROR };
+}
+
+/** The real client. Bound below as `analyzeFormClient` — the binding a production build ships. */
+export function createAnalyzeFormClient(): AnalyzeFormClient {
+  return { submit: submitToEdgeFunction };
+}
+
+// -------------------------------------------------------------------------------------------
+// Dev/test-only mock — stands in for a live model call so the Analyzing screen is runnable and
+// reviewable without one. Every
 // branch the screen renders (success, honest-partial fallback, clean failure, and — by never
 // resolving before the screen's own `ANALYZING_TIMEOUT_MS` — a timeout) is reachable by
 // constructing a differently-configured mock; nothing here calls the Anthropic API, Supabase, or
@@ -183,12 +301,33 @@ function mockAnalysisId(): string {
   return Crypto.randomUUID();
 }
 
+/**
+ * ⚠️ ISSUE #128's TRIPWIRE, and the direct counterpart of `createMockDeleteAccountClient`'s. This
+ * mock existing at all is what let this file ship bound to it with no owner for the swap to a real
+ * client — see this file's header. `__DEV__` is `true` under Metro's dev server and under Jest
+ * (`react-native/jest/setup.js` sets it explicitly, which is what keeps this suite's own tests able
+ * to construct the mock at all) and `false` in any release/production JS bundle, so this throws at
+ * the first call to `submit()` in exactly the build where fabricating an analysis id that no
+ * database row backs would matter — belt-and-suspenders alongside `analyzeFormClient` below now
+ * being bound to the real client, not this one.
+ *
+ * The throw is placed inside `submit()` rather than at construction time on purpose: the `timeout`
+ * outcome deliberately never resolves, so a guard placed after that branch would be unreachable
+ * for precisely the configuration whose whole job is to hang forever.
+ */
 export function createMockAnalyzeFormClient(options: MockAnalyzeFormClientOptions = {}): AnalyzeFormClient {
   const delayMs = options.delayMs ?? 4000;
   const outcome = options.outcome ?? 'success';
 
   return {
     async submit(): Promise<AnalyzeFormClientResult> {
+      if (!__DEV__) {
+        throw new Error(
+          'createMockAnalyzeFormClient() must never run outside a dev/test build. ' +
+            'analyzeFormClient must be bound to createAnalyzeFormClient() in production.'
+        );
+      }
+
       if (outcome === 'timeout') {
         // Deliberately never resolves — exercises the SCREEN's own client-side timeout
         // (ANALYZING_TIMEOUT_MS) instead of the mock inventing a fake one of its own.
@@ -228,11 +367,17 @@ export function createMockAnalyzeFormClient(options: MockAnalyzeFormClientOption
 }
 
 /**
- * The seam's current binding. #44 swaps this line for the real implementation once
- * `supabase/functions/analyze-form` exists and is deployed; nothing else in this file, and
- * nothing in `app/analyzing.tsx`, needs to change to pick it up.
+ * The seam's binding. THIS IS NOW THE REAL CLIENT — issue #128, fixed 2026-07-26: submitting a
+ * photo or video calls the actual `analyze-form` edge function, which reserves a row, runs the
+ * model, and settles that row to `status: 'delivered'` BEFORE returning the `analysisId` this
+ * client hands to `app/analyzing.tsx`. That ordering is the entire fix: `app/result/[id].tsx`
+ * queries `public.analyses` by that id, so the row must already exist when the navigation happens.
+ *
+ * Do not rebind this to the mock to make something pass locally — a mock bound here is invisible
+ * in review and was the production bug. Construct `createMockAnalyzeFormClient()` explicitly at
+ * the call site that needs it instead (which is what the tests do).
  */
-export const analyzeFormClient: AnalyzeFormClient = createMockAnalyzeFormClient();
+export const analyzeFormClient: AnalyzeFormClient = createAnalyzeFormClient();
 
 // -------------------------------------------------------------------------------------------
 // Pending-request handoff — a plain module-level mailbox, not a state-management store.

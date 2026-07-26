@@ -5,6 +5,89 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-26 (issue #128 — the analyze-form client is real; first live backend deploy of the analysis path)
+
+- **🚨 `PURCHASE_TIER_DUMMY_ENABLED=true` IS NOW SET ON THE LIVE PROJECT, AND IT IS A RELEASE
+  BLOCKER.** By explicit captain decision (2026-07-26), the deployment gate that a security audit
+  put on `purchase-tier` (PR #123) is **switched on** for the live `v2.3Analysis` project
+  (`vputdomdlknvthnzritt`), so Pro/Elite can be self-granted for $0 during development. The captain
+  **declined** to narrow it with `PURCHASE_TIER_ALLOWED_USER_IDS`, so it is currently reachable by
+  **any account that can sign up** — which, with open signup and no email confirmation, means
+  anyone on the internet. The $0-self-grant → burn-the-shared-daily-AI-cap → deny-every-real-user
+  chain in `docs/status.md` Known Issue #21 is therefore **live right now**. This is a known,
+  accepted, temporary development risk — **not** a resolution of that issue. **It MUST be unset
+  (`supabase secrets unset PURCHASE_TIER_DUMMY_ENABLED`, not set to `"false"`) before any
+  TestFlight build or public release.** Restated in Known Issue #21 and added as an explicit
+  pre-submission step in `docs/blocked-on-apple.md`'s order of operations.
+- **#128 — `lib/analyze-form.ts` now calls the real `analyze-form` edge function.** It was bound to
+  `createMockAnalyzeFormClient()`, which mints a `Crypto.randomUUID()` and writes **no database
+  row**, so `app/result/[id].tsx` queried an id nothing backed and every upload in the real app
+  dead-ended on "We couldn't find this analysis" — verified live, `select count(*) from
+  public.analyses` had returned 0 rows, ever. #44 built the edge function but its file list never
+  touched `lib/`, so the promised binding swap had no owner. This is the same ownerless-seam bug a
+  security audit caught in `lib/delete-account.ts` (PR #122, F1), and the fix is deliberately
+  identical: `createAnalyzeFormClient()` is the real client and is what `analyzeFormClient` binds;
+  it goes through `lib/functions-client.ts`'s shared `invokeFunction` (#46) rather than
+  `supabase.functions.invoke` directly; and the mock is kept for tests/dev but **throws in a
+  release bundle** behind a `__DEV__` guard so it can never silently become the production client
+  again. The client also structurally validates the 200 body and **refuses a non-UUID
+  `analysisId`**, turning what used to be a silent dead end on the result screen into an honest,
+  retryable failure on the Analyzing screen. A regression test asserts the shipped binding calls
+  the edge function.
+- **Deployed to the live project (first time for the analysis path):** `analyze-form` (was never
+  deployed), plus redeploys of `quota-status` and `purchase-tier`. **No migrations were applied** —
+  all 24 repo migrations, including `pace_quota_status` and `pace_purchase_tier`, were already
+  present on the live database with `SECURITY DEFINER` + pinned `search_path` intact;
+  `docs/status.md`'s M5 row claiming they were "not applied to any database" was stale.
+- **FIXED — every authenticated edge function was answering `401 unauthorized` to valid JWTs.**
+  `quota-status`, `analyze-form`, `purchase-tier`, and `delete-account` all rejected freshly-minted
+  tokens; edge logs show `quota-status` 401ing on *every* invocation in the retained window,
+  the captain's own app included. Cause: `SUPABASE_PUBLISHABLE_KEYS`/`SUPABASE_SECRET_KEYS` hold a
+  JSON **object** keyed by name (`{"default":"sb_publishable_..."}`), but a parser duplicated in
+  **ten** files only accepted a JSON *array* and fell through to `return raw` — handing the entire
+  JSON string to `createClient()` as the API key. Fixed with one shared
+  `_shared/supabase-keys.ts`; all ten copies now delegate to it. Verified live: `quota-status` now
+  returns real data. **All six edge functions are now deployed carrying the fix**: `analyze-form`,
+  `quota-status`, and `purchase-tier` first, then `delete-account`, `analysis`, and
+  `sweep-orphaned-media` at 2026-07-26T03:41:28Z once the deploy authority was extended. Verified
+  live: `analysis` returned `404 not_found` for a `DELETE` of a non-existent uuid (auth passed,
+  nothing destroyed), and `delete-account` returned `200 {"deleted": true}` on a purpose-made
+  throwaway account, exercising both the publishable-key parse (auth) and the secret-key parse
+  (service-role purge); the throwaway user was confirmed gone and nothing else was affected.
+  ⚠️ `sweep-orphaned-media` is deployed and typechecked but **not exercised** — it is gated on an
+  `X-Cron-Secret` shared secret rather than a user JWT, and that secret was deliberately not
+  guessed or printed, so its live runtime behavior is unverified.
+- **VERIFIED LIVE — the analysis flow now works end to end.** A real upload produced
+  `public.analyses` row `b144d29b-…` with `status: delivered`, `is_fallback: false`, a structurally
+  valid PACE result (overall 55/mid; cadence and elasticity honestly `null` for a single photo),
+  and one frame at `{user_id}/{analysis_id}/frame-01.jpg` in the private bucket. Read back through
+  RLS as the owner, `readAnalysisRow` resolves to `ready` — a real result screen. `analyses` went
+  from **0 rows, ever** to a delivered row. Quota moved 0 → 1 used.
+- **VERIFIED LIVE — the dummy purchase moves tier.** `purchase-tier` with `source: "dummy"` granted
+  pro (limit 10 / frameCap 5) then elite (30 / 8), confirmed by `quota-status` and by the
+  `subscriptions` row; `purchased_at` did **not** move on the repurchase, so the idempotent
+  period anchor holds.
+- **The Analyzing screen no longer offers a Retry that cannot work.** Binding the real client made a
+  previously unreachable dead end live: Retry re-submits the same request with the same
+  `idempotencyKey` (by design — that rule is what stops a client-side timeout from double-running
+  the analysis or double-burning quota, and it is unchanged), but a failed attempt releases the
+  reservation, so `reserve_analysis` hands back the same released row and `analyze-form` answers
+  `409 previous_attempt_failed` forever. That code now renders its own panel — new copy
+  `analyzing.error.previousAttemptFailed.title`/`.body` — whose primary action is **Start a new
+  analysis** (`analyzing.error.cta.startNew`), routing back to `/capture` so the normal flow mints a
+  fresh key. Issue #64's `released` phase, reached by foreground reconciliation instead of by a live
+  response, is the same dead end and now shows the same panel and the same action; it previously
+  reused the `failed` copy, which ends "— try again", while offering no action but Cancel.
+- **`UNKNOWN_ANALYZE_FORM_ERROR` no longer promises the analysis wasn't counted against quota.**
+  That reassurance is true for the network and unreadable-body branches, but **false** on the branch
+  where the server returned a 200 the client then refused to render (a non-UUID `analysisId`, or a
+  result failing `isPaceAnalysisOutcome`): there the reservation was **settled**, not released, so
+  the quota was spent. One constant covers all three branches, so it now says only what is true on
+  all three — the analysis could not be displayed, check Past Analyses. The code stays `'unknown'`
+  and the unvalidatable body is still rejected.
+- The new `analyzing.error.previousAttemptFailed.*` and `cta.startNew` strings are **uncertified** —
+  added to `docs/status.md` Known Issue #34's inventory awaiting `ux-copywriter`/Ian review.
+
 ## 2026-07-25 (Bucket A infra + test hardening — local Supabase stack, real-Postgres property tests)
 
 - **#62 — M7 full-app accessibility pass.** `accessibility-reviewer`° swept every screen in

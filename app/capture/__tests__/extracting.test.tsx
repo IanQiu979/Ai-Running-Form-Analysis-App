@@ -33,6 +33,17 @@ jest.mock('react-native-safe-area-context', () =>
   require('react-native-safe-area-context/jest/mock').default
 );
 
+// Issue #128 made `lib/analyze-form.ts` a REAL edge-function client, so this screen's existing
+// import of it now transitively pulls in `lib/functions-client.ts` -> `lib/supabase.ts`, which
+// builds a client from `EXPO_PUBLIC_*` at import time and throws when they are unset (as they are
+// under Jest). This screen never touches Supabase itself — it only mints an idempotency key and
+// stages the request — so the module boundary is mocked rather than the env faked, matching
+// `lib/__tests__/delete-account.test.ts` and `lib/__tests__/consent.test.ts`. Faking the env in
+// `jest.setup.js` instead would hand every suite in the repo a real, half-configured client.
+jest.mock('../../../lib/supabase', () => ({
+  supabase: { functions: { invoke: jest.fn() } },
+}));
+
 let renderCount = 0;
 
 // THE load-bearing mock: a fresh object literal every call, exactly like the real

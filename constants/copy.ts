@@ -314,6 +314,15 @@ export const Copy = {
         title: 'Analysis timed out',
         body: "The read took too long to finish. This one wasn't counted against your quota — try again.",
       },
+      // NEW (not in docs/design/copy-deck.md): both released-reservation dead ends — the server's
+      // 409 `previous_attempt_failed`, and issue #64's `released` phase found by foreground
+      // reconciliation. Retrying reuses the same idempotency key, which `reserve_analysis` answers
+      // with the same already-released row — so a Retry in either case can only ever fail the same
+      // way. Wording mirrors the server's own message ("Start a new analysis to try again").
+      previousAttemptFailed: {
+        title: "That analysis didn't finish",
+        body: "An earlier attempt at this one stopped before it completed. It wasn't counted against your quota — start a new analysis to try again.",
+      },
       cta: {
         // The deck says "Reuse shared.cta.retry" / "shared.cta.cancel" — no Copy.shared
         // namespace exists in this codebase yet. Every screen shipped so far (Home's
@@ -323,6 +332,7 @@ export const Copy = {
         // from this screen's issue (out of scope per issue #80: "do NOT reorganize
         // constants/copy.ts").
         retry: 'Retry',
+        startNew: 'Start a new analysis',
         cancel: 'Cancel',
       },
     },

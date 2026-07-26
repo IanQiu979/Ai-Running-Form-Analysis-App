@@ -21,22 +21,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.110.2';
 import { errorClassOf, hashUserId, logEvent, newRequestId } from '../_shared/log.ts';
 import { runAnalyzeForm } from './flow.ts';
 import { createAnalyzeFormDeps } from './deps.ts';
-
-function getPublishableKey(): string {
-  const raw = Deno.env.get('SUPABASE_PUBLISHABLE_KEYS');
-  if (!raw) {
-    throw new Error('SUPABASE_PUBLISHABLE_KEYS is not set in the edge function environment');
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
-      return parsed[0];
-    }
-  } catch {
-    // Not JSON — a single bare key string. Fall through and use it as-is.
-  }
-  return raw;
-}
+import { getPublishableKey } from '../_shared/supabase-keys.ts';
 
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {

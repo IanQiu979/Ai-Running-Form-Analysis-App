@@ -16,32 +16,18 @@
 //
 // CLAUDE.md: "Supabase auto-injects SUPABASE_URL, SUPABASE_PUBLISHABLE_KEYS, and
 // SUPABASE_SECRET_KEYS into edge functions at runtime. Never set these by hand." The secret-key env
-// var is plural (key-rotation-safe) — getSecretKey() accepts either a bare key string or a JSON
-// array and always uses the first entry, mirroring `ai-guard-client.ts`/`delete-analysis-client.ts`
-// (kept as a separate copy here, as those two already do to each other, to keep this file's blast
-// radius — and any merge collision with the parallel work also touching `_shared/` — limited to
-// this one file).
+// var is plural (key-rotation-safe) and holds a JSON OBJECT KEYED BY KEY NAME —
+// `{"default":"sb_secret_..."}` — which `getSecretKey()` in `./supabase-keys.ts` parses. That parser
+// is shared, not copied: every caller used to carry its own copy that read the value as a JSON array
+// and otherwise fell through to the raw string, handing the whole JSON blob to `createClient()` as
+// the API key and 401'ing the entire authenticated surface. See `supabase-keys.ts`'s header for the
+// full account; add callers there, never another local copy.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.110.2';
 import type { AccountRows, AuthAdmin } from './delete-account.ts';
 import type { StorageBucket } from './delete-analysis.ts';
+import { getSecretKey } from './supabase-keys.ts';
 
 const MEDIA_BUCKET = 'media';
-
-function getSecretKey(): string {
-  const raw = Deno.env.get('SUPABASE_SECRET_KEYS');
-  if (!raw) {
-    throw new Error('SUPABASE_SECRET_KEYS is not set in the edge function environment');
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
-      return parsed[0];
-    }
-  } catch {
-    // Not JSON — a single bare key string. Fall through and use it as-is.
-  }
-  return raw;
-}
 
 /** True for the "that user doesn't exist" response — an already-deleted account, i.e. a converged retry. */
 function isUserNotFound(error: { status?: number; message: string }): boolean {

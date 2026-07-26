@@ -244,6 +244,23 @@ failure, not a network one).
 | `analyzing.error.cta.retry` | "Retry" | Reuse `shared.cta.retry`. |
 | `analyzing.error.cta.cancel` | "Cancel" | Reuse `shared.cta.cancel`; returns to Home. Retry/Cancel must never trap the user — every error state needs an exit. |
 
+### Released-reservation dead end (issue #128) — NEW, NOT YET CERTIFIED
+
+This deck's Screen 6 table above assumes every error state can be retried. One cannot: when the
+reservation behind this request was already released, a Retry re-submits the SAME idempotency key
+and `reserve_analysis` hands the same released row straight back, so it can only fail identically
+forever. Both routes into that state — the server's `409 previous_attempt_failed`, and issue #64's
+`released` phase found by foreground reconciliation — show this copy, whose primary action starts a
+new analysis instead. Written to this deck's own voice rules (plain, calm, name the outcome, never
+claim a state that isn't true) but **not** reviewed by `ux-copywriter` or Ian — mirrored here
+verbatim from `constants/copy.ts`, a draft until certified (`docs/status.md` Known Issue #34).
+
+| Key | String | Shows when |
+|---|---|---|
+| `analyzing.error.previousAttemptFailed.title` | "That analysis didn't finish" | The reservation for this request was already released — server `409 previous_attempt_failed`, or issue #64's reconciled `released` phase. |
+| `analyzing.error.previousAttemptFailed.body` | "An earlier attempt at this one stopped before it completed. It wasn't counted against your quota — start a new analysis to try again." | Deliberately drops the bare "try again" the `failed`/`timeout` copy carries, which here would name an action that cannot work. |
+| `analyzing.error.cta.startNew` | "Start a new analysis" | Primary action on that panel; routes to `/capture`, where the normal flow mints a fresh idempotency key. Cancel is still the second exit. |
+
 ---
 
 ## Screen 7 — Results

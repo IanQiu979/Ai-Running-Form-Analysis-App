@@ -47,7 +47,23 @@ first TestFlight submission**, never after (see #67 below).
    it at a public URL, and attach it to the App Store Connect record.
 6. **Enter the App Store privacy labels** from `docs/app-store-privacy-labels.md` — the answers are
    already derived, so this is a lookup, not a re-derivation.
-7. **`eas submit` → TestFlight.** Beta excludes EU/UK testers (recorded decision — keeps GDPR out
+7. **🚨 UNSET `PURCHASE_TIER_DUMMY_ENABLED` BEFORE THE FIRST SUBMISSION — do not skip this.**
+   It was deliberately set to `true` on the live project on **2026-07-26** (captain's decision) so
+   Pro/Elite could be self-granted during development, with **no `PURCHASE_TIER_ALLOWED_USER_IDS`
+   allowlist narrowing it**. While it is on, anyone who can sign up can grant themselves Elite for
+   $0 and burn the shared daily AI spend cap, denying `analyze-form` to every real user — the
+   attack chain in `docs/status.md` Known Issue #21, which is a **release blocker** and is *live
+   right now*.
+
+   ```
+   supabase secrets unset PURCHASE_TIER_DUMMY_ENABLED --project-ref vputdomdlknvthnzritt
+   supabase secrets list --project-ref vputdomdlknvthnzritt   # confirm the name is GONE
+   ```
+
+   Then confirm `POST /functions/v1/purchase-tier` answers `404 not_found`. Unset it — do not set
+   it to `"false"` and call it done. If a closed tester group genuinely needs dummy purchases, set
+   `PURCHASE_TIER_ALLOWED_USER_IDS` to those exact user ids *first*.
+8. **`eas submit` → TestFlight.** Beta excludes EU/UK testers (recorded decision — keeps GDPR out
    of scope for the beta and avoids needing an Art. 27 representative).
 
 ---

@@ -94,13 +94,9 @@ mechanism) — the shared PACE types, result shape, and structural validator, im
 absent — stale since issue #34 (merged before #36 started), which is when it actually landed.
 `lib/frames.ts` and its route consumers are both current now; see "Current — capture screens
 (issue #36)" below.
-Still absent: `supabase/functions/analyze-form` and `purchase-tier`/`quota-status`, `lib/
-subscription.ts`, and every route beyond sign-in, empty Home, and Analyzing (capture, result,
-paywall, settings, history). **One edge function now exists**: `supabase/functions/analysis/
-Still absent: `supabase/functions/analyze-form` and `purchase-tier`, `lib/
-frames.ts`, `lib/subscription.ts`, and every route beyond sign-in + empty Home (capture, result,
-paywall, settings, history). **Two edge functions now exist**: `supabase/functions/analysis/
-index.ts` (issue #57, 2026-07-12) — `DELETE /functions/v1/analysis/:id`, the first
+
+**Two edge functions now exist**: `supabase/functions/analysis/index.ts` (issue #57,
+2026-07-12) — `DELETE /functions/v1/analysis/:id`, the first
 `Deno.serve` entrypoint in the repo — and `supabase/functions/quota-status/index.ts` (issue #50,
 2026-07-12) — `GET /functions/v1/quota-status`, the server-authoritative read #54 (Home's quota
 display) must be wired to. Both written and Deno-tested on their own branches only (`fix/57`,
@@ -117,6 +113,16 @@ Analyzing screen now exists too** (`app/analyzing.tsx`, issue #80, 2026-07-12) �
 entirely against `analyze-form`'s documented contract via an injectable client seam
 (`lib/analyze-form.ts`), since `analyze-form` itself (#44) is still not built. See "Current — the
 Analyzing screen (issue #80)" below.
+
+**Correction, issue #128 (2026-07-26):** every "still absent" / "not deployed" / "not applied"
+claim in the dated snapshots above is superseded. All six edge functions (`analysis`,
+`quota-status`, `purchase-tier`, `analyze-form`, `delete-account`, `sweep-orphaned-media`) exist
+in the repo and are **deployed to the live project**, all 24 migrations in `supabase/migrations/`
+are **applied** there, and `lib/analyze-form.ts` is bound to the real client rather than its mock.
+**The API table under "API surface" is the owner of per-endpoint deployment status; the paragraphs
+above are kept only as a record of how the repo grew.** Live-state detail lives in
+`docs/status.md` Known Issues #25, #33, and #35. Collapsing these layered dated snapshots into a
+single current-state section is tracked in issue #153.
 
 ## Route tree — current (M1) vs planned
 
@@ -226,9 +232,10 @@ lib/
   analyze-form.ts          # current (issue #80, 2026-07-12) — the analyze-form CLIENT seam:
                           # AnalyzeFormRequest/AnalyzeFormClient types matching the documented
                           # wire contract, toAnalyzeFormRequest() (flattens a PaceFrameSet into
-                          # it), a dev-only mock client (analyze-form/#44 doesn't exist yet — the
-                          # `analyzeFormClient` binding is the one line #44 swaps for the real
-                          # implementation), and the one-shot pending-request mailbox
+                          # it), the REAL createAnalyzeFormClient() (issue #128, 2026-07-26 —
+                          # `analyzeFormClient` binds it and calls the deployed analyze-form
+                          # function through lib/functions-client.ts's invokeFunction), a
+                          # dev/test-only mock that throws unless __DEV__, and the mailbox
                           # app/analyzing.tsx reads from. See "Current — the Analyzing screen"
                           # below.
   analyzing-machine.ts     # current (issue #80, 2026-07-12) — the Analyzing screen's pure,
@@ -920,9 +927,16 @@ against their documented contracts (this section and the two "Planned" sections 
   result and an honest `isFallback: true` partial — issue #45 — are the SAME shape, never a
   different response type) or resolves `{ ok: false, error }` for a documented non-2xx; the real
   implementation (#44) is expected to produce that error shape via issue #46's shared `{ error,
-  code }` unwrapper, which #80 does not build. The `analyzeFormClient` binding is currently a
-  dev-only mock (`success`/`fallback`/`failed`/`timeout`/`thrown` outcomes) — the one line #44
-  swaps for the real implementation. A one-shot module-level mailbox
+  code }` unwrapper, which #80 does not build. **UPDATED 2026-07-26 (issue #128): the
+  `analyzeFormClient` binding is now the REAL client**, `createAnalyzeFormClient()`, which calls
+  the deployed `analyze-form` function through `lib/functions-client.ts`'s `invokeFunction` (#46's
+  unwrapper, exactly as anticipated above) and structurally validates the 200 body, refusing a
+  non-UUID `analysisId` rather than navigating to a result screen nothing backs. #44 built the
+  edge function but never touched `lib/`, so this swap sat unowned and the mock shipped as the
+  production client — every upload dead-ended on "We couldn't find this analysis." The mock
+  (`success`/`fallback`/`failed`/`timeout`/`thrown` outcomes) is retained for tests and dev but
+  now **throws unless `__DEV__`**, the same tripwire `lib/delete-account.ts` carries, so it can
+  never silently become the production binding again. A one-shot module-level mailbox
   (`setPendingAnalyzeFormRequest`/`takePendingAnalyzeFormRequest`) hands the request from whatever
   builds the capture flow (#36) to the screen — not route params, since a request carries
   multi-megabyte base64 frame data, and not a state-management library.
@@ -942,6 +956,15 @@ against their documented contracts (this section and the two "Planned" sections 
   Retry can never double-run the model or double-burn quota. A success and an honest
   `isFallback: true` partial both navigate to `/result/[id]` (with `justAnalyzed: '1'`, per
   `docs/design/motion-consult.md` item 3) — never to a failure state.
+- **A released reservation never offers a Retry (2026-07-26, issue #128).** Because Retry reuses the
+  same `idempotencyKey` and `reserve_analysis` returns an idempotency match as-is whatever its
+  status, re-submitting against a released reservation can only return the same released row. Both
+  ways of reaching that state — the server's `409 previous_attempt_failed` on the live response, and
+  issue #64's `released` phase found by foreground reconciliation — therefore render the same panel
+  (`Copy.analyzing.error.previousAttemptFailed.*`) whose primary action is **Start a new analysis**
+  (`Copy.analyzing.error.cta.startNew`), routing to `/capture` so the normal flow mints a fresh key.
+  `ErrorPanel` now takes a `primary: { label, onPress }` pair rather than a bare `onRetry`, so no
+  phase can render a button whose wording promises something its handler cannot do.
 - **Explicitly out of scope, by design**: issue #64's full backgrounding-recovery flow (this
   screen only avoids assuming a promise survives backgrounding — see `lib/analyzing-machine.ts`'s
   header comment — it does not implement the "Your analysis finished — see Past Analyses" toast),
@@ -1144,11 +1167,11 @@ RLS.
 
 | Method / Route | Auth | Body | Returns | Notes |
 |---|---|---|---|---|
-| `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | `{ result, analysisId, isFallback }` or `402` over-quota / `403` anon | Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. |
-| `POST /functions/v1/purchase-tier` | JWT + gate | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` or `404 not_found` (gate off) / `429 rate_limited` / `400 invalid_tier` / `invalid_source` | **Built, Deno-tested, not deployed (issue #51, 2026-07-13; hardened same day, PR #123)** — see "Current" below. **Gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF, must never be set in production secrets) — deploying without understanding the gate is a release blocker, `docs/status.md` Known Issue #23.** Same contract as V2.2; v2 swaps `source` to receipt verification (a non-`dummy` source is refused today). The only legitimate writer to `subscriptions`, via the service-role-only `pace_purchase_tier` RPC — no client-writable INSERT/UPDATE policy exists, and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`. Idempotent: `purchased_at` (the period anchor) is written once on first purchase and never moved (no caller-suppliable `p_as_of` either), so a repurchase cannot reset the quota period. |
-| `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, not deployed (issue #50, 2026-07-12)** — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
-| `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Issue #132's second-purge/`orphans_remaining` behavior (below) is new code in this same batch and has NOT itself been confirmed redeployed** — the confirmed-live fact above is that some version of this function is deployed; whether it's the pre- or post-#132 code needs a fresh `supabase functions deploy analysis` check, not assumed from this note. |
-| `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, not deployed (issue #58, 2026-07-13; response contract fixed post-review, same date)** — see "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
+| `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | `{ result, analysisId, isFallback }` or `402` over-quota / `403` anon | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issues #44 + #45, built 2026-07-13; deployed with #128, and `lib/analyze-form.ts` is now bound to the real client) — see "Current" below. Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. |
+| `POST /functions/v1/purchase-tier` | JWT + gate | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` or `404 not_found` (gate off) / `429 rate_limited` / `400 invalid_tier` / `invalid_source` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #51, 2026-07-13; hardened same day, PR #123; deployed with #128) — see "Current" below. **Gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — it is set to `true` on the live project today by deliberate captain decision and MUST be unset before any TestFlight build or public release; `docs/status.md` Known Issue #21 owns that release gate and its current live state.** Same contract as V2.2; v2 swaps `source` to receipt verification (a non-`dummy` source is refused today). The only legitimate writer to `subscriptions`, via the service-role-only `pace_purchase_tier` RPC — no client-writable INSERT/UPDATE policy exists, and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`. Idempotent: `purchased_at` (the period anchor) is written once on first purchase and never moved (no caller-suppliable `p_as_of` either), so a repurchase cannot reset the quota period. |
+| `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #50, 2026-07-12; deployed with #128) — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
+| `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Redeployed 2026-07-26 from the current repo code, so issue #132's second-purge/`orphans_remaining` behavior is now live** — that deploy also carried the shared-key parse fix (`docs/status.md` Known Issue #35). |
+| `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26, verified live** (issue #58, 2026-07-13; response contract fixed post-review, same date; deployed with #128 — see `docs/status.md` Known Issue #35). The client half is still on a mock pending #122, so the Settings flow does not reach this function yet — `docs/status.md` Known Issue #22. See "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
 `supabase.functions.invoke()` wraps non-2xx responses in a generic `FunctionsHttpError` whose
@@ -1171,9 +1194,9 @@ into `analyses` happen only inside `analyze-form`.
 Built and Deno-tested on `fix/57`. **Confirmed DEPLOYED** during this batch's 2026-07-13
 verification pass — every earlier note in this doc (and in `docs/status.md`) claiming this
 function was "not deployed" was stale as of that check and has been corrected. No migration was
-needed for the base function (see below); whether the specific #132 changes described at the end
-of this section have been redeployed is a separate, unconfirmed question — see the API table's own
-caveat.
+needed for the base function (see below). **Redeployed from current repo code 2026-07-26** (issue
+#128's batch, which also carried the shared-key parse fix), so the #132 changes described at the
+end of this section are live too — that earlier open question is closed.
 
 **Purges Storage a SECOND time after the row is marked deleted (issue #132, 2026-07-13),
 closing the delete-during-upload orphan window issue #130 narrowed but left open (`docs/status.md`
@@ -1257,12 +1280,11 @@ folder and a multi-page listing.
 
 ## Current — `GET /functions/v1/quota-status` (issue #50, 2026-07-12)
 
-Built and Deno-tested on `fix/50`. **Not deployed** — `supabase functions deploy` was never run.
-The DB function it depends on, `pace_quota_status`, has a written migration
-(`20260712233000_quota_status_function.sql`) that is **not applied** to any database, live or
-otherwise — this section describes what exists in the repo, not live behavior. Calling this
-function against the live project today returns `500 quota_status_unavailable` (the RPC does not
-exist yet), by design of the endpoint's own error handling, not a bug.
+Built and Deno-tested on `fix/50`. **Deployed to the live project 2026-07-26** (with issue #128),
+and the DB function it depends on, `pace_quota_status`
+(`20260712233000_quota_status_function.sql`), was found **already applied** there. Verified live:
+the endpoint returns real quota data for a signed-in caller. Until that batch it answered `401` to
+every request — the shared publishable-key parse bug, `docs/status.md` Known Issue #35.
 
 ```
 supabase/functions/
@@ -1878,10 +1900,10 @@ to own).
 ## Current — `POST /functions/v1/purchase-tier` (issue #51, 2026-07-13; hardened same day after a security audit on PR #123)
 
 The M5 gate, and the **only legitimate writer to `public.subscriptions`**. Built and Deno-tested
-on `feat/51-purchase-tier`; **not deployed**, and its migration is **written but not applied** —
-same footing `quota-status` (#50) and `analysis` (#57) ship on. **Deploying this function is a
-release blocker until the deployment gate below is understood — see `docs/status.md` Known Issue
-#23.**
+on `feat/51-purchase-tier`; **deployed to the live project 2026-07-26**, and its migration was
+found **already applied** there — as were all 24 repo migrations. **The deployment gate below is a
+release blocker and is currently switched ON in production secrets by deliberate decision — see
+`docs/status.md` Known Issue #21, which owns that live state and the unset-before-release step.**
 
 ```
 POST /functions/v1/purchase-tier   { tier, source: "dummy" }
@@ -1916,7 +1938,9 @@ indistinguishable from one that doesn't exist.** SQL cannot host this gate (a da
 a TestFlight build and a production build identically; there is no "which build is this" concept
 at that layer), so it lives in `purchase-tier/index.ts`, the only file that reads it. **This
 variable must never be set in production secrets** — `supabase secrets set` should scope it no
-wider than a closed TestFlight tester group. An optional `PURCHASE_TIER_ALLOWED_USER_IDS`
+wider than a closed TestFlight tester group. **It IS set to `true` on the live project today, as a
+deliberate, temporary development decision; `docs/status.md` Known Issue #21 owns that live state
+and the mandatory pre-release unset step.** An optional `PURCHASE_TIER_ALLOWED_USER_IDS`
 (comma-separated user ids) narrows eligibility further once the flag is on; a miss gets the exact
 same `404` a disabled flag would, so a prober cannot distinguish "off" from "on but you're not
 listed." Decision logic (`checkDeploymentGate`) lives in `_shared/purchase-tier.ts`, portable and
@@ -2032,8 +2056,10 @@ a **tier**; it never says what a tier is worth.
 ## Current — `POST /functions/v1/delete-account` (issue #58, 2026-07-13)
 
 In-app account deletion. An **App Store submission blocker** (Guideline 5.1.1(v)) and the hard
-gate on publishing `docs/privacy-policy.md` at all (`docs/status.md` Known Issue #15). **Written
-and Deno-tested; NOT deployed** — `supabase functions deploy delete-account` is Ian's to run.
+gate on publishing `docs/privacy-policy.md` at all (`docs/status.md` Known Issue #15). **Written,
+Deno-tested, and deployed to the live project 2026-07-26**, verified live end to end on a
+throwaway account. The client half is still on a mock pending #122, so nothing in the app reaches
+it yet — `docs/status.md` Known Issue #22.
 
 Three files, the same three-way split as `analysis/index.ts` (#57):
 `supabase/functions/delete-account/index.ts` (HTTP + JWT glue),
@@ -2299,11 +2325,13 @@ state with a real link in the same change that publishes the policy.
 Both route to a Paywall (#52) and an IAP flow that do not exist; shipping them would build a dead
 end. #52 adds them back with the route they point at.
 
-## Current — `analyze-form` edge function (issues #44 + #45, built 2026-07-13, NOT deployed)
+## Current — `analyze-form` edge function (issues #44 + #45, built 2026-07-13, deployed 2026-07-26)
 
-The core of the product, and the first code in this repo that spends money. Written and fully
-tested; **not deployed** — `supabase functions deploy analyze-form` and `supabase secrets set
-ANTHROPIC_API_KEY` are still Ian's to run. This section supersedes "Planned — `analyze-form` edge
+The core of the product, and the first code in this repo that spends money. Written, fully tested,
+and **deployed to the live project 2026-07-26** (issue #128) — both `supabase functions deploy
+analyze-form` and `supabase secrets set ANTHROPIC_API_KEY` have run. Verified by live observation,
+not inspection: a real upload produced a `delivered` `public.analyses` row with a valid PACE result
+and one frame in the private bucket (`docs/status.md` Known Issue #25). This section supersedes "Planned — `analyze-form` edge
 function flow" above wherever the two disagree.
 
 **File split** (the same three-way shape `analysis/` and `quota-status/` already use):
@@ -2438,11 +2466,11 @@ replay question is resolved as **refuse** (consent is checked before idempotency
 withdrawal is refused rather than served from cache) — the safer read, and the one that agrees with
 what the delete/purge path (#57) does to such a row anyway.
 
-## Current — four unapplied migrations close real holes found reviewing #130 (issues #133, #8, #7, #100+#4, 2026-07-13)
+## Current — four migrations close real holes found reviewing #130 (issues #133, #8, #7, #100+#4, 2026-07-13)
 
-All four are **written, NOT APPLIED** to the live project — see `docs/status.md` Known Issue #29
-for the full, current list of unapplied migrations (six, not four, once `attach_media_paths` and
-the stale-reservation sweep are counted too).
+All four were written 2026-07-13 and are **applied to the live project** — verified 2026-07-26,
+when all 24 migrations in `supabase/migrations/` were confirmed present (`docs/status.md` Known
+Issue #33, which owns that verification and previously said the opposite).
 
 - **`20260713150000_settle_analysis_deleted_at_guard.sql` (#133).** Adds `and deleted_at is null`
   to `settle_analysis`'s `WHERE` clause — the same guard #130 already gave `attach_media_paths` —
@@ -2467,8 +2495,11 @@ the stale-reservation sweep are counted too).
   `authenticated`/`anon` — #88 dropped the client's INSERT/DELETE *policies* but never touched the
   underlying *grant*. Fixed: `revoke all on storage.objects from authenticated, anon`, re-granting
   `authenticated` only `SELECT`. Also tightens `subscriptions`/`profiles`'s stray `anon` grants and
-  revokes `set_updated_at()`'s EXECUTE. **This is the fix `CLAUDE.md`'s "Uploaded media is
-  sensitive" section now describes as written but not yet applied** — see that file.
+  revokes `set_updated_at()`'s EXECUTE. **Applied — but the `storage.objects` revoke silently
+  no-ops**, because only the grantor (`supabase_storage_admin`) may revoke there and migrations run
+  as `postgres`; `authenticated`/`anon` still hold `GRANT ALL` on that table and the real control is
+  the `pace_media_object_guard` trigger. `CLAUDE.md`'s "Uploaded media is sensitive" section and
+  `docs/status.md` Known Issue #18 own that fact — do not re-attempt this revoke.
 
 ## Current — orphan-purge action, wired to nothing (issue #7's action half, 2026-07-13)
 
@@ -2477,10 +2508,11 @@ the stale-reservation sweep are counted too).
 `ai-guard.ts`/`delete-analysis.ts`), fully Deno-tested, and deliberately does not import
 `delete-analysis.ts`'s `purgePrefix()` (the ~30-line list→remove→verify idiom is reimplemented
 independently to avoid coupling two parallel worktrees' files — a candidate follow-up refactor,
-not forced here). **No scheduled edge function calls it, and none exists in this repo** — wiring
-one up (a new `supabase/functions/<name>/index.ts` plus a Dashboard Cron Job or
-`pg_cron`+`pg_net`+Vault trigger) is a `jobs-queues-edge` + deploy/config task, not done here. See
-`docs/status.md`'s Known Issues for this.
+not forced here). Its entrypoint, `supabase/functions/sweep-orphaned-media/`, now exists and is
+**deployed (2026-07-26) but never exercised** — it is gated on an `X-Cron-Secret` shared secret
+rather than a user JWT. **Nothing calls it on a schedule**; wiring one up (a Dashboard Cron Job or
+a `pg_cron`+`pg_net`+Vault trigger) is a `jobs-queues-edge` + deploy/config task, not done here.
+See `docs/status.md` Known Issues #32 and #35.
 
 ## Current — the two-phase consent gate (issues #68 restatement + #94, 2026-07-13)
 
@@ -2507,8 +2539,9 @@ or Ian. See `docs/design/copy-deck.md`'s new-copy section.
 ## Current — `app/paywall.tsx` (issue #52, 2026-07-13)
 
 The M5 dummy paywall. `lib/subscription.ts` reads `GET /functions/v1/quota-status` and calls
-`POST /functions/v1/purchase-tier` (#51, still deploy-gated behind `PURCHASE_TIER_DUMMY_ENABLED`,
-default OFF), both through issue #46's shared `invokeFunction()` wrapper. **No tier limit or frame
+`POST /functions/v1/purchase-tier` (#51, deploy-gated behind `PURCHASE_TIER_DUMMY_ENABLED`,
+default OFF — currently ON on the live project, `docs/status.md` Known Issue #21), both through
+issue #46's shared `invokeFunction()` wrapper. **No tier limit or frame
 cap is hardcoded anywhere in either file** — every count/limit shown is read fresh off the
 `quota-status` response, and a regression test fails if a numeric tier constant is ever added
 here; this is the exact trap `lib/subscription.ts`'s own header names by name, since Echo V1 once

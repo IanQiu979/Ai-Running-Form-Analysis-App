@@ -15,10 +15,12 @@ and the linked brainstorm / product / engineering docs it indexes.
 
 Client: Expo SDK 54, expo-router, TypeScript strict. Backend: Supabase (Postgres + Auth +
 Storage + Edge Functions). AI: Claude (`claude-sonnet-5`), called only from the `analyze-form`
-edge function, never from the client. Today only the Expo scaffold exists — no `lib/`, no
-`knowledge/` files, no auth screens, no DB tables, no edge functions, no migrations. Route
-tree, `lib/` layout, the `analyze-form` flow, the API table, and the draft DB schema all live
-in [`docs/architecture.md`](docs/architecture.md).
+edge function, never from the client. The app, its migrations, and all six edge functions exist and
+are live on the Supabase project — the sign-up → analysis → result path ran end to end against it
+on 2026-07-26 (issue #128). Route tree, `lib/` layout, the `analyze-form` flow, the API table
+(which owns per-endpoint deployment status), and the DB schema all live in
+[`docs/architecture.md`](docs/architecture.md); current milestone and live-state detail is in
+[`docs/status.md`](docs/status.md).
 
 ## Commands
 
@@ -60,9 +62,13 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
   silently yields `undefined`.
 - `ANTHROPIC_API_KEY` must NEVER get an `EXPO_PUBLIC_` prefix and must NEVER go in `.env`. It
   belongs in `supabase/functions/.env` (gitignored, local dev) and is pushed to production with
-  `supabase secrets set` — not done yet, see `docs/status.md`.
+  `supabase secrets set` — done 2026-07-26, alongside the first `analyze-form` deploy.
 - Supabase auto-injects `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEYS`, `SUPABASE_SECRET_KEYS`
-  into edge functions at runtime. Never set these by hand.
+  into edge functions at runtime. Never set these by hand. **Both `*_KEYS` vars hold a JSON object
+  keyed by key name (`{"default":"sb_..."}`), not an array or a bare string** — always read them
+  through `supabase/functions/_shared/supabase-keys.ts`, never a local parser. A duplicated parser
+  that assumed an array 401'd every authenticated function for days; see that file's header and
+  `docs/status.md` Known Issue #35.
 - Google's OAuth client secret and Apple's sign-in credentials live only in the Supabase
   Dashboard, never in a repo file.
 - **Uploaded media is sensitive** (images of people's bodies). What's stored is **extracted

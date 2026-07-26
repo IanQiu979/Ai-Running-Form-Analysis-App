@@ -26,6 +26,7 @@ import type {
   ModelCallResult,
   ModelCaller,
 } from './flow.ts';
+import { getSecretKey } from '../_shared/supabase-keys.ts';
 
 const MEDIA_BUCKET = 'media';
 
@@ -37,22 +38,6 @@ const ANTHROPIC_VERSION = '2023-06-01';
 
 /** Never let a provider error message flow into a user-facing response or an unbounded log line. */
 const MAX_ERROR_SNIPPET = 500;
-
-function getSecretKey(): string {
-  const raw = Deno.env.get('SUPABASE_SECRET_KEYS');
-  if (!raw) {
-    throw new Error('SUPABASE_SECRET_KEYS is not set in the edge function environment');
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
-      return parsed[0];
-    }
-  } catch {
-    // Not JSON — a single bare key string. Fall through and use it as-is.
-  }
-  return raw;
-}
 
 /**
  * The Anthropic Messages call. NEVER throws: every failure — a non-2xx, a network error, an abort —
