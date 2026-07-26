@@ -7,12 +7,10 @@
 // contract and `_shared/quota-status.ts`'s header comment for how this function's counting
 // agrees with `reserve_analysis`'s.
 //
-// *** DEPENDS ON A MIGRATION THAT IS WRITTEN, NOT APPLIED ***
-// `pace_quota_status` (`supabase/migrations/20260712233000_quota_status_function.sql`) has not
-// been pushed to the live project as of this commit — issue #50's hard constraint forbids
-// applying it from this worktree. This function will fail with a `db_error` (see below) against
-// production until that migration lands. Same footing `analysis/index.ts` (#57) shipped on:
-// built and Deno-tested, not deployed.
+// DEPENDS ON `pace_quota_status` (`supabase/migrations/20260712233000_quota_status_function.sql`),
+// which is APPLIED to the live project — verified 2026-07-26 (`docs/status.md` Known Issue #33),
+// as is this function's own deployment. Historically (issue #50) that migration was written but
+// unapplied and this function returned `db_error` against production; that is no longer the case.
 //
 // This is deliberately thin: all decision/shaping logic lives in `_shared/quota-status.ts`
 // (Deno/Jest-portable, unit-tested under Deno — see `_shared/__tests__/quota-status.deno.test.ts`);

@@ -157,7 +157,7 @@ async function fetchFromEdgeFunction(): Promise<QuotaStatusResult> {
 
   // `kind: 'http'` is the only branch with a real, server-authored `code` to read — `'network'`
   // (a relay/fetch failure) and `'malformed'` (a non-2xx response whose body wasn't the
-  // documented shape, e.g. the function doesn't exist yet — see this file's header) both carry
+  // documented shape, e.g. a gateway error page rather than this endpoint's JSON) both carry
   // no such code, and collapse into the same generic, honestly-unknown failure below, as does an
   // HTTP code this endpoint doesn't recognize as one of its own.
   if (result.error.kind === 'http' && isServerQuotaStatusErrorCode(result.error.code)) {

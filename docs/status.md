@@ -259,8 +259,8 @@ milestone "done" criteria.
       **The sweep half is now written (issue #47, 2026-07-13):**
       `supabase/migrations/20260713130000_stale_reservation_sweep.sql` adds
       `public.sweep_stale_reservations()` on a 5-minute `pg_cron` schedule, 15-minute staleness
-      threshold — **written, NOT applied** to the live project (confirmed via `supabase migration
-      list`). It only flips the row's `status`/`release_reason` and — since #130 (2026-07-13) —
+      threshold — **applied** to the live project (unapplied as of 2026-07-13; applied and verified
+      2026-07-26, see Known Issue #33). It only flips the row's `status`/`release_reason` and — since #130 (2026-07-13) —
       that is provably all it needs to do: `analyze-form` settles the row **before** it uploads any
       frames, so a `'reserved'` row can never have frames and a swept row has nothing to purge.
       Known Issue #16's storage-purge half is therefore **resolved by construction** rather than by
@@ -355,8 +355,8 @@ milestone "done" criteria.
       issue's remaining scope is now its two follow-ups: **#47** (the stale-`reserved` sweep must
       also purge the storage prefix, not just flip the row's status) is **built, and its
       storage-purge ask is resolved by construction as of 2026-07-13 (issue #130)** —
-      `supabase/migrations/20260713130000_stale_reservation_sweep.sql` (written, **NOT applied** to
-      the live project) flips the row's `status`/`release_reason` on a 5-minute `pg_cron` schedule
+      `supabase/migrations/20260713130000_stale_reservation_sweep.sql` (**applied** to the live
+      project, verified 2026-07-26 — see Known Issue #33) flips the row's `status`/`release_reason` on a 5-minute `pg_cron` schedule
       and never touches Storage, because `analyze-form` now settles **before** it uploads: a
       `'reserved'` row can never have frames, so a swept row has nothing to purge. See that
       migration's Design Decision 5, and Known Issue #26 for the one orphan path that ordering

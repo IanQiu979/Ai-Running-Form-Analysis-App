@@ -20,7 +20,7 @@ import { getSecretKey } from './supabase-keys.ts';
 /**
  * A service-role Supabase client, satisfying the minimal `RpcClient` interface `getQuotaStatus()`
  * needs. `pace_quota_status` is granted to `service_role` only (per its migration —
- * `20260712233000_quota_status_function.sql`, written but NOT applied as of issue #50) —
+ * `20260712233000_quota_status_function.sql`, applied to the live project as of 2026-07-26) —
  * `anon`/`authenticated` cannot call it, so this must never be swapped for a client built from
  * the caller's own JWT. This client is used ONLY to call `pace_quota_status`; the caller's own
  * identity is resolved separately in `index.ts` via a publishable-key client scoped to their

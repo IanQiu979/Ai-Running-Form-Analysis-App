@@ -92,7 +92,7 @@ const EDGE_FUNCTION_NAME = 'delete-account';
  *
  * `'unknown'` is NOT one of the server's codes — it is this client's own bucket for a failure the
  * contract above doesn't name at all: a relay/network error, a 401 with no recognized code, a 404
- * (the function isn't deployed yet — see this file's header), or a 200/503 body that doesn't parse
+ * or a 404, or a 200/503 body that doesn't parse
  * as documented. Collapsing those into one of the FOUR SERVER codes above would misreport what the
  * server actually said (or didn't); a fifth, honestly-unknown code keeps that distinction instead
  * of pretending to know more than the response told us.
@@ -208,8 +208,8 @@ async function submitToEdgeFunction(): Promise<DeleteAccountResult> {
 
   // `kind: 'http'` is the only branch with a real, server-authored `code` to read — `'network'`
   // (a relay/fetch failure) and `'malformed'` (a non-2xx response whose body wasn't the documented
-  // shape, e.g. the function doesn't exist yet — a 404, plain text, because #58/#121 isn't
-  // deployed) both carry no such code, and collapse into the same generic, honestly-unknown
+  // shape, e.g. a gateway error page rather than this endpoint's JSON) both carry
+  // no such code, and collapse into the same generic, honestly-unknown
   // failure below — as does an HTTP code this endpoint doesn't recognize as one of its own.
   if (result.error.kind === 'http' && isServerDeleteAccountErrorCode(result.error.code)) {
     return { ok: false, error: { error: result.error.error, code: result.error.code } };
