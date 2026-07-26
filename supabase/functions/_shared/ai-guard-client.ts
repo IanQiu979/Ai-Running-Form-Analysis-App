@@ -11,8 +11,12 @@
 // CLAUDE.md: "Supabase auto-injects SUPABASE_URL, SUPABASE_PUBLISHABLE_KEYS, and
 // SUPABASE_SECRET_KEYS into edge functions at runtime. Never set these by hand." The secret-key
 // env var is plural (Supabase's key-rotation-safe API-keys system can hold more than one active
-// secret key at once) — getSecretKey() below accepts either a bare key string or a JSON array
-// and always uses the first entry, so it works whichever shape the runtime hands back.
+// secret key at once) and holds a JSON OBJECT KEYED BY KEY NAME — `{"default":"sb_secret_..."}` —
+// which `getSecretKey()` in `./supabase-keys.ts` parses. That parser is shared, not copied: every
+// caller used to carry its own copy that read the value as a JSON array and otherwise fell through
+// to the raw string, handing the whole JSON blob to `createClient()` as the API key and 401'ing the
+// entire authenticated surface. See `supabase-keys.ts`'s header for the full account; add callers
+// there, never another local copy.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.110.2';
 import type { RpcClient } from './ai-guard.ts';
 import { getSecretKey } from './supabase-keys.ts';

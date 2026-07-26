@@ -134,16 +134,21 @@ const EDGE_FUNCTION_NAME = 'analyze-form';
  * failure, a non-2xx body that wasn't the documented `{ error, code }` shape (e.g. a bare 404 from
  * a project the function isn't deployed to), or a 200 whose body didn't survive validation.
  *
- * The copy is deliberately the same reassurance `app/analyzing.tsx` shows for every other failure:
- * `analyze-form` releases the reservation on every failure path before returning
- * (`docs/architecture.md` step 9), so "this one wasn't counted against your quota" is true no
- * matter which of these we landed in. `code` is `'unknown'` — this client's own bucket, never a
- * fabricated server code — matching `lib/delete-account.ts` and `lib/subscription.ts`'s identical
- * convention. Nothing downstream branches on it: `app/analyzing.tsx` only special-cases
- * `quota_exceeded` (#136), which is a REAL server code and reaches it through the `'http'` branch.
+ * The copy deliberately does NOT carry the "this one wasn't counted against your quota"
+ * reassurance the rest of `app/analyzing.tsx` uses. That claim rests on `analyze-form` releasing
+ * the reservation on every failure path (`docs/architecture.md` step 9), which is true for the
+ * relay/fetch and unreadable-body branches — but NOT for the 200-we-couldn't-validate branch: there
+ * the server settled the row and kept the quota, and only this client refused to render it. One
+ * constant covers all three, so it must say something true on all three. It instead points at Past
+ * Analyses, where a settled-but-unrendered analysis will in fact be waiting.
+ *
+ * `code` is `'unknown'` — this client's own bucket, never a fabricated server code — matching
+ * `lib/delete-account.ts` and `lib/subscription.ts`'s identical convention. Nothing downstream
+ * branches on it: `app/analyzing.tsx` only special-cases real server codes (`quota_exceeded` #136,
+ * `previous_attempt_failed`), which reach it through the `'http'` branch.
  */
 const UNKNOWN_ANALYZE_FORM_ERROR: AnalyzeFormError = {
-  error: 'Something went wrong running that analysis. This one has not been counted against your quota.',
+  error: "Something went wrong running that analysis, and we couldn't show you a result. Check Past Analyses before trying again.",
   code: 'unknown',
 };
 

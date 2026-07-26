@@ -347,6 +347,16 @@ export default function AnalyzingScreen() {
     dispatch({ type: 'retry' });
   }
 
+  // The server answered 409 `previous_attempt_failed`: the reservation for THIS idempotency key was
+  // already released, and `reserve_analysis` hands an idempotency match back as-is whatever its
+  // status — so re-submitting `request` can only ever produce the same 409. The only real recovery
+  // is a new analysis, which mints a fresh idempotency key through the normal capture flow. Clears
+  // the cross-restart marker (#140) for the same reason handleCancel does: this attempt is over.
+  function handleStartNew() {
+    clearPendingAnalysisMarker();
+    router.replace('/capture');
+  }
+
   function handleCancel() {
     // Copy deck: "returns to Home. Retry/Cancel must never trap the user."
     // Issue #140: the user chose to stop watching, so nothing should resurface on a later launch.
@@ -383,24 +393,41 @@ export default function AnalyzingScreen() {
           </ScreenCenter>
         )}
 
-        {/* Issue #136: `quota_exceeded` is excluded here — the effect above routes it to /paywall.
-            Rendering a Retry for it would resubmit into the same exhausted quota. */}
-        {state.phase === 'failed' && state.code !== 'quota_exceeded' && (
+        {/* The server's 409 `previous_attempt_failed`: this request's reservation was already
+            released, so a Retry — which by design reuses the same idempotency key — would hand back
+            the same released row and the same 409, forever. Same reasoning as the `released` branch
+            below, reached through the live response path rather than through reconciliation. The
+            primary action is therefore "start a new analysis", matching the server's own wording. */}
+        {state.phase === 'failed' && state.code === 'previous_attempt_failed' && (
           <ErrorPanel
             styles={styles}
-            title={Copy.analyzing.error.failed.title}
-            body={Copy.analyzing.error.failed.body}
-            onRetry={handleRetry}
+            title={Copy.analyzing.error.previousAttemptFailed.title}
+            body={Copy.analyzing.error.previousAttemptFailed.body}
+            primary={{ label: Copy.analyzing.error.cta.startNew, onPress: handleStartNew }}
             onCancel={handleCancel}
           />
         )}
+
+        {/* Issue #136: `quota_exceeded` is excluded here — the effect above routes it to /paywall.
+            Rendering a Retry for it would resubmit into the same exhausted quota. */}
+        {state.phase === 'failed' &&
+          state.code !== 'quota_exceeded' &&
+          state.code !== 'previous_attempt_failed' && (
+            <ErrorPanel
+              styles={styles}
+              title={Copy.analyzing.error.failed.title}
+              body={Copy.analyzing.error.failed.body}
+              primary={{ label: Copy.analyzing.error.cta.retry, onPress: handleRetry }}
+              onCancel={handleCancel}
+            />
+          )}
 
         {state.phase === 'timedOut' && (
           <ErrorPanel
             styles={styles}
             title={Copy.analyzing.error.timeout.title}
             body={Copy.analyzing.error.timeout.body}
-            onRetry={handleRetry}
+            primary={{ label: Copy.analyzing.error.cta.retry, onPress: handleRetry }}
             onCancel={handleCancel}
           />
         )}
@@ -415,7 +442,7 @@ export default function AnalyzingScreen() {
             styles={styles}
             title={Copy.offline.blocked.title}
             body={Copy.offline.blocked.body}
-            onRetry={handleRetry}
+            primary={{ label: Copy.analyzing.error.cta.retry, onPress: handleRetry }}
             onCancel={handleCancel}
           />
         )}
@@ -456,9 +483,15 @@ type ErrorPanelProps = {
   styles: Styles;
   title: string;
   body: string;
-  /** Omitted for the `released` phase (issue #64) — see that render branch's comment for why a
-   * Retry button would be a dead end there rather than an actual retry. */
-  onRetry?: () => void;
+  /**
+   * The one recoverable action this phase actually has, if it has one. Retry for the phases where
+   * re-submitting the same request can genuinely succeed (a plain failure, a timeout, an offline
+   * pre-flight block); "start a new analysis" for `previous_attempt_failed`, whose reservation is
+   * already released; omitted entirely for the `released` phase (issue #64) — see that render
+   * branch's comment. A label lives with its handler here so no phase can render a button whose
+   * wording promises something the handler cannot do.
+   */
+  primary?: { label: string; onPress: () => void };
   onCancel: () => void;
 };
 
@@ -470,7 +503,7 @@ type ErrorPanelProps = {
  * and `Semantic.error` (constants/theme.ts) is reserved for a true alarm condition, not a "try
  * again, nothing was lost" recoverable state.
  */
-function ErrorPanel({ styles, title, body, onRetry, onCancel }: ErrorPanelProps) {
+function ErrorPanel({ styles, title, body, primary, onCancel }: ErrorPanelProps) {
   // Issue #11: `accessibilityLiveRegion="polite"` on the two Texts below is Android-only — this
   // is the iOS complement. `ErrorPanel` is only ever mounted fresh for whichever phase is showing
   // (failed/timedOut/offline/released never render two at once), so this fires once per
@@ -485,13 +518,13 @@ function ErrorPanel({ styles, title, body, onRetry, onCancel }: ErrorPanelProps)
       <Text style={styles.errorBody} accessibilityLiveRegion="polite">
         {body}
       </Text>
-      {onRetry && (
+      {primary && (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={Copy.analyzing.error.cta.retry}
-          onPress={onRetry}
+          accessibilityLabel={primary.label}
+          onPress={primary.onPress}
           style={({ pressed }) => [styles.primaryCta, pressed && styles.pressed]}>
-          <Text style={styles.primaryCtaText}>{Copy.analyzing.error.cta.retry}</Text>
+          <Text style={styles.primaryCtaText}>{primary.label}</Text>
         </Pressable>
       )}
       <Pressable
