@@ -78,10 +78,11 @@ local iOS Simulator / Android emulator.)
    profile's own comment). `happy-path.yaml` reaches "Analyzing"/"Result" today via
    `lib/analyze-form.ts`'s mock client (issue #128, deliberately not swapped to the real
    endpoint) — no edge function needs to be deployed or served for it to pass. Still true and
-   important: `analyze-form` itself is not deployed anywhere, and `dead-end-analysis-failure.yaml`
-   (which needs the mock's `outcome` forced to `'failed'`/`'timeout'`, not currently possible from
-   outside the app — see the HANDOFF section) must never be pointed at a real backend with a real
-   `ANTHROPIC_API_KEY` without a disposable test account and full awareness of real spend.
+   important: `analyze-form` is deployed and live in production (issue #128, since 2026-07-26),
+   and `dead-end-analysis-failure.yaml` (which needs the mock's `outcome` forced to
+   `'failed'`/`'timeout'`, not currently possible from outside the app — see the HANDOFF section)
+   must never be pointed at a real backend with a real `ANTHROPIC_API_KEY` without a disposable
+   test account and full awareness of real spend.
 
 3. **Simulator media, if you use the library-upload path instead of the in-app record path.**
    `happy-path.yaml` deliberately uses in-app **Record** (an `expo-camera` `CameraView`, which
@@ -167,9 +168,9 @@ against a real build — see that section for what passed vs. hit driver flakine
 
 | Gap | Issue(s) | What's missing |
 |---|---|---|
-| Analysis result is always fake | **#44** | `lib/analyze-form.ts`'s `analyzeFormClient` is hard-bound to a dev mock with a hardcoded `'success'` outcome — no runtime switch (no env var, no dev menu, no query param; grepped). The real `analyze-form` edge function is written but **not deployed**. |
+| Analysis result is always fake | **#44** | `lib/analyze-form.ts`'s `analyzeFormClient` is hard-bound to a dev mock with a hardcoded `'success'` outcome — no runtime switch (no env var, no dev menu, no query param; grepped). The real `analyze-form` edge function is written and **deployed and live** (issue #128, since 2026-07-26), but the client is deliberately not yet swapped to call it. |
 | No deterministic way to force a failure/timeout | **#44** (new ask, see HANDOFF) | Nothing lets an E2E script choose the mock's `'failed'`/`'timeout'` outcome from outside a source change, and the real endpoint has no documented fault-injection hook either. `dead-end-analysis-failure.yaml` is written and ready but cannot pass until this exists. Racing the mock's 4s success against the screen's own 120s client timeout does not help — the mock always wins. |
-| Delete-analysis has nothing to call it from | **#57** | `DELETE /functions/v1/analysis/:id` is written+tested but **not deployed** — moot anyway today since no real `analyses` row can be created (see next row). |
+| Delete-analysis has nothing to call it from | **#57** | `DELETE /functions/v1/analysis/:id` is written, tested, and **deployed and live** (issue #128, since 2026-07-26) — moot anyway today since no real `analyses` row can be created (see next row). |
 | No way to seed a quota-exhausted account | **#44** | A Free user with a spent quota needs a real `analyses` row via `reserve_analysis`/`settle_analysis` — which needs #44 deployed. The mock in `lib/analyze-form.ts` never calls Supabase at all, so even unlimited happy-path runs never produce one. `dead-end-quota-exhausted.yaml` is written and ready, blocked only on this seed data (or #44 deploying so it can be produced for real). |
 | Offline check only covers one call site | **#93** (remainder) | `lib/connectivity.ts`'s `checkConnectivity()` is wired into `app/analyzing.tsx` only. `app/capture/index.tsx` (the source picker) has no connectivity check — capture works uninterrupted offline today, arguably by design ("capture itself is not blocked" per the deck) but not signposted beyond the passive global banner at that stage. |
 
