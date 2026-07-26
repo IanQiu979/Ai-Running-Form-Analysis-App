@@ -47,8 +47,16 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   **ten** files only accepted a JSON *array* and fell through to `return raw` — handing the entire
   JSON string to `createClient()` as the API key. Fixed with one shared
   `_shared/supabase-keys.ts`; all ten copies now delegate to it. Verified live: `quota-status` now
-  returns real data. **`delete-account`, `analysis`, and `sweep-orphaned-media` are fixed in the
-  repo but NOT redeployed** — outside this task's deploy authority; they still 401 in production.
+  returns real data. **All six edge functions are now deployed carrying the fix**: `analyze-form`,
+  `quota-status`, and `purchase-tier` first, then `delete-account`, `analysis`, and
+  `sweep-orphaned-media` at 2026-07-26T03:41:28Z once the deploy authority was extended. Verified
+  live: `analysis` returned `404 not_found` for a `DELETE` of a non-existent uuid (auth passed,
+  nothing destroyed), and `delete-account` returned `200 {"deleted": true}` on a purpose-made
+  throwaway account, exercising both the publishable-key parse (auth) and the secret-key parse
+  (service-role purge); the throwaway user was confirmed gone and nothing else was affected.
+  ⚠️ `sweep-orphaned-media` is deployed and typechecked but **not exercised** — it is gated on an
+  `X-Cron-Secret` shared secret rather than a user JWT, and that secret was deliberately not
+  guessed or printed, so its live runtime behavior is unverified.
 - **VERIFIED LIVE — the analysis flow now works end to end.** A real upload produced
   `public.analyses` row `b144d29b-…` with `status: delivered`, `is_fallback: false`, a structurally
   valid PACE result (overall 55/mid; cadence and elasticity honestly `null` for a single photo),
