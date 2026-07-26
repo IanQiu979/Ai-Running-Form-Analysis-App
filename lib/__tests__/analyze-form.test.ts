@@ -1,17 +1,45 @@
 /**
- * `lib/analyze-form.ts` (issue #80) — the `analyze-form` request builder, the dev mock client
- * every `outcome` branch, and the one-shot pending-request mailbox.
+ * `lib/analyze-form.ts` (issue #80; made real 2026-07-26 for issue #128) — the `analyze-form`
+ * request builder, the REAL edge-function client, the dev/test-only mock client's every `outcome`
+ * branch, and the one-shot pending-request mailbox.
+ *
+ * WHAT THE REAL-CLIENT SUITE PROVES, AND WHAT IT CANNOT: it proves `submitToEdgeFunction` reads the
+ * documented `{ result, analysisId, isFallback }` contract correctly and never reports a success
+ * whose `analysisId` `app/result/[id].tsx` would refuse to query — the property #128 exists to
+ * guarantee. It does NOT prove the edge function itself behaves correctly (that is
+ * `supabase/functions/analyze-form/__tests__/flow.deno.test.ts`'s job) and it cannot prove a real
+ * upload writes a row; only a live end-to-end run against the deployed function does that.
  */
 import { isPaceAnalysisOutcome, isPaceResult, PACE_PILLARS } from '@shared/pace';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 
+import { proTierVideoResult } from '../pace-fixtures';
+import { supabase } from '../supabase';
+
+// `lib/analyze-form.ts` now imports `./functions-client`, which imports `./supabase` — a module
+// that builds a real client from `EXPO_PUBLIC_*` env at import time. Mocked at the module boundary,
+// the same way `lib/__tests__/delete-account.test.ts` and `lib/__tests__/consent.test.ts` do.
+jest.mock('../supabase', () => ({
+  supabase: { functions: { invoke: jest.fn() } },
+}));
+
+const mockInvoke = supabase.functions.invoke as jest.MockedFunction<typeof supabase.functions.invoke>;
+
+// Re-imported after the mock is registered, matching this repo's established pattern.
 import {
+  createAnalyzeFormClient,
   createMockAnalyzeFormClient,
+  analyzeFormClient,
   setPendingAnalyzeFormRequest,
   takePendingAnalyzeFormRequest,
   toAnalyzeFormRequest,
   type AnalyzeFormRequest,
 } from '../analyze-form';
 import type { PaceFrameSet } from '../frames';
+
+beforeEach(() => {
+  mockInvoke.mockReset();
+});
 
 const sampleRequest: AnalyzeFormRequest = {
   mediaType: 'photo',
@@ -54,6 +82,137 @@ describe('toAnalyzeFormRequest', () => {
 
     expect(request.frames).toEqual(['z', 'y', 'x']);
     expect(request.timestamps).toEqual([3, 1, 2]);
+  });
+});
+
+/** A minimal fake `Response`-shaped object — all `invokeFunction` ever calls on
+ *  `FunctionsHttpError.context` is `.json()`. Same helper as the delete-account suite's. */
+function fakeJsonResponse(body: unknown) {
+  return { json: async () => body } as Response;
+}
+
+const REAL_ANALYSIS_ID = '11111111-2222-4333-8444-555555555555';
+
+describe('createAnalyzeFormClient (the real implementation)', () => {
+  it('posts the request body to the analyze-form function and reports a 200 as a success', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { result: proTierVideoResult, analysisId: REAL_ANALYSIS_ID, isFallback: false },
+      error: null,
+    } as never);
+
+    const result = await createAnalyzeFormClient().submit(sampleRequest);
+
+    expect(mockInvoke).toHaveBeenCalledWith('analyze-form', { method: 'POST', body: sampleRequest });
+    expect(result).toEqual({
+      ok: true,
+      data: { result: proTierVideoResult, analysisId: REAL_ANALYSIS_ID, isFallback: false },
+    });
+  });
+
+  // Issue #45: an honest-partial fallback is a 200 SUCCESS in the same shape, differentiated only
+  // by `isFallback`. Routing it to the failure branch would throw away a result the user's quota
+  // has already been spent on.
+  it('reports an honest-partial fallback as a success, not a failure', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { result: proTierVideoResult, analysisId: REAL_ANALYSIS_ID, isFallback: true },
+      error: null,
+    } as never);
+
+    const result = await createAnalyzeFormClient().submit(sampleRequest);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected the success branch');
+    expect(result.data.isFallback).toBe(true);
+  });
+
+  // THE #128 CASE, structurally. The original bug was a client handing the screen an `analysisId`
+  // with no row behind it. We cannot prove a row exists from here — but we CAN refuse an id
+  // `app/result/[id].tsx` would reject out of hand, which is what made the dead end silent.
+  it('does NOT report success when analysisId is not a UUID', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { result: proTierVideoResult, analysisId: 'mock-1783932324144', isFallback: false },
+      error: null,
+    } as never);
+
+    const result = await createAnalyzeFormClient().submit(sampleRequest);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected the failure branch');
+    expect(result.error.code).toBe('unknown');
+  });
+
+  it('does NOT report success for a 200 body whose result fails the PACE structural check', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { result: { pillars: 'not-an-object' }, analysisId: REAL_ANALYSIS_ID, isFallback: false },
+      error: null,
+    } as never);
+
+    const result = await createAnalyzeFormClient().submit(sampleRequest);
+
+    expect(result.ok).toBe(false);
+  });
+
+  // Issue #136 depends on this passing through untouched: `app/analyzing.tsx` keys the paywall
+  // route off the server's own `quota_exceeded`, so narrowing or renaming codes here would break it.
+  it.each([
+    ['quota_exceeded', 'You have used all of your analyses.'],
+    ['frame_cap_exceeded', 'That clip has more frames than your tier allows.'],
+    ['too_many_failed_attempts', 'Too many failed attempts. Try again later.'],
+    ['validation_failed', 'The analysis service did not return a usable result.'],
+    ['a_future_server_code', 'Something the client has never heard of.'],
+  ] as const)('passes a documented %s failure through verbatim', async (code, error) => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: new FunctionsHttpError(fakeJsonResponse({ error, code })),
+    } as never);
+
+    const result = await createAnalyzeFormClient().submit(sampleRequest);
+
+    expect(result).toEqual({ ok: false, error: { error, code } });
+  });
+
+  // A bare/HTML 404 is what an undeployed function returns. It must resolve as an honest failure,
+  // never reject and never fabricate a server code.
+  it('folds a non-2xx response with an unreadable body into an honest unknown failure', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: new FunctionsHttpError({
+        json: async () => {
+          throw new Error('not JSON');
+        },
+      } as unknown as Response),
+    } as never);
+
+    const result = await createAnalyzeFormClient().submit(sampleRequest);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected the failure branch');
+    expect(result.error.code).toBe('unknown');
+  });
+
+  it('resolves rather than rejecting when the request never reached the server', async () => {
+    mockInvoke.mockResolvedValue({ data: null, error: new Error('fetch failed') } as never);
+
+    await expect(createAnalyzeFormClient().submit(sampleRequest)).resolves.toEqual({
+      ok: false,
+      error: expect.objectContaining({ code: 'unknown' }),
+    });
+  });
+});
+
+// THE REGRESSION GUARD FOR #128 ITSELF. The bug was never a wrong implementation — both clients
+// were correct — it was the BINDING pointing at the mock. Assert the shipped binding calls the
+// edge function, so rebinding it back to the mock fails here instead of in production.
+describe('the analyzeFormClient binding', () => {
+  it('is the real client — it calls the analyze-form edge function', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { result: proTierVideoResult, analysisId: REAL_ANALYSIS_ID, isFallback: false },
+      error: null,
+    } as never);
+
+    await analyzeFormClient.submit(sampleRequest);
+
+    expect(mockInvoke).toHaveBeenCalledWith('analyze-form', { method: 'POST', body: sampleRequest });
   });
 });
 
@@ -104,6 +263,21 @@ describe('createMockAnalyzeFormClient', () => {
     const client = createMockAnalyzeFormClient({ outcome: 'thrown', delayMs: 0 });
 
     await expect(client.submit(sampleRequest)).rejects.toThrow();
+  });
+
+  // #128's tripwire, the direct counterpart of the delete-account suite's. This mock must be
+  // unable to run in a release build. __DEV__ is true under Jest (react-native/jest/setup.js sets
+  // it), which is what lets every test above construct the mock at all.
+  it('refuses to run at all when __DEV__ is false', async () => {
+    const original = (globalThis as { __DEV__?: boolean }).__DEV__;
+    (globalThis as { __DEV__?: boolean }).__DEV__ = false;
+
+    try {
+      const client = createMockAnalyzeFormClient({ outcome: 'success', delayMs: 0 });
+      await expect(client.submit(sampleRequest)).rejects.toThrow(/never run outside a dev\/test build/);
+    } finally {
+      (globalThis as { __DEV__?: boolean }).__DEV__ = original;
+    }
   });
 
   // The screen's own client-side timeout (ANALYZING_TIMEOUT_MS) is what's supposed to fire here,

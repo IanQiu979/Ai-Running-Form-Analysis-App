@@ -226,9 +226,10 @@ lib/
   analyze-form.ts          # current (issue #80, 2026-07-12) — the analyze-form CLIENT seam:
                           # AnalyzeFormRequest/AnalyzeFormClient types matching the documented
                           # wire contract, toAnalyzeFormRequest() (flattens a PaceFrameSet into
-                          # it), a dev-only mock client (analyze-form/#44 doesn't exist yet — the
-                          # `analyzeFormClient` binding is the one line #44 swaps for the real
-                          # implementation), and the one-shot pending-request mailbox
+                          # it), the REAL createAnalyzeFormClient() (issue #128, 2026-07-26 —
+                          # `analyzeFormClient` binds it and calls the deployed analyze-form
+                          # function through lib/functions-client.ts's invokeFunction), a
+                          # dev/test-only mock that throws unless __DEV__, and the mailbox
                           # app/analyzing.tsx reads from. See "Current — the Analyzing screen"
                           # below.
   analyzing-machine.ts     # current (issue #80, 2026-07-12) — the Analyzing screen's pure,
@@ -920,9 +921,16 @@ against their documented contracts (this section and the two "Planned" sections 
   result and an honest `isFallback: true` partial — issue #45 — are the SAME shape, never a
   different response type) or resolves `{ ok: false, error }` for a documented non-2xx; the real
   implementation (#44) is expected to produce that error shape via issue #46's shared `{ error,
-  code }` unwrapper, which #80 does not build. The `analyzeFormClient` binding is currently a
-  dev-only mock (`success`/`fallback`/`failed`/`timeout`/`thrown` outcomes) — the one line #44
-  swaps for the real implementation. A one-shot module-level mailbox
+  code }` unwrapper, which #80 does not build. **UPDATED 2026-07-26 (issue #128): the
+  `analyzeFormClient` binding is now the REAL client**, `createAnalyzeFormClient()`, which calls
+  the deployed `analyze-form` function through `lib/functions-client.ts`'s `invokeFunction` (#46's
+  unwrapper, exactly as anticipated above) and structurally validates the 200 body, refusing a
+  non-UUID `analysisId` rather than navigating to a result screen nothing backs. #44 built the
+  edge function but never touched `lib/`, so this swap sat unowned and the mock shipped as the
+  production client — every upload dead-ended on "We couldn't find this analysis." The mock
+  (`success`/`fallback`/`failed`/`timeout`/`thrown` outcomes) is retained for tests and dev but
+  now **throws unless `__DEV__`**, the same tripwire `lib/delete-account.ts` carries, so it can
+  never silently become the production binding again. A one-shot module-level mailbox
   (`setPendingAnalyzeFormRequest`/`takePendingAnalyzeFormRequest`) hands the request from whatever
   builds the capture flow (#36) to the screen — not route params, since a request carries
   multi-megabyte base64 frame data, and not a state-management library.

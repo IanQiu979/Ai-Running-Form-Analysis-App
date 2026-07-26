@@ -5,6 +5,53 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-26 (issue #128 — the analyze-form client is real; first live backend deploy of the analysis path)
+
+- **🚨 `PURCHASE_TIER_DUMMY_ENABLED=true` IS NOW SET ON THE LIVE PROJECT, AND IT IS A RELEASE
+  BLOCKER.** By explicit captain decision (2026-07-26), the deployment gate that a security audit
+  put on `purchase-tier` (PR #123) is **switched on** for the live `v2.3Analysis` project
+  (`vputdomdlknvthnzritt`), so Pro/Elite can be self-granted for $0 during development. The captain
+  **declined** to narrow it with `PURCHASE_TIER_ALLOWED_USER_IDS`, so it is currently reachable by
+  **any account that can sign up** — which, with open signup and no email confirmation, means
+  anyone on the internet. The $0-self-grant → burn-the-shared-daily-AI-cap → deny-every-real-user
+  chain in `docs/status.md` Known Issue #21 is therefore **live right now**. This is a known,
+  accepted, temporary development risk — **not** a resolution of that issue. **It MUST be unset
+  (`supabase secrets unset PURCHASE_TIER_DUMMY_ENABLED`, not set to `"false"`) before any
+  TestFlight build or public release.** Restated in Known Issue #21 and added as an explicit
+  pre-submission step in `docs/blocked-on-apple.md`'s order of operations.
+- **#128 — `lib/analyze-form.ts` now calls the real `analyze-form` edge function.** It was bound to
+  `createMockAnalyzeFormClient()`, which mints a `Crypto.randomUUID()` and writes **no database
+  row**, so `app/result/[id].tsx` queried an id nothing backed and every upload in the real app
+  dead-ended on "We couldn't find this analysis" — verified live, `select count(*) from
+  public.analyses` had returned 0 rows, ever. #44 built the edge function but its file list never
+  touched `lib/`, so the promised binding swap had no owner. This is the same ownerless-seam bug a
+  security audit caught in `lib/delete-account.ts` (PR #122, F1), and the fix is deliberately
+  identical: `createAnalyzeFormClient()` is the real client and is what `analyzeFormClient` binds;
+  it goes through `lib/functions-client.ts`'s shared `invokeFunction` (#46) rather than
+  `supabase.functions.invoke` directly; and the mock is kept for tests/dev but **throws in a
+  release bundle** behind a `__DEV__` guard so it can never silently become the production client
+  again. The client also structurally validates the 200 body and **refuses a non-UUID
+  `analysisId`**, turning what used to be a silent dead end on the result screen into an honest,
+  retryable failure on the Analyzing screen. A regression test asserts the shipped binding calls
+  the edge function.
+- **Deployed to the live project (first time for the analysis path):** `analyze-form` (was never
+  deployed), plus redeploys of `quota-status` and `purchase-tier`. **No migrations were applied** —
+  all 24 repo migrations, including `pace_quota_status` and `pace_purchase_tier`, were already
+  present on the live database with `SECURITY DEFINER` + pinned `search_path` intact;
+  `docs/status.md`'s M5 row claiming they were "not applied to any database" was stale.
+- **⚠️ FOUND, NOT FIXED — every authenticated edge function on the live project has been answering
+  `401 unauthorized` for ~13 days.** `quota-status`, `analyze-form`, `purchase-tier`, and
+  `delete-account` all reject valid, freshly-issued JWTs; edge logs show `quota-status` returning
+  401 on *every* call back through 2026-07-25 (the captain's own app included). Root cause: the
+  platform-injected `SUPABASE_PUBLISHABLE_KEYS` / `SUPABASE_SECRET_KEYS` are **shadowed by
+  hand-set secrets** (dated 2026-07-13) whose values match **no current project key in any format**
+  — the exact thing CLAUDE.md § Secrets forbids ("Supabase auto-injects … Never set these by
+  hand"). The same function code authenticates the same token successfully when run locally
+  against the real publishable key, which isolates it to the stored secret value, not the code.
+  Left for a decision rather than fixed unilaterally, because correcting it changes live secrets
+  for every function at once. **Until it is fixed, the analysis path cannot complete end to end no
+  matter what the client does.**
+
 ## 2026-07-25 (Bucket A infra + test hardening — local Supabase stack, real-Postgres property tests)
 
 - **#62 — M7 full-app accessibility pass.** `accessibility-reviewer`° swept every screen in
