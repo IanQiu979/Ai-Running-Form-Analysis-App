@@ -51,10 +51,10 @@ import { supabase } from './supabase';
  *                 — no server response was ever produced (or relayed) to read a body from.
  * `'malformed'` — a `FunctionsHttpError` WAS thrown (a response was received), but its body
  *                 either wasn't valid JSON or didn't match the documented `{ error, code }` shape
- *                 — e.g. a 404 HTML page from a route that isn't deployed yet
- *                 (`lib/delete-account.ts`'s header describes exactly this case). Kept distinct
- *                 from `'network'` because a response DID arrive, and distinct from `'http'`
- *                 because there is no `code` to read from it.
+ *                 — e.g. a gateway error page rather than this endpoint's JSON (see
+ *                 `lib/delete-account.ts`'s header for a caller working through this exact case).
+ *                 Kept distinct from `'network'` because a response DID arrive, and distinct from
+ *                 `'http'` because there is no `code` to read from it.
  */
 export type InvokeFunctionError =
   | { kind: 'http'; error: string; code: string }

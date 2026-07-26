@@ -131,8 +131,8 @@ const EDGE_FUNCTION_NAME = 'analyze-form';
 
 /**
  * The honest failure every path with no server-authored `code` collapses into: a relay/fetch
- * failure, a non-2xx body that wasn't the documented `{ error, code }` shape (e.g. a bare 404 from
- * a project the function isn't deployed to), or a 200 whose body didn't survive validation.
+ * failure, a non-2xx body that wasn't the documented `{ error, code }` shape (e.g. a gateway
+ * error page rather than this endpoint's JSON), or a 200 whose body didn't survive validation.
  *
  * The copy deliberately does NOT carry the "this one wasn't counted against your quota"
  * reassurance the rest of `app/analyzing.tsx` uses. That claim rests on `analyze-form` releasing
