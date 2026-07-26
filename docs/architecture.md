@@ -94,13 +94,9 @@ mechanism) — the shared PACE types, result shape, and structural validator, im
 absent — stale since issue #34 (merged before #36 started), which is when it actually landed.
 `lib/frames.ts` and its route consumers are both current now; see "Current — capture screens
 (issue #36)" below.
-Still absent: `supabase/functions/analyze-form` and `purchase-tier`/`quota-status`, `lib/
-subscription.ts`, and every route beyond sign-in, empty Home, and Analyzing (capture, result,
-paywall, settings, history). **One edge function now exists**: `supabase/functions/analysis/
-Still absent: `supabase/functions/analyze-form` and `purchase-tier`, `lib/
-frames.ts`, `lib/subscription.ts`, and every route beyond sign-in + empty Home (capture, result,
-paywall, settings, history). **Two edge functions now exist**: `supabase/functions/analysis/
-index.ts` (issue #57, 2026-07-12) — `DELETE /functions/v1/analysis/:id`, the first
+
+**Two edge functions now exist**: `supabase/functions/analysis/index.ts` (issue #57,
+2026-07-12) — `DELETE /functions/v1/analysis/:id`, the first
 `Deno.serve` entrypoint in the repo — and `supabase/functions/quota-status/index.ts` (issue #50,
 2026-07-12) — `GET /functions/v1/quota-status`, the server-authoritative read #54 (Home's quota
 display) must be wired to. Both written and Deno-tested on their own branches only (`fix/57`,
@@ -125,7 +121,8 @@ in the repo and are **deployed to the live project**, all 24 migrations in `supa
 are **applied** there, and `lib/analyze-form.ts` is bound to the real client rather than its mock.
 **The API table under "API surface" is the owner of per-endpoint deployment status; the paragraphs
 above are kept only as a record of how the repo grew.** Live-state detail lives in
-`docs/status.md` Known Issues #25, #33, and #35.
+`docs/status.md` Known Issues #25, #33, and #35. Collapsing these layered dated snapshots into a
+single current-state section is tracked in issue #153.
 
 ## Route tree — current (M1) vs planned
 
