@@ -198,12 +198,11 @@ export interface PurchaseSuccess {
  * (`supabase/functions/purchase-tier/index.ts` + `_shared/purchase-tier.ts`):
  *   - `not_found` (404) — the deployment gate refused the request. This is the SAME response
  *     whether `PURCHASE_TIER_DUMMY_ENABLED` is off, the caller isn't on the optional allowlist,
- *     OR the function isn't deployed to a given project at all (`purchase-tier` has been
- *     deployed to this project since 2026-07-26 — see `docs/architecture.md`'s "Current —
- *     `POST /functions/v1/purchase-tier`" section — so today it is the gate, not a missing
- *     deployment, that produces this here). All three
- *     read identically to a caller by design (the deployment gate's own point — see that file's
- *     header) and must read identically to a USER too: "not available right now", never
+ *     or the function isn't deployed to a given project at all — which of these is live for a
+ *     given project can change with the flag/allowlist config, so this client never assumes one
+ *     over another (`docs/status.md`'s M5 row has the current flag state for this project). All
+ *     three read identically to a caller by design (the deployment gate's own point — see that
+ *     file's header) and must read identically to a USER too: "not available right now", never
  *     "something broke."
  *   - `invalid_body` / `invalid_tier` / `invalid_source` (400) — this client always sends a
  *     well-formed `{ tier, source: 'dummy' }`, so these indicate a client bug, not a user-facing
