@@ -5,6 +5,24 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-27 (repo hygiene — the recovered analysis_usage ledger is preserved, and quarantined)
+
+- **`docs/superseded/` is new, and is deliberately dead SQL.**
+  `20260712124139_analysis_usage_ledger.sql` was recovered from the Supabase preview branch
+  `issue-2-analysis-usage-ledger` before that branch was deleted. It was never in a migration set
+  and was never applied anywhere; production fixed issue #2 the other way, via
+  `20260712040000_analyses_quota_soft_delete.sql` + `20260712230000_analyses_client_delete_removed.sql`.
+  It is kept only for the reasoning in its header comments — the quota-reset exploit, the
+  equivalence proof between the old and new counting rules, and the accepted residual. Why and
+  what lives in [`docs/superseded/README.md`](superseded/README.md); no schema or runtime behavior
+  changed.
+- **`supabase/migrations/__tests__/superseded_not_applied.test.ts`** makes the quarantine a gate
+  rather than a comment: `supabase db push` globs every `.sql` under `supabase/migrations/`, and
+  the ledger's `20260712124139` timestamp sorts *between* the two migrations that replaced it, so
+  a stray copy would interleave into the middle of quota-accounting history. The suite fails if a
+  superseded file reappears there by name or by content hash under a different name, and also if
+  either superseding migration disappears.
+
 ## 2026-07-27 (V2.3 redesign, Phase 1 — the static layer)
 
 Implements `docs/superpowers/plans/2026-07-26-redesign-phase-1-static-layer.md`, which implements
