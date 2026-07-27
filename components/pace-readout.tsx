@@ -119,7 +119,15 @@ export function PaceReadout({ result, firstReveal = false }: Props) {
                 triggered={revealed}
               />
             ) : (
-              <Text testID="overall-score" style={styles.overallNumeral}>
+              // Dynamic Type guard (brief §7: never hard-clip the score readout). At
+              // FontSize.hero a scaled-up numeral would otherwise run off the edge, so it
+              // shrinks to fit its line instead of clipping.
+              <Text
+                testID="overall-score"
+                style={styles.overallNumeral}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.5}>
                 {overall.score}
               </Text>
             )}
@@ -276,11 +284,18 @@ function createStyles(colors: ThemeColors) {
       alignItems: 'baseline',
       flexDirection: 'row',
       gap: Spacing.sm,
+      // Brief §7 forbids clipping the score readout. At FontSize.hero the numeral and the band
+      // word cannot share one line once Dynamic Type scales up, so the row wraps and the band
+      // word drops beneath the numeral rather than being pushed off the edge.
+      flexWrap: 'wrap',
+      justifyContent: 'center',
     },
     overallNumeral: {
       color: colors.text.primary,
+      // Family and colour unchanged; only the step moves — the screen's ONE hero-scale element
+      // (spec 2026-07-26 §3.1: at most one `display`-or-larger element per screen).
       fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.xxl,
+      fontSize: FontSize.hero,
     },
     overallBand: {
       fontFamily: FontFamily.body.semiBold,
@@ -355,7 +370,9 @@ function createStyles(colors: ThemeColors) {
     },
     feedbackText: {
       color: colors.text.secondary,
-      fontFamily: FontFamily.body.regular,
+      // The coach's own writing, not UI chrome (spec 2026-07-26 §3.2) — the ONE place in this
+      // file that leaves Inter. Every label, band word, and control stays `body`.
+      fontFamily: FontFamily.prose.regular,
       fontSize: FontSize.sm,
     },
     subList: {
@@ -372,7 +389,10 @@ function createStyles(colors: ThemeColors) {
     },
     subListDetail: {
       color: colors.text.secondary,
-      fontFamily: FontFamily.body.regular,
+      // Flag details and drill instructions are the same coaching prose as `feedbackText` —
+      // spec 2026-07-26 §3.2 names "per-pillar coaching feedback and the drill instructions"
+      // together. The sub-list TITLES stay `body` semiBold: those are labels, not prose.
+      fontFamily: FontFamily.prose.regular,
       fontSize: FontSize.xs,
       lineHeight: FontSize.xs * 1.4,
     },
