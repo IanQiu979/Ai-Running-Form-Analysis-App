@@ -5,6 +5,65 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-27 (V2.3 redesign, Phase 1 — the static layer)
+
+Implements `docs/superpowers/plans/2026-07-26-redesign-phase-1-static-layer.md`, which implements
+§3 of `docs/superpowers/specs/2026-07-26-redesign-design.md`. **No animation and no new runtime
+dependency beyond one font package** — the three animated moments are Phase 2 and have their own
+plan. `docs/design/frontend-design-brief.md` §2 and §6 are amended in the same change so the brief
+stays the source of truth.
+
+- **The type scale gained a ceiling.** `FontSize.display` (64) and `.hero` (96) join the brief's
+  six steps, which keep their exact values — so no screen changes unless it deliberately opts in.
+  The diagnosis behind this: the original six spanned 13→32, a ratio of 2.5×, which is *why* no
+  screen had typographic hierarchy. Use at most one `display`-or-larger element per screen.
+- **A fourth type role, `FontFamily.prose` (Newsreader), for coaching prose only.** Per-pillar
+  feedback, flag details, and drill instructions are a coach's writing, not UI chrome, and rendering
+  them in the same family as a button label is part of what made results read as generated text.
+  Every control, label, and sub-list title stays Inter; every measured value stays IBM Plex Mono.
+  `@expo-google-fonts/newsreader` is the only package added in this whole phase.
+- **`Radius.card` 8 → 0.** The one non-additive change, and deliberate: a sharp corner reads as a
+  printed document, a rounded one as a generic app card. This touches every existing card in the
+  app. `sheet` (12) and `pill` (999) are unchanged — a pill is still a pill.
+- **`Spacing.editorial` (96)** for the single large vertical gap separating a result's hero from its
+  readout. Above the brief's ramp on purpose; once per screen.
+- **`components/duotone-frame.tsx` (new)** renders a stored frame full-bleed and graded toward the
+  warm base, instead of inset as a rounded thumbnail. The grade is a low-opacity warm *overlay*,
+  never a hue rotation of the subject: the brief chose a warm base specifically because it flatters
+  skin tones, and a cold duotone of the kind used on machinery photography is clinical on a human
+  body. `GRADE_OPACITY` is a single named constant so it can be lowered — or the grade dropped to
+  background-only — once it has been judged on a real body.
+- **`components/ui/notched-card.tsx` (new)** is the result container: a die-cut rectangle rather
+  than a rounded card, built from two plain `View`s. **No SVG** — `react-native-svg` is not a
+  dependency of this project and did not become one.
+  - The notch is *stroked*, not just filled, and that is a correction made during implementation
+    rather than a flourish. Measured, the `background` colour it is painted in sits at 1.07:1
+    against `surface.base` and 1.13:1 against `surface.raised` (1.08 / 1.19 dark) — all far below
+    perceptible, so a fill-only notch would have been invisible on every surface this card can sit
+    on and the shape signal the spec is buying would never have arrived on device. A 1pt `hairline`
+    stroke carries the cut edge; `hairline` is the right token by its own definition (decorative
+    rules and ticks, not a control boundary), so no contrast floor is being dodged.
+  - `overflow: 'hidden'` on the card is load-bearing, not incidental: it clips the outer half of
+    each straddling circle so what renders is an arc bitten out of the edge rather than a dot
+    sitting on top. Both facts are locked by tests.
+- **`app/result/[id].tsx` is the ONE screen this phase restyles.** Home, capture, history and
+  settings are deliberately untouched and inherit only the `Radius.card` change. The result screen
+  adopts the hero numeral, the full-bleed graded frame, the editorial gap, and the notched card
+  (on `surface.raised`, so its pillar rows do not vanish into their own container). The
+  `not medical advice` disclaimer footer and every accessibility label are unchanged.
+- **Dynamic Type is guarded, not hoped for** (brief §7 forbids clipping the score readout): the
+  overall numeral carries `adjustsFontSizeToFit` with `minimumFontScale={0.5}`, and its row now
+  wraps so the band word drops beneath the numeral instead of being pushed off the edge.
+  Caveat worth knowing: the first-reveal path renders `AnimatedOverallNumeral`, a `TextInput`,
+  which cannot take `adjustsFontSizeToFit` — that path is the one to watch at 96pt.
+
+**Not yet verified:** the visual judgement in the plan's Task 6 Step 8 — numeral behaviour at the
+largest Dynamic Type setting, whether the notches read as die-cut on a real screen, and whether the
+duotone grade flatters or deadens real skin. The implementing environment had no `.env` (so no
+Supabase, so the result screen could not be opened) and no real analysis or body photograph. The
+iOS bundle was built end to end and every new symbol resolves, so this is a "how does it look"
+gap, not a "does it work" gap. See the plan's closing section for the three open questions.
+
 ## 2026-07-26 (paying users were silently getting free-tier frame extraction)
 
 - **Pro/Elite videos are now extracted at the caller's real frame cap, read off the server.**

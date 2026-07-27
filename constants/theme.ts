@@ -261,10 +261,24 @@ export const FontFamily = {
     medium: 'IBMPlexMono_500Medium',
     semiBold: 'IBMPlexMono_600SemiBold',
   },
+  /** Coaching prose ONLY — per-pillar feedback and drill instructions (spec 2026-07-26 §3.2).
+   * Never UI chrome: buttons, labels, tabs and every other control stay `body` (Inter). The
+   * split exists because the feedback is writing by a coach, and rendering it in the same
+   * family as a button label is what made it read as generated UI text. */
+  prose: {
+    regular: 'Newsreader_400Regular',
+    italic: 'Newsreader_400Regular_Italic',
+    semiBold: 'Newsreader_600SemiBold',
+  },
 } as const;
 
 /** The brief's six fixed steps: 32 / 24 / 20 / 17 / 15 / 13. Support Dynamic Type — never
- * hard-clip text at these sizes (brief §2). */
+ * hard-clip text at these sizes (brief §2).
+ *
+ * `display` and `hero` are the redesign's addition (spec 2026-07-26 §3.1). The original six
+ * spanned 13->32 — a ratio of 2.5x — which is why nothing on screen had real hierarchy. These
+ * two exist to be used AT MOST ONCE PER SCREEN; the contrast comes from the gap between 96 and
+ * 15, not from many large things. */
 export const FontSize = {
   xs: 13,
   sm: 15,
@@ -272,6 +286,8 @@ export const FontSize = {
   lg: 20,
   xl: 24,
   xxl: 32,
+  display: 64,
+  hero: 96,
 } as const;
 
 // -------------------------------------------------------------------------------------------
@@ -287,11 +303,15 @@ export const Spacing = {
   xl: 24,
   xxl: 32,
   xxxl: 48,
+  /** The single large vertical gap that separates a result's hero from its readout (spec
+   * 2026-07-26 §3.4). Not part of the brief's original ramp — use sparingly, once per screen. */
+  editorial: 96,
 } as const;
 
 export const Radius = {
-  /** Cards. */
-  card: 8,
+  /** Cards. 0 by deliberate choice (spec 2026-07-26 §3.3): a sharp corner reads as a printed
+   * document, a rounded one reads as a generic app card. */
+  card: 0,
   /** Sheets, modals. */
   sheet: 12,
   /** Pills, chips. */

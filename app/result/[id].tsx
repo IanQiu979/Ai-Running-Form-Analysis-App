@@ -24,7 +24,15 @@
  * line + landing marker drawn over the photo) is not rendered here — the `@shared/pace` contract
  * carries no coordinate data for one, and drawing invented overlay geometry would be exactly the
  * kind of fabrication this issue exists to refuse (see `components/pace-readout.tsx`'s header).
- * This screen renders the stored frame plainly, with the deck's alt text.
+ * Redesign spec `docs/superpowers/specs/2026-07-26-redesign-design.md` §4 does schedule those
+ * three hairlines as Phase 2's "moment 3", drawn as fixed geometry rather than per-joint
+ * landmarks — that is a separate plan, and nothing on this screen animates today.
+ *
+ * REDESIGN PHASE 1 (spec §3, plan `docs/superpowers/plans/2026-07-26-redesign-phase-1-static-
+ * layer.md`): the stored frame now renders through `<DuotoneFrame>` — full-bleed and graded
+ * toward the warm base instead of inset as a rounded thumbnail — and the readout sits inside a
+ * `<NotchedCard>`. Both are static; the alt text, the disclaimer footer, and every accessibility
+ * label are unchanged. This is the only screen Phase 1 restyles.
  *
  * MOTION (issue #61): `justAnalyzed` is read straight off the route params and forwarded to
  * `<PaceReadout>` as `firstReveal` — nothing else on this screen branches on it. Both writers of
@@ -42,14 +50,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Image } from 'expo-image';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { useAnimatedRef } from 'react-native-reanimated';
 
+import { DuotoneFrame } from '@/components/duotone-frame';
 import { PartialResultBanner } from '@/components/partial-result-banner';
 import { PaceReadout } from '@/components/pace-readout';
 import { ResultDisclaimer } from '@/components/result-disclaimer';
+import { NotchedCard } from '@/components/ui/notched-card';
 import { Copy } from '@/constants/copy';
 import {
   Accent,
@@ -77,11 +86,6 @@ import type { PaceAnalysisOutcome } from '@shared/pace';
 const MEDIA_BUCKET = 'media';
 // "~1h, regenerated on open" per docs/architecture.md's "Current — media pipeline".
 const HERO_SIGNED_URL_TTL_SECONDS = 60 * 60;
-// A representative running photo's typical portrait ratio. Not a `constants/theme.ts` token —
-// aspect ratio isn't one of that file's roles (colors/spacing/type/radii), and this issue's
-// scope is explicitly the result screen, not new design-system tokens — so this stays a local,
-// commented layout constant rather than an invented theme value.
-const HERO_ASPECT_RATIO = 4 / 5;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -257,17 +261,19 @@ export default function ResultScreen() {
         {outcome.isFallback ? <PartialResultBanner assessedCount={assessedCount} /> : null}
 
         {heroUri ? (
-          <Image
-            testID="result-hero-image"
-            source={{ uri: heroUri }}
-            style={styles.heroImage}
-            contentFit="cover"
-            accessible
-            accessibilityLabel={Copy.result.hero.altText}
-          />
+          <View
+            style={[styles.heroBleed, !outcome.isFallback && styles.heroBleedFirstChild]}>
+            <DuotoneFrame
+              testID="result-hero-image"
+              uri={heroUri}
+              accessibilityLabel={Copy.result.hero.altText}
+            />
+          </View>
         ) : null}
 
-        <PaceReadout result={outcome.result} firstReveal={justAnalyzed} />
+        <NotchedCard testID="result-readout-card" style={styles.readoutCard}>
+          <PaceReadout result={outcome.result} firstReveal={justAnalyzed} />
+        </NotchedCard>
 
         <ResultDisclaimer />
 
@@ -313,11 +319,28 @@ function createStyles(colors: ThemeColors) {
       fontSize: FontSize.md,
       textAlign: 'center',
     },
-    heroImage: {
-      aspectRatio: HERO_ASPECT_RATIO,
-      backgroundColor: colors.surface.base,
-      borderRadius: Radius.card,
-      width: '100%',
+    heroBleed: {
+      // Full-bleed (spec 2026-07-26 §3.5): cancel the content container's own horizontal padding
+      // so the graded frame reaches the screen edges. A photograph inset inside a padded column
+      // is a thumbnail again, which is exactly what this change exists to stop being.
+      marginHorizontal: -Spacing.xl,
+      // The one editorial gap (spec §3.4). The content container's `gap: Spacing.xl` supplies
+      // the remainder, so the separation the eye measures is exactly Spacing.editorial.
+      marginBottom: Spacing.editorial - Spacing.xl,
+    },
+    heroBleedFirstChild: {
+      // Only cancel the content container's top padding when the hero is actually its first
+      // child. When PartialResultBanner renders above it, this margin would instead cancel the
+      // container's `gap: Spacing.xl` between the two siblings, collapsing it to zero.
+      marginTop: -Spacing.xl,
+    },
+    readoutCard: {
+      // The screen's one raised element (brief §2). NotchedCard defaults to `surface.base`,
+      // which is exactly what the pillar rows inside it already use — on that surface the rows
+      // vanish into their own container. `surface.raised` separates them. (It does not rescue
+      // the notches: `background` reads 1.07:1 on base and 1.13:1 on raised, both invisible —
+      // the notch's hairline stroke is what makes it read. See notched-card.tsx's header.)
+      backgroundColor: colors.surface.raised,
     },
     pressed: {
       opacity: Opacity.pressed,

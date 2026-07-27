@@ -50,7 +50,7 @@
 - Consumes: nothing
 - Produces: `FontSize.display: 64`, `FontSize.hero: 96` — used by Task 6.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `constants/__tests__/theme-tokens.test.ts`:
 
@@ -84,12 +84,12 @@ describe('type scale', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest constants/__tests__/theme-tokens.test.ts`
 Expected: FAIL — `expect(FontSize.display).toBe(64)` receives `undefined`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `constants/theme.ts`, replace the `FontSize` block's closing with the two new steps added:
 
@@ -113,12 +113,12 @@ export const FontSize = {
 } as const;
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest constants/__tests__/theme-tokens.test.ts`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add constants/theme.ts constants/__tests__/theme-tokens.test.ts
@@ -146,11 +146,11 @@ screen changes."
 
 **Why:** coaching feedback is writing by a coach, not UI chrome, but currently renders in the same family as button labels. A transitional serif separates the two. Chosen: **Newsreader** — it has a true italic, reads well at 15–17pt on device, and is on Google Fonts so it installs the same way the existing three families do.
 
-- [ ] **Step 1: Install the font package**
+- [x] **Step 1: Install the font package**
 
 Run: `npx expo install @expo-google-fonts/newsreader`
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Append to `constants/__tests__/theme-tokens.test.ts`:
 
@@ -171,12 +171,12 @@ describe('prose type role', () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `npx jest constants/__tests__/theme-tokens.test.ts`
 Expected: FAIL — `Cannot read properties of undefined (reading 'regular')` on `FontFamily.prose`.
 
-- [ ] **Step 4: Add the role to the theme**
+- [x] **Step 4: Add the role to the theme**
 
 In `constants/theme.ts`, add to the `FontFamily` object after the `mono` role:
 
@@ -192,7 +192,7 @@ In `constants/theme.ts`, add to the `FontFamily` object after the `mono` role:
   },
 ```
 
-- [ ] **Step 5: Load the font at startup**
+- [x] **Step 5: Load the font at startup**
 
 In `app/_layout.tsx`, add the import alongside the existing font imports:
 
@@ -212,7 +212,7 @@ and add the three entries to the existing `useFonts({ ... })` call, after `IBMPl
     Newsreader_600SemiBold,
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `npx jest constants/__tests__/theme-tokens.test.ts`
 Expected: PASS (5 tests).
@@ -220,7 +220,7 @@ Expected: PASS (5 tests).
 Run: `npm run typecheck`
 Expected: clean exit, no output.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add constants/theme.ts app/_layout.tsx package.json package-lock.json constants/__tests__/theme-tokens.test.ts
@@ -245,7 +245,7 @@ feedback and drill instructions; every control stays Inter."
 
 **Note:** this is the one non-additive change in the plan. It affects every card already using `Radius.card`, which is the intent — sharp corners read as document, rounded read as app.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `constants/__tests__/theme-tokens.test.ts`:
 
@@ -267,12 +267,12 @@ describe('shape and rhythm', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest constants/__tests__/theme-tokens.test.ts`
 Expected: FAIL — `Radius.card` is 8, `Spacing.editorial` is `undefined`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `constants/theme.ts`, change `Radius.card` and add the comment:
 
@@ -296,12 +296,12 @@ and add one step to `Spacing`:
   editorial: 96,
 ```
 
-- [ ] **Step 4: Run the full suite — this change has reach**
+- [x] **Step 4: Run the full suite — this change has reach**
 
 Run: `npm test`
 Expected: all suites pass. If a snapshot or layout assertion fails because it asserted `borderRadius: 8`, update that assertion to `0` — the token is the source of truth, and the test was locking the old value.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add constants/theme.ts constants/__tests__/theme-tokens.test.ts
@@ -327,7 +327,7 @@ one large gap separating a result's hero from its readout."
 
 **Grading constraint (from spec §3.5, non-negotiable):** grade toward the **warm** base. Brief §2 chose warm graphite/bone specifically because it flatters skin tones. A cold blue grade is clinical and unflattering on a human body. Implementation therefore uses a **warm low-opacity overlay**, never a hue rotation of the subject.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `components/__tests__/duotone-frame.test.tsx`:
 
@@ -363,12 +363,12 @@ describe('DuotoneFrame', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest components/__tests__/duotone-frame.test.tsx`
 Expected: FAIL — `Cannot find module '../duotone-frame'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `components/duotone-frame.tsx`:
 
@@ -434,14 +434,14 @@ const styles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest components/__tests__/duotone-frame.test.tsx`
 Expected: PASS (3 tests).
 
 If `useColorScheme` resolves from a different path in this repo, check `hooks/` and use the existing import that `components/pace-readout.tsx` uses — match the established pattern rather than inventing one.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add components/duotone-frame.tsx components/__tests__/duotone-frame.test.tsx
@@ -466,7 +466,7 @@ body. Carries the text alternative brief §7 requires."
 
 **Why:** a card that is not a rounded rectangle is the cheapest possible signal that this is not a template. Built from `View`s only — two small squares in the base colour, absolutely positioned over the card's mid-edges, read as die-cut notches. No SVG, no masking, no dependency.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `components/__tests__/notched-card.test.tsx`:
 
@@ -513,12 +513,12 @@ describe('NotchedCard', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest components/__tests__/notched-card.test.tsx`
 Expected: FAIL — `Cannot find module '../ui/notched-card'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `components/ui/notched-card.tsx`:
 
@@ -595,14 +595,14 @@ const styles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest components/__tests__/notched-card.test.tsx`
 Expected: PASS (3 tests).
 
 Note: `overflow: 'hidden'` on the card will clip the notches. If they do not render visibly on device, remove `overflow: 'hidden'` from `styles.card` — the tests will still pass either way, so verify this one visually before committing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add components/ui/notched-card.tsx components/__tests__/notched-card.test.tsx
@@ -627,7 +627,7 @@ identity signal. Notches are decoration and hidden from assistive technology."
 
 **Scope discipline:** this is the ONE screen Phase 1 restyles. Home, capture, history and settings are deliberately untouched — they inherit only the `Radius.card` change from Task 3. Restyling every screen is a follow-up, not this task.
 
-- [ ] **Step 1: Write the failing test for the prose family**
+- [x] **Step 1: Write the failing test for the prose family**
 
 Append to `components/__tests__/pace-readout.test.tsx`. This reuses the file's existing
 `proTierVideoResult` fixture, its `await render(...)` convention, and the `pillar-feedback-*`
@@ -665,12 +665,12 @@ If `pillar-score-cadence` is not the testID this file uses for the numeral, run
 `grep -n "testID" components/pace-readout.tsx` and use the real one — the assertion matters, the
 exact id does not.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest components/__tests__/pace-readout.test.tsx`
 Expected: FAIL — `fontFamily` is `Inter_400Regular`.
 
-- [ ] **Step 3: Switch the feedback style to the prose family**
+- [x] **Step 3: Switch the feedback style to the prose family**
 
 In `components/pace-readout.tsx`, find the style used for per-pillar `feedback` text and change only its `fontFamily`:
 
@@ -680,12 +680,12 @@ In `components/pace-readout.tsx`, find the style used for per-pillar `feedback` 
 
 Leave every other style — pillar letter, name, score numeral, band word, labels — exactly as it is. Only the coaching prose changes family.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest components/__tests__/pace-readout.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 5: Apply the hero numeral and editorial gap**
+- [x] **Step 5: Apply the hero numeral and editorial gap**
 
 In `app/result/[id].tsx`:
 - Set the overall score numeral's `fontSize` to `FontSize.hero` and keep its existing `FontFamily.mono` family and colour.
@@ -703,11 +703,11 @@ In `app/result/[id].tsx`:
 </Text>
 ```
 
-- [ ] **Step 6: Wrap the hero frame and the readout**
+- [x] **Step 6: Wrap the hero frame and the readout**
 
 Replace the existing thumbnail/card rendering of the hero frame with `DuotoneFrame`, and the readout's container with `NotchedCard`. Keep every existing accessibility label and the `not medical advice` disclaimer footer exactly where they are — brief §5 requires the disclaimer on every result.
 
-- [ ] **Step 7: Verify the whole suite**
+- [x] **Step 7: Verify the whole suite**
 
 Run: `npm test`
 Expected: all suites pass.
@@ -715,7 +715,7 @@ Expected: all suites pass.
 Run: `npm run typecheck`
 Expected: clean.
 
-- [ ] **Step 8: Verify on device — this task is visual and tests cannot judge it**
+- [ ] **Step 8: Verify on device — this task is visual and tests cannot judge it** — PARTIAL: the dev server and a full iOS bundle were verified, the visual judgement was not. See "Outstanding: the device check" at the end of this file.
 
 ```bash
 npx expo start --port 8090 --clear
@@ -725,7 +725,7 @@ Open a result and check: the numeral does not clip at the largest Dynamic Type s
 
 > Port note: another Expo project on this machine (`~/Developer/rune`) sometimes holds port 8081, in which case `expo start` silently skips starting a server and Expo Go connects to the *other app*. Always pass an explicit `--port`, and if something looks wrong, check with `lsof -nP -iTCP:8090 -sTCP:LISTEN`.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add app/result/\[id\].tsx components/pace-readout.tsx components/__tests__/pace-readout.test.tsx
@@ -746,7 +746,7 @@ sits in a notched card. Disclaimer footer unchanged."
 
 **Why:** the brief is the source of truth and is normally matched literally. A token set that has drifted from it silently is how the next person gets confused.
 
-- [ ] **Step 1: Amend §2's token tables**
+- [x] **Step 1: Amend §2's token tables**
 
 Under `### Type (roles...)`, add:
 
@@ -765,7 +765,7 @@ Under `### Spacing / radius / motion`, replace the radius sentence with:
   rounded reads as app), `12` sheets, `999` pills.
 ```
 
-- [ ] **Step 2: Add the motion budget, ready for Phase 2**
+- [x] **Step 2: Add the motion budget, ready for Phase 2**
 
 Add a new subsection at the end of §6:
 
@@ -781,12 +781,12 @@ Phase 1 (the static layer) adds none of them; they are specified in
 `docs/superpowers/specs/2026-07-26-redesign-design.md` §4 and built in Phase 2.
 ```
 
-- [ ] **Step 3: Verify nothing broke**
+- [x] **Step 3: Verify nothing broke**
 
 Run: `npm test`
 Expected: all suites pass (docs-only change, but the knowledge-bundle verify step runs here too).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/design/frontend-design-brief.md
@@ -807,9 +807,37 @@ Do not start Phase 2 from this document — the visual judgement in Task 6 Step 
 
 ## Verification checklist for the whole phase
 
-- [ ] `npm run typecheck` clean
-- [ ] `npm test` — all suites green
-- [ ] Result screen checked on device at default AND largest Dynamic Type
-- [ ] Result screen checked in both light and dark
-- [ ] The duotone grade judged on a real body, not a placeholder
-- [ ] No new entry in `package.json` except `@expo-google-fonts/newsreader`
+- [x] `npm run typecheck` clean
+- [x] `npm test` — all suites green (922 jest + 369 deno)
+- [ ] Result screen checked on device at default AND largest Dynamic Type — **NOT DONE**, see below
+- [ ] Result screen checked in both light and dark — **NOT DONE**, see below
+- [ ] The duotone grade judged on a real body, not a placeholder — **NOT DONE**, see below
+- [x] No new entry in `package.json` except `@expo-google-fonts/newsreader`
+
+### Outstanding: the device check (Task 6 Step 8)
+
+What WAS verified in the implementing environment:
+
+- `npx expo start --port 8090 --clear` ran and the server was confirmed listening on 8090 via
+  `lsof -nP -iTCP:8090 -sTCP:LISTEN` — no collision with the other Expo project on this machine.
+- The full iOS bundle built from that server (HTTP 200, ~11.2 MB) with all three Newsreader faces
+  and both new components resolved. So the new dependency and both components compile and link;
+  what is unverified is purely how they LOOK.
+
+Why the visual judgement could not be made there: the worktree has no `.env`, so the app cannot
+reach Supabase and sign-in is impossible; the result screen therefore cannot be opened at all.
+Expo Go was also not installed on the simulator, and there is no real stored analysis and no
+photograph of a real body to grade against — which is precisely what the grade judgement needs.
+
+Three judgements still need real device eyes before Phase 2 is planned:
+
+1. Does the hero numeral clip or reflow acceptably at the largest Dynamic Type setting? (The
+   numeral has `adjustsFontSizeToFit` + `minimumFontScale={0.5}`, and its row now wraps. The
+   first-reveal path renders `AnimatedOverallNumeral`, a `TextInput`, which cannot take
+   `adjustsFontSizeToFit` — that path is the one most likely to overflow at 96pt.)
+2. Do the notches read as die-cut? Their fill contrast is imperceptible by measurement (1.07:1 on
+   `surface.base`, 1.13:1 on `surface.raised`), so a hairline stroke was added to carry the shape.
+   Whether that arc reads at 24pt diameter on a real screen is the open question.
+3. Does the duotone grade flatter a real body or deaden it? If it looks cold or muddy on skin,
+   lower `GRADE_OPACITY` in `components/duotone-frame.tsx` (currently `0.14`) or drop the grade to
+   background-only, exactly as spec §3.5 allows.

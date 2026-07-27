@@ -9,6 +9,7 @@ import { StyleSheet } from 'react-native';
 
 import { PaceReadout } from '../pace-readout';
 import { Copy } from '@/constants/copy';
+import { FontFamily } from '@/constants/theme';
 import {
   allNotAssessedResult,
   freeTierVideoResult,
@@ -155,4 +156,33 @@ it('does not swallow feedback, flags, and drills into the row-level accessible n
   expect(
     screen.getByText('Set a metronome +2–3 SPM above baseline, 10 min on / 5 min off, 2–3x.')
   ).toBeTruthy();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Redesign Phase 1 (spec 2026-07-26 §3.2): coaching feedback is writing by a coach, not UI
+// chrome, so it renders in the prose serif. Everything measured stays in mono — the pair below
+// is what stops a future edit sliding the whole readout into one family again.
+// ---------------------------------------------------------------------------------------------
+describe('coaching feedback typography', () => {
+  it('renders per-pillar feedback in the prose serif, not the UI family', async () => {
+    await render(<PaceReadout result={proTierVideoResult} />);
+
+    const feedback = screen.getByTestId('pillar-feedback-cadence');
+    const style = Array.isArray(feedback.props.style)
+      ? Object.assign({}, ...feedback.props.style)
+      : feedback.props.style;
+
+    expect(style.fontFamily).toBe(FontFamily.prose.regular);
+  });
+
+  it('leaves the measured score numeral in mono — only prose changes family', async () => {
+    await render(<PaceReadout result={proTierVideoResult} />);
+
+    const score = screen.getByTestId('pillar-score-cadence');
+    const style = Array.isArray(score.props.style)
+      ? Object.assign({}, ...score.props.style)
+      : score.props.style;
+
+    expect(style.fontFamily).toBe(FontFamily.mono.medium);
+  });
 });
