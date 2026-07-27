@@ -161,9 +161,19 @@ The maximalist version of this idea ("The Skeleton Assembles") required per-join
 which `analyze-form` does not return, and which would have meant adding on-device pose detection
 (Apple Vision / MediaPipe) plus `@shopify/react-native-skia`.
 
-**Scoping to the brief's three existing annotation lines removes that dependency entirely.** Three
-hairlines drawing on need only SVG and Reanimated, both already present. Pose detection becomes a
-possible future enhancement, not a prerequisite.
+**Scoping to the brief's three existing annotation lines removes that dependency entirely.**
+
+Implement the hairlines as **plain `View`s, not SVG**. `react-native-svg` is *not* a dependency of
+this project (verified 2026-07-26) and does not need to become one: a hairline is a 1pt `View`, and
+"drawing it on" is `scaleX`/`scaleY` 0→1 with `transformOrigin` set to the growth edge. Angle comes
+from a static `rotate` transform.
+
+This is the pattern `components/pace-reveal.tsx` already uses and documents — *"Pillar bar fill =
+scaleX, never width"* — precisely because a transform never triggers a layout pass. Reusing it keeps
+the motion cheap and consistent with the one animation the app already ships.
+
+**Net new runtime dependencies for this entire redesign: none.** Pose detection becomes a possible
+future enhancement, not a prerequisite.
 
 ---
 
@@ -172,7 +182,7 @@ possible future enhancement, not a prerequisite.
 | Unit | Responsibility | Depends on |
 |---|---|---|
 | `constants/theme.ts` | New tokens: `FontSize.display`/`.hero`, `FontFamily.prose`, `Radius.card: 0`, `Spacing.editorial` | — |
-| `components/annotation-lines.tsx` (new) | **The one animation primitive.** Renders 1–3 hairline annotations and draws them on, once, on demand. Reduced-motion aware. Knows nothing about launch/first-run/result | Reanimated, `use-reduced-motion` |
+| `components/annotation-lines.tsx` (new) | **The one animation primitive.** Renders 1–3 hairline annotations as plain `View`s and draws them on, once, on demand via `scaleX`/`scaleY`. Reduced-motion aware. Knows nothing about launch/first-run/result | Reanimated, `use-reduced-motion` |
 | `components/duotone-frame.tsx` (new) | Renders a user frame full-bleed, graded to the palette | expo-image |
 | Launch intro (in `app/_layout.tsx`) | Owns cold-vs-warm detection and the splash handoff; renders the primitive with one line | annotation-lines |
 | First-run intro | Owns "have I run before" persistence; renders the primitive with three lines | annotation-lines |
