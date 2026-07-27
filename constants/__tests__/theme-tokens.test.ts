@@ -4,7 +4,7 @@
  * The six original steps are asserted UNCHANGED on purpose: the redesign is additive, and a
  * screen that never opts into `display`/`hero` must look exactly as it did before.
  */
-import { FontFamily, FontSize } from '../theme';
+import { FontFamily, FontSize, Radius, Spacing } from '../theme';
 
 describe('type scale', () => {
   it('keeps the brief’s six original steps unchanged', () => {
@@ -36,5 +36,21 @@ describe('prose type role', () => {
     expect(FontFamily.body.regular).toBe('Inter_400Regular');
     expect(FontFamily.display.regular).toBe('Archivo_400Regular');
     expect(FontFamily.mono.regular).toBe('IBMPlexMono_400Regular');
+  });
+});
+
+describe('shape and rhythm', () => {
+  it('squares off cards — sharp reads as document, rounded reads as app', () => {
+    expect(Radius.card).toBe(0);
+  });
+
+  it('leaves sheets and pills alone (a pill is still a pill)', () => {
+    expect(Radius.sheet).toBe(12);
+    expect(Radius.pill).toBe(999);
+  });
+
+  it('adds one editorial gap above the brief’s ramp', () => {
+    expect(Spacing.editorial).toBe(96);
+    expect(Spacing.xxxl).toBe(48);
   });
 });

@@ -303,11 +303,15 @@ export const Spacing = {
   xl: 24,
   xxl: 32,
   xxxl: 48,
+  /** The single large vertical gap that separates a result's hero from its readout (spec
+   * 2026-07-26 §3.4). Not part of the brief's original ramp — use sparingly, once per screen. */
+  editorial: 96,
 } as const;
 
 export const Radius = {
-  /** Cards. */
-  card: 8,
+  /** Cards. 0 by deliberate choice (spec 2026-07-26 §3.3): a sharp corner reads as a printed
+   * document, a rounded one reads as a generic app card. */
+  card: 0,
   /** Sheets, modals. */
   sheet: 12,
   /** Pills, chips. */
