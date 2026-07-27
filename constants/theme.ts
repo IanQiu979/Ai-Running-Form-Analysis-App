@@ -264,7 +264,12 @@ export const FontFamily = {
 } as const;
 
 /** The brief's six fixed steps: 32 / 24 / 20 / 17 / 15 / 13. Support Dynamic Type — never
- * hard-clip text at these sizes (brief §2). */
+ * hard-clip text at these sizes (brief §2).
+ *
+ * `display` and `hero` are the redesign's addition (spec 2026-07-26 §3.1). The original six
+ * spanned 13->32 — a ratio of 2.5x — which is why nothing on screen had real hierarchy. These
+ * two exist to be used AT MOST ONCE PER SCREEN; the contrast comes from the gap between 96 and
+ * 15, not from many large things. */
 export const FontSize = {
   xs: 13,
   sm: 15,
@@ -272,6 +277,8 @@ export const FontSize = {
   lg: 20,
   xl: 24,
   xxl: 32,
+  display: 64,
+  hero: 96,
 } as const;
 
 // -------------------------------------------------------------------------------------------
