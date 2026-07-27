@@ -4,7 +4,7 @@
  * The six original steps are asserted UNCHANGED on purpose: the redesign is additive, and a
  * screen that never opts into `display`/`hero` must look exactly as it did before.
  */
-import { FontSize } from '../theme';
+import { FontFamily, FontSize } from '../theme';
 
 describe('type scale', () => {
   it('keeps the brief’s six original steps unchanged', () => {
@@ -23,5 +23,18 @@ describe('type scale', () => {
 
   it('spans a ratio wide enough for editorial hierarchy (the old 2.5x was the problem)', () => {
     expect(FontSize.hero / FontSize.xs).toBeGreaterThan(7);
+  });
+});
+
+describe('prose type role', () => {
+  it('exposes a serif family distinct from the UI family', () => {
+    expect(FontFamily.prose.regular).toBe('Newsreader_400Regular');
+    expect(FontFamily.prose.italic).toBe('Newsreader_400Regular_Italic');
+  });
+
+  it('does not disturb the existing three roles', () => {
+    expect(FontFamily.body.regular).toBe('Inter_400Regular');
+    expect(FontFamily.display.regular).toBe('Archivo_400Regular');
+    expect(FontFamily.mono.regular).toBe('IBMPlexMono_400Regular');
   });
 });

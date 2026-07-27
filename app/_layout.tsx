@@ -10,6 +10,11 @@ import {
   IBMPlexMono_600SemiBold,
 } from '@expo-google-fonts/ibm-plex-mono';
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
+import {
+  Newsreader_400Regular,
+  Newsreader_400Regular_Italic,
+  Newsreader_600SemiBold,
+} from '@expo-google-fonts/newsreader';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
@@ -24,7 +29,8 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { SessionProvider, useSession } from '@/lib/session-provider';
 
-// Held until both the design-system fonts (brief §2: Archivo/Inter/IBM Plex Mono) and the
+// Held until both the design-system fonts (brief §2: Archivo/Inter/IBM Plex Mono, plus the
+// Newsreader prose role added by spec 2026-07-26 §3.2) and the
 // initial auth check (SessionProvider's getSession()) are ready — see RootLayoutNav below —
 // so the very first frame the user sees is never a system-font flash or a route flicker
 // between the auth and tabs groups.
@@ -57,6 +63,9 @@ function RootLayoutNav() {
     IBMPlexMono_400Regular,
     IBMPlexMono_500Medium,
     IBMPlexMono_600SemiBold,
+    Newsreader_400Regular,
+    Newsreader_400Regular_Italic,
+    Newsreader_600SemiBold,
   });
 
   const isReady = (fontsLoaded || !!fontError) && !isSessionLoading;

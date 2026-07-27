@@ -261,6 +261,15 @@ export const FontFamily = {
     medium: 'IBMPlexMono_500Medium',
     semiBold: 'IBMPlexMono_600SemiBold',
   },
+  /** Coaching prose ONLY — per-pillar feedback and drill instructions (spec 2026-07-26 §3.2).
+   * Never UI chrome: buttons, labels, tabs and every other control stay `body` (Inter). The
+   * split exists because the feedback is writing by a coach, and rendering it in the same
+   * family as a button label is what made it read as generated UI text. */
+  prose: {
+    regular: 'Newsreader_400Regular',
+    italic: 'Newsreader_400Regular_Italic',
+    semiBold: 'Newsreader_600SemiBold',
+  },
 } as const;
 
 /** The brief's six fixed steps: 32 / 24 / 20 / 17 / 15 / 13. Support Dynamic Type — never
