@@ -131,6 +131,17 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
 repo had no tests; it now has a large suite — run `npm test` for the current count, app + edge).
 New logic added to `lib/` gets a test alongside it — that rule is load-bearing, not aspirational.
 
+Two RNTL conventions this repo's setup requires, neither of which is the library's documented
+default — copy an existing test rather than writing one from memory:
+
+- **`await render(...)`, always.** A bare `render()` leaves `screen` unpopulated and every query
+  fails with "`render` function has not been called", which reads like a missing component, not a
+  missing `await`. Every test file here already does this.
+- **A node carrying `accessibilityElementsHidden` needs `{ includeHiddenElements: true }`** to be
+  found by `getByTestId`. Decorative nodes are correctly hidden from the a11y tree, and RNTL
+  excludes hidden elements from queries by default — so the testID that "doesn't exist" usually
+  does.
+
 **Screens ARE unit-tested when the bug class needs it** (this line used to say they were not, which
 went stale). Two precedents, both regression locks for bugs that shipped:
 `app/capture/__tests__/extracting.test.tsx` (issue #147's render loop, and the frame-cap bug — a
