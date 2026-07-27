@@ -4,7 +4,10 @@ SQL in this directory is **not** applied. It is kept for the reasoning it contai
 
 Do not move these files into `supabase/migrations/` — they were written against a
 design the project later abandoned, and re-applying them would conflict with the
-migrations that replaced them.
+migrations that replaced them. That rule is enforced, not just documented:
+`supabase/migrations/__tests__/superseded_not_applied.test.ts` fails if a file here
+reappears in `supabase/migrations/` under any name or contents, and also if either
+migration that superseded it goes missing.
 
 | File | Origin | Superseded by |
 |---|---|---|
@@ -29,5 +32,6 @@ accepted residual (deleting an account and re-signing-up resets a per-account
 quota; inherent to any per-account quota, deliberately not defended).
 
 This migration only ever existed inside the preview branch's database. It was never
-committed, never applied to production, and was recovered before that branch was
-deleted.
+committed to a migration set, never applied to production, and was recovered before
+that branch was deleted; the copy in this directory is the first time it has been
+committed anywhere, and it is committed here precisely because it stays unapplied.

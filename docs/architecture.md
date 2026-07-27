@@ -1412,6 +1412,10 @@ landed with M1 on 2026-07-11; the 8th and 9th, `consents` and `consents_grant_ha
 (#88)" above and "Current — AI spend guardrails substrate" below (both formerly
 "Pending"/written-not-applied, now genuinely live).
 
+`supabase/migrations/` is the whole applied set. SQL kept elsewhere in the repo — currently
+`docs/superseded/` — is deliberately dead and must never be moved into it; see
+[`docs/superseded/README.md`](superseded/README.md) for what is there and why.
+
 ```sql
 -- public.profiles: one row per auth.users row, auto-created by an AFTER INSERT trigger
 -- (handle_new_user, SECURITY DEFINER) on signup for every provider.
