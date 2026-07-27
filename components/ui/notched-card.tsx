@@ -6,10 +6,17 @@
  * background colour, centred on the left and right edges, read as die-cut notches. No SVG, no
  * mask, no dependency (see the spec's "net new runtime dependencies: none").
  *
- * `overflow: 'hidden'` is kept on purpose and does NOT defeat the effect: each notch straddles an
- * edge, and the half that gets clipped is the half OUTSIDE the card — which was page-coloured on
- * the page's own background, i.e. invisible either way. Only the inner half ever reads, and that
- * half is inside the bounds.
+ * `overflow: 'hidden'` is LOAD-BEARING, not incidental. Each notch straddles an edge; clipping
+ * removes the outer half, so what renders is a single arc biting into the card — a die-cut. Drop
+ * the clip and the same View reads as a whole circle sitting on top of the card instead.
+ *
+ * WHY THE ARC IS STROKED: a fill alone does not read. `background` against `surface.base` is
+ * 1.07:1 (light) / 1.08:1 (dark), and against `surface.raised` 1.13:1 / 1.19:1 — all far below
+ * perceptible, so a fill-only notch is invisible on every surface this card can sit on and the
+ * shape signal the spec is buying (§3.6, "shape as identity") would never arrive. The 1pt
+ * `hairline` stroke is what makes the cut edge read. `hairline` is the right token by its own
+ * definition in `constants/theme.ts` — "rules, ticks, annotations", decorative structure, not a
+ * control boundary — so WCAG 1.4.11 does not apply to it and no contrast floor is being dodged.
  *
  * The notches are pure decoration and are hidden from assistive technology (brief §7).
  */
@@ -27,12 +34,19 @@ type NotchedCardProps = ViewProps & {
 
 export function NotchedCard({ testID, children, style, ...rest }: NotchedCardProps) {
   const scheme = useColorScheme() ?? 'light';
-  const page = Colors[scheme].background;
-  const surface = Colors[scheme].surface.base;
+  const colors = Colors[scheme];
+  const page = colors.background;
+  const surface = colors.surface.base;
 
   const notch = [
     styles.notch,
-    { backgroundColor: page, width: NOTCH_DIAMETER, height: NOTCH_DIAMETER, borderRadius: NOTCH_DIAMETER / 2 },
+    {
+      backgroundColor: page,
+      borderColor: colors.hairline,
+      width: NOTCH_DIAMETER,
+      height: NOTCH_DIAMETER,
+      borderRadius: NOTCH_DIAMETER / 2,
+    },
   ];
 
   return (
@@ -65,6 +79,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: '50%',
     marginTop: -NOTCH_DIAMETER / 2,
+    // See the header: the stroke, not the fill, is what makes the cut edge visible.
+    borderWidth: StyleSheet.hairlineWidth,
   },
   notchLeft: {
     left: -NOTCH_DIAMETER / 2,
