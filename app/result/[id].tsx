@@ -261,7 +261,8 @@ export default function ResultScreen() {
         {outcome.isFallback ? <PartialResultBanner assessedCount={assessedCount} /> : null}
 
         {heroUri ? (
-          <View style={styles.heroBleed}>
+          <View
+            style={[styles.heroBleed, !outcome.isFallback && styles.heroBleedFirstChild]}>
             <DuotoneFrame
               testID="result-hero-image"
               uri={heroUri}
@@ -319,14 +320,19 @@ function createStyles(colors: ThemeColors) {
       textAlign: 'center',
     },
     heroBleed: {
-      // Full-bleed (spec 2026-07-26 §3.5): cancel the content container's own padding so the
-      // graded frame reaches the screen edges. A photograph inset inside a padded column is a
-      // thumbnail again, which is exactly what this change exists to stop being.
+      // Full-bleed (spec 2026-07-26 §3.5): cancel the content container's own horizontal padding
+      // so the graded frame reaches the screen edges. A photograph inset inside a padded column
+      // is a thumbnail again, which is exactly what this change exists to stop being.
       marginHorizontal: -Spacing.xl,
-      marginTop: -Spacing.xl,
       // The one editorial gap (spec §3.4). The content container's `gap: Spacing.xl` supplies
       // the remainder, so the separation the eye measures is exactly Spacing.editorial.
       marginBottom: Spacing.editorial - Spacing.xl,
+    },
+    heroBleedFirstChild: {
+      // Only cancel the content container's top padding when the hero is actually its first
+      // child. When PartialResultBanner renders above it, this margin would instead cancel the
+      // container's `gap: Spacing.xl` between the two siblings, collapsing it to zero.
+      marginTop: -Spacing.xl,
     },
     readoutCard: {
       // The screen's one raised element (brief §2). NotchedCard defaults to `surface.base`,
