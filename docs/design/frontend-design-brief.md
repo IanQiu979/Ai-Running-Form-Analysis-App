@@ -70,10 +70,16 @@ fire-engine red; this app improves runners, it doesn't scold them.
 - **Body / UI:** **Inter** (shared with the family — neutral, proven).
 - **Mono:** **IBM Plex Mono** — for the measured score readouts and any pace/metric text, the
   "instrument" signal carried over from V2.2.
+- **Prose:** **Newsreader** — coaching feedback and drill instructions ONLY, never UI chrome
+  (amended 2026-07-26, spec `docs/superpowers/specs/2026-07-26-redesign-design.md` §3.2).
 - Scale: 32 / 24 / 20 / 17 / 15 / 13. Support Dynamic Type — never hard-clip at a fixed size.
+- Scale amended 2026-07-26: the six steps above are joined by `display 64` and `hero 96`, for at
+  most ONE element per screen. The original 13→32 range (2.5×) is why no screen had hierarchy.
 
 ### Spacing / radius / motion
-- Spacing ramp `4 · 8 · 12 · 16 · 24 · 32 · 48`. Radius: `8` cards, `12` sheets, `999` pills.
+- Spacing ramp `4 · 8 · 12 · 16 · 24 · 32 · 48`, plus `editorial 96` for the single large gap on a
+  result (amended 2026-07-26). Radius: **`0` cards** (amended 2026-07-26 — sharp reads as document,
+  rounded reads as app), `12` sheets, `999` pills.
 - Durations `quick 160ms · standard 240ms · slow 320ms`; curves ease-out (arriving), ease-in
   (leaving), one spring for the score reveal. Honest-motion rule from §6.
 
@@ -183,6 +189,16 @@ here's the fix," never "Bad form detected."
 - **Wait states:** real progress for upload/extract; the calm honest step list for the vision call.
 - **Reduced motion:** bars appear filled with a single crossfade (no stagger, no count-up); honor
   `isReduceMotionEnabled`; on Android force stack pushes to crossfade when it's set.
+
+### 6.1 The motion budget (amended 2026-07-26)
+
+Exactly three moments in this app animate: the app-launch intro, the first-run intro, and the
+result reveal. **Nothing else animates.** No ambient motion, no decorative transitions, no
+per-word reveals, no marquees or tickers.
+
+This is a budget, not a guideline. Unwritten, "three moments" becomes the first three of eleven.
+Phase 1 (the static layer) adds none of them; they are specified in
+`docs/superpowers/specs/2026-07-26-redesign-design.md` §4 and built in Phase 2.
 
 ---
 
