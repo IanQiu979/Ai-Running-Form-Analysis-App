@@ -24,10 +24,12 @@ import { useEffect, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 
+import { FirstRunIntro } from '@/components/first-run-intro';
 import { LaunchIntro } from '@/components/launch-intro';
 import { OfflineBanner } from '@/components/offline-banner';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { hasSeenFirstRun } from '@/lib/first-run';
 import { SessionProvider, useSession } from '@/lib/session-provider';
 
 // Held until both the design-system fonts (brief §2: Archivo/Inter/IBM Plex Mono, plus the
@@ -76,6 +78,26 @@ function RootLayoutNav() {
   // component tree does not remount across background/foreground, so there is nothing to
   // persist for "warm starts are not cold starts" (see components/launch-intro.tsx's header).
   const [launchDone, setLaunchDone] = useState(false);
+
+  // Moment 2 (Phase 2 plan Task 4): 'checking' while the AsyncStorage read below is in flight,
+  // 'show' if it resolved false, 'done' once shown (or if it resolved true, or never resolved —
+  // see the effect below for why "never resolved" also means "done": this must never gate
+  // reaching sign-in by waiting on a slow read).
+  const [firstRunPhase, setFirstRunPhase] = useState<'checking' | 'show' | 'done'>('checking');
+
+  useEffect(() => {
+    let cancelled = false;
+    // Kicked off in parallel with moment 1's own <=400ms animation, not after it — by the time
+    // launchDone flips, this read (a single AsyncStorage.getItem) has almost always already
+    // resolved. If it somehow hasn't, `firstRunPhase` is still 'checking' when launchDone flips;
+    // the render logic below treats that the same as 'done' rather than blocking on it.
+    hasSeenFirstRun().then((seen) => {
+      if (!cancelled) setFirstRunPhase(seen ? 'done' : 'show');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (isReady) {
@@ -158,10 +180,15 @@ function RootLayoutNav() {
             nothing while online; see components/offline-banner.tsx's header for why an overlay,
             not a gate. */}
         <OfflineBanner />
-        {/* Moment 1 sits visually above the Stack, which has already mounted underneath — this
-            never delays isReady's own fonts/session gate, it only overlays on top of it once
-            that gate has already passed. */}
+        {/* Moments 1 and 2 sit visually above the Stack (and above the session/auth guard it
+            already applies), which has already mounted underneath — neither delays isReady's own
+            fonts/session gate or the Stack's own routing, they only overlay on top of it once
+            that gate has already passed. Sequenced: moment 1 first, then moment 2 only if it
+            hasn't been seen — 'checking' is treated the same as 'done' (skip), never a wait. */}
         {!launchDone && <LaunchIntro onDone={() => setLaunchDone(true)} />}
+        {launchDone && firstRunPhase === 'show' && (
+          <FirstRunIntro onDone={() => setFirstRunPhase('done')} />
+        )}
       </View>
       <StatusBar style="auto" />
     </ThemeProvider>

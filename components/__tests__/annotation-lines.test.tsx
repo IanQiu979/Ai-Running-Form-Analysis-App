@@ -37,4 +37,14 @@ describe('AnnotationLines', () => {
     const style = Array.isArray(node.props.style) ? Object.assign({}, ...node.props.style) : node.props.style;
     expect(style.transform).toEqual(expect.arrayContaining([{ scaleX: 1 }]));
   });
+
+  it('fires onComplete once, after the slowest (last) line finishes drawing', async () => {
+    jest.useFakeTimers();
+    const onComplete = jest.fn();
+    await render(<AnnotationLines lines={LINES} play onComplete={onComplete} testID="lines" />);
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    jest.useRealTimers();
+  });
 });
