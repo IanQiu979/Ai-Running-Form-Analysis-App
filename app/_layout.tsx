@@ -20,10 +20,11 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 
+import { LaunchIntro } from '@/components/launch-intro';
 import { OfflineBanner } from '@/components/offline-banner';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -69,6 +70,12 @@ function RootLayoutNav() {
   });
 
   const isReady = (fontsLoaded || !!fontError) && !isSessionLoading;
+
+  // Moment 1 (spec 2026-07-26 §4, Phase 2 plan Task 3): the ground rule alone, on every cold
+  // start. `launchDone` starts false and is flipped exactly once per process lifetime — this
+  // component tree does not remount across background/foreground, so there is nothing to
+  // persist for "warm starts are not cold starts" (see components/launch-intro.tsx's header).
+  const [launchDone, setLaunchDone] = useState(false);
 
   useEffect(() => {
     if (isReady) {
@@ -151,6 +158,10 @@ function RootLayoutNav() {
             nothing while online; see components/offline-banner.tsx's header for why an overlay,
             not a gate. */}
         <OfflineBanner />
+        {/* Moment 1 sits visually above the Stack, which has already mounted underneath — this
+            never delays isReady's own fonts/session gate, it only overlays on top of it once
+            that gate has already passed. */}
+        {!launchDone && <LaunchIntro onDone={() => setLaunchDone(true)} />}
       </View>
       <StatusBar style="auto" />
     </ThemeProvider>
