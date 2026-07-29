@@ -104,3 +104,18 @@ export function overallA11yLabel(overall: PaceOverall): string {
 export function formatPartialBannerBody(assessedCount: number): string {
   return Copy.result.partial.banner.body.replace('{n}', String(assessedCount));
 }
+
+/**
+ * The reveal gate `components/pace-readout.tsx` uses to decide when its bar/numeral animation may
+ * start (Phase 2 plan Task 5, spec 2026-07-26 §4 moment 3: "annotations draw, THEN the bars
+ * fill"). Hoisted here, pure, so the sequencing rule itself has a real unit test rather than one
+ * that fights Reanimated's timing/effects — the component's own job is just to call this with its
+ * current `hasLaidOut`/`revealReady` state.
+ *
+ * `revealReady` defaults to `true` at the call site (see `PaceReadout`'s `Props`), so every
+ * existing caller that doesn't pass it keeps its exact pre-Phase-2 behavior: reveal starts the
+ * instant layout fires, same as before this gate existed.
+ */
+export function isRevealTriggered(hasLaidOut: boolean, revealReady: boolean): boolean {
+  return hasLaidOut && revealReady;
+}

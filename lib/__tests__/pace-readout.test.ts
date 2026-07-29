@@ -7,6 +7,7 @@
 import {
   countAssessedPillars,
   formatPartialBannerBody,
+  isRevealTriggered,
   notAssessedCopy,
   overallA11yLabel,
   pillarA11yLabel,
@@ -117,5 +118,20 @@ describe('formatPartialBannerBody', () => {
     expect(formatPartialBannerBody(2)).toBe(
       "We could confidently score 2 of 4 pillars from this clip. The rest are marked not assessed — we don't guess at a score."
     );
+  });
+});
+
+describe('isRevealTriggered (Phase 2 plan Task 5 — moment 3 sequencing)', () => {
+  it('does not trigger before layout, regardless of revealReady', () => {
+    expect(isRevealTriggered(false, true)).toBe(false);
+    expect(isRevealTriggered(false, false)).toBe(false);
+  });
+
+  it('does not trigger after layout while revealReady is still false — waiting on the hero annotations to finish drawing', () => {
+    expect(isRevealTriggered(true, false)).toBe(false);
+  });
+
+  it('triggers once both layout has happened and revealReady is true', () => {
+    expect(isRevealTriggered(true, true)).toBe(true);
   });
 });

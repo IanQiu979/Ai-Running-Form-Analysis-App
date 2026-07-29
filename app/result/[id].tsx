@@ -93,7 +93,16 @@ type ScreenState =
   | { status: 'loading' }
   | { status: 'loadFailed' }
   | { status: 'unavailable' }
-  | { status: 'ready'; outcome: PaceAnalysisOutcome; heroUri: string | null };
+  | {
+      status: 'ready';
+      outcome: PaceAnalysisOutcome;
+      heroUri: string | null;
+      /** True only while a `heroPath` exists and its signed-URL resolution is still in flight.
+       * Phase 2 plan Task 5 needs this distinguished from "resolved to null" (no image at all) —
+       * `annotationsDone`'s fallback below only fires once resolution has actually finished,
+       * never while a real hero is still on its way in. */
+      heroPending: boolean;
+    };
 
 /** Mirrors `app/(tabs)/index.tsx`'s own `ActiveFlag` pattern: minted per fetch attempt, flipped
  * off on unmount/re-fetch, so a slow or stale request can never overwrite a newer one's state. */
@@ -123,6 +132,13 @@ export default function ResultScreen() {
   const justAnalyzed = (Array.isArray(params.justAnalyzed) ? params.justAnalyzed[0] : params.justAnalyzed) === '1';
   // See this file's header (motion-consult.md item 5) — unread today, on purpose.
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
+
+  // Moment 3 sequencing (Phase 2 plan Task 5, spec 2026-07-26 §4): "annotations draw, THEN the
+  // bars fill." A re-open (`!justAnalyzed`) has nothing to wait for — the hero's lines render
+  // already fully drawn (see DuotoneFrame's `playAnnotation` default) — so this starts `true` in
+  // that case and only starts `false`, waiting on the callback below, on a fresh analysis's first
+  // open.
+  const [annotationsDone, setAnnotationsDone] = useState(!justAnalyzed);
 
   const [state, setState] = useState<ScreenState>({ status: 'loading' });
   const activeFlagRef = useRef<ActiveFlag>({ active: false });
@@ -180,13 +196,15 @@ export default function ResultScreen() {
         return;
       }
 
-      setState({ status: 'ready', outcome: read.outcome, heroUri: null });
-
       const heroPath = read.mediaPaths[0];
+      setState({ status: 'ready', outcome: read.outcome, heroUri: null, heroPending: !!heroPath });
+
       if (heroPath) {
         const heroUri = await resolveHeroImageUri(heroPath);
         if (active.active) {
-          setState((current) => (current.status === 'ready' ? { ...current, heroUri } : current));
+          setState((current) =>
+            current.status === 'ready' ? { ...current, heroUri, heroPending: false } : current
+          );
         }
       }
     },
@@ -252,8 +270,14 @@ export default function ResultScreen() {
     );
   }
 
-  const { outcome, heroUri } = state;
+  const { outcome, heroUri, heroPending } = state;
   const assessedCount = countAssessedPillars(outcome.result);
+  // Moment 3 sequencing (Phase 2 plan Task 5): if there is no hero to draw on at all — resolution
+  // finished and came back with nothing (`!heroPending && !heroUri`) — there is nothing for the
+  // readout to wait on, so it reveals as if the (nonexistent) annotations already finished. While
+  // a real hero is still resolving (`heroPending`), this stays false and the readout keeps waiting
+  // for `DuotoneFrame`'s actual `onAnnotationComplete` callback instead.
+  const revealReady = annotationsDone || (!heroPending && !heroUri);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -267,12 +291,15 @@ export default function ResultScreen() {
               testID="result-hero-image"
               uri={heroUri}
               accessibilityLabel={Copy.result.hero.altText}
+              annotate
+              playAnnotation={justAnalyzed}
+              onAnnotationComplete={() => setAnnotationsDone(true)}
             />
           </View>
         ) : null}
 
         <NotchedCard testID="result-readout-card" style={styles.readoutCard}>
-          <PaceReadout result={outcome.result} firstReveal={justAnalyzed} />
+          <PaceReadout result={outcome.result} firstReveal={justAnalyzed} revealReady={revealReady} />
         </NotchedCard>
 
         <ResultDisclaimer />

@@ -53,7 +53,14 @@ import {
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { notAssessedCopy, overallA11yLabel, pillarA11yLabel, pillarLabel, pillarLetter } from '@/lib/pace-readout';
+import {
+  isRevealTriggered,
+  notAssessedCopy,
+  overallA11yLabel,
+  pillarA11yLabel,
+  pillarLabel,
+  pillarLetter,
+} from '@/lib/pace-readout';
 import { PACE_PILLARS, type PacePillarId, type PacePillarResult, type PaceResult } from '@shared/pace';
 
 type Props = {
@@ -61,6 +68,12 @@ type Props = {
   /** True only on the fresh-analysis nav (`justAnalyzed=1`) — see this file's header. Defaults to
    * false, i.e. every call site that doesn't pass it renders exactly as before #61. */
   firstReveal?: boolean;
+  /** Moment 3 sequencing (Phase 2 plan Task 5, spec 2026-07-26 §4): "annotations draw, THEN the
+   * bars fill." Defaults to `true` — every call site from before this prop existed keeps its
+   * exact behavior (reveal starts the instant layout fires). `app/result/[id].tsx` is the one
+   * caller that passes `false` while the hero's annotation lines are still drawing. See
+   * `lib/pace-readout.ts`'s `isRevealTriggered` for the actual gate. */
+  revealReady?: boolean;
 };
 
 /** `instant`: today's static render (also what a reduced-motion first reveal's own inner content
@@ -68,22 +81,24 @@ type Props = {
  * brief §6's reduced-motion variant. */
 type RevealMode = 'instant' | 'animate' | 'crossfade';
 
-export function PaceReadout({ result, firstReveal = false }: Props) {
+export function PaceReadout({ result, firstReveal = false, revealReady = true }: Props) {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors), [colors]);
   const reduceMotion = useReducedMotion();
   const revealMode: RevealMode = !firstReveal ? 'instant' : reduceMotion ? 'crossfade' : 'animate';
 
-  // The onLayout-gated reveal trigger (see this file's header) — fires once, ever, per mount.
-  // Irrelevant (never attached) in `instant` mode.
-  const [revealed, setRevealed] = useState(false);
+  // The onLayout-gated reveal trigger (see this file's header), now additionally gated by
+  // `revealReady` (Phase 2 plan Task 5) via the pure `isRevealTriggered` — fires once, ever, per
+  // mount, and only once both conditions are true. Irrelevant (never attached) in `instant` mode.
+  const [hasLaidOut, setHasLaidOut] = useState(false);
   const hasLaidOutRef = useRef(false);
   const handleFirstLayout = useCallback(() => {
     if (hasLaidOutRef.current) return;
     hasLaidOutRef.current = true;
-    setRevealed(true);
+    setHasLaidOut(true);
   }, []);
+  const revealed = isRevealTriggered(hasLaidOut, revealReady);
 
   const crossfadeOpacity = useSharedValue(0);
   useEffect(() => {
