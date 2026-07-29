@@ -108,7 +108,10 @@ function Line({
     }
 
     scaleX.value = withTiming(1, { duration: Motion.duration.slow }, (finished) => {
-      if (finished && notify) notify();
+      'worklet';
+      if (finished && isLast && onComplete) {
+        runOnJS(onComplete)();
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scaleX is a stable shared value
   }, [play, reduceMotion]);
