@@ -27,3 +27,36 @@ describe('DuotoneFrame', () => {
     expect(overlay.props.accessibilityElementsHidden).toBe(true);
   });
 });
+
+describe('DuotoneFrame — moment 3 annotations (spec 2026-07-26 §4, Phase 2 plan Task 5)', () => {
+  it('renders no annotation lines when annotate is not set — every screen before this plan', async () => {
+    await render(<DuotoneFrame uri="file:///frame-01.jpg" accessibilityLabel="frame" testID="frame" />);
+    expect(screen.queryByTestId('frame-annotations-ground', { includeHiddenElements: true })).toBeNull();
+  });
+
+  it('renders all three fixed-geometry lines, already fully drawn, when annotate is set but playAnnotation is not', async () => {
+    await render(<DuotoneFrame uri="file:///frame-01.jpg" accessibilityLabel="frame" testID="frame" annotate />);
+    expect(screen.getByTestId('frame-annotations-ground', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByTestId('frame-annotations-posture', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByTestId('frame-annotations-landing', { includeHiddenElements: true })).toBeTruthy();
+  });
+
+  it('calls onAnnotationComplete once the draw finishes when playAnnotation is set', async () => {
+    jest.useFakeTimers();
+    const onAnnotationComplete = jest.fn();
+    await render(
+      <DuotoneFrame
+        uri="file:///frame-01.jpg"
+        accessibilityLabel="frame"
+        testID="frame"
+        annotate
+        playAnnotation
+        onAnnotationComplete={onAnnotationComplete}
+      />
+    );
+    jest.advanceTimersByTime(3000);
+    await Promise.resolve();
+    expect(onAnnotationComplete).toHaveBeenCalledTimes(1);
+    jest.useRealTimers();
+  });
+});

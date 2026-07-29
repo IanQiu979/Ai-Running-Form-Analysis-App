@@ -197,8 +197,13 @@ result reveal. **Nothing else animates.** No ambient motion, no decorative trans
 per-word reveals, no marquees or tickers.
 
 This is a budget, not a guideline. Unwritten, "three moments" becomes the first three of eleven.
-Phase 1 (the static layer) adds none of them; they are specified in
-`docs/superpowers/specs/2026-07-26-redesign-design.md` §4 and built in Phase 2.
+Phase 1 (the static layer) added none of them. All three are now built (amended 2026-07-29, plan
+`docs/superpowers/plans/2026-07-29-redesign-phase-2-animated-moments.md`, spec §4): the app-launch
+ground rule (`components/launch-intro.tsx`), the first-run intro (`components/first-run-intro.tsx`),
+and the result reveal's hero annotations (`components/duotone-frame.tsx` + `components/pace-
+readout.tsx`'s `revealReady` sequencing) — all three built on the single
+`components/annotation-lines.tsx` primitive, with zero net-new runtime dependencies. The budget
+stays closed at three — nothing else in this app animates.
 
 ---
 

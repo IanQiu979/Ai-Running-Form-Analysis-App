@@ -5,6 +5,35 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-07-29 (V2.3 redesign, Phase 2 — the three animated moments)
+
+Implements `docs/superpowers/plans/2026-07-29-redesign-phase-2-animated-moments.md`, which
+implements §4 of `docs/superpowers/specs/2026-07-26-redesign-design.md`. **Zero net-new runtime
+dependencies** — `react-native-svg` still isn't a dependency of this project.
+
+- **`components/annotation-lines.tsx`** — the single primitive behind all three moments: 1-3
+  fixed-geometry hairlines drawn on via `scaleX` (never `width`), reduced-motion aware. Callers own
+  their own *when*; this owns only the *how*.
+- **`lib/first-run.ts`** — a device-scoped, AsyncStorage-backed once-per-install marker, not
+  `lib/consent.ts`'s account-scoped model, because the first-run intro must not gate sign-in.
+- **Moment 1** (`components/launch-intro.tsx`, wired into `app/_layout.tsx`) — the ground rule
+  alone, <=400ms, every cold start. Interruptible (real accessible "Skip intro" button, not hidden
+  decoration) and warm-start-safe by construction: `RootLayoutNav` doesn't remount across
+  background/foreground, so there's nothing to persist for "don't replay on a warm start."
+- **Moment 2** (`components/first-run-intro.tsx`, wired into `app/_layout.tsx`) — all three lines
+  draw onto `components/framing-guide.tsx`'s existing figure (reused, not rebuilt), once per
+  install, sequenced after moment 1.
+- **Moment 3** — `components/duotone-frame.tsx` now always renders the three hairlines as
+  permanent hero decoration (fixed geometry — `@shared/pace` still carries no real per-joint
+  coordinates); only the draw-on animation is one-time, gated to a fresh analysis's first open.
+  `components/pace-readout.tsx`'s existing bar/numeral reveal now waits for that draw via a new
+  `revealReady` prop (default `true`, so every other call site is unaffected) before starting,
+  matching the spec's "lines, then bars" sequencing. The actual gate
+  (`lib/pace-readout.ts`'s `isRevealTriggered`) is a pure function with its own test, since driving
+  Reanimated's real timing from an RNTL test isn't an established pattern in this repo.
+- **`docs/design/frontend-design-brief.md` §6.1** now names all three moments as built rather than
+  budgeted-for-later. The budget itself is unchanged: exactly three moments animate, nothing else.
+
 ## 2026-07-27 (repo hygiene — the recovered analysis_usage ledger is preserved, and quarantined)
 
 - **`docs/superseded/` is new, and is deliberately dead SQL.**
