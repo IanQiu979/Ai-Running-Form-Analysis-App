@@ -1,0 +1,145 @@
+/**
+ * The single motion primitive behind all three redesign moments (spec 2026-07-26 §4/§5): app
+ * launch, first run, and the result reveal each mount this with a different set of lines and a
+ * different trigger, but none of them know how a line is drawn — only this file does.
+ *
+ * WHY PLAIN VIEWS, NOT SVG: `react-native-svg` is not a dependency of this project and must not
+ * become one for this feature (spec §4.3). A hairline is a 1pt `View`; "drawing it on" is
+ * `scaleX` 0→1 with `transformOrigin: 'left'` so the line grows from its own fixed left edge
+ * regardless of its static `rotate` — exactly `components/pace-reveal.tsx`'s documented "Pillar
+ * bar fill = scaleX, never width" pattern, reused verbatim, because a transform never triggers a
+ * layout pass.
+ *
+ * WHY THE CALLER SUPPLIES GEOMETRY: this primitive invents no positions or angles. Every line's
+ * `top`/`left`/`width`/`rotate` is fixed geometry the caller already decided (art proportions, the
+ * same category `components/framing-guide.tsx`'s figure already lives in) — this file only knows
+ * how to grow a line that's told where to sit.
+ *
+ * `play=false` renders every line already at scale 1 — no timing, no Reanimated work scheduled —
+ * which is what a re-open (or any non-first render) needs: finished, instantly, matching
+ * `components/pace-readout.tsx`'s own `instant` mode discipline. `play=true` animates once; this
+ * component does not re-arm itself if `play` flips back to false and true again — callers that
+ * need "never replay" enforce it by not remounting/re-triggering, same as `pace-reveal.tsx` and
+ * `pace-readout.tsx` already do.
+ *
+ * Reduced motion: every line snaps to fully drawn immediately (a single implicit crossfade via
+ * the surrounding caller's own opacity, not a per-line stagger) and `onComplete` still fires once,
+ * so a caller waiting on it is never left hanging.
+ */
+import { useEffect } from 'react';
+import { StyleSheet, View, type DimensionValue } from 'react-native';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+
+import { Colors, Motion } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
+
+export type AnnotationLine = {
+  /** Stable id — becomes `${testID}-${id}` when a `testID` is supplied. */
+  id: string;
+  top: DimensionValue;
+  left: DimensionValue;
+  width: DimensionValue;
+  /** Static angle, e.g. `'90deg'` for a vertical line. Growth is always along the line's own
+   * local axis (scaleX before rotate), so an angled line still draws out from its fixed edge. */
+  rotate?: string;
+};
+
+type AnnotationLinesProps = {
+  lines: AnnotationLine[];
+  /** Draw the lines on once. False renders every line already fully drawn — the re-open case. */
+  play: boolean;
+  /** Fires once, after the slowest line finishes drawing (or immediately under reduced motion). */
+  onComplete?: () => void;
+  testID?: string;
+};
+
+export function AnnotationLines({ lines, play, onComplete, testID }: AnnotationLinesProps) {
+  const scheme = useColorScheme() ?? 'light';
+  const color = Colors[scheme].hairline;
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      {lines.map((line, index) => (
+        <Line
+          key={line.id}
+          line={line}
+          color={color}
+          play={play}
+          reduceMotion={reduceMotion}
+          isLast={index === lines.length - 1}
+          onComplete={onComplete}
+          testID={testID ? `${testID}-${line.id}` : undefined}
+        />
+      ))}
+    </View>
+  );
+}
+
+function Line({
+  line,
+  color,
+  play,
+  reduceMotion,
+  isLast,
+  onComplete,
+  testID,
+}: {
+  line: AnnotationLine;
+  color: string;
+  play: boolean;
+  reduceMotion: boolean;
+  isLast: boolean;
+  onComplete?: () => void;
+  testID?: string;
+}) {
+  const scaleX = useSharedValue(play ? 0 : 1);
+
+  useEffect(() => {
+    if (!play) return;
+
+    const notify = isLast && onComplete ? () => runOnJS(onComplete)() : undefined;
+
+    if (reduceMotion) {
+      scaleX.value = 1;
+      notify?.();
+      return;
+    }
+
+    scaleX.value = withTiming(1, { duration: Motion.duration.slow }, (finished) => {
+      if (finished && notify) notify();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scaleX is a stable shared value
+  }, [play, reduceMotion]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scaleX: scaleX.value }, { rotate: line.rotate ?? '0deg' }],
+  }));
+
+  return (
+    <Animated.View
+      testID={testID}
+      style={[
+        styles.line,
+        {
+          top: line.top,
+          left: line.left,
+          width: line.width,
+          backgroundColor: color,
+          transformOrigin: 'left',
+        },
+        animatedStyle,
+      ]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    />
+  );
+}
+
+const styles = StyleSheet.create({
+  line: {
+    position: 'absolute',
+    height: StyleSheet.hairlineWidth * 3,
+  },
+});
