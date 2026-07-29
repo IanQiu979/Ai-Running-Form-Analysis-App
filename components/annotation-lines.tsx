@@ -28,7 +28,7 @@
  */
 import { useEffect } from 'react';
 import { StyleSheet, View, type DimensionValue } from 'react-native';
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 
 import { Colors, Motion } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -49,12 +49,20 @@ type AnnotationLinesProps = {
   lines: AnnotationLine[];
   /** Draw the lines on once. False renders every line already fully drawn — the re-open case. */
   play: boolean;
+  /** Delay (ms) between each line's draw-start, so multiple lines draw progressively rather than
+   * in lockstep — every line otherwise shares the same fixed `Motion.duration.slow`, so a caller
+   * with more than one line MUST pass this to reach its own intended total duration (moment 2's
+   * ~2000ms budget across three lines is exactly this: 0ms stagger silently collapsed it to one
+   * line's ~320ms, which is why it was never observed). Default 0 — every existing single-line
+   * caller (moment 1) and any caller that hasn't opted in is unaffected. Ignored under reduced
+   * motion, which never staggers (see this file's header). */
+  staggerMs?: number;
   /** Fires once, after the slowest line finishes drawing (or immediately under reduced motion). */
   onComplete?: () => void;
   testID?: string;
 };
 
-export function AnnotationLines({ lines, play, onComplete, testID }: AnnotationLinesProps) {
+export function AnnotationLines({ lines, play, staggerMs = 0, onComplete, testID }: AnnotationLinesProps) {
   const scheme = useColorScheme() ?? 'light';
   const color = Colors[scheme].hairline;
   const reduceMotion = useReducedMotion();
@@ -67,6 +75,7 @@ export function AnnotationLines({ lines, play, onComplete, testID }: AnnotationL
           line={line}
           color={color}
           play={play}
+          delay={index * staggerMs}
           reduceMotion={reduceMotion}
           isLast={index === lines.length - 1}
           onComplete={onComplete}
@@ -81,6 +90,7 @@ function Line({
   line,
   color,
   play,
+  delay,
   reduceMotion,
   isLast,
   onComplete,
@@ -89,6 +99,7 @@ function Line({
   line: AnnotationLine;
   color: string;
   play: boolean;
+  delay: number;
   reduceMotion: boolean;
   isLast: boolean;
   onComplete?: () => void;
@@ -107,14 +118,15 @@ function Line({
       return;
     }
 
-    scaleX.value = withTiming(1, { duration: Motion.duration.slow }, (finished) => {
+    const animate = withTiming(1, { duration: Motion.duration.slow }, (finished) => {
       'worklet';
       if (finished && isLast && onComplete) {
         runOnJS(onComplete)();
       }
     });
+    scaleX.value = delay > 0 ? withDelay(delay, animate) : animate;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scaleX is a stable shared value
-  }, [play, reduceMotion]);
+  }, [play, reduceMotion, delay]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scaleX: scaleX.value }, { rotate: line.rotate ?? '0deg' }],

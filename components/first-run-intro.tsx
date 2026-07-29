@@ -30,6 +30,12 @@ const LINES: AnnotationLine[] = [
   { id: 'landing', top: '78%', left: '58%', width: '10%', rotate: '30deg' },
 ];
 
+// Spec's ~2000ms budget across three lines, spread by AnnotationLines' staggerMs (each line still
+// draws over its own fixed Motion.duration.slow — see that file's header): 2 gaps * 800ms + 320ms
+// ≈ 1920ms. Without this, all three lines shared the same lockstep 320ms and the whole moment
+// finished before anyone could notice it — the actual bug behind "never observed."
+const STAGGER_MS = 800;
+
 type FirstRunIntroProps = {
   onDone: () => void;
 };
@@ -59,7 +65,13 @@ export function FirstRunIntro({ onDone }: FirstRunIntroProps) {
       importantForAccessibility="no-hide-descendants">
       <View style={styles.figureBlock}>
         <FramingGuide />
-        <AnnotationLines lines={LINES} play onComplete={finish} testID="first-run-intro" />
+        <AnnotationLines
+          lines={LINES}
+          play
+          staggerMs={STAGGER_MS}
+          onComplete={finish}
+          testID="first-run-intro"
+        />
       </View>
     </View>
   );
