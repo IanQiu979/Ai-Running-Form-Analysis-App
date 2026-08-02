@@ -46,7 +46,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -55,18 +54,24 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { KineticText } from '@/components/kinetic-text';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
-  Accent,
   Colors,
   ContentWidth,
   ControlHeight,
   FontFamily,
   FontSize,
+  LineHeight,
+  Motion,
   Opacity,
   Radius,
   Semantic,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -167,43 +172,53 @@ export default function UpdatePasswordScreen() {
 
   if (phase === 'checking') {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.centered}>
-          <ActivityIndicator color={colors.text.secondary} />
-          <Text style={styles.body}>{Copy.auth.reset.update.checking}</Text>
-        </View>
-      </SafeAreaView>
+      <ScreenGradient>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.centered}>
+            <ActivityIndicator color={colors.text.primary} />
+            <Text style={styles.body}>{Copy.auth.reset.update.checking}</Text>
+          </View>
+        </SafeAreaView>
+      </ScreenGradient>
     );
   }
 
   if (phase === 'expired') {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <ScreenGradient>
+        <SafeAreaView style={styles.safeArea}>
         <View style={styles.centered}>
-          <Text style={styles.title}>{Copy.auth.reset.update.error.expiredLink.title}</Text>
+          <KineticText
+            accessibilityRole="header"
+            staggerMs={Motion.stagger.line}
+            style={styles.title}
+            containerStyle={styles.titleRow}>
+            {Copy.auth.reset.update.error.expiredLink.title}
+          </KineticText>
           <Text style={styles.body}>{Copy.auth.reset.update.error.expiredLink.body}</Text>
-          <Pressable
-            accessibilityRole="button"
+          <PillButton
+            label={Copy.auth.reset.update.error.expiredLink.cta}
             onPress={() => router.replace('/reset-password')}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              pressed && styles.buttonPressed,
-              styles.centeredButton,
-            ]}>
-            <Text style={styles.primaryButtonText}>
-              {Copy.auth.reset.update.error.expiredLink.cta}
-            </Text>
-          </Pressable>
+            style={styles.centeredButton}
+          />
         </View>
-      </SafeAreaView>
+        </SafeAreaView>
+      </ScreenGradient>
     );
   }
 
   if (submitStatus === 'success') {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <ScreenGradient>
+        <SafeAreaView style={styles.safeArea}>
         <View style={styles.centered}>
-          <Text style={styles.title}>{Copy.auth.reset.update.success.title}</Text>
+          <KineticText
+            accessibilityRole="header"
+            staggerMs={Motion.stagger.line}
+            style={styles.title}
+            containerStyle={styles.titleRow}>
+            {Copy.auth.reset.update.success.title}
+          </KineticText>
           <Text style={styles.body}>{Copy.auth.reset.update.success.body}</Text>
           {/* Releases the recovery hold (issue #81). No router.replace() is needed or wanted:
               the password is already committed, so the session is now an ordinary signed-in one,
@@ -211,23 +226,20 @@ export default function UpdatePasswordScreen() {
               (tabs) on its own, exactly as sign-in does. Calling replace('/') here instead would
               be a no-op, because (tabs) is still excluded from the navigator until the flag
               clears. */}
-          <Pressable
-            accessibilityRole="button"
+          <PillButton
+            label={Copy.auth.reset.update.cta.continue}
             onPress={clearPasswordRecovery}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              pressed && styles.buttonPressed,
-              styles.centeredButton,
-            ]}>
-            <Text style={styles.primaryButtonText}>{Copy.auth.reset.update.cta.continue}</Text>
-          </Pressable>
+            style={styles.centeredButton}
+          />
         </View>
-      </SafeAreaView>
+        </SafeAreaView>
+      </ScreenGradient>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -236,7 +248,13 @@ export default function UpdatePasswordScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            <Text style={styles.title}>{Copy.auth.reset.update.title}</Text>
+            <KineticText
+              accessibilityRole="header"
+              staggerMs={Motion.stagger.line}
+              style={styles.title}
+              containerStyle={styles.titleRow}>
+              {Copy.auth.reset.update.title}
+            </KineticText>
           </View>
 
           <View style={styles.form}>
@@ -258,32 +276,27 @@ export default function UpdatePasswordScreen() {
             <Text nativeID="update-password-hint" style={styles.passwordHint}>
               {Copy.auth.password.hint}
             </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={Copy.auth.reset.update.cta.submit}
+            <PillButton
+              label={Copy.auth.reset.update.cta.submit}
               onPress={handleSubmit}
               disabled={isBusy}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                isBusy && styles.buttonDisabled,
-                pressed && styles.buttonPressed,
-              ]}>
-              {isBusy ? (
-                <ActivityIndicator color={Accent.onAccent} />
-              ) : (
-                <Text style={styles.primaryButtonText}>{Copy.auth.reset.update.cta.submit}</Text>
-              )}
-            </Pressable>
+              busy={isBusy}
+            />
 
+            {/* On an OPAQUE card: `Semantic.error` is proven against the surfaces, not against the
+                page gradient (`Gradient`'s contract, constants/theme.ts). */}
             {errorMessage !== null && (
-              <Text style={styles.errorText} accessibilityLiveRegion="polite">
-                {errorMessage}
-              </Text>
+              <SurfaceCard padding={Spacing.lg}>
+                <Text style={styles.errorText} accessibilityLiveRegion="polite">
+                  {errorMessage}
+                </Text>
+              </SurfaceCard>
             )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
 
@@ -291,7 +304,8 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill.
+      backgroundColor: 'transparent',
     },
     flex: {
       flex: 1,
@@ -333,17 +347,26 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       alignItems: 'center',
       gap: Spacing.md,
     },
+    titleRow: {
+      justifyContent: 'center',
+    },
     title: {
       fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.xl,
+      // xl -> xxl, with the negative tracking and tight leading every display-scale heading in the
+      // redesign uses.
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
       color: colors.text.primary,
       textAlign: 'center',
     },
     body: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
-      lineHeight: FontSize.md * 1.4,
-      color: colors.text.secondary,
+      lineHeight: FontSize.md * LineHeight.body,
+      // Raised from `text.secondary`: this sits directly on the page gradient, which is proven for
+      // `text.primary` only (`Gradient`'s contract, constants/theme.ts).
+      color: colors.text.primary,
       textAlign: 'center',
     },
     form: {
@@ -351,11 +374,13 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     },
     input: {
       minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
+      // `Radius.pill`, matching app/(auth)/sign-in.tsx's field — see that file's comment on why a
+      // 52pt field takes the pill rather than the card corner.
+      borderRadius: Radius.pill,
       borderWidth: 1,
       borderColor: colors.control.border,
       backgroundColor: colors.surface.base,
-      paddingHorizontal: Spacing.lg,
+      paddingHorizontal: Spacing.xl,
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
       color: colors.text.primary,
@@ -363,26 +388,10 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     passwordHint: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
-      color: colors.text.secondary,
-    },
-    primaryButton: {
-      minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
-      backgroundColor: Accent.value,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.lg,
-    },
-    primaryButtonText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: Accent.onAccent,
-    },
-    buttonPressed: {
+      // On the wash — `text.primary` only, held back by opacity so it stays the quietest line.
+      color: colors.text.primary,
       opacity: Opacity.pressed,
-    },
-    buttonDisabled: {
-      opacity: Opacity.disabled,
+      paddingHorizontal: Spacing.lg,
     },
     errorText: {
       fontFamily: FontFamily.body.regular,

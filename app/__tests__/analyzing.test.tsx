@@ -76,7 +76,7 @@ describe('AnalyzingScreen terminal branches', () => {
     await render(<AnalyzingScreen />);
 
     await waitFor(() =>
-      expect(screen.getByText(Copy.analyzing.error.previousAttemptFailed.title)).toBeTruthy()
+      expect(screen.getByLabelText(Copy.analyzing.error.previousAttemptFailed.title)).toBeTruthy()
     );
     expect(screen.getByText(Copy.analyzing.error.previousAttemptFailed.body)).toBeTruthy();
     expect(screen.getByText(Copy.analyzing.error.cta.startNew)).toBeTruthy();
@@ -91,7 +91,7 @@ describe('AnalyzingScreen terminal branches', () => {
 
     await render(<AnalyzingScreen />);
 
-    await waitFor(() => expect(screen.getByText(Copy.analyzing.error.failed.title)).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText(Copy.analyzing.error.failed.title)).toBeTruthy());
     expect(screen.getByText(Copy.analyzing.error.cta.retry)).toBeTruthy();
     expect(screen.queryByText(Copy.analyzing.error.cta.startNew)).toBeNull();
   });
@@ -107,7 +107,7 @@ describe('AnalyzingScreen terminal branches', () => {
     await render(<AnalyzingScreen />);
 
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/paywall'));
-    expect(screen.queryByText(Copy.analyzing.error.failed.title)).toBeNull();
+    expect(screen.queryByLabelText(Copy.analyzing.error.failed.title)).toBeNull();
   });
 
   // The #128 fix end-to-end from the screen's point of view: a 200 carrying a real UUID navigates

@@ -34,8 +34,17 @@
  * `control.border` must not be allowed to collapse back into it.
  */
 
-import { AA_NON_TEXT, AA_TEXT, contrastRatio } from '../contrast';
-import { Accent, Colors, type ColorScheme, Gradient, Score, ScoreBandOrder, Semantic } from '../theme';
+import { AA_NON_TEXT, AA_TEXT, contrastRatio, type Hex } from '../contrast';
+import {
+  Accent,
+  Colors,
+  type ColorScheme,
+  Glass,
+  Gradient,
+  Score,
+  ScoreBandOrder,
+  Semantic,
+} from '../theme';
 
 const SCHEMES: readonly ColorScheme[] = ['light', 'dark'];
 
@@ -120,6 +129,81 @@ for (const scheme of SCHEMES) {
 
 accentTextPairs.push({ label: 'onAccent (white) on accent', fg: Accent.onAccent, bg: Accent.value });
 
+// ---------------------------------------------------------------------------------------------
+// Glass — added with the 2026-08-02 shape/type/motion redesign.
+//
+// `Glass.*.fill`/`.raised` are `rgba()` strings, so unlike every other token in this file they
+// have no single contrast ratio: what they read as depends on what is behind them. The whole
+// point of proving them is therefore to prove the COMPOSITE, over every backdrop a glass panel is
+// legally allowed to sit on — all three `Gradient.page` stops plus the flat `background`.
+//
+// `composite()` below is the standard source-over blend in sRGB space, which is exactly what the
+// platform does when it draws a translucent view: result = alpha*fg + (1 - alpha)*bg, per channel.
+// Nothing here trusts a comment or a hand-computed number; the alpha is parsed out of the token
+// itself, so editing `Glass` in theme.ts and forgetting to re-derive anything is caught here.
+//
+// WHAT IS PROVEN: `text.primary` on glass, >= 4.5:1. That is the entire contract `Glass` states
+// (constants/theme.ts) — glass carries the primary tone only, and is never an interactive
+// control's fill or boundary. The counter-guard below proves the second half of that: that
+// `text.secondary` on dark glass genuinely FAILS, so the narrow contract is a real constraint
+// someone measured rather than an arbitrary rule that could be quietly widened later.
+// ---------------------------------------------------------------------------------------------
+
+/** Parses `rgba(r, g, b, a)` into channels + alpha. Only the form `Glass` actually uses. */
+function parseRgba(value: string): { rgb: [number, number, number]; alpha: number } {
+  const match = value.match(/^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/);
+  if (!match) throw new Error(`Not an rgba() string: ${value}`);
+  return {
+    rgb: [Number(match[1]), Number(match[2]), Number(match[3])],
+    alpha: Number(match[4]),
+  };
+}
+
+function hexToRgb(hex: Hex): [number, number, number] {
+  return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as [number, number, number];
+}
+
+/** Source-over blend of a translucent `rgba()` layer onto an opaque hex backdrop. */
+function composite(layer: string, backdropHex: Hex): Hex {
+  const { rgb, alpha } = parseRgba(layer);
+  const backdrop = hexToRgb(backdropHex);
+  const blended = rgb.map((channel, i) => Math.round(alpha * channel + (1 - alpha) * backdrop[i]));
+  return `#${blended.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
+
+const glassTextPairs: Pair[] = [];
+const glassSecondaryFailurePairs: Pair[] = [];
+
+for (const scheme of SCHEMES) {
+  const c = Colors[scheme];
+  const glass = Glass[scheme];
+  // Every backdrop a glass panel may legally sit on. The gradient stops come from the export, so
+  // a stop added to `Gradient.page` is proven under glass the moment it ships.
+  const backdrops: [string, Hex][] = [
+    ['background', c.background],
+    ...Gradient.page[scheme].map((stop, i) => [`gradient.page[${i}]`, stop] as [string, Hex]),
+  ];
+
+  for (const [tone, layer] of [
+    ['fill', glass.fill],
+    ['raised', glass.raised],
+  ] as const) {
+    for (const [backdropName, backdropHex] of backdrops) {
+      const composited = composite(layer, backdropHex);
+      glassTextPairs.push({
+        label: `${scheme} text.primary on glass.${tone} over ${backdropName}`,
+        fg: c.text.primary,
+        bg: composited,
+      });
+      glassSecondaryFailurePairs.push({
+        label: `${scheme} text.secondary on glass.${tone} over ${backdropName}`,
+        fg: c.text.secondary,
+        bg: composited,
+      });
+    }
+  }
+}
+
 describe('theme contrast — text pairs clear AA (>=4.5:1)', () => {
   test.each(textPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_TEXT);
@@ -140,6 +224,45 @@ describe('theme contrast — text pairs clear AA (>=4.5:1)', () => {
   test.each(gradientTextPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_TEXT);
   });
+
+  test.each(glassTextPairs)('$label', ({ fg, bg }) => {
+    expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+});
+
+describe('the Glass contract is a real constraint, not a preference', () => {
+  // The mirror of `hairlineBelowControlFloorPairs` below: proving a token FAILS where its contract
+  // says it must not be used is what stops the contract being quietly widened later. `Glass`
+  // (constants/theme.ts) says glass carries `text.primary` ONLY. If someone raises the alpha to
+  // match the reference's heavier ~0.15-0.18 wash, or drops secondary text onto a glass panel,
+  // this is what breaks.
+  //
+  // Scoped to DARK GLASS OVER THE GRADIENT, and both halves of that scope are load-bearing:
+  //
+  //   - Light-mode glass is white over already-light stops and clears AA for secondary text with
+  //     room to spare. Asserting a failure there would be asserting something untrue.
+  //   - Dark glass over the flat `background` ALSO clears it — a white wash over the near-black
+  //     canvas still leaves a dark surface. The constraint is specifically about glass over the
+  //     bright end of the page wash.
+  //
+  // So the contract is deliberately WIDER than the measured failure: `Glass` says primary-only
+  // everywhere, not "primary-only when you happen to be over a gradient". That is on purpose — a
+  // component cannot know what is behind it, and a rule that holds only sometimes is a rule that
+  // will be broken. This guard pins the case that actually fails so the alpha cannot drift up.
+  const constrainedPairs = glassSecondaryFailurePairs.filter(
+    (p) => p.label.startsWith('dark ') && p.label.includes('gradient.page')
+  );
+
+  it('has pairs to check at all (guards against the filter silently matching nothing)', () => {
+    expect(constrainedPairs.length).toBeGreaterThan(0);
+  });
+
+  test.each(constrainedPairs)(
+    '$label falls short of AA — which is why the contract excludes it',
+    ({ fg, bg }) => {
+      expect(contrastRatio(fg, bg)).toBeLessThan(AA_TEXT);
+    }
+  );
 });
 
 describe('theme contrast — non-text pairs clear AA (>=3:1)', () => {

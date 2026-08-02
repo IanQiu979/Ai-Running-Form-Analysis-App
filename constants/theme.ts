@@ -8,13 +8,27 @@
  * adjustment is commented at its token and proven (not just asserted) in
  * `constants/__tests__/theme-contrast.test.ts`, which computes ratios from these exact exports.
  *
- * THE COLOUR LAYER ONLY was replaced on 2026-08-02: `Colors`, `Score`, `Semantic`, `Accent`, and
- * the new `Gradient`. Their "intent" values are now sampled from the Calm reference capture
- * rather than from the brief's original warm-neutral table, and §2 has been rewritten to match so
- * the "source of truth" line above stays true. Everything below the colour section — `FontFamily`,
- * `FontSize`, `Spacing`, `Radius` (including `Radius.card: 0`), `Motion`, `ControlHeight`,
- * `ControlWidth`, `ContentWidth`, `HitTarget`, `CheckboxSize`, `Opacity`, `SystemFont` — is
- * untouched and byte-identical. This was a palette swap, not a redesign.
+ * THE MOVE ONTO CALM HAPPENED IN TWO PASSES, both on 2026-08-02:
+ *
+ *   Pass 1 — colour only. `Colors`, `Score`, `Semantic`, `Accent`, and the new `Gradient` were
+ *   resampled from the Calm reference capture rather than from the brief's original warm-neutral
+ *   table, and §2 was rewritten to match so the "source of truth" line above stays true. Shape,
+ *   type, spacing and motion were deliberately left alone. That pass shipped as a recolor.
+ *
+ *   Pass 2 — shape, type, spacing, component and motion layer (this one). A recolor was not the
+ *   whole ask: the reference's design language is as much its softness, its type hierarchy, its
+ *   glass, and its pacing as it is its blue. This pass therefore reverses `Radius.card` from 0 to
+ *   24 (see that token's own block comment — it is the single biggest reversal here, and a
+ *   deliberate one), and adds `Glass`, `Tracking`, `LineHeight`, `Elevation`, `Radius.tile`/
+ *   `.hero`, `ControlHeight.pill`/`.circle`, and a longer expressive register on `Motion`
+ *   (`duration.gentle`/`.epic`/`.cinematic`, `curve.calm`/`.morph`/`.linear`, `stagger.*`).
+ *
+ * NOTHING PROVEN WAS WEAKENED. Every existing contrast guarantee still holds and is still computed
+ * (not asserted) in `constants/__tests__/theme-contrast.test.ts`; the new `Glass` alphas are
+ * composited over every backdrop they may legally sit on and proven there too. `Colors`, `Score`,
+ * `Semantic`, `Accent`, `Gradient`, `FontFamily`, `FontSize`, `Spacing`, `ControlWidth`,
+ * `ContentWidth`, `HitTarget`, `CheckboxSize`, `Opacity` and `SystemFont` are untouched by pass 2,
+ * as are `Motion`'s original three durations and two curves.
  *
  * Naming is by role ("text.secondary", "score.mid.fill"), never by appearance ("gray600" or
  * "amber"), so a rebrand only ever touches a value, never a call site. No hardcoded colors,
@@ -373,6 +387,58 @@ export const Gradient = {
 export type GradientRole = keyof typeof Gradient;
 
 // -------------------------------------------------------------------------------------------
+// Glass — added by the 2026-08-02 SHAPE/TYPE/MOTION redesign (the follow-up to the palette-only
+// swap above). The Calm reference's second structural idea, after the gradient, is translucent
+// white sitting ON that gradient: circular top-bar buttons, the floating tab bar, the panel a
+// hero image fades into. `Colors.*.surface.*` cannot express that — they are opaque, so a card
+// built from them hides the wash instead of letting it through.
+//
+// THE CONTRACT, and it is narrow on purpose:
+//
+//   1. Glass carries `text.primary` ONLY. Proven below against every backdrop glass can legally
+//      sit on — all three `Gradient.page` stops plus the flat `background` — in
+//      theme-contrast.test.ts, which composites the alpha itself rather than trusting a comment.
+//      Dark mode is the binding case: white on `dark.fill` over the BRIGHTEST gradient stop is
+//      5.26:1 and on `dark.raised` 4.81:1. Anything heavier than 0.12 white pushes `raised` under
+//      4.5:1, which is why these two alphas are what they are and not the reference's literal
+//      ~0.15-0.18. Secondary text, score text, score fills and coaching prose go on an opaque
+//      `surface.*` — the same rule `Gradient`'s own contract above already states, unchanged.
+//
+//   2. Glass is DECORATIVE surface only — never the fill or the boundary of an interactive
+//      control. A 8-12% white wash reads ~1.15:1 against the wash behind it, so a button made of
+//      it cannot meet WCAG 1.4.11's 3:1 non-text boundary floor, and no alpha that does would
+//      still be translucent. Buttons, inputs and checkboxes therefore keep opaque
+//      `surface.base`/`surface.raised` fills with a `control.border` ring — both already proven.
+//      What glass is for: hero scrims, the tab-bar backdrop *behind* those solid controls, the
+//      marquee's edge fade, the aperture ring. `hairline` here is the same decorative category as
+//      `Colors.*.hairline` and carries no contrast promise either.
+//
+// Light mode is far less constrained (white over already-light stops), but takes the same
+// contract anyway so a component never has to branch on scheme to know what it may put on glass.
+// -------------------------------------------------------------------------------------------
+
+export const Glass = {
+  light: {
+    /** The default translucent panel. */
+    fill: 'rgba(255, 255, 255, 0.72)',
+    /** The one raised/floating glass element per screen (tab bar, sticky action bar). */
+    raised: 'rgba(255, 255, 255, 0.88)',
+    /** Decorative edge on a glass panel. No contrast promise — see contract note 2. */
+    hairline: 'rgba(19, 24, 50, 0.10)',
+    /** Legibility scrim laid over photographic media before text sits on it. */
+    scrim: 'rgba(233, 239, 250, 0.55)',
+  },
+  dark: {
+    fill: 'rgba(255, 255, 255, 0.08)',
+    raised: 'rgba(255, 255, 255, 0.12)',
+    hairline: 'rgba(255, 255, 255, 0.16)',
+    scrim: 'rgba(15, 19, 36, 0.55)',
+  },
+} as const;
+
+export type GlassColors = (typeof Glass)[ColorScheme];
+
+// -------------------------------------------------------------------------------------------
 // Type — brief §2 "Type". Three families, each isolated to its role: Archivo (grotesque) for
 // display/numerals — distinct from V2.2's Barlow Condensed; Inter for body/UI, shared with the
 // family; IBM Plex Mono for measured readouts, the "instrument" signal carried over from V2.2.
@@ -449,14 +515,88 @@ export const Spacing = {
   editorial: 96,
 } as const;
 
+// -------------------------------------------------------------------------------------------
+// Radius — REVERSED by the 2026-08-02 shape/type/motion redesign.
+//
+// `card: 0` was spec 2026-07-26 §3.3's deliberate call: "a sharp corner reads as a printed
+// document, a rounded one reads as a generic app card." That was the right call for "The Gait
+// Plate", whose whole thesis was a clinical printed plate. It is the wrong call for the Calm
+// design language this app is now being moved onto, where every single surface in the reference —
+// screen corners, hero media, cards, tiles, buttons, the tab bar — is generously rounded, and the
+// softness IS the brand. Keeping a 0 here would have left the app reading as a technical readout
+// wearing Calm's colours, which is exactly the "recolor, not a redesign" outcome this pass exists
+// to correct. Sampled off the reference's own corners and rounded to this ramp.
+//
+// The counter-argument the old value encoded ("rounded reads as generic") is answered by the rest
+// of the system, not by the corner: the hero type scale, the duotone media, the kinetic reveals
+// and the low-poly work are what stop this reading as a template. See the report accompanying the
+// redesign branch — this is a flagged judgement call, not an accident.
+// -------------------------------------------------------------------------------------------
+
 export const Radius = {
-  /** Cards. 0 by deliberate choice (spec 2026-07-26 §3.3): a sharp corner reads as a printed
-   * document, a rounded one reads as a generic app card. */
-  card: 0,
-  /** Sheets, modals. */
-  sheet: 12,
-  /** Pills, chips. */
+  /** Cards and panels. Was 0; see the block comment above for why that reversed. */
+  card: 24,
+  /** Sheets, modals, and the floating tab bar. */
+  sheet: 28,
+  /** Small inline tiles — an icon chip, a thumbnail, a chip-sized swatch. */
+  tile: 16,
+  /** Full-bleed hero media. The largest corner in the system, matching the reference's own
+   *  device-corner-adjacent hero crop. */
+  hero: 32,
+  /** Pills, chips, and every button in the redesign — the reference has no square button. */
   pill: 999,
+} as const;
+
+/** Letter-spacing, in points, for the two type registers that need it. The Calm reference leans
+ *  hard on a tiny tracked-out uppercase micro-label ("NARRATOR", "AUTHOR") set against very large,
+ *  slightly-tightened display type; both need a token or they arrive as magic numbers at call
+ *  sites. `normal` exists so a component can name "deliberately untracked" rather than omit. */
+export const Tracking = {
+  /** The tiny uppercase eyebrow/micro-label. */
+  eyebrow: 1.6,
+  normal: 0,
+  /** Display and hero type. Large type needs negative tracking to hold together. */
+  display: -0.6,
+  hero: -2,
+} as const;
+
+/** Line-height multipliers. Body prose wants air; display type wants to stack tightly so a
+ *  two- or three-line headline reads as one shape (the reference's content-detail title). */
+export const LineHeight = {
+  hero: 0.98,
+  display: 1.08,
+  heading: 1.2,
+  body: 1.5,
+} as const;
+
+// -------------------------------------------------------------------------------------------
+// Elevation — added with the redesign. The reference floats things (the tab bar, the primary
+// pill, the hero card) with a soft, wide, low-opacity shadow rather than a hard edge. Kept as one
+// role, not a Material-style 0-24 ramp: this app floats exactly two kinds of thing, and a ramp
+// nothing consumes is the same speculative-token mistake the rest of this file refuses.
+//
+// Deliberately no `shadowColor` per scheme: a shadow is a shadow in both, and on the dark canvas
+// it simply reads as a deeper pool rather than disappearing (the gradient behind it is mid-
+// lightness, not black). `elevation` is Android's separate channel and must be set alongside.
+// -------------------------------------------------------------------------------------------
+
+export const Elevation = {
+  /** Anything floating over the page: the tab bar, a sticky action bar, the primary CTA. */
+  floating: {
+    shadowColor: '#0A0E1C',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  /** A resting card that should lift off the wash without announcing itself. */
+  resting: {
+    shadowColor: '#0A0E1C',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 2,
+  },
 } as const;
 
 // -------------------------------------------------------------------------------------------
@@ -469,6 +609,14 @@ export const Radius = {
 export const ControlHeight = {
   /** Buttons and text inputs — sign-in screen's fields/CTAs, Home's primary CTA. */
   standard: 52,
+  /** The redesign's primary/secondary action pill. Taller than `standard` because the reference's
+   *  pills are the single most prominent control on their screen and read as a slab, not a button
+   *  with rounded ends. Inputs deliberately stay at `standard` — a text field that matches the CTA's
+   *  height stops the CTA being the loudest thing on the screen. */
+  pill: 56,
+  /** The circular glass icon button in a screen's top bar. Exactly `HitTarget.min`, not more:
+   *  the reference's are visually ~44 and the a11y floor and the drawn size coincide here. */
+  circle: 44,
 } as const;
 
 export const ControlWidth = {
@@ -496,6 +644,32 @@ export const ContentWidth = {
   readable: 560,
 } as const;
 
+// -------------------------------------------------------------------------------------------
+// The floating tab bar's geometry. Added with the redesign, and it lives HERE rather than in
+// `app/(tabs)/_layout.tsx` for two reasons: it is a layout token that two other screens
+// (`(tabs)/index.tsx`, `(tabs)/history.tsx`) have to agree with exactly, and `app/**` files are
+// expo-router ROUTE modules — importing one for a constant drags a route's module graph into a
+// screen that only wanted a number.
+//
+// The bar is `position: 'absolute'` (the reference's bar floats, with content scrolling under it),
+// which means React Navigation reserves NO layout space for it. Every screen under `(tabs)` must
+// therefore pad its own scroll content by `clearance`, or its last element sits beneath the bar.
+// -------------------------------------------------------------------------------------------
+
+export const TabBar = {
+  /** The bar's own drawn height. */
+  height: 64,
+  /** Inset from the screen's left/right/bottom edges. */
+  inset: Spacing.xl,
+  /** What a tab screen must add to its content's bottom padding. Deliberately does NOT include the
+   *  device's bottom safe-area inset: `<Tabs>` still applies that to the bar itself, so adding it
+   *  again here would open exactly the double-inset gap `app/(tabs)/index.tsx`'s SafeAreaView
+   *  comment warns about. */
+  get clearance() {
+    return this.height + this.inset * 2;
+  },
+} as const;
+
 export const HitTarget = {
   /** Minimum tappable square for a text-only/icon-only control (e.g. Home's Sign out link). */
   min: 44,
@@ -521,17 +695,52 @@ export const Opacity = {
 // anything leaving. One spring, reserved for the score-reveal settle (§6: "one spring settle").
 // -------------------------------------------------------------------------------------------
 
+// The three original durations/curves below are UNCHANGED — every existing moment (the splash
+// handoff, the annotation draw, the pillar-bar fill) keeps its tuned timing exactly. The redesign
+// adds a longer, more expressive register alongside them rather than retuning what already ships:
+// the reference sites this pass is drawn from (per-word scroll reveals, a morphing low-poly field,
+// an aperture rack-focus) move on a scale of half a second to a second and a half, which the
+// 160/240/320 ramp simply cannot express. Both registers are legitimate; a control's press
+// feedback should still be `quick`, and a headline assembling itself should not.
 export const Motion = {
   duration: {
     quick: 160,
     standard: 240,
     slow: 320,
+    /** One element arriving expressively — a word in a kinetic headline, a card lifting in. */
+    gentle: 480,
+    /** A composed, multi-part arrival: an aperture opening, a wireframe assembling. */
+    epic: 900,
+    /** Ambient, non-blocking, usually looping — the gradient drift, the low-poly morph, the
+     *  marquee's travel per screen-width. Nothing the user waits on ever uses this. */
+    cinematic: 1600,
   },
   curve: {
     /** Anything arriving. Cubic-bezier control points. */
     easeOut: [0, 0, 0.2, 1],
     /** Anything leaving. */
     easeIn: [0.4, 0, 1, 1],
+    /** The redesign's expressive arrival — a long, soft deceleration (an "expo-out" shape).
+     *  Used for kinetic text, hero reveals, aperture opens. */
+    calm: [0.22, 1, 0.36, 1],
+    /** Symmetric in-out, for something that transforms in place rather than arriving: the
+     *  low-poly morph between two shapes, a rack focus. */
+    morph: [0.65, 0, 0.35, 1],
+    /** Constant rate. The only correct curve for a continuous loop — a marquee that eases would
+     *  visibly pulse at every seam. */
+    linear: [0, 0, 1, 1],
+  },
+  /** Per-item delay for a staggered group. Named by what is being staggered so a call site reads
+   *  as intent rather than as an arbitrary millisecond count. */
+  stagger: {
+    /** Between words in a kinetic line. Short — a whole line should still land as one gesture. */
+    word: 34,
+    /** Between lines in a kinetic block. */
+    line: 90,
+    /** Between rows/cards in a list arrival. */
+    item: 60,
+    /** Between triangles in a low-poly morph, so the shape assembles rather than snaps. */
+    facet: 24,
   },
   spring: {
     /** The result reveal's one spring settle (brief §6) — a crisp, single overshoot, not a

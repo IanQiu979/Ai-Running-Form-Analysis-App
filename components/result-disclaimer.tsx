@@ -16,6 +16,7 @@ import {
   Colors,
   FontFamily,
   FontSize,
+  LineHeight,
   Radius,
   Spacing,
   type ColorScheme,
@@ -41,14 +42,16 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     container: {
       backgroundColor: colors.surface.base,
+      borderColor: colors.hairline,
       borderRadius: Radius.card,
-      padding: Spacing.lg,
+      borderWidth: StyleSheet.hairlineWidth * 2,
+      padding: Spacing.xl,
     },
     text: {
       color: colors.text.secondary,
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
-      lineHeight: FontSize.xs * 1.5,
+      lineHeight: FontSize.xs * LineHeight.body,
     },
   });
 }

@@ -1,25 +1,35 @@
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router, useFocusEffect, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { KineticText } from '@/components/kinetic-text';
+import { LowPolyField, POSES } from '@/components/low-poly-field';
+import { Marquee } from '@/components/marquee';
+import { CircleIconButton } from '@/components/ui/circle-icon-button';
+import { Eyebrow } from '@/components/ui/eyebrow';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
   ContentWidth,
   ControlHeight,
-  ControlWidth,
   FontFamily,
   FontSize,
-  HitTarget,
+  LineHeight,
   Opacity,
-  Radius,
   Spacing,
+  TabBar,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { pillarLabel } from '@/lib/pace-readout';
 import { checkPendingAnalysis } from '@/lib/pending-analysis';
 import {
   describeQuota,
@@ -32,6 +42,13 @@ import {
 } from '@/lib/quota';
 import { useSession } from '@/lib/session-provider';
 import { useAnnounce } from '@/lib/use-announce';
+import { PACE_PILLARS } from '@shared/pace';
+
+/** The four pillar names, in fixed order, for the standing ticker at the foot of the screen. Read
+ * from the SAME `PACE_PILLARS` / `pillarLabel` pair the result readout uses, never re-typed here —
+ * a marquee that named a fifth pillar, or named one differently from the readout, would be a
+ * product lie rather than a styling bug. */
+const PILLAR_TICKER = PACE_PILLARS.map(pillarLabel);
 
 type QuotaState =
   | { status: 'loading' }
@@ -205,26 +222,39 @@ export default function HomeScreen() {
     // BottomTabBar — its height calculation adds `insets.bottom`) — a SafeAreaView here with the
     // default all-edges set would apply that same inset a second time, opening a dead gap
     // between this screen's content and the tab bar's top edge.
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      {/* Same ScrollView + flexGrow:1 pattern as app/(auth)/sign-in.tsx: the content still
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        {/* Same ScrollView + flexGrow:1 pattern as app/(auth)/sign-in.tsx: the content still
           centers when there is room, but at the largest Dynamic Type sizes it scrolls instead
           of clipping (design brief §7: layouts reflow, never clip). */}
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <View style={styles.headerRow}>
-          <Text style={styles.header} accessibilityRole="header">{Copy.home.title}</Text>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+        {/* The reference's top bar: a small mark, a tracked-out wordmark, and one circular glass
+            control — replacing the old "big heading + underlined text link" row. `Copy.home.title`
+            is unchanged and still carries `accessibilityRole="header"`; only its type role moved,
+            from a 24pt display heading to the eyebrow register, because on this screen the heading
+            is chrome and the CTA block is the subject. */}
+        <View style={styles.topBar}>
+          <LowPolyField
+            poses={[POSES.gather, POSES.stride]}
+            color={colors.text.secondary}
+            size={ControlHeight.circle}
+            testID="home-mark"
+          />
+          <Eyebrow tone="primary" style={styles.wordmark} testID="home-title">
+            {Copy.home.title}
+          </Eyebrow>
           {/* Sign-out USED to live here as an M1 stub. Issue #53 moved it to Settings — its real
               home, alongside delete-account — and this link is now the entry point to that screen.
               Issue #27 (sign-out was fire-and-forget, so a failed global token revoke was silent)
               is fixed there, once, rather than twice: see lib/sign-out.ts. */}
-          <Pressable
-            accessibilityRole="button"
+          <CircleIconButton
             accessibilityLabel={Copy.settings.title}
             onPress={() => {
               router.push('/settings');
             }}
-            style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]}>
-            <Text style={styles.settingsText}>{Copy.settings.title}</Text>
-          </Pressable>
+            testID="home-settings">
+            <MaterialIcons name="tune" size={20} color={colors.text.primary} />
+          </CircleIconButton>
         </View>
 
         {/* Issue #140: surfaced once, at most, per reconciled analysis — `checkPendingAnalysis`
@@ -235,66 +265,96 @@ export default function HomeScreen() {
             treatment `app/analyzing.tsx`'s own ErrorPanel documents for itself — plain
             text.primary/text.secondary, no Semantic.error red. */}
         {pendingReleased && (
-          <View style={styles.pendingReleasedBanner}>
+          <SurfaceCard tone="raised" style={styles.pendingReleasedBanner}>
             <Text style={styles.pendingReleasedTitle} accessibilityLiveRegion="polite">
               {Copy.home.pending.released.title}
             </Text>
             <Text style={styles.pendingReleasedBody}>{Copy.home.pending.released.body}</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={Copy.home.pending.released.dismiss}
+            <PillButton
+              variant="ghost"
+              label={Copy.home.pending.released.dismiss}
               onPress={() => setPendingReleased(null)}
-              style={({ pressed }) => [styles.pendingReleasedDismiss, pressed && styles.pressed]}>
-              <Text style={styles.pendingReleasedDismissText}>{Copy.home.pending.released.dismiss}</Text>
-            </Pressable>
-          </View>
+              style={styles.bannerDismiss}
+            />
+          </SurfaceCard>
         )}
 
         <View style={styles.centerBlock}>
-          {quota.status === 'loading' && (
-            <View style={styles.loadingBlock}>
-              <ActivityIndicator color={colors.text.secondary} />
-              <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
-                {Copy.home.quota.loading}
-              </Text>
-            </View>
-          )}
+          {/* The hero. A large, ambient low-poly mark sits behind the empty-state line, so a
+              user with nothing analyzed yet still lands on a composed screen rather than on a
+              caption and a button floating in space. It is decorative and hidden from the a11y
+              tree (see LowPolyField), and it renders — statically — under reduced motion too:
+              the composition is the point, the movement is the enhancement. */}
+          <View style={styles.heroBlock}>
+            <LowPolyField
+              poses={[POSES.scatter, POSES.stride, POSES.gather]}
+              color={colors.text.primary}
+              size={HERO_MARK_SIZE}
+              style={styles.heroMark}
+              testID="home-hero-mark"
+            />
+            {/* The screen's ONE oversized element (spec 2026-07-26 §3.1's "at most one
+                display-or-larger element per screen", still honoured). Assembles word by word on
+                arrival — the app's signature type behaviour. */}
+            <KineticText
+              style={styles.heroLine}
+              containerStyle={styles.heroLineRow}
+              staggerMs={90}
+              testID="home-hero-line">
+              {Copy.home.empty.caption}
+            </KineticText>
+          </View>
 
-          {quota.status === 'ready' && readyCaption && (
-            <View style={styles.quotaReadyBlock}>
-              <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
-                {readyCaption.primary}
-              </Text>
-              {/* Pro/Elite's "Renews {date}" secondary line, or issue #6's anti-farm "blocked"
-                  notice — never both; see lib/quota.ts's `describeQuota`. */}
-              {readyCaption.secondary !== null && (
-                <Text style={styles.quotaStaleCaption}>{readyCaption.secondary}</Text>
-              )}
-            </View>
-          )}
+          {/* Quota lives on an OPAQUE card, never directly on the wash: these captions are
+              `text.secondary`, and `Gradient`'s own contract (constants/theme.ts) proves the wash
+              for `text.primary` only. That rule is why this block gained a card in the redesign
+              rather than being left as bare text over the gradient. */}
+          <SurfaceCard style={styles.quotaCard} testID="home-quota-card">
+            {quota.status === 'loading' && (
+              <View style={styles.quotaBlock}>
+                <ActivityIndicator color={colors.text.secondary} />
+                <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
+                  {Copy.home.quota.loading}
+                </Text>
+              </View>
+            )}
 
-          {quota.status === 'error' && (
-            <View style={styles.quotaErrorBlock}>
-              <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
-                {quota.lastKnown ? describeQuota(quota.lastKnown).primary : Copy.home.quota.error.failed}
-              </Text>
-              {/* Only pair the "last known" caption with an actual last-known value — showing
-                  it next to the plain failure line above would imply a cached value exists
-                  when there isn't one. */}
-              {quota.lastKnown !== null && (
-                <Text style={styles.quotaStaleCaption}>{Copy.home.quota.error.stale}</Text>
-              )}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={Copy.home.quota.error.retry}
-                onPress={() => {
-                  fetchQuota(activeFlagRef.current);
-                }}
-                style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
-                <Text style={styles.retryText}>{Copy.home.quota.error.retry}</Text>
-              </Pressable>
-            </View>
-          )}
+            {quota.status === 'ready' && readyCaption && (
+              <View style={styles.quotaBlock}>
+                <Eyebrow>{Copy.home.title}</Eyebrow>
+                <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
+                  {readyCaption.primary}
+                </Text>
+                {/* Pro/Elite's "Renews {date}" secondary line, or issue #6's anti-farm "blocked"
+                    notice — never both; see lib/quota.ts's `describeQuota`. */}
+                {readyCaption.secondary !== null && (
+                  <Text style={styles.quotaStaleCaption}>{readyCaption.secondary}</Text>
+                )}
+              </View>
+            )}
+
+            {quota.status === 'error' && (
+              <View style={styles.quotaBlock}>
+                <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
+                  {quota.lastKnown ? describeQuota(quota.lastKnown).primary : Copy.home.quota.error.failed}
+                </Text>
+                {/* Only pair the "last known" caption with an actual last-known value — showing
+                    it next to the plain failure line above would imply a cached value exists
+                    when there isn't one. */}
+                {quota.lastKnown !== null && (
+                  <Text style={styles.quotaStaleCaption}>{Copy.home.quota.error.stale}</Text>
+                )}
+                <PillButton
+                  variant="ghost"
+                  label={Copy.home.quota.error.retry}
+                  onPress={() => {
+                    fetchQuota(activeFlagRef.current);
+                  }}
+                  style={styles.quotaRetry}
+                />
+              </View>
+            )}
+          </SurfaceCard>
 
           {/* Wired into the capture flow by M2 (issue #36): source picker -> camera/library ->
               frames.ts. This is the entry point to the product's only job, so without it #86's
@@ -311,11 +371,9 @@ export default function HomeScreen() {
               button — that dead button, sitting under an offer of a free analysis, WAS issue #15.
               The Paywall takes no params: it re-reads quota itself, so it stays honest however it
               was reached. */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={ctaLabel}
+          <PillButton
+            label={ctaLabel}
             accessibilityHint={ctaHint ?? undefined}
-            accessibilityState={{ disabled: !ctaEnabled }}
             disabled={!ctaEnabled}
             onPress={() => {
               if (ctaKind === 'upgradeToAnalyze' || ctaKind === 'upgradeForMore') {
@@ -324,26 +382,40 @@ export default function HomeScreen() {
                 router.push('/capture');
               }
             }}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              !ctaEnabled && styles.primaryButtonDisabled,
-              pressed && ctaEnabled && styles.pressed,
-            ]}>
-            <Text style={styles.primaryButtonText}>{ctaLabel}</Text>
-          </Pressable>
-
-          <Text style={styles.emptyCaption}>{Copy.home.empty.caption}</Text>
+            icon={<MaterialIcons name="arrow-forward" size={20} color={Accent.onAccent} />}
+            testID="home-primary-cta"
+          />
         </View>
-      </ScrollView>
-    </SafeAreaView>
+
+        {/* The standing ticker. It names the four things this app measures, which is the only
+            place a user who has not yet submitted anything can learn them. Sourced from the same
+            PACE_PILLARS the readout renders — see PILLAR_TICKER at the top of this file. */}
+        <Marquee
+          items={PILLAR_TICKER}
+          textStyle={styles.tickerText}
+          separatorStyle={styles.tickerSeparator}
+          style={styles.ticker}
+          testID="home-pillar-ticker"
+        />
+        </ScrollView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
+
+/** The ambient hero mark's drawn size. Fixed points rather than a percentage: it must stay the
+ *  same optical weight on a small phone and a tablet, where the readable column is capped anyway
+ *  (`ContentWidth.readable`), and a percentage-sized decorative mark would balloon on the latter. */
+const HERO_MARK_SIZE = 220;
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent, NOT `colors.background`: this screen now sits on `<ScreenGradient>`, and an
+      // opaque SafeAreaView here would paint the wash out entirely. The gradient component carries
+      // the opaque fallback fill behind itself instead.
+      backgroundColor: 'transparent',
     },
     // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
     // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
@@ -359,43 +431,32 @@ function createStyles(colors: ThemeColors) {
       width: '100%',
       maxWidth: ContentWidth.readable,
       alignSelf: 'center',
-      padding: Spacing.xl,
+      paddingHorizontal: Spacing.xl,
+      paddingTop: Spacing.lg,
+      // The tab bar floats now and reserves no layout space — see `TabBar` in constants/theme.ts.
+      // Without this the ticker would sit under the bar.
+      paddingBottom: TabBar.clearance,
       gap: Spacing.xxl,
     },
-    headerRow: {
-      flexDirection: 'row',
+    topBar: {
       alignItems: 'center',
+      flexDirection: 'row',
+      gap: Spacing.md,
       justifyContent: 'space-between',
     },
-    header: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
-      color: colors.text.primary,
-    },
-    settingsButton: {
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      paddingHorizontal: Spacing.md,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    settingsText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-      textDecorationLine: 'underline',
+    wordmark: {
+      // Takes the middle of the row so the two flanking controls stay pinned to the edges,
+      // matching the reference's centred wordmark.
+      flex: 1,
+      textAlign: 'center',
     },
     // Issue #140. Same neutral-surface treatment `components/partial-result-banner.tsx` (issue
-    // #56) uses for its own honesty disclosure — a bordered `surface.raised` card, not
-    // `Semantic.error`, matching that component's own reasoning: this is a "here's what
-    // happened" notice, not a system failure or a low score.
+    // #56) uses for its own honesty disclosure — a `surface.raised` card, not `Semantic.error`,
+    // matching that component's own reasoning: this is a "here's what happened" notice, not a
+    // system failure or a low score. Now a `<SurfaceCard>`, so its corner comes from `Radius.card`
+    // like every other panel rather than being restated here.
     pendingReleasedBanner: {
-      backgroundColor: colors.surface.raised,
-      borderColor: colors.hairline,
-      borderRadius: Radius.card,
-      borderWidth: 1,
       gap: Spacing.xs,
-      padding: Spacing.lg,
     },
     pendingReleasedTitle: {
       fontFamily: FontFamily.display.semiBold,
@@ -405,21 +466,12 @@ function createStyles(colors: ThemeColors) {
     pendingReleasedBody: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * 1.4,
+      lineHeight: FontSize.sm * LineHeight.body,
       color: colors.text.secondary,
     },
-    pendingReleasedDismiss: {
+    bannerDismiss: {
       alignSelf: 'flex-start',
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      justifyContent: 'center',
-      paddingVertical: Spacing.xs,
-    },
-    pendingReleasedDismissText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
-      textDecorationLine: 'underline',
+      marginLeft: -Spacing.lg, // cancel the ghost pill's own padding so its label aligns with the body
     },
     centerBlock: {
       flex: 1,
@@ -427,9 +479,36 @@ function createStyles(colors: ThemeColors) {
       justifyContent: 'center',
       gap: Spacing.xl,
     },
-    loadingBlock: {
+    heroBlock: {
       alignItems: 'center',
-      gap: Spacing.md,
+      justifyContent: 'center',
+    },
+    heroMark: {
+      // Behind the line, not above it — the mark is atmosphere. Absolute so it never adds height
+      // and can therefore never push the CTA below the fold on a small device.
+      position: 'absolute',
+      opacity: Opacity.disabled,
+    },
+    heroLineRow: {
+      justifyContent: 'center',
+      // Room for the mark to breathe around the words it sits behind.
+      paddingHorizontal: Spacing.xl,
+      paddingVertical: Spacing.xxxl,
+    },
+    heroLine: {
+      color: colors.text.primary,
+      fontFamily: FontFamily.display.semiBold,
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
+      textAlign: 'center',
+    },
+    quotaCard: {
+      alignSelf: 'stretch',
+    },
+    quotaBlock: {
+      alignItems: 'center',
+      gap: Spacing.xs,
     },
     quotaCaption: {
       fontFamily: FontFamily.mono.regular,
@@ -437,66 +516,33 @@ function createStyles(colors: ThemeColors) {
       color: colors.text.secondary,
       textAlign: 'center',
     },
-    quotaReadyBlock: {
-      alignItems: 'center',
-      gap: Spacing.xs,
-    },
-    quotaErrorBlock: {
-      alignItems: 'center',
-      gap: Spacing.xs,
-    },
     quotaStaleCaption: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
       color: colors.text.secondary,
       textAlign: 'center',
     },
-    retryButton: {
-      // The 44x44 floor design-brief §7 calls non-negotiable — padding alone left this at
-      // ~28pt around 15pt text. `signOutButton` above already uses the same token.
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: Spacing.xs,
-      paddingHorizontal: Spacing.sm,
+    quotaRetry: {
+      marginTop: Spacing.xs,
     },
-    /** The one pressed-state dim shared by every touchable on this screen. */
-    pressed: {
-      opacity: Opacity.pressed,
-    },
-    // Not Accent — that's the primary CTA's color and only the primary CTA's (theme.ts). This
-    // is a small underlined text action; `text.primary` + underline reads as the more
-    // prominent of this screen's two links, next to `signOutText` below at `text.secondary` +
-    // underline, without spending the accent on it (issue #21).
-    retryText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
-      textDecorationLine: 'underline',
-    },
-    primaryButton: {
-      minHeight: ControlHeight.standard,
-      minWidth: ControlWidth.primaryButton,
-      borderRadius: Radius.card,
-      backgroundColor: Accent.value,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.xl,
-    },
-    primaryButtonDisabled: {
+    ticker: {
+      // Bleeds past the readable column's padding so the strip runs edge to edge, which is what
+      // makes it read as a ticker rather than as a centred caption.
+      marginHorizontal: -Spacing.xl,
       opacity: Opacity.disabled,
+      paddingVertical: Spacing.sm,
     },
-    primaryButtonText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: Accent.onAccent,
+    tickerText: {
+      color: colors.text.primary,
+      fontFamily: FontFamily.display.semiBold,
+      fontSize: FontSize.lg,
+      letterSpacing: Tracking.eyebrow,
+      textTransform: 'uppercase',
     },
-    emptyCaption: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-      textAlign: 'center',
+    tickerSeparator: {
+      color: colors.text.primary,
+      fontFamily: FontFamily.display.regular,
+      fontSize: FontSize.lg,
     },
   });
 }

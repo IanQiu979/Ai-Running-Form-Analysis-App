@@ -18,7 +18,17 @@ import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Copy } from '@/constants/copy';
-import { Colors, FontFamily, FontSize, Radius, Spacing, type ColorScheme, type ThemeColors } from '@/constants/theme';
+import {
+  Colors,
+  FontFamily,
+  FontSize,
+  LineHeight,
+  Radius,
+  Spacing,
+  Tracking,
+  type ColorScheme,
+  type ThemeColors,
+} from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { formatPartialBannerBody } from '@/lib/pace-readout';
 
@@ -51,20 +61,21 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.surface.raised,
       borderColor: colors.hairline,
       borderRadius: Radius.card,
-      borderWidth: 1,
+      borderWidth: StyleSheet.hairlineWidth * 2,
       gap: Spacing.xs,
-      padding: Spacing.lg,
+      padding: Spacing.xl,
     },
     title: {
       color: colors.text.primary,
       fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.md,
+      fontSize: FontSize.lg,
+      letterSpacing: Tracking.display,
     },
     body: {
       color: colors.text.secondary,
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * 1.4,
+      lineHeight: FontSize.sm * LineHeight.body,
     },
   });
 }

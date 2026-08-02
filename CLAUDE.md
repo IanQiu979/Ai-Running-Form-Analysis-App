@@ -114,6 +114,16 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
 
 - TypeScript strict everywhere (already on in `tsconfig.json`).
 - Theme tokens only — no hardcoded colors or spacing in components; use `constants/theme.ts`.
+- **Two token contracts constrain where text may go, and both are proven (not asserted) in
+  `constants/__tests__/theme-contrast.test.ts`. Read them at their tokens before styling a screen:**
+  - `Gradient.page` — the full-bleed page backdrop every screen sits on, via
+    `<ScreenGradient>`. It carries **`text.primary` only**. Secondary text, score text, score fills,
+    coaching prose and `Semantic.error` belong on an opaque `surface.*` (usually a `<SurfaceCard>`).
+  - `Glass` — translucent panels. Also **`text.primary` only**, and **never an interactive
+    control's fill or boundary**: no alpha that still reads as glass can meet WCAG 1.4.11's 3:1
+    against the wash, so buttons/inputs/checkboxes keep opaque fills with a `control.border` ring.
+    `<PillButton>`, `<CircleIconButton>` and `<SurfaceCard>` already encode this — prefer them over
+    hand-rolling a `Pressable`.
 - No business rules in the client. Tier, quota, frame cap, and analysis are server-only (edge
   functions); the client may display tier/quota state but is never the authority for it.
 - AI output validation is structural, not strict-content: validate shape, retry once, then

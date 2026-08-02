@@ -15,7 +15,7 @@ import {
   Newsreader_400Regular_Italic,
   Newsreader_600SemiBold,
 } from '@expo-google-fonts/newsreader';
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider, type Theme } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -27,6 +27,7 @@ import 'react-native-reanimated';
 import { FirstRunIntro } from '@/components/first-run-intro';
 import { LaunchIntro } from '@/components/launch-intro';
 import { OfflineBanner } from '@/components/offline-banner';
+import { Accent, Colors, Semantic, type ColorScheme } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { hasSeenFirstRun } from '@/lib/first-run';
@@ -125,7 +126,7 @@ function RootLayoutNav() {
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={navigationTheme(colorScheme === 'dark' ? 'dark' : 'light')}>
       <View style={styles.stackAndBannerContainer}>
         {/* The only animation that exists in this app today is expo-router's default stack
             push/pop transition (the auth <-> tabs swap below) — gated behind the OS Reduce
@@ -208,6 +209,41 @@ function RootLayoutNav() {
       <StatusBar style="auto" />
     </ThemeProvider>
   );
+}
+
+/**
+ * React Navigation's own palette, rebuilt from this app's tokens — the follow-up
+ * `app/(tabs)/_layout.tsx`'s issue-#12 comment names ("a full `NavigationTheme` both layouts
+ * consume is the eventual answer"), done here because the Calm redesign forced it.
+ *
+ * Until now the navigator carried stock `DefaultTheme`/`DarkTheme`, which was survivable while
+ * every screen painted an opaque `colors.background` edge to edge: the navigator's card colour was
+ * never visible. It is not survivable now. Every screen renders a `<ScreenGradient>` over a
+ * TRANSPARENT SafeAreaView, and the navigator's card sits directly behind that — so on the light
+ * scheme, stock `DefaultTheme`'s `#fff` card flashed white underneath a blue-violet wash on every
+ * push transition, and `DarkTheme`'s neutral `rgb(1,1,1)` read as a cold hole on the dark one.
+ *
+ * Only `background`/`card` genuinely matter today (this app renders no React Navigation headers and
+ * no built-in borders), but the whole object is filled from real roles rather than spread over a
+ * stock theme, so a future header or badge inherits the design system instead of inheriting
+ * whatever React Navigation last shipped. `notification` maps to `Semantic.error` — it is the badge
+ * colour, i.e. an alarm role, not a score band.
+ */
+function navigationTheme(scheme: ColorScheme): Theme {
+  const c = Colors[scheme];
+  const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+  return {
+    ...base,
+    dark: scheme === 'dark',
+    colors: {
+      background: c.background,
+      card: c.background,
+      text: c.text.primary,
+      border: c.hairline,
+      primary: Accent.value,
+      notification: Semantic.error[scheme],
+    },
+  };
 }
 
 const styles = StyleSheet.create({

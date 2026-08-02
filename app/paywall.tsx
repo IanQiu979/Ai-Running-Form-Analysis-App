@@ -26,20 +26,29 @@
  * for using `Alert` over an in-screen sheet: an alert survives underneath whatever this screen's
  * state does next, and it's the established idiom this codebase already uses for confirmations).
  */
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { KineticText } from '@/components/kinetic-text';
+import { CircleIconButton } from '@/components/ui/circle-icon-button';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
   Colors,
   FontFamily,
   FontSize,
   HitTarget,
+  LineHeight,
+  Motion,
   Opacity,
   Radius,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -200,34 +209,43 @@ export default function PaywallScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
+        {/* Back is now the redesign's circular control rather than a word. The old comment here
+            argued for a text button over "a chevron glyph" on Dynamic Type grounds — that concern
+            was about a glyph SIZED IN TEXT POINTS. `<CircleIconButton>` is a fixed 44pt target
+            with a fixed 20pt glyph inside it, so it neither grows nor shrinks with text size and
+            the objection does not transfer. Its `accessibilityLabel` carries the same word the
+            visible label used to. */}
         <View style={styles.headerRow}>
-          {/* Text button, not a chevron glyph — matches app/settings.tsx's back button exactly
-              (see its own comment on why: Dynamic Type + no icon-font mapping to rely on). */}
-          <Pressable
-            accessibilityRole="button"
+          <CircleIconButton
+            accessibilityLabel={Copy.paywall.back}
             onPress={() => {
               router.back();
-            }}
-            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
-            <Text style={styles.backText}>{Copy.paywall.back}</Text>
-          </Pressable>
-          <Text style={styles.title} accessibilityRole="header">
-            {Copy.paywall.title}
-          </Text>
+            }}>
+            <MaterialIcons name="arrow-back" size={20} color={colors.text.primary} />
+          </CircleIconButton>
+          <View style={styles.titleBlock}>
+            <KineticText
+              accessibilityRole="header"
+              staggerMs={Motion.stagger.line}
+              style={styles.title}>
+              {Copy.paywall.title}
+            </KineticText>
+          </View>
         </View>
 
         {gateBanner && (
-          <View style={styles.gateBanner} accessibilityLiveRegion="polite">
+          <SurfaceCard style={styles.gateBanner} padding={Spacing.lg} accessibilityLiveRegion="polite">
             <Text style={styles.gateTitle}>{gateBanner.title}</Text>
             <Text style={styles.gateBody}>{gateBanner.body}</Text>
-          </View>
+          </SurfaceCard>
         )}
 
         {plan.status === 'loading' && (
           <View style={styles.inlineRow}>
-            <ActivityIndicator color={colors.text.secondary} />
+            <ActivityIndicator color={colors.text.primary} />
             <Text style={styles.planStatusText} accessibilityLiveRegion="polite">
               {Copy.paywall.plan.loading}
             </Text>
@@ -239,15 +257,14 @@ export default function PaywallScreen() {
             <Text style={styles.planStatusText} accessibilityLiveRegion="polite">
               {Copy.paywall.plan.error}
             </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={Copy.paywall.plan.retryA11yLabel}
+            <PillButton
+              variant="ghost"
+              label={Copy.paywall.plan.retry}
+              accessibilityHint={Copy.paywall.plan.retryA11yLabel}
               onPress={() => {
                 void fetchPlan();
               }}
-              style={({ pressed }) => [styles.textAction, pressed && styles.pressed]}>
-              <Text style={styles.textActionLabel}>{Copy.paywall.plan.retry}</Text>
-            </Pressable>
+            />
           </View>
         )}
 
@@ -258,7 +275,6 @@ export default function PaywallScreen() {
             detail={Copy.paywall.tier.free.detail}
             cta={ctaForFree(plan)}
             styles={styles}
-            colors={colors}
           />
           <TierCard
             name={Copy.paywall.tier.pro.name}
@@ -266,7 +282,6 @@ export default function PaywallScreen() {
             detail={Copy.paywall.tier.pro.detail}
             cta={ctaForPurchasableTier('pro', plan, purchase, handleUpgrade)}
             styles={styles}
-            colors={colors}
           />
           <TierCard
             name={Copy.paywall.tier.elite.name}
@@ -274,13 +289,13 @@ export default function PaywallScreen() {
             detail={Copy.paywall.tier.elite.detail}
             cta={ctaForPurchasableTier('elite', plan, purchase, handleUpgrade)}
             styles={styles}
-            colors={colors}
           />
         </View>
 
         <Text style={styles.footnote}>{Copy.paywall.footnote}</Text>
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
 
@@ -292,12 +307,11 @@ type TierCardProps = {
   detail: string;
   cta: TierCardCta;
   styles: Styles;
-  colors: ThemeColors;
 };
 
-function TierCard({ name, price, detail, cta, styles, colors }: TierCardProps) {
+function TierCard({ name, price, detail, cta, styles }: TierCardProps) {
   return (
-    <View style={styles.card}>
+    <SurfaceCard style={styles.card} padding={Spacing.xl}>
       <View style={styles.cardHeaderRow}>
         <Text style={styles.cardName}>{name}</Text>
         <Text style={styles.cardPrice}>{price}</Text>
@@ -310,26 +324,23 @@ function TierCard({ name, price, detail, cta, styles, colors }: TierCardProps) {
         </View>
       )}
 
+      {/* `secondary`, deliberately not `primary`: this screen offers a parallel choice between
+          two upgrade paths and has no single primary action, so spending `Accent` here would
+          break the "one accent, one CTA" rule constants/theme.ts states. The pill's secondary
+          variant is the same `surface.raised` + `control.border` treatment this button already
+          had — the shape changed, the restraint did not. */}
       {cta.kind === 'upgrade' && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={cta.busy ? Copy.paywall.purchase.pending : cta.label}
-          accessibilityState={{ disabled: cta.disabled, busy: cta.busy }}
+        <PillButton
+          variant="secondary"
+          label={cta.label}
+          accessibilityHint={cta.busy ? Copy.paywall.purchase.pending : undefined}
           disabled={cta.disabled}
+          busy={cta.busy}
           onPress={cta.onPress}
-          style={({ pressed }) => [
-            styles.upgradeButton,
-            cta.disabled && styles.disabled,
-            pressed && !cta.disabled && styles.pressed,
-          ]}>
-          {cta.busy ? (
-            <ActivityIndicator color={colors.text.primary} />
-          ) : (
-            <Text style={styles.upgradeButtonText}>{cta.label}</Text>
-          )}
-        </Pressable>
+          style={styles.upgradeButton}
+        />
       )}
-    </View>
+    </SurfaceCard>
   );
 }
 
@@ -337,7 +348,8 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill.
+      backgroundColor: 'transparent',
     },
     content: {
       flexGrow: 1,
@@ -346,32 +358,26 @@ function createStyles(colors: ThemeColors) {
     },
     headerRow: {
       flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
+      alignItems: 'flex-start',
+      gap: Spacing.lg,
     },
-    backButton: {
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    backText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
+    titleBlock: {
+      flex: 1,
+      // Optically centres the title against the 44pt circular button beside it.
+      paddingTop: Spacing.xs,
     },
     title: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
+      fontFamily: FontFamily.display.bold,
+      // xl -> xxl. The screen's largest element, and the only heading on it.
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
       color: colors.text.primary,
     },
     // Calm, not alarmed — same "coach, not scold" treatment app/analyzing.tsx's ErrorPanel uses
     // (plain text.primary/text.secondary on a surface card, never Semantic.error): running out of
     // analyses is an expected, non-alarming state, not a system failure.
     gateBanner: {
-      backgroundColor: colors.surface.base,
-      borderRadius: Radius.card,
-      padding: Spacing.lg,
       gap: Spacing.xs,
     },
     gateTitle: {
@@ -382,6 +388,7 @@ function createStyles(colors: ThemeColors) {
     gateBody: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
       color: colors.text.secondary,
     },
     inlineRow: {
@@ -392,29 +399,17 @@ function createStyles(colors: ThemeColors) {
     planStatusText: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
-      color: colors.text.secondary,
+      // On the wash — `text.primary` only (`Gradient`'s contract, constants/theme.ts).
+      color: colors.text.primary,
     },
     planErrorBlock: {
       gap: Spacing.xs,
       alignItems: 'flex-start',
     },
-    textAction: {
-      minHeight: HitTarget.min,
-      justifyContent: 'center',
-    },
-    textActionLabel: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
-      textDecorationLine: 'underline',
-    },
     cards: {
       gap: Spacing.lg,
     },
     card: {
-      backgroundColor: colors.surface.base,
-      borderRadius: Radius.card,
-      padding: Spacing.lg,
       gap: Spacing.sm,
     },
     cardHeaderRow: {
@@ -424,7 +419,8 @@ function createStyles(colors: ThemeColors) {
     },
     cardName: {
       fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.lg,
+      fontSize: FontSize.xl,
+      letterSpacing: Tracking.display,
       color: colors.text.primary,
     },
     // Mono — the "measured readouts and any pace/metric text" role (theme.ts's FontFamily.mono
@@ -437,7 +433,7 @@ function createStyles(colors: ThemeColors) {
     cardDetail: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * 1.4,
+      lineHeight: FontSize.sm * LineHeight.body,
       color: colors.text.secondary,
     },
     // A non-interactive label, not a disabled button — "Current plan" names a fact about this
@@ -446,13 +442,20 @@ function createStyles(colors: ThemeColors) {
       minHeight: HitTarget.min,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: Radius.card,
+      // `Radius.pill` and a hairline, not `control.border`: this is explicitly NOT a control (see
+      // the comment above), and giving it the same 3:1 interactive boundary the upgrade pill has
+      // is precisely what would make it look tappable. A quiet chip reads as a status.
+      borderRadius: Radius.pill,
       borderWidth: 1,
-      borderColor: colors.control.border,
+      borderColor: colors.hairline,
+      marginTop: Spacing.sm,
+      paddingHorizontal: Spacing.lg,
     },
     currentPlanText: {
       fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.sm,
+      fontSize: FontSize.xs,
+      letterSpacing: Tracking.eyebrow,
+      textTransform: 'uppercase',
       color: colors.text.secondary,
     },
     // NOT Accent — theme.ts reserves that for "the primary CTA, and only the primary CTA," and
@@ -462,23 +465,16 @@ function createStyles(colors: ThemeColors) {
     // interactive-boundary `control.border` (issue #96) is what marks this as tappable, not fill
     // color.
     upgradeButton: {
-      minHeight: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderRadius: Radius.card,
-      borderWidth: 1,
-      borderColor: colors.control.border,
-      backgroundColor: colors.surface.raised,
-    },
-    upgradeButtonText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
+      marginTop: Spacing.sm,
     },
     footnote: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
-      color: colors.text.secondary,
+      lineHeight: FontSize.xs * LineHeight.body,
+      // On the wash — held back by opacity rather than by a lighter token, which the gradient
+      // does not prove.
+      color: colors.text.primary,
+      opacity: Opacity.pressed,
       textAlign: 'center',
     },
     disabled: {

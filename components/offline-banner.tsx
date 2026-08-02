@@ -23,7 +23,9 @@ import {
   Colors,
   FontFamily,
   FontSize,
+  Radius,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -73,17 +75,25 @@ function createStyles(colors: ThemeColors, topInset: number) {
       // app today, so there is no competing z-index to reconcile against.
       zIndex: 10,
       backgroundColor: colors.surface.raised,
-      borderBottomColor: colors.hairline,
-      borderBottomWidth: 1,
-      paddingTop: topInset + Spacing.xs,
-      paddingBottom: Spacing.xs,
+      // Rounded at the BOTTOM only, so the banner reads as a strip that has slid down from the
+      // device's own edge rather than as a slab welded across the top. Same relationship the
+      // result screen's hero has with the top of its screen.
+      borderBottomLeftRadius: Radius.card,
+      borderBottomRightRadius: Radius.card,
+      borderColor: colors.hairline,
+      borderWidth: StyleSheet.hairlineWidth * 2,
+      borderTopWidth: 0,
+      paddingTop: topInset + Spacing.sm,
+      paddingBottom: Spacing.md,
       paddingHorizontal: Spacing.lg,
     },
     text: {
       color: colors.text.secondary,
-      fontFamily: FontFamily.body.medium,
+      fontFamily: FontFamily.body.semiBold,
       fontSize: FontSize.xs,
+      letterSpacing: Tracking.eyebrow,
       textAlign: 'center',
+      textTransform: 'uppercase',
     },
   });
 }

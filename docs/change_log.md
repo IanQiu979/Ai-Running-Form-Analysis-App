@@ -5,6 +5,60 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-02 (the Calm redesign — shape, type, spacing, component and motion layer)
+
+The follow-up the palette swap below was not: a recolor was only ever half the ask. This pass moves
+the app's **shape, type scale, spacing rhythm, component vocabulary and motion register** onto the
+Calm reference's design language, building on the colour layer rather than touching it. `Colors`,
+`Score`, `Semantic`, `Accent` and `Gradient` are unchanged. Every screen in the app is restyled;
+none of them changed what they DO.
+
+- **`constants/theme.ts`** — additive except for one deliberate reversal.
+  - **`Radius.card` reversed, 0 → 24.** Spec 2026-07-26 §3.3 set it to 0 on the argument that "a
+    sharp corner reads as a printed document, a rounded one reads as a generic app card". That was
+    right for "The Gait Plate" and is wrong for Calm, where every surface is generously rounded and
+    the softness IS the brand. Keeping 0 would have left the app reading as a technical readout
+    wearing Calm's colours. Added alongside: `Radius.tile` (16, for anything nested inside a card)
+    and `Radius.hero` (32, for full-bleed media); `sheet` 12 → 28.
+  - **New `Glass`** — translucent panel roles, with a narrow, enforced contract: glass carries
+    `text.primary` ONLY, and is never an interactive control's fill or boundary (an 8–12% wash
+    reads ~1.15:1 against the page gradient and cannot meet WCAG 1.4.11's 3:1 at any alpha that is
+    still translucent). Buttons therefore keep opaque fills with a proven `control.border` ring.
+  - **New `Tracking`, `LineHeight`, `Elevation`, `ControlHeight.pill`/`.circle`.**
+  - **`Motion` gains a longer expressive register** — `duration.gentle`/`.epic`/`.cinematic`,
+    `curve.calm`/`.morph`/`.linear`, and a `stagger` scale. The original three durations and two
+    curves are untouched, so every already-tuned moment keeps its exact timing.
+- **New design primitives.** `components/ui/screen-gradient.tsx` (the first consumer `Gradient.page`
+  has ever had — it was shipped unused by the palette swap), `surface-card.tsx` (`SurfaceCard` +
+  `GlassCard`), `pill-button.tsx`, `circle-icon-button.tsx`, `eyebrow.tsx`; plus the expressive
+  layer: `components/kinetic-text.tsx` (per-word reveal), `marquee.tsx` (the pillar ticker), and
+  `low-poly-field.tsx` (a morphing triangle mark, built from CSS border-triangles — this repo's
+  no-`react-native-svg` ruling is inherited, not relitigated).
+- **`components/ui/notched-card.tsx` deleted** (with its test). The notched, square-cornered plate
+  was the signature shape of the language this replaces; `SurfaceCard` supersedes it.
+- **Every screen restyled** — gradient backdrop, pill controls, circular back/settings buttons,
+  display-scale headings, opaque cards for anything the wash cannot carry. The floating tab bar is
+  now inset and rounded (`app/(tabs)/_layout.tsx` exports `TAB_BAR_CLEARANCE`, which tab screens
+  pad by, since an absolute bar reserves no layout space).
+- **`app/_layout.tsx` now builds a real React Navigation `Theme` from the tokens.** This was the
+  follow-up `app/(tabs)/_layout.tsx`'s issue-#12 comment named, forced here: screens render a
+  gradient over a transparent SafeAreaView, so stock `DefaultTheme`'s white card flashed underneath
+  on every push transition.
+- **Accessibility held, and proven.** `theme-contrast.test.ts` now **composites** the `Glass` alphas
+  over every backdrop they may legally sit on (all three gradient stops plus `background`) and
+  proves `text.primary` clears 4.5:1 on each — plus a counter-guard proving `text.secondary` over
+  dark glass on the wash genuinely fails, so the narrow contract cannot be quietly widened. Every
+  text role that used to sit on an opaque `background` and now sits on the wash was raised to
+  `text.primary`, since the gradient is proven for that tone only. Touch targets unchanged at ≥44pt.
+- **Reduced motion is honoured by every new primitive**, and in each case by suppressing MOVEMENT
+  rather than content: the gradient stops drifting, the low-poly mark renders as a still mark, the
+  marquee does not scroll (and its duplicate copy is not even mounted), kinetic text does one
+  crossfade instead of a stagger. New tests lock all four.
+- **Tests:** 1003 passing (was 949). Three existing suites were updated, not weakened —
+  `theme-tokens.test.ts`'s `Radius.card` lock now locks 24 with the reversal documented at the
+  assertion, and two suites that queried split kinetic text by `getByText` now query the accessible
+  label, which is what a screen reader actually receives.
+
 ## 2026-08-02 (the Calm colour scheme — a palette swap, colours only)
 
 Replaces V2.3's warm graphite/bone colour layer with the Calm app's blue/violet scheme, derived by

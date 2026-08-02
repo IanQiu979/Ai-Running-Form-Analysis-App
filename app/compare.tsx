@@ -38,26 +38,32 @@
  * covered for free: the picker is a virtualized `FlatList` (matching `app/(tabs)/history.tsx`'s
  * own choice), not a `ScrollView` mapping every row eagerly.
  */
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { KineticText } from '@/components/kinetic-text';
 import { PaceReadout } from '@/components/pace-readout';
+import { CircleIconButton } from '@/components/ui/circle-icon-button';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { Copy } from '@/constants/copy';
 import {
   Accent,
   CheckboxSize,
   Colors,
-  ControlHeight,
   FontFamily,
   FontSize,
-  HitTarget,
+  LineHeight,
+  Motion,
   Opacity,
   Radius,
   Score,
   ScoreBandLabel,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -179,25 +185,25 @@ export default function CompareScreen() {
   const pair = selectedItems.length === MAX_SELECTED ? orderByCreatedAt(selectedItems[0], selectedItems[1]) : null;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea}>
+      {/* Circular back control, matching app/paywall.tsx and app/settings.tsx — see the note on
+          either of those for why the previous "text button, not a chevron glyph" reasoning does
+          not carry over to a fixed-size glyph in a fixed 44pt target. */}
       <View style={styles.headerRow}>
-        {/* Text button, not a chevron glyph — matches app/paywall.tsx's / app/settings.tsx's back
-            button exactly (Dynamic Type + no icon-font mapping to rely on). */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={Copy.compare.back}
-          onPress={goBack}
-          style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
-          <Text style={styles.backText}>{Copy.compare.back}</Text>
-        </Pressable>
-        <Text style={styles.title} accessibilityRole="header">
-          {Copy.compare.title}
-        </Text>
+        <CircleIconButton accessibilityLabel={Copy.compare.back} onPress={goBack}>
+          <MaterialIcons name="arrow-back" size={20} color={colors.text.primary} />
+        </CircleIconButton>
+        <View style={styles.titleBlock}>
+          <KineticText accessibilityRole="header" staggerMs={Motion.stagger.line} style={styles.title}>
+            {Copy.compare.title}
+          </KineticText>
+        </View>
       </View>
 
       {state.status === 'loading' && (
         <View style={styles.centerBlock}>
-          <ActivityIndicator color={colors.text.secondary} />
+          <ActivityIndicator color={colors.text.primary} />
           <Text style={styles.caption} accessibilityLiveRegion="polite">
             {Copy.compare.loading}
           </Text>
@@ -209,13 +215,7 @@ export default function CompareScreen() {
           <Text style={styles.caption} accessibilityLiveRegion="polite">
             {Copy.compare.error.loadFailed}
           </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.compare.error.retry}
-            onPress={retry}
-            style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
-            <Text style={styles.retryText}>{Copy.compare.error.retry}</Text>
-          </Pressable>
+          <PillButton variant="ghost" label={Copy.compare.error.retry} onPress={retry} />
         </View>
       )}
 
@@ -223,13 +223,7 @@ export default function CompareScreen() {
         <View style={styles.centerBlock}>
           <Text style={styles.emptyTitle}>{Copy.compare.locked.title}</Text>
           <Text style={styles.caption}>{Copy.compare.locked.body}</Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.compare.locked.cta}
-            onPress={goPaywall}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-            <Text style={styles.primaryButtonText}>{Copy.compare.locked.cta}</Text>
-          </Pressable>
+          <PillButton label={Copy.compare.locked.cta} onPress={goPaywall} style={styles.centerCta} />
         </View>
       )}
 
@@ -258,26 +252,20 @@ export default function CompareScreen() {
               />
             )}
           />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.compare.picker.cta}
-            accessibilityState={{ disabled: selectedIds.length !== MAX_SELECTED }}
+          <PillButton
+            label={Copy.compare.picker.cta}
             disabled={selectedIds.length !== MAX_SELECTED}
             onPress={startComparing}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              selectedIds.length !== MAX_SELECTED && styles.disabled,
-              pressed && selectedIds.length === MAX_SELECTED && styles.pressed,
-            ]}>
-            <Text style={styles.primaryButtonText}>{Copy.compare.picker.cta}</Text>
-          </Pressable>
+            style={styles.stickyCta}
+          />
         </View>
       )}
 
       {state.status === 'ready' && comparing && pair && (
         <CompareView pair={pair} colors={colors} styles={styles} />
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
 
@@ -393,30 +381,27 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill.
+      backgroundColor: 'transparent',
     },
     headerRow: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       gap: Spacing.sm,
       paddingHorizontal: Spacing.xl,
       paddingTop: Spacing.lg,
       paddingBottom: Spacing.lg,
     },
-    backButton: {
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    backText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
+    titleBlock: {
+      flex: 1,
+      // Optically centres the title against the 44pt circular button beside it.
+      paddingTop: Spacing.xs,
     },
     title: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
+      fontFamily: FontFamily.display.bold,
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
       color: colors.text.primary,
     },
     centerBlock: {
@@ -429,42 +414,28 @@ function createStyles(colors: ThemeColors) {
     caption: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
-      color: colors.text.secondary,
+      lineHeight: FontSize.md * LineHeight.body,
+      // On the wash — `text.primary` only (`Gradient`'s contract, constants/theme.ts).
+      color: colors.text.primary,
       textAlign: 'center',
     },
     emptyTitle: {
       fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.lg,
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
       color: colors.text.primary,
       textAlign: 'center',
     },
-    retryButton: {
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.md,
-    },
-    retryText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
-      textDecorationLine: 'underline',
-    },
-    primaryButton: {
-      minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
-      backgroundColor: Accent.value,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.xl,
+    /** The picker's bottom action, pinned under the list — hence the outer margins the centred
+     *  variant below does not need. */
+    stickyCta: {
       marginHorizontal: Spacing.xl,
       marginBottom: Spacing.xl,
     },
-    primaryButtonText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: Accent.onAccent,
+    centerCta: {
+      alignSelf: 'stretch',
+      marginHorizontal: Spacing.xl,
     },
     pressed: {
       opacity: Opacity.pressed,
@@ -478,7 +449,9 @@ function createStyles(colors: ThemeColors) {
     prompt: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
-      color: colors.text.secondary,
+      lineHeight: FontSize.md * LineHeight.body,
+      // On the wash — `text.primary` only (`Gradient`'s contract, constants/theme.ts).
+      color: colors.text.primary,
       paddingHorizontal: Spacing.xl,
       paddingBottom: Spacing.lg,
     },
@@ -494,8 +467,8 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.surface.base,
       borderRadius: Radius.card,
       borderWidth: 1,
-      borderColor: colors.surface.base,
-      padding: Spacing.md,
+      borderColor: colors.hairline,
+      padding: Spacing.lg,
     },
     pickerRowSelected: {
       borderColor: Accent.value,
@@ -507,7 +480,10 @@ function createStyles(colors: ThemeColors) {
       justifyContent: 'center',
       width: CheckboxSize.box,
       height: CheckboxSize.box,
-      borderRadius: Radius.card,
+      // `Radius.tile` at a 24pt box would round it almost to a circle, which reads as a radio
+      // button rather than a checkbox. Half the tile radius keeps it square-ish but softened,
+      // in the redesign's shape language without changing what the control means.
+      borderRadius: Radius.tile / 2,
       borderWidth: CheckboxSize.border,
       borderColor: colors.control.border,
     },
@@ -572,15 +548,19 @@ function createStyles(colors: ThemeColors) {
       alignSelf: 'center',
       fontFamily: FontFamily.display.medium,
       fontSize: FontSize.sm,
-      color: colors.text.secondary,
+      // On the wash — `text.primary` only; held back by opacity so it stays a quiet separator.
+      color: colors.text.primary,
+      opacity: Opacity.pressed,
       textTransform: 'uppercase',
-      letterSpacing: 1,
+      letterSpacing: Tracking.eyebrow,
     },
     deltaList: {
       gap: Spacing.sm,
       backgroundColor: colors.surface.base,
+      borderColor: colors.hairline,
       borderRadius: Radius.card,
-      padding: Spacing.lg,
+      borderWidth: StyleSheet.hairlineWidth * 2,
+      padding: Spacing.xl,
     },
     deltaRow: {
       flexDirection: 'row',

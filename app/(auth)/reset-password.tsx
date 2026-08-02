@@ -18,10 +18,8 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -30,18 +28,23 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { KineticText } from '@/components/kinetic-text';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
-  Accent,
   Colors,
   ContentWidth,
   ControlHeight,
   FontFamily,
   FontSize,
-  Opacity,
+  LineHeight,
+  Motion,
   Radius,
   Semantic,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -95,27 +98,36 @@ export default function ResetPasswordScreen() {
 
   if (status === 'sent') {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <ScreenGradient>
+        <SafeAreaView style={styles.safeArea}>
         <View style={styles.scrollContent}>
           <View style={styles.header}>
-            <Text style={styles.title}>{Copy.auth.reset.request.success.title}</Text>
+            <KineticText
+              accessibilityRole="header"
+              staggerMs={Motion.stagger.line}
+              style={styles.title}
+              containerStyle={styles.titleRow}>
+              {Copy.auth.reset.request.success.title}
+            </KineticText>
             <Text style={styles.body} accessibilityLiveRegion="polite">
               {Copy.auth.reset.request.success.body.replace('{email}', email.trim())}
             </Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
+          <PillButton
+            variant="ghost"
+            label={Copy.auth.reset.request.cta.backToSignIn}
             onPress={() => router.back()}
-            style={({ pressed }) => [styles.toggleLink, pressed && styles.buttonPressed]}>
-            <Text style={styles.toggleLinkText}>{Copy.auth.reset.request.cta.backToSignIn}</Text>
-          </Pressable>
+            block
+          />
         </View>
-      </SafeAreaView>
+        </SafeAreaView>
+      </ScreenGradient>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -124,7 +136,13 @@ export default function ResetPasswordScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            <Text style={styles.title}>{Copy.auth.reset.request.title}</Text>
+            <KineticText
+              accessibilityRole="header"
+              staggerMs={Motion.stagger.line}
+              style={styles.title}
+              containerStyle={styles.titleRow}>
+              {Copy.auth.reset.request.title}
+            </KineticText>
             <Text style={styles.body}>{Copy.auth.reset.request.body}</Text>
           </View>
 
@@ -142,40 +160,35 @@ export default function ResetPasswordScreen() {
               textContentType="emailAddress"
               editable={!isBusy}
             />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={Copy.auth.reset.request.cta.send}
+            <PillButton
+              label={Copy.auth.reset.request.cta.send}
               onPress={handleSubmit}
               disabled={isBusy}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                isBusy && styles.buttonDisabled,
-                pressed && styles.buttonPressed,
-              ]}>
-              {isBusy ? (
-                <ActivityIndicator color={Accent.onAccent} />
-              ) : (
-                <Text style={styles.primaryButtonText}>{Copy.auth.reset.request.cta.send}</Text>
-              )}
-            </Pressable>
+              busy={isBusy}
+            />
 
+            {/* On an OPAQUE card: `Semantic.error` is proven against the surfaces, not against the
+                page gradient (`Gradient`'s contract, constants/theme.ts). */}
             {errorMessage !== null && (
-              <Text style={styles.errorText} accessibilityLiveRegion="polite">
-                {errorMessage}
-              </Text>
+              <SurfaceCard padding={Spacing.lg}>
+                <Text style={styles.errorText} accessibilityLiveRegion="polite">
+                  {errorMessage}
+                </Text>
+              </SurfaceCard>
             )}
           </View>
 
-          <Pressable
-            accessibilityRole="button"
+          <PillButton
+            variant="ghost"
+            label={Copy.auth.reset.request.cta.backToSignIn}
             onPress={() => router.back()}
             disabled={isBusy}
-            style={({ pressed }) => [styles.toggleLink, pressed && styles.buttonPressed]}>
-            <Text style={styles.toggleLinkText}>{Copy.auth.reset.request.cta.backToSignIn}</Text>
-          </Pressable>
+            block
+          />
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
 
@@ -183,7 +196,8 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill.
+      backgroundColor: 'transparent',
     },
     flex: {
       flex: 1,
@@ -211,17 +225,26 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       alignItems: 'center',
       gap: Spacing.md,
     },
+    titleRow: {
+      justifyContent: 'center',
+    },
     title: {
       fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.xl,
+      // xl -> xxl, with the negative tracking and tight leading every display-scale heading in the
+      // redesign uses.
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
       color: colors.text.primary,
       textAlign: 'center',
     },
     body: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
-      lineHeight: FontSize.md * 1.4,
-      color: colors.text.secondary,
+      lineHeight: FontSize.md * LineHeight.body,
+      // Raised from `text.secondary`: this sits directly on the page gradient, which is proven for
+      // `text.primary` only (`Gradient`'s contract, constants/theme.ts).
+      color: colors.text.primary,
       textAlign: 'center',
     },
     form: {
@@ -229,33 +252,16 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     },
     input: {
       minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
+      // `Radius.pill`, matching app/(auth)/sign-in.tsx's field — see that file's comment on why a
+      // 52pt field takes the pill rather than the card corner.
+      borderRadius: Radius.pill,
       borderWidth: 1,
       borderColor: colors.control.border,
       backgroundColor: colors.surface.base,
-      paddingHorizontal: Spacing.lg,
+      paddingHorizontal: Spacing.xl,
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
       color: colors.text.primary,
-    },
-    primaryButton: {
-      minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
-      backgroundColor: Accent.value,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.lg,
-    },
-    primaryButtonText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: Accent.onAccent,
-    },
-    buttonPressed: {
-      opacity: Opacity.pressed,
-    },
-    buttonDisabled: {
-      opacity: Opacity.disabled,
     },
     // AA-proven against every surface in both themes — see
     // constants/__tests__/theme-contrast.test.ts.
@@ -265,15 +271,6 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       color: Semantic.error[scheme],
       textAlign: 'center',
     },
-    toggleLink: {
-      alignItems: 'center',
-      paddingVertical: Spacing.lg,
-    },
-    toggleLinkText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-      textDecorationLine: 'underline',
-    },
+
   });
 }
