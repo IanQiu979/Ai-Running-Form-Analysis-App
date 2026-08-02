@@ -49,7 +49,10 @@ jest.mock('@/components/turnstile-widget', () => {
   const { forwardRef } = require('react');
   const { Pressable, Text } = require('react-native');
   return {
-    TurnstileWidget: forwardRef(function MockTurnstileWidget(props, _ref) {
+    TurnstileWidget: forwardRef(function MockTurnstileWidget(
+      props: { onToken: (token: string) => void; onExpire: () => void; onError: () => void },
+      _ref: unknown
+    ) {
       return (
         <>
           <Pressable testID="mock-turnstile-token" onPress={() => props.onToken('a-token')} />
