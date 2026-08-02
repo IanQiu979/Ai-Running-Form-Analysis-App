@@ -55,7 +55,11 @@ whole block against `HEAD`). No component was restructured, no layout changed, n
 - **Known gap, deliberately not fixed here:** `assets/source/mark-{light,dark,favicon}.svg` still
   carry the old bone/graphite field, and the rasterized icon/splash PNGs derived from them are
   unchanged. Re-cutting that art is asset regeneration, not a token swap, and sits outside this
-  change's scope. Filed as a follow-up rather than half-done.
+  change's scope. Filed as a follow-up rather than half-done. `scripts/generate-app-assets.js`'s
+  mirrored background hexes were also updated to the new tokens (a stranded pair the initial grep
+  missed, being `.ts`/`.json`-scoped), so the constants are correct, but the committed PNGs it
+  produces have not been re-rasterized — they still show the old field until someone runs
+  `npm run assets` after the SVGs above are updated.
 
 ## 2026-07-29 (V2.3 redesign, Phase 2 — the three animated moments)
 

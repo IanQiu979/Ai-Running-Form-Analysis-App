@@ -10,7 +10,7 @@
  *
  * The one rule that is not obvious: `icon.png` MUST NOT have an alpha channel. iOS applies its
  * own corner mask, and App Store Connect rejects an icon containing transparency — so it is
- * flattened onto the bone field here rather than in the SVG, which lets the same source render
+ * flattened onto the background field here rather than in the SVG, which lets the same source render
  * transparent for the splash and the Android adaptive foreground.
  */
 
@@ -22,15 +22,17 @@ const root = path.resolve(__dirname, "..");
 const sourceDir = path.join(root, "assets", "source");
 const outDir = path.join(root, "assets", "images");
 
-// constants/theme.ts -> Colors.light.background / Colors.dark.background
-const BONE = "#F4F1EA";
-const GRAPHITE = "#1A1712";
+// Manual mirror of constants/theme.ts -> Colors.light.background / Colors.dark.background.
+// A .js build script cannot import the TS token, so these must be re-synced by hand on any
+// future palette change.
+const LIGHT_BACKGROUND = "#E9EFFA";
+const DARK_BACKGROUND = "#0F1324";
 
 // Each source SVG carries two layers: an opaque `#field` rect and the `#mark` annotation group.
 // `keepField: false` drops the rect before rasterizing, leaving a transparent surround — that is
 // what the Android adaptive foreground and both splash images need, since the system supplies
 // their background and then masks the result. Baking the field into those would show up as an
-// unmasked bone square on the launcher.
+// unmasked background square on the launcher.
 const targets = [
   {
     source: "mark-light.svg",
@@ -38,7 +40,7 @@ const targets = [
     size: 1024,
     keepField: true,
     // No alpha: iOS masks the corners itself and App Store Connect rejects a transparent icon.
-    flattenOn: BONE,
+    flattenOn: LIGHT_BACKGROUND,
   },
   {
     source: "mark-light.svg",
@@ -73,9 +75,9 @@ const targets = [
     source: "mark-favicon.svg",
     out: "favicon.png",
     size: 48,
-    // A browser tab bar supplies no background, so the favicon keeps its bone field.
+    // A browser tab bar supplies no background, so the favicon keeps its background field.
     keepField: true,
-    flattenOn: BONE,
+    flattenOn: LIGHT_BACKGROUND,
   },
 ];
 
