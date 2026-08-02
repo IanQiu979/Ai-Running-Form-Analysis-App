@@ -38,23 +38,24 @@
 import * as Crypto from 'expo-crypto';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LowPolyField, POSES } from '@/components/low-poly-field';
+import { Eyebrow } from '@/components/ui/eyebrow';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
   ContentWidth,
-  ControlHeight,
-  ControlWidth,
   FontFamily,
   FontSize,
-  HitTarget,
-  Opacity,
+  LineHeight,
   Radius,
-  Semantic,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -108,7 +109,7 @@ export default function ExtractingScreen() {
   }>();
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
-  const styles = createStyles(colors, scheme);
+  const styles = createStyles(colors);
 
   // Issue #147: `params` (expo-router's useLocalSearchParams()) is a NEW object reference every
   // render, so a useMemo keyed on `params` itself recomputes every render, which fed a fresh
@@ -242,13 +243,16 @@ export default function ExtractingScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea}>
       {/* ScrollView + flexGrow, not a plain flex:1 View (issue #63) — same Dynamic Type
           reflow-not-clip pattern as app/(tabs)/index.tsx: the error state stacks a title, body,
           and up to two buttons, which could otherwise overflow a small phone at the largest
           accessibility text sizes with no way to reach the second button. */}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <Text style={styles.title}>{Copy.upload.title}</Text>
+        <Eyebrow tone="primary" accessibilityRole="header">
+          {Copy.upload.title}
+        </Eyebrow>
 
         {/* Spinner only, and no numeric caption or progress bar — the total is not known yet and
             this screen must not name one it might not honour. The always-rendered title above
@@ -256,13 +260,25 @@ export default function ExtractingScreen() {
             invented for it. Bounded by QUOTA_WAIT_TIMEOUT_MS. */}
         {state.status === 'preparing' && (
           <View style={styles.centered}>
-            <ActivityIndicator color={colors.text.secondary} />
+            {/* The same ambient low-poly mark the Analyzing wait uses, for the same reason and
+                under the same rule: it signals "alive", never progress. The progress BAR below
+                is different — that one is real, driven by a known frame count. */}
+            <LowPolyField
+              poses={[POSES.scatter, POSES.stride, POSES.gather]}
+              color={colors.text.primary}
+              size={WAIT_MARK_SIZE}
+              testID="extracting-mark"
+            />
           </View>
         )}
 
         {state.status === 'extracting' && (
           <View style={styles.centered}>
-            <ActivityIndicator color={colors.text.secondary} />
+            <LowPolyField
+              poses={[POSES.scatter, POSES.stride, POSES.gather]}
+              color={colors.text.primary}
+              size={WAIT_MARK_SIZE}
+            />
             <Text style={styles.caption} accessibilityLiveRegion="polite">
               {Copy.upload.step.extracting(state.done, state.total)}
             </Text>
@@ -283,13 +299,7 @@ export default function ExtractingScreen() {
               {Copy.upload.ready.title}
             </Text>
             <Text style={styles.caption}>{Copy.upload.ready.body(state.frameSet.frames.length)}</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={Copy.upload.ready.cta}
-              onPress={goToAnalyzing}
-              style={({ pressed }) => [styles.primaryCta, pressed && styles.pressedOpacity]}>
-              <Text style={styles.primaryCtaText}>{Copy.upload.ready.cta}</Text>
-            </Pressable>
+            <PillButton label={Copy.upload.ready.cta} onPress={goToAnalyzing} style={styles.cta} />
           </View>
         )}
 
@@ -300,25 +310,14 @@ export default function ExtractingScreen() {
             </Text>
             <Text style={styles.caption}>{errorCopy(state).body}</Text>
             {state.kind === 'extractionFailed' && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Retry"
-                onPress={() => setAttempt((n) => n + 1)}
-                style={({ pressed }) => [styles.primaryCta, pressed && styles.pressedOpacity]}>
-                <Text style={styles.primaryCtaText}>Retry</Text>
-              </Pressable>
+              <PillButton label="Retry" onPress={() => setAttempt((n) => n + 1)} style={styles.cta} />
             )}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Back"
-              onPress={goToSourcePicker}
-              style={({ pressed }) => [styles.secondaryCta, pressed && styles.pressedOpacity]}>
-              <Text style={styles.secondaryCtaText}>Back</Text>
-            </Pressable>
+            <PillButton variant="ghost" label="Back" onPress={goToSourcePicker} />
           </View>
         )}
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
 
@@ -328,11 +327,16 @@ function errorCopy(state: Extract<ExtractState, { status: 'error' }>): { title: 
   return state.violation === 'clipTooLong' ? Copy.sourcePicker.error.clipTooLong : Copy.sourcePicker.error.fileTooLarge;
 }
 
-function createStyles(colors: ThemeColors, scheme: ColorScheme) {
+/** The waiting field's drawn size, matching app/analyzing.tsx's — the two waits are one moment
+ *  split across two screens and should not look like different products. */
+const WAIT_MARK_SIZE = 200;
+
+function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill.
+      backgroundColor: 'transparent',
     },
     // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
     // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
@@ -351,11 +355,6 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       padding: Spacing.xl,
       gap: Spacing.xl,
     },
-    title: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
-      color: colors.text.primary,
-    },
     centered: {
       flex: 1,
       alignItems: 'center',
@@ -365,23 +364,36 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     caption: {
       fontFamily: FontFamily.mono.regular,
       fontSize: FontSize.sm,
-      color: colors.text.secondary,
+      lineHeight: FontSize.sm * LineHeight.body,
+      // On the wash — `text.primary` only (`Gradient`'s contract, constants/theme.ts).
+      color: colors.text.primary,
       textAlign: 'center',
     },
     resultTitle: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.lg,
+      fontFamily: FontFamily.display.bold,
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
       color: colors.text.primary,
+      textAlign: 'center',
     },
+    // `Semantic.error` is proven against the opaque surfaces, NOT against the page gradient
+    // (`Gradient`'s contract). This title sits on the wash, so it takes `text.primary` and the
+    // error is carried by the copy — which names the failure explicitly — rather than by a hue
+    // whose contrast this backdrop cannot guarantee. Flagged as a judgement call.
     errorTitle: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.lg,
-      color: Semantic.error[scheme],
+      fontFamily: FontFamily.display.bold,
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
+      color: colors.text.primary,
       textAlign: 'center',
     },
     progressTrack: {
       width: '80%',
-      height: Spacing.xs,
+      // Thickened to match the readout's own bar (components/pace-readout.tsx) — this is the app's
+      // other real progress indicator and the two should read as the same object.
+      height: Spacing.md,
       borderRadius: Radius.pill,
       backgroundColor: colors.hairline,
       overflow: 'hidden',
@@ -391,33 +403,9 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       borderRadius: Radius.pill,
       backgroundColor: Accent.value,
     },
-    primaryCta: {
-      minHeight: ControlHeight.standard,
-      minWidth: ControlWidth.primaryButton,
-      borderRadius: Radius.card,
-      backgroundColor: Accent.value,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.xl,
-    },
-    primaryCtaText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: Accent.onAccent,
-    },
-    secondaryCta: {
-      minHeight: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    secondaryCtaText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-      textDecorationLine: 'underline',
-    },
-    pressedOpacity: {
-      opacity: Opacity.pressed,
+    cta: {
+      alignSelf: 'stretch',
+      marginTop: Spacing.sm,
     },
   });
 }

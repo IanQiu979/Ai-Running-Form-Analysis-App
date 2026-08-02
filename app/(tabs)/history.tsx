@@ -29,6 +29,9 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { KineticText } from '@/components/kinetic-text';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { Copy } from '@/constants/copy';
 import {
   Colors,
@@ -36,11 +39,15 @@ import {
   FontFamily,
   FontSize,
   HitTarget,
+  LineHeight,
+  Motion,
   Opacity,
   Radius,
   Score,
   ScoreBandLabel,
   Spacing,
+  TabBar,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -214,14 +221,26 @@ export default function HistoryScreen() {
     // edges excludes 'bottom' — same reasoning as app/(tabs)/index.tsx (issue #63): the tab bar
     // already pads itself by the bottom safe-area inset, so this screen must not pad it a
     // second time.
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <View style={styles.headerRow}>
-        <Text style={styles.header} accessibilityRole="header">{Copy.history.title}</Text>
-      </View>
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        {/* The reference's content-detail header: a huge, tightly-leaded title that assembles
+            itself word by word. Was a 24pt heading in a bare row. This is a top-level destination
+            and now looks like one. No eyebrow above it — the copy deck has exactly one string for
+            this screen's name, and setting the same words twice to manufacture a hierarchy would
+            be filler, not structure. */}
+        <View style={styles.headerRow}>
+          <KineticText
+            accessibilityRole="header"
+            staggerMs={Motion.stagger.line}
+            style={styles.header}
+            testID="history-title">
+            {Copy.history.title}
+          </KineticText>
+        </View>
 
       {state.status === 'loading' && (
         <View style={styles.centerBlock}>
-          <ActivityIndicator color={colors.text.secondary} />
+          <ActivityIndicator color={colors.text.primary} />
           <Text style={styles.caption} accessibilityLiveRegion="polite">
             {Copy.history.loading}
           </Text>
@@ -233,13 +252,7 @@ export default function HistoryScreen() {
           <Text style={styles.caption} accessibilityLiveRegion="polite">
             {Copy.history.error.loadFailed}
           </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.history.error.retry}
-            onPress={retry}
-            style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
-            <Text style={styles.retryText}>{Copy.history.error.retry}</Text>
-          </Pressable>
+          <PillButton variant="ghost" label={Copy.history.error.retry} onPress={retry} />
         </View>
       )}
 
@@ -247,13 +260,16 @@ export default function HistoryScreen() {
         <View style={styles.centerBlock}>
           <Text style={styles.emptyTitle}>{Copy.history.empty.title}</Text>
           <Text style={styles.caption}>{Copy.history.empty.body}</Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.history.empty.cta}
+          {/* `secondary`, not `primary`: `Accent` is reserved for the one primary CTA per screen
+              (constants/theme.ts), and this empty-state action used to be a `surface.raised` +
+              `control.border` button expressing exactly that restraint. The pill's `secondary`
+              variant IS that treatment, so the restraint is preserved, not spent. */}
+          <PillButton
+            variant="secondary"
+            label={Copy.history.empty.cta}
             onPress={goAnalyze}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-            <Text style={styles.primaryButtonText}>{Copy.history.empty.cta}</Text>
-          </Pressable>
+            style={styles.emptyCta}
+          />
         </View>
       )}
 
@@ -276,7 +292,8 @@ export default function HistoryScreen() {
           )}
         />
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
 
@@ -322,9 +339,12 @@ function HistoryRow({
         )}
 
         <View style={styles.rowInfo}>
-          <Text style={styles.dateText}>{dateLabel}</Text>
+          {/* The score is now the row's headline and the date its supporting metadata — the
+              reference's list rows lead with the thing you came for, not with when it happened.
+              Previously the date was the only prominent text and the score sat in a small chip
+              beneath it. */}
           {overall.score !== null && overall.band !== null ? (
-            <View style={[styles.scoreChip, { borderColor: colors.hairline }]}>
+            <View style={styles.scoreLine}>
               <Text style={styles.scoreNumeral}>{overall.score}</Text>
               <Text style={[styles.scoreBand, { color: Score[overall.band][scheme].text }]}>
                 {ScoreBandLabel[overall.band]}
@@ -333,6 +353,7 @@ function HistoryRow({
           ) : (
             <Text style={styles.notAssessedText}>{Copy.result.pillar.notAssessed.generic}</Text>
           )}
+          <Text style={styles.dateText}>{dateLabel}</Text>
         </View>
       </Pressable>
 
@@ -343,6 +364,10 @@ function HistoryRow({
         disabled={isDeleting}
         onPress={onDelete}
         style={({ pressed }) => [styles.deleteButton, pressed && !isDeleting && styles.pressed, isDeleting && styles.disabled]}>
+        {/* Kept as a visible word rather than becoming the reference's icon-only row action.
+            Delete is destructive and irreversible here (it purges the stored frames too); an
+            unlabelled glyph would be the one place in this redesign where matching the reference
+            costs the user real clarity. Flagged as a judgement call. */}
         <Text style={styles.deleteText}>{Copy.history.item.deleteCta}</Text>
       </Pressable>
     </View>
@@ -353,7 +378,8 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill.
+      backgroundColor: 'transparent',
     },
     // width/maxWidth/alignSelf here and on centerBlock/listContent below: the same tablet
     // readable-column cap as app/(tabs)/index.tsx (issue #63) — a no-op on any phone, see
@@ -367,8 +393,12 @@ function createStyles(colors: ThemeColors) {
       paddingBottom: Spacing.lg,
     },
     header: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
+      fontFamily: FontFamily.display.bold,
+      // xl -> display (24 -> 64). The screen's ONE oversized element, per spec 2026-07-26 §3.1's
+      // still-standing "at most one display-or-larger element per screen".
+      fontSize: FontSize.display,
+      letterSpacing: Tracking.hero,
+      lineHeight: FontSize.display * LineHeight.hero,
       color: colors.text.primary,
     },
     centerBlock: {
@@ -384,42 +414,22 @@ function createStyles(colors: ThemeColors) {
     caption: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
-      color: colors.text.secondary,
+      lineHeight: FontSize.md * LineHeight.body,
+      // `text.primary`: these captions sit directly on the page wash, proven for the primary tone
+      // only (`Gradient`'s contract, constants/theme.ts).
+      color: colors.text.primary,
       textAlign: 'center',
     },
     emptyTitle: {
       fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.lg,
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
       color: colors.text.primary,
       textAlign: 'center',
     },
-    retryButton: {
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.md,
-    },
-    retryText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
-      textDecorationLine: 'underline',
-    },
-    primaryButton: {
-      minHeight: HitTarget.min,
-      borderRadius: Radius.card,
-      backgroundColor: colors.surface.raised,
-      borderColor: colors.control.border,
-      borderWidth: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.xl,
-    },
-    primaryButtonText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: colors.text.primary,
+    emptyCta: {
+      marginTop: Spacing.sm,
     },
     pressed: {
       opacity: Opacity.pressed,
@@ -435,7 +445,9 @@ function createStyles(colors: ThemeColors) {
       maxWidth: ContentWidth.readable,
       alignSelf: 'center',
       paddingHorizontal: Spacing.xl,
-      paddingBottom: Spacing.xl,
+      // The tab bar floats and reserves no layout space — see `TabBar` in constants/theme.ts.
+      // Without this the last row scrolls under the bar and stops there.
+      paddingBottom: TabBar.clearance,
       gap: Spacing.md,
     },
     row: {
@@ -443,7 +455,9 @@ function createStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: Spacing.sm,
       backgroundColor: colors.surface.base,
+      borderColor: colors.hairline,
       borderRadius: Radius.card,
+      borderWidth: StyleSheet.hairlineWidth * 2,
       padding: Spacing.md,
     },
     rowMain: {
@@ -459,13 +473,16 @@ function createStyles(colors: ThemeColors) {
     thumbnail: {
       width: FRAME_THUMBNAIL_SIZE,
       height: FRAME_THUMBNAIL_SIZE,
-      borderRadius: Radius.card,
+      // `Radius.tile`, not `Radius.card`: a thumbnail nested inside a 24pt-cornered row needs the
+      // tighter inner corner, or the two radii fight. Before the redesign `Radius.card` was 0, so
+      // this line drew a square — it is now genuinely a rounded tile.
+      borderRadius: Radius.tile,
       backgroundColor: colors.surface.raised,
     },
     thumbnailPlaceholder: {
       width: FRAME_THUMBNAIL_SIZE,
       height: FRAME_THUMBNAIL_SIZE,
-      borderRadius: Radius.card,
+      borderRadius: Radius.tile,
       backgroundColor: colors.surface.raised,
       borderColor: colors.hairline,
       borderWidth: 1,
@@ -475,29 +492,28 @@ function createStyles(colors: ThemeColors) {
       gap: Spacing.xs,
     },
     dateText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
+      fontFamily: FontFamily.body.regular,
+      fontSize: FontSize.xs,
+      // Demoted to secondary metadata under the score — see the row's own comment.
+      color: colors.text.secondary,
     },
-    scoreChip: {
+    scoreLine: {
       flexDirection: 'row',
       alignItems: 'baseline',
-      alignSelf: 'flex-start',
-      gap: Spacing.xs,
-      backgroundColor: colors.surface.raised,
-      borderWidth: 1,
-      borderRadius: Radius.pill,
-      paddingHorizontal: Spacing.sm,
-      paddingVertical: Spacing.xs,
+      gap: Spacing.sm,
     },
     scoreNumeral: {
-      fontFamily: FontFamily.mono.medium,
-      fontSize: FontSize.sm,
+      fontFamily: FontFamily.display.semiBold,
+      // The row's headline now: sm -> xl, and in the display family rather than mono.
+      fontSize: FontSize.xl,
+      letterSpacing: Tracking.display,
       color: colors.text.primary,
     },
     scoreBand: {
       fontFamily: FontFamily.body.semiBold,
       fontSize: FontSize.xs,
+      letterSpacing: Tracking.eyebrow,
+      textTransform: 'uppercase',
     },
     notAssessedText: {
       fontFamily: FontFamily.body.regular,

@@ -32,6 +32,21 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
                           # ui/collapsible) and hooks/use-theme-color.ts were deleted 2026-07-12
                           # (#33) — themed-text carried the last hardcoded color in the repo.
                           # Everything new is built against constants/theme.ts tokens.
+  ui/screen-gradient.tsx  # THE DESIGN PRIMITIVES (2026-08-02 Calm redesign). The page backdrop —
+                          # the only consumer of Gradient.page, and what every screen now sits on.
+  ui/surface-card.tsx     # SurfaceCard (opaque) + GlassCard (translucent). Replaced the deleted
+                          # ui/notched-card.tsx, whose notched square plate was the signature
+                          # shape of the pre-Calm "Gait Plate" language.
+  ui/pill-button.tsx      # every button in the app: primary / secondary / ghost.
+  ui/circle-icon-button.tsx # the circular back/settings control in a screen's top bar.
+  ui/eyebrow.tsx          # the tracked uppercase micro-label — the redesign's main sub-display
+                          # hierarchy tool.
+  kinetic-text.tsx        # per-word reveal. Splits a sentence into one Text per word but keeps
+                          # ONE accessible node carrying the whole string — see its header.
+  marquee.tsx             # the standing PACE-pillar ticker on Home.
+  low-poly-field.tsx      # the morphing triangle mark (Analyzing wait, Home/sign-in atmosphere),
+                          # built from CSS border-triangles: react-native-svg is still not a
+                          # dependency, per annotation-lines.tsx's ruling.
 constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
                           # palette, spacing/radii/type scales; M1 added
                           # ControlHeight/ControlWidth/HitTarget/Opacity

@@ -44,9 +44,11 @@ import {
   FontSize,
   HitTarget,
   Opacity,
+  LineHeight,
   Radius,
   Semantic,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -363,21 +365,30 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
 
 function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
+    // An opaque sheet, deliberately: this gate carries `text.secondary` body copy, error text and
+    // a `control.border` boundary, none of which the page gradient behind it is proven for
+    // (`Gradient`'s contract, constants/theme.ts). It stays a solid surface and gains the
+    // redesign's larger sheet corner + hairline edge instead of becoming glass.
     container: {
       backgroundColor: colors.surface.base,
+      borderColor: colors.hairline,
       borderRadius: Radius.sheet,
+      borderWidth: StyleSheet.hairlineWidth * 2,
       gap: Spacing.lg,
       padding: Spacing.xl,
     },
     title: {
       color: colors.text.primary,
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
+      fontFamily: FontFamily.display.bold,
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
     },
     body: {
       color: colors.text.secondary,
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
     },
     checkboxRow: {
       alignItems: 'flex-start',
@@ -392,7 +403,10 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       // decorative hairline rule (issue #96). The checked state already clears 3:1 via
       // `Accent.value` (see `checkboxChecked` below); this covers the unchecked state.
       borderColor: colors.control.border,
-      borderRadius: Radius.card,
+      // Half the tile radius, not `Radius.card`: at 24pt the card corner would round this 24pt box
+      // into a circle and it would read as a radio button — which this component ALSO has, a few
+      // styles below, meaning the two controls would become visually identical.
+      borderRadius: Radius.tile / 2,
       borderWidth: CheckboxSize.border,
       height: CheckboxSize.box,
       justifyContent: 'center',
@@ -420,13 +434,13 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     optionRow: {
       alignItems: 'center',
       borderColor: colors.control.border,
-      borderRadius: Radius.card,
+      borderRadius: Radius.pill,
       borderWidth: CheckboxSize.border,
       flexDirection: 'row',
       gap: Spacing.md,
       minHeight: HitTarget.min,
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.lg,
+      paddingVertical: Spacing.md,
     },
     optionRowSelected: {
       borderColor: Accent.value,
@@ -468,13 +482,18 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       color: Semantic.error[scheme],
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
     },
     primaryCta: {
       alignItems: 'center',
       backgroundColor: Accent.value,
-      borderRadius: Radius.card,
-      height: ControlHeight.standard,
+      borderRadius: Radius.pill,
+      // `minHeight`, not a fixed `height`, at the redesign's taller pill size — a fixed height
+      // clips the label at the largest Dynamic Type sizes (design brief §7: reflow, never clip).
+      minHeight: ControlHeight.pill,
       justifyContent: 'center',
+      paddingHorizontal: Spacing.xl,
+      paddingVertical: Spacing.md,
     },
     primaryCtaDisabled: {
       opacity: Opacity.disabled,

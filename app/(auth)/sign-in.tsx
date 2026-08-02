@@ -1,10 +1,8 @@
 import { router } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,19 +11,26 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { KineticText } from '@/components/kinetic-text';
+import { LowPolyField, POSES } from '@/components/low-poly-field';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { PASSWORD_MIN_LENGTH } from '@/constants/auth';
 import { Copy } from '@/constants/copy';
 import {
-  Accent,
   Colors,
   ContentWidth,
   ControlHeight,
   FontFamily,
   FontSize,
+  LineHeight,
+  Motion,
   Opacity,
   Radius,
   Semantic,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -197,7 +202,8 @@ export default function SignInScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -205,10 +211,25 @@ export default function SignInScreen() {
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled">
+          {/* THE SPLASH-SCALE HEADER. The reference's own first screen is one line of type on a
+              wash and nothing else; the wordmark here takes that scale (xxl -> display) and
+              assembles word by word on arrival. The low-poly mark sits behind it as atmosphere,
+              the same relationship Home's hero uses, so the two first screens a new user sees
+              are recognisably one design. */}
           <View style={styles.header}>
-            <Text style={styles.wordmark} accessibilityRole="header">
+            <LowPolyField
+              poses={[POSES.scatter, POSES.gather]}
+              color={colors.text.primary}
+              size={SPLASH_MARK_SIZE}
+              style={styles.headerMark}
+            />
+            <KineticText
+              accessibilityRole="header"
+              staggerMs={Motion.stagger.line}
+              style={styles.wordmark}
+              containerStyle={styles.wordmarkRow}>
               {Copy.auth.wordmark}
-            </Text>
+            </KineticText>
             <Text style={styles.valueProp}>{Copy.auth.valueProp}</Text>
           </View>
 
@@ -216,38 +237,20 @@ export default function SignInScreen() {
             {/* Issue #20: the primary CTA, per Ian's decision — Google is the lowest-friction
                 path and the one most likely to succeed, so it's the one control on first paint
                 carrying `Accent.value`. "Continue with email" below stays secondary. */}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={Copy.auth.cta.google}
-              accessibilityState={{ busy: pendingAction === 'google' }}
+            <PillButton
+              label={Copy.auth.cta.google}
               onPress={handleGoogleSignIn}
               disabled={isBusy}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                isBusy && styles.buttonDisabled,
-                pressed && styles.buttonPressed,
-              ]}>
-              {pendingAction === 'google' ? (
-                <ActivityIndicator color={Accent.onAccent} />
-              ) : (
-                <Text style={styles.primaryButtonText}>{Copy.auth.cta.google}</Text>
-              )}
-            </Pressable>
+              busy={pendingAction === 'google'}
+            />
 
             {!showEmailForm && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={Copy.auth.cta.email}
+              <PillButton
+                variant="secondary"
+                label={Copy.auth.cta.email}
                 onPress={() => setShowEmailForm(true)}
                 disabled={isBusy}
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  styles.secondaryButtonBase,
-                  isBusy && styles.buttonDisabled,
-                  pressed && styles.buttonPressed,
-                ]}>
-                <Text style={styles.secondaryButtonText}>{Copy.auth.cta.email}</Text>
-              </Pressable>
+              />
             )}
 
             {showEmailForm && (
@@ -299,65 +302,60 @@ export default function SignInScreen() {
                     and offering it there would just be noise. Before this existed, a locked-out
                     email user had no way back into their account at all. */}
                 {mode === 'signIn' && (
-                  <Pressable
-                    accessibilityRole="button"
+                  <PillButton
+                    variant="ghost"
+                    label={Copy.auth.reset.cta.forgotPassword}
                     onPress={() => router.push('/reset-password')}
                     disabled={isBusy}
-                    style={({ pressed }) => [styles.toggleLink, pressed && styles.buttonPressed]}>
-                    <Text style={styles.toggleLinkText}>{Copy.auth.reset.cta.forgotPassword}</Text>
-                  </Pressable>
+                    style={styles.inlineLink}
+                  />
                 )}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    mode === 'signUp' ? Copy.auth.signUp.submit : Copy.auth.signIn.submit
-                  }
-                  accessibilityState={{ busy: pendingAction === 'email' }}
+                <PillButton
+                  label={mode === 'signUp' ? Copy.auth.signUp.submit : Copy.auth.signIn.submit}
                   onPress={handleEmailSubmit}
                   disabled={isBusy}
-                  style={({ pressed }) => [
-                    styles.primaryButton,
-                    isBusy && styles.buttonDisabled,
-                    pressed && styles.buttonPressed,
-                  ]}>
-                  {pendingAction === 'email' ? (
-                    <ActivityIndicator color={Accent.onAccent} />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>
-                      {mode === 'signUp' ? Copy.auth.signUp.submit : Copy.auth.signIn.submit}
-                    </Text>
-                  )}
-                </Pressable>
+                  busy={pendingAction === 'email'}
+                />
               </View>
             )}
 
+            {/* The error sits on an OPAQUE card, not on the wash. `Semantic.error` is proven
+                against `background`/`surface.base`/`surface.raised` (theme-contrast.test.ts) and
+                deliberately NOT against the page gradient — see `Gradient`'s contract in
+                constants/theme.ts. This card is what keeps that promise true now that the screen
+                behind it is a gradient. */}
             {displayedError !== null && (
-              <Text style={styles.errorText} accessibilityLiveRegion="polite">
-                {displayedError}
-              </Text>
+              <SurfaceCard padding={Spacing.lg}>
+                <Text style={styles.errorText} accessibilityLiveRegion="polite">
+                  {displayedError}
+                </Text>
+              </SurfaceCard>
             )}
           </View>
 
-          <Pressable
-            accessibilityRole="button"
+          <PillButton
+            variant="ghost"
+            label={mode === 'signIn' ? Copy.auth.signUp.link : Copy.auth.signIn.link}
             onPress={toggleMode}
             disabled={isBusy}
-            style={({ pressed }) => [styles.toggleLink, pressed && styles.buttonPressed]}>
-            <Text style={styles.toggleLinkText}>
-              {mode === 'signIn' ? Copy.auth.signUp.link : Copy.auth.signIn.link}
-            </Text>
-          </Pressable>
+            block
+          />
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
+
+/** The splash mark's drawn size — atmosphere behind the wordmark, same role Home's hero uses. */
+const SPLASH_MARK_SIZE = 260;
 
 function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill.
+      backgroundColor: 'transparent',
     },
     flex: {
       flex: 1,
@@ -381,104 +379,82 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     header: {
       alignItems: 'center',
       gap: Spacing.md,
+      justifyContent: 'center',
+    },
+    headerMark: {
+      // Behind the wordmark, adding no height — so a small device still fits the form without
+      // the mark pushing the CTAs off-screen.
+      position: 'absolute',
+      opacity: Opacity.disabled,
+    },
+    wordmarkRow: {
+      justifyContent: 'center',
     },
     wordmark: {
       fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.xxl,
+      // xxl -> display (32 -> 64). This is the first screen anyone sees and the app's name is the
+      // subject of it; at 32pt it read as a page heading rather than as a mark.
+      fontSize: FontSize.display,
+      letterSpacing: Tracking.hero,
+      lineHeight: FontSize.display * LineHeight.hero,
       color: colors.text.primary,
+      textAlign: 'center',
     },
     valueProp: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
-      lineHeight: FontSize.md * 1.4,
-      color: colors.text.secondary,
+      lineHeight: FontSize.md * LineHeight.body,
+      // Raised from `text.secondary`: this line sits directly on the page gradient, which is
+      // proven for `text.primary` only (`Gradient`'s contract, constants/theme.ts). The hierarchy
+      // it used to get from being a lighter tone now comes from the 64pt wordmark above it.
+      color: colors.text.primary,
       textAlign: 'center',
     },
     actions: {
       gap: Spacing.md,
     },
-    secondaryButton: {
-      minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
-      borderWidth: 1,
-      borderColor: colors.control.border,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.lg,
-    },
-    // Issue #20 moved Google onto `primaryButton` (Accent-filled) below, as the screen's one
-    // primary CTA — "Continue with email" is the only consumer of `secondaryButton` left, kept
-    // legible as a control by the shared `control.border` above (issue #25) even though its
-    // fill (`surface.base`) is otherwise near-invisible against `background`. That border is
-    // `control.border`, not `hairline`: it is the only thing marking this as a control, so WCAG
-    // 1.4.11 requires >=3:1 (issue #96).
-    secondaryButtonBase: {
-      backgroundColor: colors.surface.base,
-    },
-    secondaryButtonText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: colors.text.primary,
-    },
-    primaryButton: {
-      minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
-      backgroundColor: Accent.value,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.lg,
-    },
-    primaryButtonText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: Accent.onAccent,
-    },
     // Pressed and disabled/busy are two different states and must not render at the same
-    // opacity — a disabled button was previously indistinguishable from a pressed one here,
-    // and Home already used the 0.4 disabled token for the same meaning.
-    buttonPressed: {
-      opacity: Opacity.pressed,
-    },
-    buttonDisabled: {
-      opacity: Opacity.disabled,
-    },
+    // opacity. Both now live inside `<PillButton>`, which owns every button on this screen —
+    // the hand-rolled `primaryButton`/`secondaryButton`/`buttonPressed`/`buttonDisabled` styles
+    // this file used to carry are gone with them.
     emailForm: {
       gap: Spacing.md,
     },
     input: {
       minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
+      // `Radius.pill`, not `Radius.card`: a 52pt field at the card's 24pt corner reads as a
+      // not-quite-pill, which is the one shape the reference never uses. Committing to the pill
+      // makes the field and the button below it obviously the same family.
+      borderRadius: Radius.pill,
       borderWidth: 1,
       borderColor: colors.control.border,
       backgroundColor: colors.surface.base,
-      paddingHorizontal: Spacing.lg,
+      paddingHorizontal: Spacing.xl,
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
       color: colors.text.primary,
     },
-    // Small, secondary, quiet — the proactive password rule (issue #9), sign-up mode only.
+    // Small, secondary, quiet — the proactive password rule (issue #9), sign-up mode only. Sits
+    // on the wash, so `text.primary` at the smallest step rather than `text.secondary`.
     passwordHint: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
-      color: colors.text.secondary,
+      color: colors.text.primary,
+      opacity: Opacity.pressed,
+      paddingHorizontal: Spacing.lg,
+    },
+    inlineLink: {
+      alignSelf: 'center',
     },
     // AA-proven against every surface in both themes — see
-    // constants/__tests__/theme-contrast.test.ts.
+    // constants/__tests__/theme-contrast.test.ts. Kept on an opaque `<SurfaceCard>` for exactly
+    // that reason; see the render site's comment.
     errorText: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
       color: Semantic.error[scheme],
       textAlign: 'center',
-    },
-    toggleLink: {
-      alignItems: 'center',
-      paddingVertical: Spacing.lg,
-    },
-    toggleLinkText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-      textDecorationLine: 'underline',
     },
   });
 }

@@ -45,23 +45,25 @@
  */
 import { useRouter, type Href } from 'expo-router';
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { KineticText } from '@/components/kinetic-text';
+import { LowPolyField, POSES } from '@/components/low-poly-field';
+import { Eyebrow } from '@/components/ui/eyebrow';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
-  Accent,
   Colors,
   ContentWidth,
-  ControlHeight,
-  ControlWidth,
   FontFamily,
   FontSize,
-  HitTarget,
+  LineHeight,
   Motion,
-  Opacity,
-  Radius,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -372,13 +374,33 @@ export default function AnalyzingScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <Text style={styles.header} accessibilityRole="header">{Copy.analyzing.title}</Text>
+        <Eyebrow tone="primary" accessibilityRole="header">
+          {Copy.analyzing.title}
+        </Eyebrow>
 
         {state.phase === 'waiting' && (
           <ScreenCenter styles={styles}>
-            <ActivityIndicator color={colors.text.secondary} />
+            {/* THE WAIT, redesigned. The `ActivityIndicator` is replaced by the low-poly field
+                morphing continuously between its three poses — the species-in-pieces motif, and
+                the one screen in the app with enough dead time to earn it.
+
+                THIS IS NOT A PROGRESS INDICATOR AND MUST NEVER BECOME ONE. It has no start, no
+                end, and no relationship to how long the request has been in flight; it does not
+                fill, and it does not speed up as the wait ages. That is this screen's existing
+                honesty rule (see the file header: "no fake progress, no extra beat"), and the
+                field obeys it for the same reason the step captions do. Under reduced motion it
+                renders as a still mark — the composition survives, the movement goes; this
+                screen's header already documents why its wait-state signaling is exempt from
+                blanket motion suppression, and a static mark is the honest middle. */}
+            <LowPolyField
+              poses={[POSES.scatter, POSES.stride, POSES.gather]}
+              color={colors.text.primary}
+              size={WAIT_MARK_SIZE}
+              testID="analyzing-mark"
+            />
             {captionPhase.kind === 'step' ? (
               <Text style={styles.caption} accessibilityLiveRegion="polite">
                 {Copy.analyzing.step[captionPhase.stepKey]}
@@ -469,7 +491,8 @@ export default function AnalyzingScreen() {
         {/* 'succeeded' is transient — the effect above navigates away immediately; nothing
             distinct renders for it, matching the "no fake progress, no extra beat" honesty rule. */}
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
 
@@ -510,39 +533,44 @@ function ErrorPanel({ styles, title, body, primary, onCancel }: ErrorPanelProps)
 
   return (
     <View style={styles.centerBlock}>
-      <Text style={styles.errorTitle} accessibilityLiveRegion="polite">
+      {/* The title assembles word by word. This is the redesign's kinetic reveal used where it
+          carries meaning rather than as decoration: the error panel is the one thing on this
+          screen the user did not expect, and having it resolve rather than snap in is what keeps
+          the "coach, not scold" register the panel's own doc comment above establishes. */}
+      <KineticText
+        accessibilityRole="header"
+        accessibilityLiveRegion="polite"
+        staggerMs={Motion.stagger.line}
+        style={styles.errorTitle}
+        containerStyle={styles.errorTitleRow}>
         {title}
-      </Text>
-      <Text style={styles.errorBody} accessibilityLiveRegion="polite">
-        {body}
-      </Text>
+      </KineticText>
+      {/* The body sits on an OPAQUE card, not on the wash: it is `text.secondary`, and the page
+          gradient is proven for `text.primary` only (`Gradient`'s contract, constants/theme.ts). */}
+      <SurfaceCard style={styles.errorCard}>
+        <Text style={styles.errorBody} accessibilityLiveRegion="polite">
+          {body}
+        </Text>
+      </SurfaceCard>
       {primary && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={primary.label}
-          onPress={primary.onPress}
-          style={({ pressed }) => [styles.primaryCta, pressed && styles.pressed]}>
-          <Text style={styles.primaryCtaText}>{primary.label}</Text>
-        </Pressable>
+        <PillButton label={primary.label} onPress={primary.onPress} style={styles.errorAction} />
       )}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={Copy.analyzing.error.cta.cancel}
-        onPress={onCancel}
-        style={({ pressed }) => [styles.secondaryCta, pressed && styles.pressed]}>
-        <Text style={styles.secondaryCtaText}>{Copy.analyzing.error.cta.cancel}</Text>
-      </Pressable>
+      <PillButton variant="ghost" label={Copy.analyzing.error.cta.cancel} onPress={onCancel} />
     </View>
   );
 }
 
 type Styles = ReturnType<typeof createStyles>;
 
+/** The waiting field's drawn size — the screen's subject while nothing else is on it. */
+const WAIT_MARK_SIZE = 240;
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill.
+      backgroundColor: 'transparent',
     },
     // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
     // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
@@ -561,11 +589,6 @@ function createStyles(colors: ThemeColors) {
       padding: Spacing.xl,
       gap: Spacing.xxl,
     },
-    header: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
-      color: colors.text.primary,
-    },
     centerBlock: {
       flex: 1,
       alignItems: 'center',
@@ -575,50 +598,39 @@ function createStyles(colors: ThemeColors) {
     caption: {
       fontFamily: FontFamily.mono.regular,
       fontSize: FontSize.md,
-      color: colors.text.secondary,
+      // `text.primary`, raised from `text.secondary`: this caption now sits directly on the page
+      // gradient, which `Gradient`'s contract proves for the primary tone only. It was correct at
+      // secondary when the backdrop was the flat, fully-proven `background`.
+      color: colors.text.primary,
+      letterSpacing: Tracking.eyebrow,
       textAlign: 'center',
+      textTransform: 'uppercase',
+    },
+    errorTitleRow: {
+      justifyContent: 'center',
     },
     errorTitle: {
       fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.lg,
+      // Stepped up lg -> xxl. An error the user has to make a decision about should be the
+      // largest thing on its screen; at 20pt it read as a caption above two buttons.
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
       color: colors.text.primary,
       textAlign: 'center',
+    },
+    errorCard: {
+      alignSelf: 'stretch',
     },
     errorBody: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
       color: colors.text.secondary,
       textAlign: 'center',
     },
-    primaryCta: {
-      minHeight: ControlHeight.standard,
-      minWidth: ControlWidth.primaryButton,
-      borderRadius: Radius.card,
-      backgroundColor: Accent.value,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.xl,
-    },
-    primaryCtaText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: Accent.onAccent,
-    },
-    secondaryCta: {
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.md,
-    },
-    secondaryCtaText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-      textDecorationLine: 'underline',
-    },
-    pressed: {
-      opacity: Opacity.pressed,
+    errorAction: {
+      alignSelf: 'stretch',
     },
   });
 }

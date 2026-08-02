@@ -1,11 +1,21 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { StyleSheet } from 'react-native';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Copy } from '@/constants/copy';
-import { Colors, FontFamily } from '@/constants/theme';
+import {
+  Colors,
+  Elevation,
+  FontFamily,
+  FontSize,
+  Radius,
+  Spacing,
+  TabBar,
+  Tracking,
+} from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 // Two tabs as of issue #55 (M6, Past Analyses) — the template's Explore tab stayed removed
@@ -47,14 +57,44 @@ export default function TabLayout() {
         // `(tabs)`; that file is outside this change's file lane (see this issue's own note that
         // a full `NavigationTheme` "both layouts consume" is the eventual answer) and is a
         // separate follow-up.
+        // REDESIGNED (2026-08-02 shape pass): the reference's tab bar does not sit in a slab
+        // welded to the bottom edge — it FLOATS, as a rounded, inset bar with content scrolling
+        // underneath it. That is the single most recognisable piece of its chrome, so this is
+        // `position: 'absolute'` with a margin, `Radius.sheet`, no top border, and
+        // `Elevation.floating` to lift it off the wash.
+        //
+        // The fill stays OPAQUE `surface.base` rather than becoming glass: the tab bar carries
+        // `text.secondary` on its inactive items, and the `Glass` contract (constants/theme.ts)
+        // proves translucency for `text.primary` only. An opaque bar is also the only way the
+        // inactive tint keeps the contrast it was tuned for while content scrolls beneath it.
+        //
+        // Screens are responsible for their own bottom padding under this bar — it no longer
+        // occupies layout space, so a screen that ends flush at the bottom would otherwise have
+        // its last element sitting beneath it. `TabBar.clearance` (constants/theme.ts) is that
+        // space, and every tab screen pads its scroll content by it.
         tabBarStyle: {
           backgroundColor: colors.surface.base,
-          borderTopColor: colors.hairline,
+          borderTopWidth: 0,
+          borderRadius: Radius.sheet,
+          borderWidth: StyleSheet.hairlineWidth * 2,
+          borderColor: colors.hairline,
+          bottom: TabBar.inset,
+          height: TabBar.height,
+          left: TabBar.inset,
+          paddingBottom: Spacing.sm,
+          paddingTop: Spacing.sm,
+          position: 'absolute',
+          right: TabBar.inset,
+          ...Elevation.floating,
         },
         // Issue #12: the tab label otherwise inherits the nav theme's system font — the one
-        // always-on-screen text in the app sitting outside its own type system.
+        // always-on-screen text in the app sitting outside its own type system. Now also tracked
+        // and uppercased into the eyebrow register, matching the reference's own tab labels.
         tabBarLabelStyle: {
-          fontFamily: FontFamily.body.medium,
+          fontFamily: FontFamily.body.semiBold,
+          fontSize: FontSize.xs,
+          letterSpacing: Tracking.eyebrow,
+          textTransform: 'uppercase',
         },
       }}>
       <Tabs.Screen

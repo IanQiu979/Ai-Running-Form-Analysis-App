@@ -50,7 +50,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { useAnimatedRef } from 'react-native-reanimated';
 
@@ -58,19 +58,19 @@ import { DuotoneFrame } from '@/components/duotone-frame';
 import { PartialResultBanner } from '@/components/partial-result-banner';
 import { PaceReadout } from '@/components/pace-readout';
 import { ResultDisclaimer } from '@/components/result-disclaimer';
-import { NotchedCard } from '@/components/ui/notched-card';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
-  Accent,
   Colors,
   ContentWidth,
-  ControlHeight,
   FontFamily,
   FontSize,
-  HitTarget,
-  Opacity,
+  LineHeight,
   Radius,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -230,43 +230,37 @@ export default function ResultScreen() {
 
   if (state.status === 'loading') {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.centerBlock}>
-          <ActivityIndicator color={colors.text.secondary} />
-          <Text style={styles.loadingCaption} accessibilityLiveRegion="polite">
-            {Copy.result.loadingFromHistory}
-          </Text>
-        </View>
-      </SafeAreaView>
+      <ScreenGradient>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.centerBlock}>
+            <ActivityIndicator color={colors.text.primary} />
+            {/* `text.primary`, not secondary: this sits directly on the page wash, which
+                `Gradient`'s contract (constants/theme.ts) proves for the primary tone only. */}
+            <Text style={styles.onWashCaption} accessibilityLiveRegion="polite">
+              {Copy.result.loadingFromHistory}
+            </Text>
+          </View>
+        </SafeAreaView>
+      </ScreenGradient>
     );
   }
 
   if (state.status === 'loadFailed' || state.status === 'unavailable') {
     const message = state.status === 'loadFailed' ? Copy.result.error.loadFailed : Copy.result.error.notFound;
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.centerBlock}>
-          <Text style={styles.errorText} accessibilityLiveRegion="polite">
-            {message}
-          </Text>
-          {/* Retry/Cancel must never trap the user in a dead end (issue #56) — both actions are
-              always offered together, regardless of which error this is. */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.result.error.retry}
-            onPress={retry}
-            style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
-            <Text style={styles.retryText}>{Copy.result.error.retry}</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.result.cta.done}
-            onPress={goHome}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-            <Text style={styles.primaryButtonText}>{Copy.result.cta.done}</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
+      <ScreenGradient>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.centerBlock}>
+            <Text style={styles.errorText} accessibilityLiveRegion="polite">
+              {message}
+            </Text>
+            {/* Retry/Cancel must never trap the user in a dead end (issue #56) — both actions are
+                always offered together, regardless of which error this is. */}
+            <PillButton label={Copy.result.cta.done} onPress={goHome} style={styles.errorAction} />
+            <PillButton variant="ghost" label={Copy.result.error.retry} onPress={retry} />
+          </View>
+        </SafeAreaView>
+      </ScreenGradient>
     );
   }
 
@@ -280,39 +274,56 @@ export default function ResultScreen() {
   const revealReady = annotationsDone || (!heroPending && !heroUri);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <Animated.ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
-        {outcome.isFallback ? <PartialResultBanner assessedCount={assessedCount} /> : null}
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
+        <Animated.ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
+          {/* THE HERO, and the biggest composition change on this screen. It is now the first
+              thing on it — full-bleed, edge to edge, reaching the very top of the device with no
+              safe-area inset above it (hence `edges` excluding 'top' on the SafeAreaView) and
+              rounding only at its bottom corners, so the frame reads as a window the content
+              hangs from rather than as a picture pasted into a padded column. That is the
+              breakthroughenergy.org treatment: real footage, graded into the palette, at a scale
+              that commits. The duotone grade and the three assembling annotation hairlines are
+              unchanged from Phase 2 — the wireframe-onto-a-real-photo idea was already here, and
+              this pass gives it the scale it was drawn for.
 
-        {heroUri ? (
-          <View
-            style={[styles.heroBleed, !outcome.isFallback && styles.heroBleedFirstChild]}>
-            <DuotoneFrame
-              testID="result-hero-image"
-              uri={heroUri}
-              accessibilityLabel={Copy.result.hero.altText}
-              annotate
-              playAnnotation={justAnalyzed}
-              onAnnotationComplete={() => setAnnotationsDone(true)}
-            />
+              The partial-result banner now sits BELOW the hero rather than above it. It is a
+              disclosure about the readout, and the readout is what follows it; putting it above
+              the image used to push the hero down and make the honesty notice read as a page
+              header. Nothing about when it shows has changed. */}
+          {heroUri ? (
+            <View style={styles.heroBleed}>
+              <DuotoneFrame
+                testID="result-hero-image"
+                uri={heroUri}
+                accessibilityLabel={Copy.result.hero.altText}
+                annotate
+                playAnnotation={justAnalyzed}
+                onAnnotationComplete={() => setAnnotationsDone(true)}
+              />
+            </View>
+          ) : null}
+
+          <View style={styles.column}>
+            {/* Deliberately NO screen title here. The copy deck defines no `result.title` key,
+                and the readout's own "Overall" eyebrow + hero numeral already are this screen's
+                heading — adding a second one would mean inventing copy the deck has not
+                certified. The per-word kinetic reveal this screen would have spent on a title
+                goes to the coaching prose inside `<PaceReadout>` instead, which is the one place
+                on this screen where the words genuinely are the product. */}
+            {outcome.isFallback ? <PartialResultBanner assessedCount={assessedCount} /> : null}
+
+            <SurfaceCard tone="raised" testID="result-readout-card">
+              <PaceReadout result={outcome.result} firstReveal={justAnalyzed} revealReady={revealReady} />
+            </SurfaceCard>
+
+            <ResultDisclaimer />
+
+            <PillButton label={Copy.result.cta.done} onPress={goHome} testID="result-done" />
           </View>
-        ) : null}
-
-        <NotchedCard testID="result-readout-card" style={styles.readoutCard}>
-          <PaceReadout result={outcome.result} firstReveal={justAnalyzed} revealReady={revealReady} />
-        </NotchedCard>
-
-        <ResultDisclaimer />
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={Copy.result.cta.done}
-          onPress={goHome}
-          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-          <Text style={styles.primaryButtonText}>{Copy.result.cta.done}</Text>
-        </Pressable>
-      </Animated.ScrollView>
-    </SafeAreaView>
+        </Animated.ScrollView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
 
@@ -320,12 +331,25 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill. See app/(tabs)/index.tsx's own
+      // note on the same line.
+      backgroundColor: 'transparent',
     },
     content: {
       flexGrow: 1,
-      padding: Spacing.xl,
+      // NO horizontal padding here any more: the hero is a direct child and must bleed. The
+      // readable column below re-applies it for everything that is not the hero.
+      paddingBottom: Spacing.xxl,
+    },
+    column: {
+      alignSelf: 'center',
       gap: Spacing.xl,
+      maxWidth: ContentWidth.readable,
+      paddingHorizontal: Spacing.xl,
+      // The one editorial gap (spec §3.4), now measured from the hero's bottom edge to the first
+      // thing under it rather than added as a margin on the hero itself.
+      paddingTop: Spacing.editorial,
+      width: '100%',
     },
     centerBlock: {
       flex: 1,
@@ -334,69 +358,37 @@ function createStyles(colors: ThemeColors) {
       gap: Spacing.lg,
       padding: Spacing.xl,
     },
-    loadingCaption: {
-      color: colors.text.secondary,
+    onWashCaption: {
+      // `text.primary`: this Text sits directly on the page gradient, which is proven for the
+      // primary tone only (`Gradient`'s contract, constants/theme.ts). It was `text.secondary`
+      // when the backdrop was the flat, fully-proven `background`.
+      color: colors.text.primary,
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
+      lineHeight: FontSize.md * LineHeight.body,
       textAlign: 'center',
     },
     errorText: {
       color: colors.text.primary,
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.md,
+      fontFamily: FontFamily.display.semiBold,
+      fontSize: FontSize.xl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xl * LineHeight.heading,
       textAlign: 'center',
     },
+    errorAction: {
+      marginTop: Spacing.sm,
+      maxWidth: ContentWidth.readable,
+      width: '100%',
+    },
     heroBleed: {
-      // Full-bleed (spec 2026-07-26 §3.5): cancel the content container's own horizontal padding
-      // so the graded frame reaches the screen edges. A photograph inset inside a padded column
-      // is a thumbnail again, which is exactly what this change exists to stop being.
-      marginHorizontal: -Spacing.xl,
-      // The one editorial gap (spec §3.4). The content container's `gap: Spacing.xl` supplies
-      // the remainder, so the separation the eye measures is exactly Spacing.editorial.
-      marginBottom: Spacing.editorial - Spacing.xl,
-    },
-    heroBleedFirstChild: {
-      // Only cancel the content container's top padding when the hero is actually its first
-      // child. When PartialResultBanner renders above it, this margin would instead cancel the
-      // container's `gap: Spacing.xl` between the two siblings, collapsing it to zero.
-      marginTop: -Spacing.xl,
-    },
-    readoutCard: {
-      // The screen's one raised element (brief §2). NotchedCard defaults to `surface.base`,
-      // which is exactly what the pillar rows inside it already use — on that surface the rows
-      // vanish into their own container. `surface.raised` separates them. (It does not rescue
-      // the notches: `background` reads 1.07:1 on base and 1.13:1 on raised, both invisible —
-      // the notch's hairline stroke is what makes it read. See notched-card.tsx's header.)
-      backgroundColor: colors.surface.raised,
-    },
-    pressed: {
-      opacity: Opacity.pressed,
-    },
-    retryButton: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      paddingHorizontal: Spacing.md,
-    },
-    retryText: {
-      color: colors.text.primary,
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      textDecorationLine: 'underline',
-    },
-    primaryButton: {
-      alignItems: 'center',
-      backgroundColor: Accent.value,
-      borderRadius: Radius.card,
-      justifyContent: 'center',
-      minHeight: ControlHeight.standard,
-      paddingHorizontal: Spacing.xl,
-    },
-    primaryButtonText: {
-      color: Accent.onAccent,
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
+      // Full-bleed, and now edge-to-edge at the TOP of the screen as well: the content container
+      // no longer pads horizontally, and the SafeAreaView excludes its 'top' edge, so the frame
+      // reaches the device's own corner. Only the bottom corners round, so the image reads as a
+      // window the page hangs from.
+      borderBottomLeftRadius: Radius.hero,
+      borderBottomRightRadius: Radius.hero,
+      overflow: 'hidden',
     },
   });
 }

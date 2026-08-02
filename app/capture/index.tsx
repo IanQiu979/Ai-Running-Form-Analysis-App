@@ -16,6 +16,7 @@
  * Camera permission is Capture's (`app/capture/record.tsx`) own concern, not this screen's —
  * tapping Record just navigates there once the gate fires onConsented.
  */
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as ImagePicker from 'expo-image-picker';
@@ -24,19 +25,22 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ConsentGate } from '@/components/consent-gate';
+import { CircleIconButton } from '@/components/ui/circle-icon-button';
+import { Eyebrow } from '@/components/ui/eyebrow';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { Copy } from '@/constants/copy';
 import {
-  Accent,
   Colors,
   ContentWidth,
-  ControlHeight,
   FontFamily,
   FontSize,
-  HitTarget,
+  LineHeight,
   Opacity,
   Radius,
   Semantic,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -183,26 +187,34 @@ export default function SourcePickerScreen() {
 
   if (pendingAction !== null) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.consentWrap}>
-          <ConsentGate onConsented={handleConsented} onCancel={() => setPendingAction(null)} />
-        </View>
-      </SafeAreaView>
+      <ScreenGradient>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.consentWrap}>
+            <ConsentGate onConsented={handleConsented} onCancel={() => setPendingAction(null)} />
+          </View>
+        </SafeAreaView>
+      </ScreenGradient>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+        {/* The reference's top bar: a circular glass control at the leading edge, the screen name
+            as a tracked eyebrow beside it. Replaces the "24pt heading + underlined 'Back' text"
+            row — a back affordance is the one control that should look identical on every screen,
+            and a word set in body type never will. */}
         <View style={styles.headerRow}>
-          <Text style={styles.header} accessibilityRole="header">{Copy.sourcePicker.title}</Text>
-          <Pressable
-            accessibilityRole="button"
+          <CircleIconButton
             accessibilityLabel="Back"
             onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
-            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
-            <Text style={styles.backText}>Back</Text>
-          </Pressable>
+            testID="capture-back">
+            <MaterialIcons name="arrow-back" size={20} color={colors.text.primary} />
+          </CircleIconButton>
+          <Eyebrow tone="primary" accessibilityRole="header" style={styles.header}>
+            {Copy.sourcePicker.title}
+          </Eyebrow>
         </View>
 
         <Pressable
@@ -259,9 +271,10 @@ export default function SourcePickerScreen() {
 
         <Text style={styles.framingTip}>{Copy.sourcePicker.framingTip}</Text>
 
-        {cardsDisabled && <ActivityIndicator color={colors.text.secondary} accessibilityLabel="Loading" />}
+        {cardsDisabled && <ActivityIndicator color={colors.text.primary} accessibilityLabel="Loading" />}
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
 
@@ -303,23 +316,10 @@ function InlinePanel({
       <Text style={[styles.panelTitle, error && styles.panelTitleError]}>{title}</Text>
       <Text style={styles.panelBody}>{body}</Text>
       {primaryCta && onPrimary && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={primaryCta}
-          disabled={busy}
-          onPress={onPrimary}
-          style={({ pressed }) => [styles.panelPrimaryCta, (pressed || busy) && { opacity: Opacity.pressed }]}>
-          <Text style={styles.panelPrimaryCtaText}>{primaryCta}</Text>
-        </Pressable>
+        <PillButton label={primaryCta} onPress={onPrimary} disabled={busy} style={styles.panelPrimaryCta} />
       )}
       {secondaryCta && onSecondary && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={secondaryCta}
-          onPress={onSecondary}
-          style={({ pressed }) => [styles.panelSecondaryCta, pressed && { opacity: Opacity.pressed }]}>
-          <Text style={styles.panelSecondaryCtaText}>{secondaryCta}</Text>
-        </Pressable>
+        <PillButton variant="ghost" label={secondaryCta} onPress={onSecondary} block />
       )}
     </View>
   );
@@ -344,31 +344,11 @@ function createPanelStyles(colors: ThemeColors, scheme: ColorScheme) {
     panelBody: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
       color: colors.text.secondary,
     },
     panelPrimaryCta: {
-      minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
-      backgroundColor: Accent.value,
-      alignItems: 'center',
-      justifyContent: 'center',
       marginTop: Spacing.xs,
-    },
-    panelPrimaryCtaText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.sm,
-      color: Accent.onAccent,
-    },
-    panelSecondaryCta: {
-      minHeight: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    panelSecondaryCtaText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-      textDecorationLine: 'underline',
     },
   });
 }
@@ -377,7 +357,8 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill.
+      backgroundColor: 'transparent',
     },
     consentWrap: {
       flex: 1,
@@ -405,30 +386,19 @@ function createStyles(colors: ThemeColors) {
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      gap: Spacing.lg,
     },
     header: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
-      color: colors.text.primary,
-    },
-    backButton: {
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    backText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-      textDecorationLine: 'underline',
+      flex: 1,
     },
     // "Large cards" (brief §4.3) — generous padding rather than a fixed minHeight, so size comes
     // from Spacing tokens + content instead of an invented pixel number.
+    // "Large cards" (brief §4.3) — generous padding rather than a fixed minHeight, so size comes
+    // from Spacing tokens + content instead of an invented pixel number. These are the screen's
+    // subject, so the redesign gives them the full `Radius.card` corner and a display-scale title.
     card: {
-      borderRadius: Radius.sheet,
-      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: Radius.card,
+      borderWidth: StyleSheet.hairlineWidth * 2,
       borderColor: colors.hairline,
       backgroundColor: colors.surface.base,
       paddingHorizontal: Spacing.xl,
@@ -438,18 +408,27 @@ function createStyles(colors: ThemeColors) {
     },
     cardTitle: {
       fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.lg,
+      // lg -> xl. These two cards are the only decision on the screen; they should read as
+      // headlines, not as list rows.
+      fontSize: FontSize.xl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xl * LineHeight.heading,
       color: colors.text.primary,
     },
     cardSubtitle: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
       color: colors.text.secondary,
     },
     framingTip: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
-      color: colors.text.secondary,
+      lineHeight: FontSize.xs * LineHeight.body,
+      // On the wash — `text.primary` only (`Gradient`'s contract). Held back by opacity rather
+      // than by a lighter token so it still reads as the quietest thing on the screen.
+      color: colors.text.primary,
+      opacity: Opacity.pressed,
       textAlign: 'center',
     },
     pressed: {

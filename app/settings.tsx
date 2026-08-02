@@ -37,6 +37,7 @@
  * read. `Alert` outlives the screen. Delete and withdraw use it too, so all three destructive
  * confirmations read identically and get the OS's own accessibility and focus handling for free.
  */
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -54,18 +55,24 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { KineticText } from '@/components/kinetic-text';
+import { CircleIconButton } from '@/components/ui/circle-icon-button';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { Copy } from '@/constants/copy';
 import {
-  Accent,
   Colors,
   ControlHeight,
   FontFamily,
   FontSize,
   HitTarget,
+  LineHeight,
+  Motion,
   Opacity,
   Radius,
   Semantic,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -574,24 +581,32 @@ export default function SettingsScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenGradient>
+      <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
+        {/* Back is now the redesign's circular control. The old comment here preferred text over
+            "a chevron glyph" because `components/ui/icon-symbol.tsx` had no `chevron.left`
+            mapping and because a text label scales with Dynamic Type. Neither objection applies
+            now: this uses `@expo/vector-icons/MaterialIcons` directly (the same escape hatch
+            `app/(tabs)/_layout.tsx` already documents for its History tab icon), and the glyph is
+            fixed-size inside a fixed 44pt target, so Dynamic Type has nothing to break. The
+            screen-reader label carries the same word the visible text used to. */}
         <View style={styles.headerRow}>
-          {/* A text button, not a chevron glyph: `components/ui/icon-symbol.tsx` has no
-              `chevron.left` mapping, and real text scales with Dynamic Type and reads correctly to
-              a screen reader without an accessibilityLabel that duplicates it. Matches the text-link
-              idiom every other secondary action in this app already uses. */}
-          <Pressable
-            accessibilityRole="button"
+          <CircleIconButton
+            accessibilityLabel={Copy.settings.back}
             onPress={() => {
               router.back();
-            }}
-            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
-            <Text style={styles.backText}>{Copy.settings.back}</Text>
-          </Pressable>
-          <Text style={styles.title} accessibilityRole="header">
-            {Copy.settings.title}
-          </Text>
+            }}>
+            <MaterialIcons name="arrow-back" size={20} color={colors.text.primary} />
+          </CircleIconButton>
+          <View style={styles.titleBlock}>
+            <KineticText
+              accessibilityRole="header"
+              staggerMs={Motion.stagger.line}
+              style={styles.title}>
+              {Copy.settings.title}
+            </KineticText>
+          </View>
         </View>
 
         {/* --- Account ------------------------------------------------------------------- */}
@@ -824,41 +839,27 @@ export default function SettingsScreen() {
                   {reauthPasswordError}
                 </Text>
               )}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={Copy.settings.reauth.passwordPrompt.cta.primary}
-                accessibilityState={{ disabled: isReauthenticating, busy: isReauthenticating }}
+              <PillButton
+                label={Copy.settings.reauth.passwordPrompt.cta.primary}
                 disabled={isReauthenticating}
+                busy={isReauthenticating}
                 onPress={() => {
                   void handlePasswordReauthSubmit();
                 }}
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  isReauthenticating && styles.disabled,
-                  pressed && !isReauthenticating && styles.pressed,
-                ]}>
-                {isReauthenticating ? (
-                  <ActivityIndicator color={Accent.onAccent} />
-                ) : (
-                  <Text style={styles.primaryButtonText}>{Copy.settings.reauth.passwordPrompt.cta.primary}</Text>
-                )}
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
+              />
+              <PillButton
+                variant="ghost"
+                label={Copy.settings.reauth.passwordPrompt.cta.secondary}
                 disabled={isReauthenticating}
                 onPress={cancelPasswordReauth}
-                style={({ pressed }) => [
-                  styles.textAction,
-                  isReauthenticating && styles.disabled,
-                  pressed && !isReauthenticating && styles.pressed,
-                ]}>
-                <Text style={styles.textActionLabel}>{Copy.settings.reauth.passwordPrompt.cta.secondary}</Text>
-              </Pressable>
+                block
+              />
             </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ScreenGradient>
   );
 }
 
@@ -866,7 +867,8 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill.
+      backgroundColor: 'transparent',
     },
     content: {
       // flexGrow, not flex — the same Dynamic Type rule every other screen here follows: reflow
@@ -877,38 +879,44 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     },
     headerRow: {
       flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
+      alignItems: 'flex-start',
+      gap: Spacing.lg,
     },
-    backButton: {
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    backText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
+    titleBlock: {
+      flex: 1,
+      // Optically centres the title against the 44pt circular button beside it.
+      paddingTop: Spacing.xs,
     },
     title: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
+      fontFamily: FontFamily.display.bold,
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
       color: colors.text.primary,
     },
     section: {
       gap: Spacing.md,
     },
+    // Now the app-wide eyebrow register (tracked, not just uppercased) — this style predates
+    // `<Eyebrow>` and is what that component was extracted from. Kept as a style rather than
+    // swapped for the component because it carries `accessibilityRole="header"` per section and
+    // the two are equivalent here; the tracking is the part that was missing.
     sectionHeading: {
       fontFamily: FontFamily.body.semiBold,
       fontSize: FontSize.xs,
-      color: colors.text.secondary,
+      letterSpacing: Tracking.eyebrow,
+      // On the wash — `text.primary` only (`Gradient`'s contract, constants/theme.ts). Held back
+      // by opacity so it still reads as a quiet label.
+      color: colors.text.primary,
+      opacity: Opacity.pressed,
       textTransform: 'uppercase',
     },
     card: {
       backgroundColor: colors.surface.base,
+      borderColor: colors.hairline,
       borderRadius: Radius.card,
-      padding: Spacing.lg,
+      borderWidth: StyleSheet.hairlineWidth * 2,
+      padding: Spacing.xl,
       gap: Spacing.md,
     },
     rowLabel: {
@@ -968,10 +976,12 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     },
     actionRow: {
       backgroundColor: colors.surface.base,
+      borderColor: colors.hairline,
       borderRadius: Radius.card,
+      borderWidth: StyleSheet.hairlineWidth * 2,
       minHeight: HitTarget.min,
       paddingVertical: Spacing.lg,
-      paddingHorizontal: Spacing.lg,
+      paddingHorizontal: Spacing.xl,
       justifyContent: 'center',
     },
     actionRowLabel: {
@@ -996,6 +1006,8 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     flex: {
       flex: 1,
     },
+    // The modal is presented OVER the screen, so it keeps an opaque fill rather than becoming
+    // another gradient — two washes stacked read as a rendering bug, not as depth.
     reauthSafeArea: {
       flex: 1,
       backgroundColor: colors.background,
@@ -1011,27 +1023,16 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     // looks and behaves identically to the one at sign-in.
     input: {
       minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
+      // `Radius.pill`, matching app/(auth)/sign-in.tsx's field exactly — that file's own comment
+      // explains why a 52pt field takes the pill rather than the card corner.
+      borderRadius: Radius.pill,
       borderWidth: 1,
       borderColor: colors.control.border,
       backgroundColor: colors.surface.base,
-      paddingHorizontal: Spacing.lg,
+      paddingHorizontal: Spacing.xl,
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
       color: colors.text.primary,
-    },
-    primaryButton: {
-      minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
-      backgroundColor: Accent.value,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.lg,
-    },
-    primaryButtonText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: Accent.onAccent,
     },
   });
 }

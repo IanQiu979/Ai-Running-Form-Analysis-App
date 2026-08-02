@@ -106,7 +106,15 @@ describe('tier gating via array emptiness only — no client-side tier re-deriva
     }
     // Free still gets real scores and one line of feedback per pillar.
     expect(screen.getByTestId('pillar-score-cadence').props.children).toBe(44);
-    expect(screen.getByTestId('pillar-feedback-cadence').props.children).toBe('Foot lands well ahead of your hips.');
+    // Read via the ACCESSIBILITY LABEL, not `props.children`. The Calm redesign renders coaching
+    // feedback through `<KineticText>`, which splits the sentence into one `Text` per word so each
+    // can be revealed independently — so `children` is now an array of word nodes, not the string.
+    // The label is where the whole, unsplit sentence lives, and it is also exactly what a screen
+    // reader receives, so asserting on it tests the thing that actually matters rather than the
+    // internal node shape.
+    expect(screen.getByTestId('pillar-feedback-cadence').props.accessibilityLabel).toBe(
+      'Foot lands well ahead of your hips.'
+    );
   });
 
   it('renders Flags/Drills for a Pro-shaped result wherever the pillar carries them', async () => {
@@ -143,8 +151,18 @@ it('does not swallow feedback, flags, and drills into the row-level accessible n
   await render(<PaceReadout result={proTierVideoResult} />);
 
   // Cadence carries feedback, a flag, and a drill in this fixture.
+  //
+  // The feedback is asserted via its accessibility LABEL rather than via `getByText`. The Calm
+  // redesign renders it through `<KineticText>`, which splits the sentence into one hidden `Text`
+  // per word so each can reveal independently, and puts the whole sentence on the container as its
+  // label. That is structurally the same thing a plain `<Text>` already was — ONE accessible node
+  // carrying ONE sentence — so #62's actual finding is unaffected: the concern there was the
+  // OUTER ROW collapsing feedback + flags + drills into a single opaque node, and the three are
+  // still three separate nodes, as the assertions below prove.
   expect(
-    screen.getByText('Foot is landing well ahead of the hips with a near-straight knee — the clearest fix available here.')
+    screen.getByLabelText(
+      'Foot is landing well ahead of the hips with a near-straight knee — the clearest fix available here.'
+    )
   ).toBeTruthy();
   expect(screen.getByText('Overstriding')).toBeTruthy();
   expect(
@@ -167,10 +185,16 @@ describe('coaching feedback typography', () => {
   it('renders per-pillar feedback in the prose serif, not the UI family', async () => {
     await render(<PaceReadout result={proTierVideoResult} />);
 
-    const feedback = screen.getByTestId('pillar-feedback-cadence');
-    const style = Array.isArray(feedback.props.style)
-      ? Object.assign({}, ...feedback.props.style)
-      : feedback.props.style;
+    // The feedback node is now a `<KineticText>` container whose per-word `Text` children each
+    // carry the passed style (see the redesign note on the test above). The family therefore has
+    // to be read off a WORD, not off the container — the container only carries layout. Reading
+    // the first word is sufficient: every word is rendered from the same `style` prop. Word nodes
+    // are hidden from the a11y tree, hence `includeHiddenElements` — the same RNTL convention
+    // CLAUDE.md § Testing documents for any `accessibilityElementsHidden` node.
+    const firstWord = screen.getByTestId('pillar-feedback-cadence-word-0', {
+      includeHiddenElements: true,
+    });
+    const style = StyleSheet.flatten(firstWord.props.style);
 
     expect(style.fontFamily).toBe(FontFamily.prose.regular);
   });

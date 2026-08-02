@@ -37,17 +37,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
+import { KineticText } from '@/components/kinetic-text';
 import { AnimatedOverallNumeral, AnimatedPillarBarFill } from '@/components/pace-reveal';
+import { Eyebrow } from '@/components/ui/eyebrow';
 import { Copy } from '@/constants/copy';
 import {
   Colors,
   FontFamily,
   FontSize,
+  LineHeight,
   Motion,
   Radius,
   Score,
   ScoreBandLabel,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -123,7 +127,7 @@ export function PaceReadout({ result, firstReveal = false, revealReady = true }:
         style={styles.overallBlock}
         accessible
         accessibilityLabel={overallA11yLabel(overall)}>
-        <Text style={styles.overallLabel}>{Copy.result.overall.label}</Text>
+        <Eyebrow>{Copy.result.overall.label}</Eyebrow>
         {overall.score !== null && overall.band !== null ? (
           <View style={styles.overallScoreRow}>
             {revealMode === 'animate' ? (
@@ -245,10 +249,23 @@ function PillarRow({
         </Text>
       ) : null}
 
+      {/* THE COACH'S OWN WRITING, revealed word by word. This is the one element in the app where
+          the per-word reveal is not decoration: the feedback sentence is what the user paid for,
+          and assembling it makes it read as something being said rather than as a field that was
+          populated. Gated on the same `revealMode` everything else here is — a re-open from Past
+          Analyses (`instant`) renders it as a plain finished block with nothing scheduled, and
+          reduced motion gets the single crossfade `KineticText` already falls back to. Staggered
+          one step behind the bar fills (`index` offset) so a pillar's number lands before its
+          sentence starts, never on top of it. */}
       {pillar.feedback ? (
-        <Text testID={`pillar-feedback-${pillarId}`} style={styles.feedbackText}>
+        <KineticText
+          testID={`pillar-feedback-${pillarId}`}
+          play={revealMode !== 'instant' && triggered}
+          delayMs={index * Motion.stagger.item + Motion.duration.standard}
+          style={styles.feedbackText}
+          containerStyle={styles.feedbackRow}>
           {pillar.feedback}
-        </Text>
+        </KineticText>
       ) : null}
 
       {/* Tier gating without re-deriving tier rules: the server already ships `flags: []` for
@@ -288,13 +305,10 @@ function createStyles(colors: ThemeColors) {
       alignItems: 'center',
       gap: Spacing.xs,
     },
-    overallLabel: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      textTransform: 'uppercase',
-      letterSpacing: 1,
-    },
+    // `overallLabel` is gone — that hand-rolled "uppercase + letterSpacing: 1" style WAS the
+    // eyebrow register, written before it had a token. It is now `<Eyebrow>`
+    // (components/ui/eyebrow.tsx), so the same micro-label reads identically here and on every
+    // other screen instead of each one re-deriving it.
     overallScoreRow: {
       alignItems: 'baseline',
       flexDirection: 'row',
@@ -311,10 +325,17 @@ function createStyles(colors: ThemeColors) {
       // (spec 2026-07-26 §3.1: at most one `display`-or-larger element per screen).
       fontFamily: FontFamily.display.bold,
       fontSize: FontSize.hero,
+      // Added by the redesign: a 96pt numeral set at the default line height floats in far too
+      // much leading, which is what made the score read as small despite its size. Negative
+      // tracking is the same treatment large display type gets everywhere in this pass.
+      letterSpacing: Tracking.hero,
+      lineHeight: FontSize.hero * LineHeight.hero,
     },
     overallBand: {
       fontFamily: FontFamily.body.semiBold,
       fontSize: FontSize.lg,
+      letterSpacing: Tracking.eyebrow,
+      textTransform: 'uppercase',
     },
     overallNotAssessed: {
       color: colors.text.secondary,
@@ -327,8 +348,12 @@ function createStyles(colors: ThemeColors) {
     },
     pillarRow: {
       backgroundColor: colors.surface.base,
-      borderRadius: Radius.card,
-      gap: Spacing.xs,
+      // `Radius.tile`, not `Radius.card`: this row is nested inside a card that already carries
+      // the 24pt corner, and repeating it here makes the nesting read as two competing shapes.
+      // A tighter inner corner is what reads as "inside" — the same relationship the reference's
+      // list rows have with the panel that holds them.
+      borderRadius: Radius.tile,
+      gap: Spacing.sm,
       padding: Spacing.lg,
     },
     pillarHeaderRow: {
@@ -371,7 +396,11 @@ function createStyles(colors: ThemeColors) {
       borderColor: colors.hairline,
       borderRadius: Radius.pill,
       borderWidth: 1,
-      height: Spacing.sm,
+      // Was Spacing.sm (8). A thicker bar is the redesign's one concession to weight in an
+      // otherwise light readout: the bar is the only element that encodes the score twice (length
+      // AND colour, design brief §3), so it earns being the boldest mark in the row.
+      height: Spacing.md,
+      marginTop: Spacing.xs,
       overflow: 'hidden',
     },
     barFill: {
@@ -388,7 +417,17 @@ function createStyles(colors: ThemeColors) {
       // The coach's own writing, not UI chrome (spec 2026-07-26 §3.2) — the ONE place in this
       // file that leaves Inter. Every label, band word, and control stays `body`.
       fontFamily: FontFamily.prose.regular,
-      fontSize: FontSize.sm,
+      // Stepped up from `sm` to `md` by the redesign: this sentence is the product's payload, and
+      // it was previously set smaller than the pillar's own name. Serif prose at reading size,
+      // with real leading, is what makes it read as a coach writing to you.
+      fontSize: FontSize.md,
+      lineHeight: FontSize.md * LineHeight.body,
+    },
+    feedbackRow: {
+      // `<KineticText>` lays its words out in a wrapping row, so the leading that a plain `Text`
+      // would get from `lineHeight` alone has to be matched by the row's own cross-axis spacing —
+      // without this, wrapped lines of a revealed paragraph sit tighter than an unrevealed one.
+      rowGap: FontSize.md * (LineHeight.body - 1),
     },
     subList: {
       gap: Spacing.sm,

@@ -11,6 +11,7 @@
  * duration — so this screen measures wall-clock elapsed time itself (also what drives the live
  * "{elapsed}s / 15s" counter) and hands that measured value on as the clip's `durationMs`.
  */
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
@@ -19,18 +20,23 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FramingGuide } from '@/components/framing-guide';
+import { KineticText } from '@/components/kinetic-text';
+import { CircleIconButton } from '@/components/ui/circle-icon-button';
+import { PillButton } from '@/components/ui/pill-button';
+import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { Copy } from '@/constants/copy';
 import {
   Accent,
   Colors,
   ContentWidth,
-  ControlHeight,
   FontFamily,
   FontSize,
-  HitTarget,
+  LineHeight,
+  Motion,
   Opacity,
   Radius,
   Spacing,
+  Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
@@ -125,68 +131,73 @@ export default function RecordScreen() {
 
   if (permissionState === 'checking') {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.centered}>
-          <ActivityIndicator color={colors.text.secondary} />
-        </View>
-      </SafeAreaView>
+      <ScreenGradient>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.centered}>
+            <ActivityIndicator color={colors.text.primary} />
+          </View>
+        </SafeAreaView>
+      </ScreenGradient>
     );
   }
 
   if (permissionState === 'undetermined') {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <ScreenGradient>
+        <SafeAreaView style={styles.safeArea}>
         {/* ScrollView + flexGrow, not a plain flex:1 View (issue #63) — same Dynamic Type
             reflow-not-clip pattern as app/(tabs)/index.tsx: this panel's title/body/two buttons
             could otherwise overflow a small phone at the largest accessibility text sizes with
             no way to reach the second button. */}
         <ScrollView style={styles.scroll} contentContainerStyle={styles.permissionPanel}>
-          <Text style={styles.permissionTitle}>{Copy.capture.permission.camera.title}</Text>
+          <KineticText
+            accessibilityRole="header"
+            staggerMs={Motion.stagger.line}
+            style={styles.permissionTitle}>
+            {Copy.capture.permission.camera.title}
+          </KineticText>
           <Text style={styles.permissionBody}>{Copy.capture.permission.camera.body}</Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.capture.permission.camera.cta}
+          <PillButton
+            label={Copy.capture.permission.camera.cta}
             disabled={busy}
             onPress={handleSoftAskAllow}
-            style={({ pressed }) => [styles.primaryCta, (pressed || busy) && styles.pressed]}>
-            <Text style={styles.primaryCtaText}>{Copy.capture.permission.camera.cta}</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.secondaryCta, pressed && styles.pressed]}>
-            <Text style={styles.secondaryCtaText}>Back</Text>
-          </Pressable>
+            style={styles.permissionCta}
+          />
+          <PillButton variant="ghost" label="Back" onPress={() => router.back()} block />
         </ScrollView>
-      </SafeAreaView>
+        </SafeAreaView>
+      </ScreenGradient>
     );
   }
 
   if (permissionState === 'denied') {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <ScreenGradient>
+        <SafeAreaView style={styles.safeArea}>
         {/* Same ScrollView + flexGrow reflow fix as the 'undetermined' panel above (issue #63). */}
         <ScrollView style={styles.scroll} contentContainerStyle={styles.permissionPanel}>
-          <Text style={styles.permissionTitle}>{Copy.capture.permission.camera.denied.title}</Text>
+          <KineticText
+            accessibilityRole="header"
+            staggerMs={Motion.stagger.line}
+            style={styles.permissionTitle}>
+            {Copy.capture.permission.camera.denied.title}
+          </KineticText>
           <Text style={styles.permissionBody}>{Copy.capture.permission.camera.denied.body}</Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.capture.permission.camera.denied.cta}
+          <PillButton
+            label={Copy.capture.permission.camera.denied.cta}
             disabled={busy}
             onPress={handleDeniedCta}
-            style={({ pressed }) => [styles.primaryCta, (pressed || busy) && styles.pressed]}>
-            <Text style={styles.primaryCtaText}>{Copy.capture.permission.camera.denied.cta}</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.capture.permission.camera.denied.secondary}
+            style={styles.permissionCta}
+          />
+          <PillButton
+            variant="ghost"
+            label={Copy.capture.permission.camera.denied.secondary}
             onPress={() => router.back()}
-            style={({ pressed }) => [styles.secondaryCta, pressed && styles.pressed]}>
-            <Text style={styles.secondaryCtaText}>{Copy.capture.permission.camera.denied.secondary}</Text>
-          </Pressable>
+            block
+          />
         </ScrollView>
-      </SafeAreaView>
+        </SafeAreaView>
+      </ScreenGradient>
     );
   }
 
@@ -208,13 +219,9 @@ export default function RecordScreen() {
               button below is the one control while a clip is in flight; this is the "every
               screen needs an exit" affordance for before/after that. */}
           {!recording && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Back"
-              onPress={() => router.back()}
-              style={({ pressed }) => [styles.backChip, pressed && styles.pressed]}>
-              <Text style={styles.backChipText}>Back</Text>
-            </Pressable>
+            <CircleIconButton accessibilityLabel="Back" onPress={() => router.back()}>
+              <MaterialIcons name="arrow-back" size={20} color={colors.text.primary} />
+            </CircleIconButton>
           )}
           <Text style={styles.overlayTip}>{Copy.capture.overlay.tip}</Text>
         </View>
@@ -246,7 +253,9 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      // Transparent — `<ScreenGradient>` behind it owns the fill. The camera view below is a
+      // different case: it keeps an opaque fill, see `cameraContainer`.
+      backgroundColor: 'transparent',
     },
     centered: {
       flex: 1,
@@ -270,38 +279,21 @@ function createStyles(colors: ThemeColors) {
       gap: Spacing.md,
     },
     permissionTitle: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
+      fontFamily: FontFamily.display.bold,
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
       color: colors.text.primary,
     },
     permissionBody: {
       fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-    },
-    primaryCta: {
-      minHeight: ControlHeight.standard,
-      borderRadius: Radius.card,
-      backgroundColor: Accent.value,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginTop: Spacing.md,
-    },
-    primaryCtaText: {
-      fontFamily: FontFamily.body.semiBold,
       fontSize: FontSize.md,
-      color: Accent.onAccent,
+      lineHeight: FontSize.md * LineHeight.body,
+      // On the wash — `text.primary` only (`Gradient`'s contract, constants/theme.ts).
+      color: colors.text.primary,
     },
-    secondaryCta: {
-      minHeight: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    secondaryCtaText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-      textDecorationLine: 'underline',
+    permissionCta: {
+      marginTop: Spacing.md,
     },
     pressed: {
       opacity: Opacity.pressed,
@@ -318,30 +310,19 @@ function createStyles(colors: ThemeColors) {
       justifyContent: 'space-between',
     },
     topOverlay: {
+      alignItems: 'flex-start',
       padding: Spacing.xl,
-      gap: Spacing.sm,
-    },
-    backChip: {
-      alignSelf: 'flex-start',
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      justifyContent: 'center',
-      backgroundColor: colors.surface.base,
-      borderRadius: Radius.pill,
-      paddingHorizontal: Spacing.md,
-    },
-    backChipText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
+      gap: Spacing.md,
     },
     overlayTip: {
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.sm,
       color: colors.text.primary,
       backgroundColor: colors.surface.base,
-      borderRadius: Radius.card,
-      padding: Spacing.md,
+      borderColor: colors.hairline,
+      borderRadius: Radius.tile,
+      borderWidth: StyleSheet.hairlineWidth * 2,
+      padding: Spacing.lg,
     },
     bottomOverlay: {
       alignItems: 'center',
@@ -386,7 +367,10 @@ function createStyles(colors: ThemeColors) {
     recordButtonStopIcon: {
       width: RECORD_BUTTON_STOP_ICON_SIZE,
       height: RECORD_BUTTON_STOP_ICON_SIZE,
-      borderRadius: Radius.card / 2,
+      // A small fixed softening, NOT `Radius.card / 2` as before: that expression tracked the card
+      // token, so when `Radius.card` went 0 -> 24 this ~20pt stop square would have silently
+      // become a circle and stopped reading as "stop" at all.
+      borderRadius: Spacing.xs,
       backgroundColor: Accent.onAccent,
     },
   });
