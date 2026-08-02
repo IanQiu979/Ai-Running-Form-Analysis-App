@@ -88,6 +88,13 @@ export const Copy = {
       // (lib/session-provider.tsx's `.catch(() => {})`); the user landed back on sign-in with
       // no session and no explanation.
       signInExpired: 'Sign-in expired before it could finish. Try again.',
+      // --- issue #12 NEW keys start — NOT in docs/design/copy-deck.md, NOT copy-certified.
+      // Sign-up only (see supabase/functions/signup-with-captcha) — sign-in never shows the
+      // Turnstile widget, so never surfaces these.
+      captchaLoadFailed: "The verification check couldn't load. Check your connection and try again.",
+      captchaExpired: 'The verification check expired. Please complete it again.',
+      captchaInvalid: "That verification check didn't go through. Please try again.",
+      // --- issue #12 NEW keys end ---
     },
     // Issue #81: password-reset flow. `reset.cta.forgotPassword` is the link
     // app/(auth)/sign-in.tsx needs (see that screen's owning agent's HANDOFF for the exact

@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KineticText } from '@/components/kinetic-text';
 import { LowPolyField, POSES } from '@/components/low-poly-field';
+import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/turnstile-widget';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { SurfaceCard } from '@/components/ui/surface-card';
@@ -36,11 +37,17 @@ import {
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { signInWithGoogle } from '@/lib/auth';
-import { mapAuthError, validateSignInForm } from '@/lib/auth-errors';
+import { mapAuthError, mapSignupWithCaptchaError, validateSignInForm } from '@/lib/auth-errors';
 import { checkPasswordBreached } from '@/lib/hibp';
 import { useSession } from '@/lib/session-provider';
+import { applySignupSession, signUpWithCaptcha } from '@/lib/signup-with-captcha';
 import { supabase } from '@/lib/supabase';
 import { useAnnounce } from '@/lib/use-announce';
+
+// The site key is Cloudflare's own public identifier for this Turnstile widget — safe to inline
+// into the client bundle by design (only the SECRET key, used server-side in
+// supabase/functions/signup-with-captcha, verifies anything). See CLAUDE.md's "Secrets & env".
+const TURNSTILE_SITE_KEY = process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY;
 
 type Mode = 'signIn' | 'signUp';
 type PendingAction = 'google' | 'email' | null;
@@ -60,6 +67,13 @@ export default function SignInScreen() {
   // Focus-chaining target for the email field's `onSubmitEditing` (issue #28) — the return key
   // advances email -> password instead of dead-ending the keyboard.
   const passwordInputRef = useRef<TextInput>(null);
+
+  // Issue #12/Known Issue #12 — sign-up only, never rendered in signIn mode. Holds a Turnstile
+  // token good for exactly one `signUpWithCaptcha` attempt: the token is single-use (see
+  // components/turnstile-widget.tsx's header), so it's cleared and the widget reset after every
+  // submit attempt, success or failure, and submit stays disabled until a fresh one arrives.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileWidgetHandle>(null);
 
   // Two failure channels reach this screen from OUTSIDE its own try/catch, and both have
   // nowhere else to surface — hence both are carried on the session context:
@@ -167,26 +181,33 @@ export default function SignInScreen() {
           return;
         }
 
-        const { data, error } = await supabase.auth.signUp({ email: trimmedEmail, password });
-        if (error) throw error;
-        // Supabase returns { error: null, session: null } for an email that's already
-        // registered too — it deliberately doesn't error, to avoid leaking which emails
-        // exist. The tell is an empty identities array on the returned user (ported from
-        // Echo V1's onboarding.tsx handleSignUp, same check).
-        if (!data.session && data.user?.identities?.length === 0) {
-          setErrorMessage(Copy.auth.error.emailInUse);
+        // Issue #12/Known Issue #12: `captchaToken` is required to reach this point — the submit
+        // button stays disabled without one (see the render below), so this is a defensive
+        // fail-safe, not the primary gate.
+        if (!captchaToken) {
+          setErrorMessage(Copy.auth.error.captchaLoadFailed);
           return;
         }
-        if (!data.session) {
-          // Email confirmations are disabled live for this MVP (see
-          // supabase/config.toml's auth.email note) so this shouldn't happen in
-          // practice — fail safe with a message rather than stranding the user with
-          // no session and no explanation.
-          setErrorMessage(Copy.auth.error.generic);
+
+        // Calls `supabase/functions/signup-with-captcha` instead of `supabase.auth.signUp`
+        // directly — see lib/signup-with-captcha.ts's header for why (Supabase's native
+        // `auth.captcha` is project-wide and would gate sign-in too). The token is single-use
+        // regardless of outcome, so it's cleared and the widget reset unconditionally right
+        // after this call, success or failure.
+        const signupResult = await signUpWithCaptcha(trimmedEmail, password, captchaToken);
+        setCaptchaToken(null);
+        turnstileRef.current?.reset();
+
+        if (!signupResult.ok) {
+          setErrorMessage(mapSignupWithCaptchaError(signupResult.code));
+          return;
         }
-        // On success, onAuthStateChange (lib/session-provider.tsx) flips `session`, and
-        // the root layout's Stack.Protected guard routes to (tabs) automatically — no
-        // manual navigation here.
+
+        // Hydrates the on-device session from the one the edge function already established.
+        // `lib/session-provider.tsx`'s onAuthStateChange treats this identically to a session
+        // from `signInWithPassword` — flips `session`, and the root layout's Stack.Protected
+        // guard routes to (tabs) automatically. No manual navigation here.
+        await applySignupSession(signupResult.session);
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email: trimmedEmail,
@@ -310,10 +331,27 @@ export default function SignInScreen() {
                     style={styles.inlineLink}
                   />
                 )}
+                {/* Issue #12/Known Issue #12 — sign-up only. `TURNSTILE_SITE_KEY` is only unset
+                    in a misconfigured environment (see .env.example); guard rather than crash. */}
+                {mode === 'signUp' && TURNSTILE_SITE_KEY && (
+                  <TurnstileWidget
+                    ref={turnstileRef}
+                    siteKey={TURNSTILE_SITE_KEY}
+                    onToken={(token) => {
+                      setCaptchaToken(token);
+                      clearErrors();
+                    }}
+                    onExpire={() => setCaptchaToken(null)}
+                    onError={() => {
+                      setCaptchaToken(null);
+                      setErrorMessage(Copy.auth.error.captchaLoadFailed);
+                    }}
+                  />
+                )}
                 <PillButton
                   label={mode === 'signUp' ? Copy.auth.signUp.submit : Copy.auth.signIn.submit}
                   onPress={handleEmailSubmit}
-                  disabled={isBusy}
+                  disabled={isBusy || (mode === 'signUp' && !captchaToken)}
                   busy={pendingAction === 'email'}
                 />
               </View>

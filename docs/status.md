@@ -205,15 +205,35 @@ milestone "done" criteria.
 11. ~~**Paywall pricing**~~ **RESOLVED 2026-07-11: Pro $6.99 / Elite $14.99 per month** —
     display prices for the M5 dummy paywall (no real payment processes in v1; real IAP can
     re-decide). Recorded in `docs/design/copy-deck.md` §Paywall.
-12. **NEW — CAPTCHA required before `analyze-form` (M4) goes live.** The M1 security audit found
-    the hosted Supabase project has **no signup rate-limit field at all** (`sign_in_sign_ups` in
-    `config.toml` is CLI/self-hosted-only; the Management API silently drops it on a hosted
-    project) and `mailer_autoconfirm` is deliberately on for M1 (no transactional email provider
-    or confirmation-pending screen exists yet). Combined, each disposable signup is unthrottled
-    and worth ~4 potential Anthropic calls once M4 ships (Free tier's 1 lifetime analysis ×
-    farmable accounts). CAPTCHA (`auth.captcha`, hCaptcha or Turnstile) is the only real lever on
-    this plan — needs Ian to create provider keys; an account-creation step, not something
-    buildable from the repo. **Blocks M4 going live, not the M4 build itself.**
+12. ~~**CAPTCHA required before `analyze-form` (M4) goes live.**~~ **RESOLVED 2026-08-02/03.**
+    The M1 security audit found the hosted Supabase project has **no signup rate-limit field at
+    all** (`sign_in_sign_ups` in `config.toml` is CLI/self-hosted-only; the Management API
+    silently drops it on a hosted project) and `mailer_autoconfirm` is deliberately on for M1 (no
+    transactional email provider or confirmation-pending screen exists yet). Combined, each
+    disposable signup was unthrottled and worth ~4 potential Anthropic calls once M4 shipped
+    (Free tier's 1 lifetime analysis × farmable accounts), which it now has.
+    **Not fixed via `auth.captcha`, on purpose.** Ian created a Cloudflare Turnstile widget and
+    provided real site/secret keys; native `auth.captcha` was enabled live and reverted within
+    minutes: it's project-wide, not per-endpoint — enabling it also 400s
+    `signInWithPassword` (sign-in), not just `signup`, confirmed by direct testing against the
+    live project. There is no server-side knob to scope it to signup only, so it stays disabled,
+    permanently, in `supabase/config.toml`.
+    **The actual fix: `supabase/functions/signup-with-captcha`.** It verifies the Turnstile
+    token server-side (`_shared/captcha.ts`, Cloudflare's siteverify API) and, only if that
+    passes, proxies a plain, unprivileged `supabase.auth.signUp()` call — so
+    `minimum_password_length`/`password_hibp_enabled` keep being enforced exactly as before, and
+    sign-in (`signInWithPassword`, called directly, unchanged) never sees a captcha requirement.
+    `app/(auth)/sign-in.tsx` renders a WebView-hosted Turnstile widget
+    (`components/turnstile-widget.tsx`) only in sign-up mode. `TURNSTILE_SECRET_KEY` is set via
+    `supabase secrets set` on the hosted project; the local dev stack and `eas.json`'s
+    `*-local` build profiles use Cloudflare's public "always passes" test key pair instead of the
+    real one. Deployed to the live project and verified: signup is rejected with `captcha_invalid`
+    given a garbage token, and with `invalid_body` given no token at all. The "succeeds with a
+    valid token" path is proven by the full test suite (fake `CaptchaVerifier` returning `true` →
+    real `signUp` proxy → session returned) — no browser-automation tool was available in this
+    session to solve a live Turnstile challenge end-to-end, which would be the only way to prove
+    stronger than that; same "honest ceiling" caveat `purchase-tier.deno.test.ts`'s header
+    documents for its own untestable-live-Postgres case.
 13. ~~**Session storage is plaintext AsyncStorage today**~~ **RESOLVED 2026-07-12 (issue #38).**
     `lib/supabase.ts` now passes `storage: secureSessionStorage` (`lib/secure-storage.ts`), the
     "LargeSecureStore" pattern: an AES-256 key lives in SecureStore (Keychain/Keystore-backed,
@@ -386,7 +406,7 @@ milestone "done" criteria.
       replacement for it. Needs Ian's Anthropic Console access.
     - Out of scope for #91, unaffected by it: a monthly cap (the Anthropic Console limit above
       already is one — a second one here would be duplicated state that can drift) and CAPTCHA/
-      signup rate limiting (Known Issue #12, still blocked on Ian).
+      signup rate limiting (Known Issue #12 — RESOLVED, see that entry above).
 18. **`storage.objects` table-level `GRANT INSERT`/`GRANT DELETE` to `authenticated` were
     never revoked (issue #100, found during 2026-07-12 verification of #88's push).** Narrower
     than the issue as originally filed: it's `storage.objects` specifically — a table shared
@@ -903,8 +923,9 @@ still standing between here and a public/TestFlight release:
 - **Known Issue #21** — `PURCHASE_TIER_DUMMY_ENABLED` must be unset before any TestFlight or
   public release (hard release gate; currently `true` on the live project by deliberate captain
   decision, open to anyone who can sign up).
-- **Known Issue #12** — CAPTCHA is needed before `analyze-form` can go live publicly (needs Ian to
-  create provider keys; blocks M4 going live, not the M4 build itself).
+- ~~**Known Issue #12** — CAPTCHA is needed before `analyze-form` can go live publicly~~
+  **RESOLVED 2026-08-02/03** — see that entry above for the full story
+  (`supabase/functions/signup-with-captcha`, not native `auth.captcha`).
 - **Known Issue #17** — a hard spend ceiling in the Anthropic Console is still unset (needs Ian's
   Anthropic Console access).
 - **Known Issue #15** — `docs/privacy-policy.md` publication is on hold pending Ian's answer on

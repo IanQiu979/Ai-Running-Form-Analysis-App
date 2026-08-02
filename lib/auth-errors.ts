@@ -40,6 +40,7 @@
 import { isAuthApiError, isAuthPKCECodeVerifierMissingError, isAuthWeakPasswordError } from '@supabase/supabase-js';
 
 import { Copy } from '@/constants/copy';
+import type { SignupWithCaptchaErrorCode } from './signup-with-captcha';
 
 /**
  * Thrown by `createSessionFromUrl` (lib/auth.ts) when the OAuth redirect URL itself carries a
@@ -164,4 +165,42 @@ export function mapAuthError(error: unknown): string {
     return Copy.auth.error.passwordTooShort;
   }
   return Copy.auth.error.generic;
+}
+
+/**
+ * Maps a `signUpWithCaptcha` (lib/signup-with-captcha.ts) failure `code` to copy — the sign-up
+ * equivalent of `mapAuthError` above, for the one path that no longer throws a `supabase-js`
+ * error directly (issue #12/Known Issue #12: sign-up now proxies through
+ * `signup-with-captcha`, an edge function, whose failures arrive as a `{ code }` string, not a
+ * typed `AuthError`).
+ *
+ * `weak_password_length` vs `weak_password_pwned` is decided SERVER-SIDE (`supabase/functions/
+ * _shared/signup-with-captcha.ts`), with the SAME length-before-pwned priority `mapAuthError`
+ * uses above and for the same reason — `reasons` is a set GoTrue accumulates, not a single tag,
+ * and length is the more actionable of the two. This file only picks the copy for whichever one
+ * the server already decided; it does not re-derive the priority.
+ */
+export function mapSignupWithCaptchaError(code: SignupWithCaptchaErrorCode): string {
+  switch (code) {
+    case 'captcha_invalid':
+      return Copy.auth.error.captchaInvalid;
+    case 'email_in_use':
+      return Copy.auth.error.emailInUse;
+    case 'weak_password_length':
+      return Copy.auth.error.passwordTooShort;
+    case 'weak_password_pwned':
+      return Copy.auth.error.passwordBreached;
+    case 'weak_password':
+    case 'invalid_body':
+    case 'signup_failed':
+    case 'signup_unavailable':
+    case 'no_session':
+    case 'network':
+    case 'unknown':
+      return Copy.auth.error.generic;
+    default: {
+      const _exhaustive: never = code;
+      return _exhaustive;
+    }
+  }
 }

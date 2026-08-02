@@ -15,7 +15,7 @@
 import { AuthApiError, AuthPKCECodeVerifierMissingError, AuthWeakPasswordError } from '@supabase/supabase-js';
 
 import { Copy } from '../../constants/copy';
-import { mapAuthError, OAuthRedirectError, validateSignInForm } from '../auth-errors';
+import { mapAuthError, mapSignupWithCaptchaError, OAuthRedirectError, validateSignInForm } from '../auth-errors';
 
 describe('mapAuthError', () => {
   // Case 1: the server rejected a breached password (issue #70). This is the new branch.
@@ -215,5 +215,36 @@ describe('validateSignInForm', () => {
     for (const output of validationOutputs) {
       expect(SERVER_ATTEMPT_COPY).not.toContain(output);
     }
+  });
+});
+
+// Issue #12/Known Issue #12 — `signup-with-captcha`'s (lib/signup-with-captcha.ts) failure codes.
+describe('mapSignupWithCaptchaError', () => {
+  it('maps captcha_invalid to the captcha-specific copy', () => {
+    expect(mapSignupWithCaptchaError('captcha_invalid')).toBe(Copy.auth.error.captchaInvalid);
+  });
+
+  it('maps email_in_use to the same copy signUp used to produce directly', () => {
+    expect(mapSignupWithCaptchaError('email_in_use')).toBe(Copy.auth.error.emailInUse);
+  });
+
+  it('weak_password_length maps to the length copy', () => {
+    expect(mapSignupWithCaptchaError('weak_password_length')).toBe(Copy.auth.error.passwordTooShort);
+  });
+
+  it('weak_password_pwned maps to the breach copy', () => {
+    expect(mapSignupWithCaptchaError('weak_password_pwned')).toBe(Copy.auth.error.passwordBreached);
+  });
+
+  it.each([
+    'weak_password',
+    'invalid_body',
+    'signup_failed',
+    'signup_unavailable',
+    'no_session',
+    'network',
+    'unknown',
+  ] as const)('%s falls back to the generic message', (code) => {
+    expect(mapSignupWithCaptchaError(code)).toBe(Copy.auth.error.generic);
   });
 });
