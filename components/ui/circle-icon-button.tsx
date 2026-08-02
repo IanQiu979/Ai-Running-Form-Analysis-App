@@ -3,10 +3,13 @@
  * redesign uses this for back/close/settings instead of an underlined text link, which is what
  * "Settings" and "Cancel" used to be.
  *
- * WHY IT IS NOT GLASS: the reference's version is translucent. This one is an opaque
- * `surface.raised` fill with a `control.border` ring, for the same reason `<PillButton>`'s
- * secondary variant is — see the `Glass` contract in constants/theme.ts. A control's boundary owes
- * WCAG 1.4.11 3:1, and no alpha that still reads as glass can pay it against the page gradient.
+ * IT IS GLASS AGAIN (2026-08-02, captain's decision). It shipped opaque in the redesign because the
+ * old `Glass` contract banned glass from being a control's fill; the captain overrode that. The
+ * override is affordable because a control's fill and its boundary are independent: the frosted
+ * `Glass.control` fill still cannot pay WCAG 1.4.11's 3:1 (nothing translucent can, against this
+ * page gradient), so the `control.border` ring pays it instead — retuned in the same pass and
+ * proven at >=3:1 against both the wash outside the circle and the frost inside it. Same reasoning,
+ * same trade-off, as `<PillButton>`'s `secondary`; its header states the cost in full.
  *
  * SIZE: `ControlHeight.circle` (44) is both the drawn diameter and `HitTarget.min`. They coincide
  * deliberately — this is the one control in the system where the visual size is already the
@@ -24,6 +27,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { GlassFrost } from '@/components/ui/glass-frost';
 import { Colors, ControlHeight, Motion, Opacity, Radius } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -80,10 +84,11 @@ export function CircleIconButton({
         onPressOut={() => setPressed(false)}
         style={({ pressed }) => [
           styles.circle,
-          { backgroundColor: colors.surface.raised, borderColor: colors.control.border },
+          { borderColor: colors.control.border },
           disabled && styles.disabled,
           pressed && !disabled && styles.pressed,
         ]}>
+        <GlassFrost tone="control" testID={testID ? `${testID}-frost` : undefined} />
         {children}
       </Pressable>
     </Animated.View>
@@ -97,6 +102,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: ControlHeight.circle,
     justifyContent: 'center',
+    // Clips `<GlassFrost>` to the circle. Without it the frost renders as a square behind a round
+    // ring, which is the one way this control can look broken rather than merely wrong.
+    overflow: 'hidden',
     width: ControlHeight.circle,
   },
   disabled: {

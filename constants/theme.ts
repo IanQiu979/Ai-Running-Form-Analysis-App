@@ -30,6 +30,16 @@
  * `ContentWidth`, `HitTarget`, `CheckboxSize`, `Opacity` and `SystemFont` are untouched by pass 2,
  * as are `Motion`'s original three durations and two curves.
  *
+ *   Pass 3 — the bold pass, also 2026-08-02, on the captain's explicit decision after pass 2
+ *   reported what it had declined. Only two things in this file moved, and each carries its own
+ *   block comment saying so at the token: `Glass` gains a `control` tone (so a control can be
+ *   genuinely frosted) and a canvas-tinted `chrome` tone (so the floating tab bar can be
+ *   translucent and still carry `text.secondary`), and `Colors.*.control.border` is RETUNED in
+ *   both schemes. The retune strengthens a guarantee rather than relaxing one: the old ring was
+ *   proven only against the opaque surfaces and measured as low as 1.43:1 against the page wash it
+ *   has actually sat on since pass 2. The one guarantee that genuinely changed shape is `Glass`'s
+ *   own contract — read it at the token; it names what the decision cost.
+ *
  * Naming is by role ("text.secondary", "score.mid.fill"), never by appearance ("gray600" or
  * "amber"), so a rebrand only ever touches a value, never a call site. No hardcoded colors,
  * spacing, radii, or fonts belong in components — import from here (CLAUDE.md § Code
@@ -84,6 +94,23 @@ export type ColorScheme = 'light' | 'dark';
 // not enough to read as a tappable control. Proven >=3:1 (WCAG 1.4.11's floor) against all three
 // surfaces, both schemes, in `theme-contrast.test.ts` — including a guard that hairline itself
 // stays under 3:1, so this role can never quietly collapse back into decorative hairline.
+//
+// RETUNED 2026-08-02 (captain's decision to make `Glass` genuinely translucent — see the `Glass`
+// block below). Both values moved, and this is a WIDENED guarantee, not a restyle. The previous
+// pair (light #7986A6 / dark #6B77A0) was proven only against the three OPAQUE surfaces. Since the
+// Calm redesign every control actually sits on `Gradient.page`, and measured against the wash the
+// old pair was nowhere near the 3:1 floor it advertised: dark #6B77A0 read 1.43 / 1.83 / 2.38
+// against the three stops, and light #7986A6 read 2.94 / 2.85 / 2.86. That was a real, shipped gap
+// — a control ring that met WCAG on a backdrop the control was no longer on. The new values are
+// solved against the FULL set a control edge can touch: three surfaces + flat `background` + all
+// three `Gradient.page` stops + every one of those seen through each translucent `Glass` tone.
+// Method unchanged from the rest of this file: hold hue and saturation, move only lightness.
+//   light #6C7A9D (hue 222.7°, sat 20.2%, L 52.0%) — worst case 3.35:1 (over glass on stop 1).
+//   dark  #D4D7E3 (hue 226.4°, sat 21.8%, L 86.0%) — worst case 3.29:1 (over glass on stop 0).
+// Dark had to go LIGHT, not darker, and that direction is forced: the only darker colour that
+// clears 3:1 against the darkest stop (#472E86) is pure black, at exactly 3.00:1 with no margin.
+// A pale rim on a blue wash is also what the reference itself draws. Every pair is computed in
+// theme-contrast.test.ts, never asserted from this comment.
 // -------------------------------------------------------------------------------------------
 
 export const Colors = {
@@ -109,11 +136,11 @@ export const Colors = {
     hairline: '#CBD5EA',
     control: {
       // The interactive-boundary role (issue #96) — same hue/sat family as hairline moved into
-      // the desaturated register (222.7°, 20.2%), lightness darkened until the WORST of the three
-      // surfaces it can sit against (background, surface.base, surface.raised — a control's fill
-      // is one of the latter two, its outer edge always touches `background`) clears 3:1:
-      // 3.15:1 (background) / 3.39:1 (surface.base) / 3.64:1 (surface.raised).
-      border: '#7986A6',
+      // the desaturated register (222.7°, 20.2%), lightness darkened until the WORST backdrop a
+      // control edge can touch clears 3:1. See the "RETUNED 2026-08-02" note above for the full
+      // set that "worst" is now solved over; the binding case is this ring against a translucent
+      // control sitting on `Gradient.page`'s middle stop, at 3.35:1.
+      border: '#6C7A9D',
     },
   },
   dark: {
@@ -143,10 +170,11 @@ export const Colors = {
     hairline: '#2C3350',
     control: {
       // Same hue/sat family as dark hairline moved to the desaturated register (226.4°, 21.8%),
-      // lightened until the worst surface clears 3:1: 3.59:1 (surface.raised) / 3.90:1
-      // (surface.base) / 4.19:1 (background) — surface.raised is dark mode's lightest surface, so
-      // (as elsewhere in this file) it's the binding constraint for a lightened foreground.
-      border: '#6B77A0',
+      // lightened until the worst backdrop clears 3:1. The binding case is no longer a surface at
+      // all: it is this ring against a translucent control on `Gradient.page`'s BRIGHTEST stop, at
+      // 3.29:1. See the "RETUNED 2026-08-02" note above for why lightening (rather than darkening)
+      // was the only direction with any headroom.
+      border: '#D4D7E3',
     },
   },
 } as const;
@@ -372,8 +400,9 @@ export const Accent = {
 // enough erases the whole primary/secondary step. This is also how the reference behaves —
 // Calm puts one white headline on the gradient and drops everything else (captions, metadata,
 // list rows) onto a glass card, i.e. onto `surface.base`/`surface.raised`, which ARE proven for
-// both text roles. Secondary text, score fills and score text belong on a surface, never directly
-// on the wash. Asserted per stop in theme-contrast.test.ts.
+// both text roles. Secondary text, score fills and score text belong on a surface — or, since
+// 2026-08-02's pass 3, on the one canvas-tinted `Glass.*.chrome` tone that is proven for both
+// roles — never directly on the wash. Asserted per stop in theme-contrast.test.ts.
 // -------------------------------------------------------------------------------------------
 
 export const Gradient = {
@@ -393,37 +422,69 @@ export type GradientRole = keyof typeof Gradient;
 // hero image fades into. `Colors.*.surface.*` cannot express that — they are opaque, so a card
 // built from them hides the wash instead of letting it through.
 //
-// THE CONTRACT, and it is narrow on purpose:
+// THE CONTRACT — REVISED 2026-08-02 BY THE CAPTAIN'S DECISION. The original version of this block
+// forbade glass from ever being an interactive control's fill, so the app's secondary pills, its
+// circular icon buttons and its tab bar all shipped OPAQUE and the reference's defining material
+// was missing from every control. The captain was told why (see note 2) and asked for the Calm look
+// anyway. Rather than trade the boundary away, this revision separates the two things the old rule
+// conflated: a control's FILL and a control's BOUNDARY are independent, and only the boundary owes
+// WCAG 1.4.11 anything. So the fill is now genuinely frosted and the boundary is still proven.
 //
-//   1. Glass carries `text.primary` ONLY. Proven below against every backdrop glass can legally
-//      sit on — all three `Gradient.page` stops plus the flat `background` — in
-//      theme-contrast.test.ts, which composites the alpha itself rather than trusting a comment.
-//      Dark mode is the binding case: white on `dark.fill` over the BRIGHTEST gradient stop is
-//      5.26:1 and on `dark.raised` 4.81:1. Anything heavier than 0.12 white pushes `raised` under
-//      4.5:1, which is why these two alphas are what they are and not the reference's literal
-//      ~0.15-0.18. Secondary text, score text, score fills and coaching prose go on an opaque
-//      `surface.*` — the same rule `Gradient`'s own contract above already states, unchanged.
+//   1. WHITE-TINTED glass (`fill`, `raised`, `control`) carries `text.primary` ONLY. Proven below
+//      against every backdrop glass can legally sit on — all three `Gradient.page` stops plus the
+//      flat `background` — in theme-contrast.test.ts, which composites the alpha itself rather
+//      than trusting a comment. Dark mode is the binding case: white on `dark.fill` over the
+//      BRIGHTEST gradient stop is 5.26:1, on `dark.raised` 4.81:1, on `dark.control` 4.72:1.
+//      Anything heavier than ~0.13 white pushes a tone under 4.5:1, which is why these alphas are
+//      what they are and not the reference's literal ~0.15-0.18. Text legibility is NOT what the
+//      captain's decision traded away, and this is the line that says so: every alpha here is
+//      capped by the worst legal backdrop, not chosen for looks.
 //
-//   2. Glass is DECORATIVE surface only — never the fill or the boundary of an interactive
-//      control. A 8-12% white wash reads ~1.15:1 against the wash behind it, so a button made of
-//      it cannot meet WCAG 1.4.11's 3:1 non-text boundary floor, and no alpha that does would
-//      still be translucent. Buttons, inputs and checkboxes therefore keep opaque
-//      `surface.base`/`surface.raised` fills with a `control.border` ring — both already proven.
-//      What glass is for: hero scrims, the tab-bar backdrop *behind* those solid controls, the
-//      marquee's edge fade, the aperture ring. `hairline` here is the same decorative category as
-//      `Colors.*.hairline` and carries no contrast promise either.
+//   2. CANVAS-TINTED glass (`chrome`) carries BOTH text roles, and it is the only tone that does.
+//      It is tinted toward this scheme's own `background` rather than toward white, so instead of
+//      washing the backdrop out it darkens it (dark) / lightens it (light) toward the surface the
+//      full text scale was tuned against. That is what buys `text.secondary` back: 4.99:1 worst
+//      case in dark, 5.93:1 in light. It exists because the floating tab bar is the single most
+//      recognisable piece of Calm's chrome AND it renders inactive tabs in `text.secondary` — on
+//      white-tinted glass those two facts are irreconcilable (a dimmed white over the bright end
+//      of the wash tops out around 3.7:1, short of AA at a 13pt label), and this is the tone that
+//      reconciles them without going opaque. See the counter-guard in theme-contrast.test.ts: the
+//      white-tinted tones still genuinely FAIL for secondary text, and that guard is kept, not
+//      loosened.
 //
-// Light mode is far less constrained (white over already-light stops), but takes the same
-// contract anyway so a component never has to branch on scheme to know what it may put on glass.
+//   3. Glass MAY now be an interactive control's fill — WITH a `control.border` ring. This is the
+//      clause the captain's decision changed, and the ring is the whole reason it can change
+//      honestly. An 8-13% white wash reads ~1.1:1 against the wash behind it, exactly as the old
+//      note said, so the FILL can never carry the 3:1 non-text boundary itself. It does not have
+//      to: `Colors.*.control.border` is an opaque, proven ring, and it was retuned in this same
+//      pass (see its block above) specifically so it clears 3:1 against every gradient stop AND
+//      against every one of those stops seen through each glass tone. So a glass control is
+//      frosted AND bounded. WHAT IS ACTUALLY LOST, stated plainly rather than left to the diff: a
+//      glass control's affordance now rests on a 1pt ring instead of on a solid fill, and its
+//      label's contrast falls from 15.81:1 (white on opaque `surface.raised`) to 4.72:1 worst case
+//      — still AA, but AAA is gone for those labels. That is the captain's call, made knowingly.
+//      `hairline` here stays decorative and carries no contrast promise, same as
+//      `Colors.*.hairline`.
+//
+// Light mode is far less constrained (white over already-light stops), but takes the same contract
+// anyway so a component never has to branch on scheme to know what it may put on glass.
 // -------------------------------------------------------------------------------------------
 
 export const Glass = {
   light: {
     /** The default translucent panel. */
     fill: 'rgba(255, 255, 255, 0.72)',
-    /** The one raised/floating glass element per screen (tab bar, sticky action bar). */
+    /** The one raised/floating glass element per screen (a sticky action bar). */
     raised: 'rgba(255, 255, 255, 0.88)',
-    /** Decorative edge on a glass panel. No contrast promise — see contract note 2. */
+    /** An interactive control's frosted fill — a secondary pill, a circular icon button. Always
+     *  paired with a `control.border` ring; see contract note 3. Deliberately LIGHTER than `fill`:
+     *  a control should let more of the wash through than the panel it sits on, which is what makes
+     *  it read as a lens rather than as a lighter card. */
+    control: 'rgba(255, 255, 255, 0.55)',
+    /** Canvas-tinted chrome that must carry the full text scale — the floating tab bar. The only
+     *  glass tone proven for `text.secondary`; see contract note 2. */
+    chrome: 'rgba(233, 239, 250, 0.62)',
+    /** Decorative edge on a glass panel. No contrast promise — see contract note 3. */
     hairline: 'rgba(19, 24, 50, 0.10)',
     /** Legibility scrim laid over photographic media before text sits on it. */
     scrim: 'rgba(233, 239, 250, 0.55)',
@@ -431,10 +492,18 @@ export const Glass = {
   dark: {
     fill: 'rgba(255, 255, 255, 0.08)',
     raised: 'rgba(255, 255, 255, 0.12)',
+    control: 'rgba(255, 255, 255, 0.13)',
+    chrome: 'rgba(15, 19, 36, 0.62)',
     hairline: 'rgba(255, 255, 255, 0.16)',
     scrim: 'rgba(15, 19, 36, 0.55)',
   },
 } as const;
+
+/** The `Glass` tones that are tinted toward WHITE, and therefore carry `text.primary` only
+ *  (contract note 1). Exported so `theme-contrast.test.ts` can iterate exactly this set — and so
+ *  the counter-guard proving `text.secondary` fails on them cannot silently stop covering a tone
+ *  someone adds later. `chrome` is deliberately absent: it is the canvas-tinted exception. */
+export const WhiteTintedGlassTones = ['fill', 'raised', 'control'] as const;
 
 export type GlassColors = (typeof Glass)[ColorScheme];
 

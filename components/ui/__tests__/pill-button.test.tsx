@@ -15,16 +15,22 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { PillButton } from '../pill-button';
-import { ControlHeight, HitTarget } from '@/constants/theme';
+import { Colors, ControlHeight, HitTarget, type ColorScheme } from '@/constants/theme';
 
 const mockUseReducedMotion = jest.fn(() => false);
 jest.mock('@/hooks/use-reduced-motion', () => ({
   useReducedMotion: () => mockUseReducedMotion(),
 }));
 
+const mockUseColorScheme = jest.fn<ColorScheme, []>(() => 'light');
+jest.mock('@/hooks/use-color-scheme', () => ({
+  useColorScheme: () => mockUseColorScheme(),
+}));
+
 describe('PillButton', () => {
   beforeEach(() => {
     mockUseReducedMotion.mockReturnValue(false);
+    mockUseColorScheme.mockReturnValue('light');
   });
 
   it('names itself from its label — a call site cannot ship a nameless button', async () => {
@@ -84,6 +90,30 @@ describe('PillButton', () => {
     const style = StyleSheet.flatten(screen.getByTestId('cta').props.style);
     expect(style.minHeight).toBeGreaterThanOrEqual(HitTarget.min);
     expect(style.minWidth).toBeGreaterThanOrEqual(HitTarget.min);
+  });
+
+  // The 2026-08-02 captain's decision, locked. These two assertions are a pair and only mean
+  // anything together: "translucent" without a proven ring is a control whose edge disappears into
+  // the page wash, which is exactly what the redesign refused to ship. Neither half may be dropped
+  // without the other being reconsidered.
+  it('gives the secondary pill a GENUINELY translucent fill — no opaque surface colour', async () => {
+    await render(<PillButton variant="secondary" label="Not now" onPress={jest.fn()} testID="cta" />);
+
+    // The frost layer paints `Glass.control`; the Pressable itself must therefore stay transparent,
+    // or the token's alpha would be composited over an opaque colour and the page wash would not
+    // show through at all.
+    const style = StyleSheet.flatten(screen.getByTestId('cta').props.style);
+    expect(style.backgroundColor).toBe('transparent');
+    expect(screen.getByTestId('cta-frost', { includeHiddenElements: true })).toBeTruthy();
+  });
+
+  it('keeps a proven control.border ring on the secondary pill — the fill cannot carry 1.4.11', async () => {
+    mockUseColorScheme.mockReturnValue('dark');
+    await render(<PillButton variant="secondary" label="Not now" onPress={jest.fn()} testID="cta" />);
+
+    const style = StyleSheet.flatten(screen.getByTestId('cta').props.style);
+    expect(style.borderColor).toBe(Colors.dark.control.border);
+    expect(style.borderWidth).toBeGreaterThan(0);
   });
 
   it('still renders and still fires under reduced motion — only the press scale is dropped', async () => {

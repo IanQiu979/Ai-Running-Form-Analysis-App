@@ -4,12 +4,17 @@
  *
  *   `primary`   — the accent fill. One per screen, the same rule `Accent` in constants/theme.ts
  *                 already states ("the primary CTA, and only the primary CTA").
- *   `secondary` — an opaque `surface.raised` fill with a `control.border` ring. The reference's
- *                 secondary pill is translucent glass; this one deliberately is not. See the
- *                 contract note on `Glass` in constants/theme.ts: an 8-12% wash reads ~1.15:1
- *                 against the page gradient behind it and cannot meet WCAG 1.4.11's 3:1 non-text
- *                 boundary floor at any alpha that is still translucent. An opaque fill with a
- *                 proven ring is the same visual role, honestly built.
+ *   `secondary` — genuinely frosted `Glass.control` over `<GlassFrost>`, with a `control.border`
+ *                 ring. CHANGED 2026-08-02 on the captain's decision: this variant shipped OPAQUE
+ *                 in the redesign because the old `Glass` contract banned glass from being a
+ *                 control's fill. That ban conflated two independent things. The fill genuinely
+ *                 cannot carry WCAG 1.4.11's 3:1 non-text floor — an 8-13% wash reads ~1.1:1
+ *                 against the page gradient — but it never had to: the RING carries it, and
+ *                 `control.border` was retuned in the same pass so it clears 3:1 against both the
+ *                 wash outside the pill and the frosted fill inside it (proven in
+ *                 `constants/__tests__/theme-contrast.test.ts`). So the pill is translucent AND
+ *                 bounded. The cost, stated rather than hidden: the label falls from 15.81:1 on the
+ *                 old opaque fill to 4.72:1 worst case — still AA, no longer AAA.
  *   `ghost`     — text only, no fill, no ring. For the tertiary exit ("Cancel", "Not now") that
  *                 must be reachable but must not compete. Still `HitTarget.min` tall.
  *
@@ -42,6 +47,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { GlassFrost } from '@/components/ui/glass-frost';
 import {
   Accent,
   Colors,
@@ -112,12 +118,9 @@ export function PillButton({
     });
   }
 
-  const fill =
-    variant === 'primary'
-      ? Accent.value
-      : variant === 'secondary'
-        ? colors.surface.raised
-        : 'transparent';
+  // `secondary`'s fill is a real frosted layer, not a colour — see this file's header. Its
+  // `backgroundColor` therefore stays transparent and `<GlassFrost>` below paints the material.
+  const fill = variant === 'primary' ? Accent.value : 'transparent';
   const labelColor =
     variant === 'primary' ? Accent.onAccent : colors.text.primary;
 
@@ -140,10 +143,15 @@ export function PillButton({
           variant === 'secondary' && {
             borderWidth: 1,
             borderColor: colors.control.border,
+            // Clips the frost to the pill's own radius. Only `secondary` needs it — the other two
+            // variants have no layer to clip, and `overflow: 'hidden'` would pointlessly force a
+            // masked layer on them.
+            overflow: 'hidden',
           },
           disabled && styles.disabled,
           pressed && !disabled && styles.pressed,
         ]}>
+        {variant === 'secondary' ? <GlassFrost tone="control" testID={testID ? `${testID}-frost` : undefined} /> : null}
         {busy ? (
           <ActivityIndicator color={labelColor} />
         ) : (

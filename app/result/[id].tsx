@@ -44,6 +44,13 @@
  * view." A plain re-open from Past Analyses never sets it, so `firstReveal` defaults to false
  * there and `<PaceReadout>` renders its ordinary static, finished state.
  *
+ * THE HERO'S APERTURE (2026-08-02, captain's instruction): `<Aperture>` wraps — never replaces —
+ * `<DuotoneFrame>`. Its permanent vignette is the still state; its iris and rack focus play once, on
+ * a fresh analysis only, and the annotation wireframe is held back by `Motion.duration.epic` so the
+ * two animations run in sequence rather than on top of each other. See `components/aperture.tsx`'s
+ * header for why the two treatments compose rather than fight, and why it had to be rebuilt from
+ * its description rather than recovered from git.
+ *
  * MOTION (issue #61) — the scroll container: motion-consult.md item 5, "build on Reanimated's
  * `Animated.ScrollView` + `useAnimatedRef` from day one (zero effects wired now) so the post-MVP
  * scroll-driven phase is additive, not a container swap." `scrollRef` below has no reader yet —
@@ -55,6 +62,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { useAnimatedRef } from 'react-native-reanimated';
 
+import { Aperture } from '@/components/aperture';
 import { DuotoneFrame } from '@/components/duotone-frame';
 import { PartialResultBanner } from '@/components/partial-result-banner';
 import { PaceReadout } from '@/components/pace-readout';
@@ -69,6 +77,7 @@ import {
   FontFamily,
   FontSize,
   LineHeight,
+  Motion,
   Radius,
   Spacing,
   Tracking,
@@ -292,16 +301,30 @@ export default function ResultScreen() {
               disclosure about the readout, and the readout is what follows it; putting it above
               the image used to push the hero down and make the honesty notice read as a page
               header. Nothing about when it shows has changed. */}
+          {/* THE APERTURE (restored 2026-08-02 on the captain's instruction). It wraps the hero
+              rather than replacing anything: `<DuotoneFrame>`'s grade and its three assembling
+              hairlines are untouched, and the aperture adds the lens the jeskojets reference is
+              about — a permanent vignette, plus a six-bladed iris and a rack focus that play once
+              on a fresh analysis. The three treatments are SEQUENCED, not stacked: the iris opens
+              onto a photo pulling into focus, and only then does the wireframe draw onto it
+              (`annotationDelayMs`). Drawing the wireframe underneath a shut iris was the one way
+              these could genuinely have fought each other, and the delay is what avoids it.
+              `open` follows `justAnalyzed` for exactly the same reason `playAnnotation` does — a
+              re-open from Past Analyses is not a first reveal, so it gets the still, already-open
+              aperture and the vignette alone. */}
           {heroUri ? (
             <View style={styles.heroBleed}>
-              <DuotoneFrame
-                testID="result-hero-image"
-                uri={heroUri}
-                accessibilityLabel={Copy.result.hero.altText}
-                annotate
-                playAnnotation={justAnalyzed}
-                onAnnotationComplete={() => setAnnotationsDone(true)}
-              />
+              <Aperture testID="result-hero-aperture" open={justAnalyzed}>
+                <DuotoneFrame
+                  testID="result-hero-image"
+                  uri={heroUri}
+                  accessibilityLabel={Copy.result.hero.altText}
+                  annotate
+                  playAnnotation={justAnalyzed}
+                  annotationDelayMs={justAnalyzed ? Motion.duration.epic : 0}
+                  onAnnotationComplete={() => setAnnotationsDone(true)}
+                />
+              </Aperture>
             </View>
           ) : null}
 

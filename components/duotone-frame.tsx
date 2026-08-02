@@ -54,6 +54,10 @@ type DuotoneFrameProps = {
   /** Draw the lines on once, rather than rendering them already fully drawn. Only meaningful
    * when `annotate` is set; ignored otherwise. */
   playAnnotation?: boolean;
+  /** Hold the draw for this long before line 1 starts. The result hero passes `<Aperture>`'s own
+   * duration here so the wireframe is drawn onto an open, sharp frame rather than underneath a
+   * closed iris. Only meaningful alongside `playAnnotation`. */
+  annotationDelayMs?: number;
   /** Fires once, after the draw finishes. Only meaningful when both `annotate` and
    * `playAnnotation` are set. */
   onAnnotationComplete?: () => void;
@@ -65,6 +69,7 @@ export function DuotoneFrame({
   testID,
   annotate = false,
   playAnnotation = false,
+  annotationDelayMs = 0,
   onAnnotationComplete,
 }: DuotoneFrameProps) {
   const scheme = useColorScheme() ?? 'light';
@@ -90,6 +95,7 @@ export function DuotoneFrame({
         <AnnotationLines
           lines={ANNOTATION_LINES}
           play={playAnnotation}
+          startDelayMs={annotationDelayMs}
           onComplete={onAnnotationComplete}
           testID={testID ? `${testID}-annotations` : undefined}
         />

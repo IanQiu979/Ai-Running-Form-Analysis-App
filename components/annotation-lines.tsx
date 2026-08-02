@@ -3,12 +3,24 @@
  * launch, first run, and the result reveal each mount this with a different set of lines and a
  * different trigger, but none of them know how a line is drawn — only this file does.
  *
- * WHY PLAIN VIEWS, NOT SVG: `react-native-svg` is not a dependency of this project and must not
- * become one for this feature (spec §4.3). A hairline is a 1pt `View`; "drawing it on" is
- * `scaleX` 0→1 with `transformOrigin: 'left'` so the line grows from its own fixed left edge
- * regardless of its static `rotate` — exactly `components/pace-reveal.tsx`'s documented "Pillar
- * bar fill = scaleX, never width" pattern, reused verbatim, because a transform never triggers a
- * layout pass.
+ * THE STANDING RULING AGAINST `react-native-svg` WAS LIFTED BY THE CAPTAIN ON 2026-08-02. This
+ * header used to say the library "is not a dependency of this project and must not become one"
+ * (spec §4.3), and other files — `components/low-poly-field.tsx` most consequentially — inherited
+ * that ruling from here rather than relitigating it. It is now false in both halves and left
+ * standing it would mislead: `react-native-svg` IS a dependency, and it is the right tool where a
+ * shape's own geometry has to change. The captain lifted it specifically so the low-poly mark could
+ * morph per-vertex, which a CSS border-triangle (always isoceles about its own axis) cannot do at
+ * any amount of transform. Read that file's header for what the ruling was costing.
+ *
+ * WHY THIS FILE STAYS ON PLAIN VIEWS ANYWAY — a choice now, not a prohibition. A hairline is a 1pt
+ * `View`; "drawing it on" is `scaleX` 0→1 with `transformOrigin: 'left'` so the line grows from its
+ * own fixed left edge regardless of its static `rotate` — exactly `components/pace-reveal.tsx`'s
+ * documented "Pillar bar fill = scaleX, never width" pattern, reused verbatim, because a transform
+ * never triggers a layout pass. An SVG rewrite would buy this component nothing it does not already
+ * have (a straight line has no internal geometry to morph), would move a proven, tested animation
+ * onto a different rendering path for no behaviour change, and would swap a pure-transform draw for
+ * one that re-serialises a path string every frame. Migrating was evaluated and declined on those
+ * grounds; it is not blocked.
  *
  * WHY THE CALLER SUPPLIES GEOMETRY: this primitive invents no positions or angles. Every line's
  * `top`/`left`/`width`/`rotate` is fixed geometry the caller already decided (art proportions, the
@@ -57,12 +69,25 @@ type AnnotationLinesProps = {
    * caller (moment 1) and any caller that hasn't opted in is unaffected. Ignored under reduced
    * motion, which never staggers (see this file's header). */
   staggerMs?: number;
+  /** Delay (ms) before the FIRST line starts, on top of `staggerMs`. Added 2026-08-02 so the result
+   * hero can sequence this behind `<Aperture>`'s opening instead of drawing the wireframe underneath
+   * a closed iris where nobody can see it. Distinct from `staggerMs`, which only spaces lines
+   * relative to each other and can never delay line 0. Default 0 — every existing caller is
+   * unaffected. Ignored under reduced motion, which never delays (see this file's header). */
+  startDelayMs?: number;
   /** Fires once, after the slowest line finishes drawing (or immediately under reduced motion). */
   onComplete?: () => void;
   testID?: string;
 };
 
-export function AnnotationLines({ lines, play, staggerMs = 0, onComplete, testID }: AnnotationLinesProps) {
+export function AnnotationLines({
+  lines,
+  play,
+  staggerMs = 0,
+  startDelayMs = 0,
+  onComplete,
+  testID,
+}: AnnotationLinesProps) {
   const scheme = useColorScheme() ?? 'light';
   const color = Colors[scheme].hairline;
   const reduceMotion = useReducedMotion();
@@ -75,7 +100,7 @@ export function AnnotationLines({ lines, play, staggerMs = 0, onComplete, testID
           line={line}
           color={color}
           play={play}
-          delay={index * staggerMs}
+          delay={startDelayMs + index * staggerMs}
           reduceMotion={reduceMotion}
           isLast={index === lines.length - 1}
           onComplete={onComplete}

@@ -37,6 +37,9 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
   ui/surface-card.tsx     # SurfaceCard (opaque) + GlassCard (translucent). Replaced the deleted
                           # ui/notched-card.tsx, whose notched square plate was the signature
                           # shape of the pre-Calm "Gait Plate" language.
+  ui/glass-frost.tsx      # what every translucent surface is MADE of (2026-08-02 bold pass): an
+                          # expo-blur backdrop blur under a Glass token. One place decides the
+                          # material, so the contrast proof composites one known layer.
   ui/pill-button.tsx      # every button in the app: primary / secondary / ghost.
   ui/circle-icon-button.tsx # the circular back/settings control in a screen's top bar.
   ui/eyebrow.tsx          # the tracked uppercase micro-label — the redesign's main sub-display
@@ -44,16 +47,20 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
   kinetic-text.tsx        # per-word reveal. Splits a sentence into one Text per word but keeps
                           # ONE accessible node carrying the whole string — see its header.
   marquee.tsx             # the standing PACE-pillar ticker on Home.
-  low-poly-field.tsx      # the morphing triangle mark (Analyzing wait, Home/sign-in atmosphere),
-                          # built from CSS border-triangles: react-native-svg is still not a
-                          # dependency, per annotation-lines.tsx's ruling.
+  low-poly-field.tsx      # the morphing triangle mark (Analyzing wait, Home/sign-in atmosphere).
+                          # Per-vertex SVG polygons since 2026-08-02, when the captain lifted the
+                          # react-native-svg ban annotation-lines.tsx used to carry: a pose is
+                          # three independent vertices, so a facet genuinely reshapes.
+  aperture.tsx            # the result hero's lens (2026-08-02): a permanent radial vignette, plus
+                          # a six-bladed iris and an expo-blur rack focus that play once on a
+                          # fresh analysis. Wraps DuotoneFrame; sequenced ahead of its wireframe.
 constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
                           # palette, spacing/radii/type scales; M1 added
                           # ControlHeight/ControlWidth/HitTarget/Opacity
 constants/copy.ts         # strings lifted verbatim from docs/design/copy-deck.md — sign-in and
                           # Home's copy live here first (M1); more screens' copy lands with them
 constants/contrast.ts     # contrast-ratio helper backing the AA proof below
-constants/__tests__/theme-contrast.test.ts  # 69-assertion Jest proof every text/surface and
+constants/__tests__/theme-contrast.test.ts  # 179-assertion Jest proof every text/surface and
                           # band pair clears WCAG AA (9 brief-§2 intent values were darkened/
                           # lightened minimally to pass — each old → new value is a comment in
                           # theme.ts next to the token it changed)
@@ -937,7 +944,9 @@ wires Home's CTA should route to `/capture`, not re-derive this flow.
 
 **Framing guide**: `components/framing-guide.tsx` draws a faint running-stance figure (head,
 torso, four limbs) plus a ground/level reference line from plain `View`s — no
-`react-native-svg` (not installed) and no new illustration-library dependency, matching
+`react-native-svg` (which was not installed when this was written; it is a dependency as of
+2026-08-02, but this figure has no internal geometry to morph and was left alone) and no new
+illustration-library dependency, matching
 `pace_framework.md`'s side-on/full-body/level/~10m/good-light requirement from brief §4.4. Purely
 decorative: hidden from the accessibility tree (`accessibilityElementsHidden` +
 `importantForAccessibility="no-hide-descendants"`) — the a11y-visible guidance is the sibling

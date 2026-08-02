@@ -9,13 +9,17 @@
  *
  * No illustration library exists in this project (§8 of the brief rules out a "custom
  * illustration system" — read as ruling out a whole ASSET PIPELINE, not this one guide, which
- * the brief itself specs by name) and `react-native-svg` is not installed, so the figure is
+ * the brief itself specs by name), so the figure is
  * built from plain `View`s — a small set of positioned/rotated rectangles and a circle, the same
  * "primitive shapes, theme tokens for color" approach `components/consent-gate.tsx`'s checkbox
  * already uses. The figure's own proportions (limb lengths, angles) are art geometry, not
  * layout — same category as `assets/source/mark-*.svg`'s fixed anatomy — so they're named local
  * constants below rather than `constants/theme.ts` spacing tokens; color and opacity DO come
- * from theme tokens (`hairline`, `Opacity.disabled`), same as everywhere else in the app.
+ * from theme tokens (`hairline`, `Opacity.disabled`), same as everywhere else in the app. This
+ * file's original justification also cited `react-native-svg` not being installed; it IS installed
+ * as of 2026-08-02 (see `components/annotation-lines.tsx`'s header for the record), and that half
+ * of the reasoning is struck rather than left standing as a false claim. Plain views remain the
+ * right choice here for the reason above, not for a missing dependency.
  *
  * Purely decorative: hidden from the accessibility tree (brief §7: "Decorative annotations are
  * hidden from the a11y tree"). The guidance a screen reader user needs is the sibling
