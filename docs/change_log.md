@@ -54,7 +54,7 @@ none of them changed what they DO.
   rather than content: the gradient stops drifting, the low-poly mark renders as a still mark, the
   marquee does not scroll (and its duplicate copy is not even mounted), kinetic text does one
   crossfade instead of a stagger. New tests lock all four.
-- **Tests:** 999 passing (was 949). Three existing suites were updated, not weakened —
+- **Tests:** 1003 passing (was 949). Three existing suites were updated, not weakened —
   `theme-tokens.test.ts`'s `Radius.card` lock now locks 24 with the reversal documented at the
   assertion, and two suites that queried split kinetic text by `getByText` now query the accessible
   label, which is what a screen reader actually receives.

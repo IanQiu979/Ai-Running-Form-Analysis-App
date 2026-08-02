@@ -31,8 +31,9 @@
  * REDESIGN PHASE 1 (spec §3, plan `docs/superpowers/plans/2026-07-26-redesign-phase-1-static-
  * layer.md`): the stored frame now renders through `<DuotoneFrame>` — full-bleed and graded
  * toward the warm base instead of inset as a rounded thumbnail — and the readout sits inside a
- * `<NotchedCard>`. Both are static; the alt text, the disclaimer footer, and every accessibility
- * label are unchanged. This is the only screen Phase 1 restyles.
+ * `<SurfaceCard>` (formerly `<NotchedCard>`, superseded by the 2026-08-02 Calm redesign — see
+ * `docs/architecture.md`). Both are static; the alt text, the disclaimer footer, and every
+ * accessibility label are unchanged. This is the only screen Phase 1 restyles.
  *
  * MOTION (issue #61): `justAnalyzed` is read straight off the route params and forwarded to
  * `<PaceReadout>` as `firstReveal` — nothing else on this screen branches on it. Both writers of
