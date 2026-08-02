@@ -341,7 +341,10 @@ export default function SignInScreen() {
                       setCaptchaToken(token);
                       clearErrors();
                     }}
-                    onExpire={() => setCaptchaToken(null)}
+                    onExpire={() => {
+                      setCaptchaToken(null);
+                      setErrorMessage(Copy.auth.error.captchaExpired);
+                    }}
                     onError={() => {
                       setCaptchaToken(null);
                       setErrorMessage(Copy.auth.error.captchaLoadFailed);
