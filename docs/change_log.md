@@ -5,6 +5,58 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-02 (the Calm colour scheme — a palette swap, colours only)
+
+Replaces V2.3's warm graphite/bone colour layer with the Calm app's blue/violet scheme, derived by
+sampling the reference capture (`V2.3-Calm-Design-References-calm-screens.png`) pixel-by-pixel
+rather than from its prose description. **Colours only** — `FontFamily`, `FontSize`, `Spacing`,
+`Radius` (including `Radius.card: 0`), `Motion`, `ControlHeight`, `ControlWidth`, `ContentWidth`,
+`HitTarget`, `CheckboxSize`, `Opacity` and `SystemFont` are byte-identical (verified by diffing the
+whole block against `HEAD`). No component was restructured, no layout changed, no screen added.
+
+- **`constants/theme.ts`** — `Colors`, `Score`, `Semantic.error` and `Accent` re-derived; the
+  achieved contrast ratios are quoted at every token, as the file's convention requires.
+  - Dark is the faithful copy. The reference ships **two registers**: a blue→periwinkle→violet page
+    wash, and a night canvas for its player/index screens. The flat, contrast-bearing `background`/
+    `surface.*` roles take the night canvas (with the wash's periwinkle cast); the wash becomes the
+    new `Gradient` token. Putting the bright mid-gradient blue in `background` was tried and
+    rejected — it lifts `surface.raised` until the ≥4.5:1 floor for score-band text lands above
+    pure green's luminance, making four distinguishable score hues arithmetically impossible.
+  - Light is derived, not invented (Calm has no light mode): same hue family, inverted lightness.
+  - Score bands moved into the cool register — coral 14° / gold 44° / jade 145° / teal 178°, all
+    ≥30° apart and every separation wider than the warm ramp's (whose `good`/`strong` sat 5°
+    apart). Each band is solved to a **common target ratio per role** rather than to its own bare
+    minimum, so the four read as one scale instead of four different visual weights.
+  - `Accent` is now the reference's periwinkle-violet glow, shipped darker than the sampled
+    `#9988F7` because white-on-accent ≥4.5:1 and accent-on-`surface.raised` ≥3:1 leave only a
+    narrow luminance band. Calm's own value carries white at 2.92:1 and does not meet AA there.
+    That same floor is what caps how light the dark surface stack can go.
+- **`constants/theme.ts` — new `Gradient` export.** One role, `page` (an ordered stop array per
+  scheme), because one role is all any screen consumes; no speculative variants. Its dark stops are
+  sampled off the reference's **content** screens, not the splash, whose sky-blue top carries white
+  at only 2.28:1. **Contract: it carries `text.primary` only** — secondary text and score colours
+  go on a surface, which is how the reference behaves too (one white headline on the wash,
+  everything else on a glass card).
+- **`constants/__tests__/theme-contrast.test.ts`** — 12 new assertions proving every gradient stop
+  against its scheme's `text.primary`; the stops are iterated from the export, so a stop added
+  later is proven the moment it ships. **No existing assertion was weakened, skipped or deleted** —
+  the suite computes ratios from the live exports and had no hardcoded expected values to update.
+  85 → 97 tests, all green.
+- **`app.json`** — the splash and Android adaptive-icon background colours were hardcoded copies of
+  the old tokens (`#F4F1EA`/`#1A1712`) and would otherwise have flashed bone-then-blue on every
+  cold start. Retargeted to the new `Colors.light.background`/`Colors.dark.background`. These must
+  stay literal (JSON can't import the token), so they need a manual edit on any future swap.
+- **`components/duotone-frame.tsx`** — comment only. Its grade already reads
+  `Colors[scheme].background`, so it followed the swap with no code change; the header's rationale
+  ("brief §2 chose a warm graphite/bone base") was simply no longer true.
+- **`docs/design/frontend-design-brief.md`** — §2 rewritten to describe the shipped palette, so
+  `theme.ts`'s "Source of truth: … §2" header claim stays true. §1's one sentence naming the base
+  as warm graphite/bone was corrected in place, with a superseded note.
+- **Known gap, deliberately not fixed here:** `assets/source/mark-{light,dark,favicon}.svg` still
+  carry the old bone/graphite field, and the rasterized icon/splash PNGs derived from them are
+  unchanged. Re-cutting that art is asset regeneration, not a token swap, and sits outside this
+  change's scope. Filed as a follow-up rather than half-done.
+
 ## 2026-07-29 (V2.3 redesign, Phase 2 — the three animated moments)
 
 Implements `docs/superpowers/plans/2026-07-29-redesign-phase-2-animated-moments.md`, which

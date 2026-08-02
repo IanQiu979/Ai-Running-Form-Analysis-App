@@ -21,6 +21,12 @@
  *     guards against is `control.border` being set equal to (or as weak as) `hairline`, which
  *     would silently reintroduce the exact bug #96 filed. That assertion is computed from the
  *     live `hairline` export, not a hardcoded ratio, so it tracks the token if it ever moves.
+ *   - every stop of `Gradient.page` against that scheme's `text.primary` — text, >=4.5:1
+ *     (2026-08-02, added with the token). A full-bleed page backdrop is something headlines get
+ *     drawn straight onto, so shipping its stops unproven would be exactly the "assume it passes"
+ *     the brief forbids. `text.secondary` is deliberately NOT asserted here: the gradient's
+ *     contract is primary-text-only, for the reason documented at the token in theme.ts, and
+ *     asserting a pair the token does not promise would be asserting a lie.
  *
  * `hairline` is intentionally not asserted to clear either AA floor on its own — see the comment
  * on it in theme.ts: it's a decorative structural rule, not text or a UI-component boundary, so
@@ -29,7 +35,7 @@
  */
 
 import { AA_NON_TEXT, AA_TEXT, contrastRatio } from '../contrast';
-import { Accent, Colors, type ColorScheme, Score, ScoreBandOrder, Semantic } from '../theme';
+import { Accent, Colors, type ColorScheme, Gradient, Score, ScoreBandOrder, Semantic } from '../theme';
 
 const SCHEMES: readonly ColorScheme[] = ['light', 'dark'];
 
@@ -52,6 +58,7 @@ const accentNonTextPairs: Pair[] = [];
 const semanticErrorTextPairs: Pair[] = [];
 const controlBorderPairs: Pair[] = [];
 const hairlineBelowControlFloorPairs: Pair[] = [];
+const gradientTextPairs: Pair[] = [];
 
 for (const scheme of SCHEMES) {
   const c = Colors[scheme];
@@ -97,6 +104,18 @@ for (const scheme of SCHEMES) {
       scoreTextPairs.push({ label: `${scheme} score.${band}.text on ${surfaceName}`, fg: text, bg: surfaceHex });
     }
   }
+
+  // Every stop of every gradient role, iterated from the export rather than listed, so a stop
+  // added to `Gradient.page` (or a new role added beside it) is proven the moment it ships.
+  for (const [role, perScheme] of Object.entries(Gradient)) {
+    perScheme[scheme].forEach((stop, i) => {
+      gradientTextPairs.push({
+        label: `${scheme} text.primary on gradient.${role}[${i}]`,
+        fg: c.text.primary,
+        bg: stop,
+      });
+    });
+  }
 }
 
 accentTextPairs.push({ label: 'onAccent (white) on accent', fg: Accent.onAccent, bg: Accent.value });
@@ -115,6 +134,10 @@ describe('theme contrast — text pairs clear AA (>=4.5:1)', () => {
   });
 
   test.each(semanticErrorTextPairs)('$label', ({ fg, bg }) => {
+    expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_TEXT);
+  });
+
+  test.each(gradientTextPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_TEXT);
   });
 });
@@ -169,6 +192,6 @@ describe('contrast.ts sanity', () => {
   });
 
   it('rates a color against itself as 1', () => {
-    expect(contrastRatio('#2F6BEB', '#2F6BEB')).toBeCloseTo(1, 5);
+    expect(contrastRatio(Accent.value, Accent.value)).toBeCloseTo(1, 5);
   });
 });

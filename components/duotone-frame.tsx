@@ -5,10 +5,14 @@
  * to the interface. Bleeding it and grading it toward the app's base makes photograph and UI one
  * material — brief §1's "frames real photographic content with restraint", executed.
  *
- * WHY A WARM OVERLAY AND NOT A HUE SHIFT: brief §2 chose a warm graphite/bone base specifically
- * because it flatters skin tones. A cold duotone of the kind used on machinery photography is
+ * WHY A WASH AND NOT A HUE SHIFT: a cold duotone of the kind used on machinery photography is
  * clinical and unflattering on a human body. So the subject's own colour is never rotated — a
- * low-opacity warm wash sits over it, which unifies the surface without touching skin rendition.
+ * low-opacity wash of `Colors[scheme].background` sits over it, which unifies the surface without
+ * touching skin rendition. The wash reads whatever the base token is, so the 2026-08-02 Calm
+ * palette swap (warm graphite/bone → blue/violet) carried through here with no code change; only
+ * this comment, which used to justify the overlay by the base being *warm*, needed correcting.
+ * `GRADE_OPACITY` is the lever if the cooler base ever proves too strong on skin — it is
+ * deliberately low for exactly that reason, and was left untouched by the swap.
  *
  * MOMENT 3 (spec §4, Phase 2 plan Task 5): `annotate` renders the three fixed-geometry hairlines
  * (ground rule, posture line, landing marker) as PERMANENT hero decoration — on every result,

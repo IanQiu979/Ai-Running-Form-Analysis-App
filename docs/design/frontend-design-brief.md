@@ -25,9 +25,14 @@ it); no AI-glow, glassmorphism, frosted panels, or particle fields; mono numeral
 measured; hairline structure; works in light and dark.
 
 **New for V2.3 (the "distinct"):** the information is a **score**, so the palette *is* a score scale
-(warm "needs work" → cool "strong"), not V2.2's intensity ramp. The base is a **warm graphite/bone**
-that flatters skin tones and video rather than V2.2's cool asphalt/chalk. The signature mark is the
-annotated frame, not abstract bars.
+(warm "needs work" → cool "strong"), not V2.2's intensity ramp. The base is a **blue/violet night**
+carried by a continuous page gradient (the Calm scheme, adopted 2026-08-02 — §2), which frames real
+photographic content without competing with it. The signature mark is the annotated frame, not
+abstract bars.
+
+> Superseded: this paragraph previously described the base as a *warm graphite/bone*. That palette
+> was replaced wholesale on 2026-08-02; only the sentence above changed here, and §2 carries the
+> full detail. The rest of §1's concept — the annotated gait plate — is unaffected.
 
 ---
 
@@ -38,31 +43,107 @@ annotated frame, not abstract bars.
 > pass** — exactly as V2.2 did (it caught four effort hues failing 3:1). Do not assume these pass;
 > prove it. Put them in `constants/theme.ts` as light+dark; **no hardcoded colors in components.**
 
-### Base (warm neutral, distinct from V2.2's cool set)
+> **Palette swapped 2026-08-02 — the Calm colour scheme.** The warm graphite/bone base described
+> below in earlier revisions is retired. Every colour in this section is now either sampled from
+> the Calm reference capture (`V2.3-Calm-Design-References-calm-screens.png` — splash, home, audio
+> player, content detail, flow index) or computed from a sampled value by holding its hue and
+> saturation and moving only lightness until the WCAG floor cleared. **Colours only:** the type,
+> spacing, radius and motion sub-sections below are unchanged, and `Radius.card: 0` still stands.
+> The shipped values are exactly what `constants/theme.ts` exports; the achieved ratios are quoted
+> at each token there and recomputed on every run by `constants/__tests__/theme-contrast.test.ts`.
+
+### Base (Calm blue/violet — dark is the native mode)
+
+Calm ships **two registers**, and both are represented. The blue→periwinkle→violet wash is a page
+**backdrop** (`Gradient.page`, below); the flat, contrast-bearing `bg`/`surface` roles take Calm's
+**night canvas** — the register its audio-player and index screens sit on — carrying the periwinkle
+cast the gradient establishes. Putting the bright mid-gradient blue in `bg` was tried and rejected:
+it lifts `surface.raised` far enough that the ≥4.5:1 floor for score-band text lands above pure
+green's luminance, which makes four distinguishable score hues arithmetically impossible.
+
+Light is **derived, not invented** (Calm has no light mode): same hue family, inverted lightness —
+surfaces tinted toward Calm's sky blue, text in the same deep blue-violet as dark mode's canvas.
+
 | Token | Dark | Light | Use |
 |---|---|---|---|
-| `bg` | `#17150F`… slate-warm ~`#1A1712` | `#F4F1EA` bone | App background |
-| `surface` | `#221E17` | `#FBF9F3` | Cards, sheets |
-| `surface.raised` | `#2B2620` | `#FFFFFF` | The one raised element per screen |
-| `text.primary` | `#F3EEE3` | `#1E1B15` | Headlines, scores |
-| `text.secondary` | `#B3AC9C` | `#5A5347` | Labels, captions (verify ≥4.5:1) |
-| `hairline` | `#3A342A` | `#DAD3C4` | Rules, ticks, annotations |
+| `bg` | `#0F1324` | `#E9EFFA` | App background |
+| `surface` | `#161A30` | `#F4F7FC` | Cards, sheets |
+| `surface.raised` | `#1C213A` | `#FFFFFF` | The one raised element per screen |
+| `text.primary` | `#FFFFFF` | `#131832` | Headlines, scores |
+| `text.secondary` | `#97A3C4` | `#4E5A7A` | Labels, captions (≥4.5:1: 6.29–7.33 / 5.93–6.85) |
+| `hairline` | `#2C3350` | `#CBD5EA` | Rules, ticks, annotations (decorative; held under 3:1) |
+| `control.border` | `#6B77A0` | `#7986A6` | Non-accent button/input/checkbox edge (≥3:1, issue #96) |
+
+**Pure white is rationed**, exactly as the reference rations it: `text.primary` in dark mode, and
+the one primary action pill (`accent.onAccent`). Secondary text is the same white family at reduced
+weight — a periwinkle-tinted light blue, not a separate grey hue. `surface`/`surface.raised` are
+the reference's translucent white-on-blue glass resolved to solids (~5% and ~10% white over `bg`);
+they stop short of Calm's full 12–18% because anything lighter breaks the accent's 3:1 floor
+against `surface.raised`.
+
+### The page gradient (new — Calm's identity is the gradient)
+
+| Token | Dark (top → bottom) | Light (top → bottom) |
+|---|---|---|
+| `gradient.page` | `#2F6394` → `#3B4A96` → `#472E86` | `#DCE8FA` → `#E0E2FA` → `#E9E0FA` |
+
+One role, because one role is all any screen here consumes — no speculative `card`/`hero`/`overlay`
+variants. Dark stops are sampled off the reference's **content** screens, not the splash: the
+splash's sky-blue top carries white text at only 2.28:1, and Calm only gets away with it because
+the sole thing on it is one line of decorative low-opacity copy.
+
+**Contract: `gradient.page` carries `text.primary` only** (6.30 / 8.06 / 10.48 dark; 14.09 / 13.64 /
+13.71 light). Secondary text, score fills and score text go on a surface, never on the wash — which
+is also how the reference behaves: one white headline on the gradient, everything else on a glass
+card.
 
 ### The score scale (the palette-is-information — pair with band word + bar length, never color alone)
-| Band | Token | Hue (verify contrast) | Score |
-|---|---|---|---|
-| Needs work | `score.low` | clay red-orange `#C2603F` | 0–49 |
-| Developing | `score.mid` | ochre/amber `#C08A2E` | 50–69 |
-| Solid | `score.good` | teal-green `#4E9A7C` | 70–84 |
-| Strong | `score.strong` | deep green `#2E7D5B` | 85–100 |
 
-Warm→cool maps to bad→good intuitively. It is **caution, not alarm** — "needs work" is clay, not a
-fire-engine red; this app improves runners, it doesn't scold them.
+Retuned for the cool base. Each band keeps its semantic identity but moves into the cool register:
+saturation pulled into the 50–60% range the rest of the palette lives in, lightness re-solved per
+scheme. The four bands are **not** collapsed into shades of one hue — the product *is* colour-coded
+scoring. Shipped hue separations are all ≥30° and every one is wider than the warm ramp's (whose
+`good`/`strong` sat 5° apart).
+
+| Band | Token | Hue | Dark fill / text | Light fill / text | Score |
+|---|---|---|---|---|---|
+| Needs work | `score.low` | coral 14° | `#DC8B72` / `#D6775A` | `#D06545` / `#AE4A2C` | 0–49 |
+| Developing | `score.mid` | gold 44° | `#C09B33` / `#AF8D2E` | `#A0812B` / `#7F6622` | 50–69 |
+| Solid | `score.good` | teal 178° | `#2FB1AC` / `#2BA19D` | `#279390` / `#1F7472` | 70–84 |
+| Strong | `score.strong` | jade 145° | `#3CB56E` / `#37A464` | `#32965C` / `#287749` | 85–100 |
+
+Rather than nudging each band to the bare minimum it can clear — which yields four bands of wildly
+different visual weight, since red is naturally dark and gold naturally light — every band is solved
+to a **common target ratio per role**: dark `fill` 6.50:1 on `surface`, dark `text` 5.00:1 on
+`surface.raised`, light `fill` 3.20:1 on `bg`, light `text` 4.75:1 on `bg`. Each target sits above
+its WCAG floor with real margin, so the four read as one scale and nothing is shaved to the wire.
+
+Warm→cool still maps to bad→good intuitively. It is **caution, not alarm** — "needs work" is coral,
+not a fire-engine red; this app improves runners, it doesn't scold them.
+
+### Semantic roles (issue #24)
+
+| Token | Dark | Light | Use |
+|---|---|---|---|
+| `error` | `#DE6B99` | `#C22A67` | System/auth errors — a foreground role only, ≥4.5:1 |
+
+Rose-crimson at hue ~336°, a distinct hue **family** from `score.low`'s coral (~14°) rather than a
+different lightness of it — 38° apart, wider than the 25° the warm palette shipped, so a system
+error can never be mistaken for the "Needs work" band it used to borrow. Solved to the same shared
+targets the bands use, so it never out- or under-shouts a band beside it.
 
 ### One accent (reserved, single-use)
 | Token | Value | Use |
 |---|---|---|
-| `accent` | signal blue `#2F6BEB` (verify) | The primary CTA and *only* the primary CTA. Deliberately outside the score scale so a button is never mistaken for a score, and distinct from V2.2's lime so the family reads as siblings, not clones. |
+| `accent` | periwinkle-violet `#7558E8` | The primary CTA and *only* the primary CTA. Deliberately outside the score scale so a button is never mistaken for a score. Signal blue `#2F6BEB` is retired — on a blue canvas, a blue CTA is not an accent. |
+
+Sampled from the reference's violet glow (the streak ring, the active tab pill: `#9988F7`/`#A9A5F8`/
+`#B1A3F9`). It ships **darker than the reference**, and that is forced rather than preferred: white
+on the fill must clear 4.5:1 (caps it at L_rel ≤ 0.1833) while the fill must clear 3:1 against
+`surface.raised` (floors it at ≥ 0.1492). Calm's literal `#9988F7` carries white at only 2.92:1 —
+it puts a small white glyph on that pill and does not meet AA there. Holding hue and saturation and
+moving only lightness lands `#7558E8` inside the band with margin on both sides (white 4.86:1;
+3.25–4.86:1 across all six surfaces).
 
 ### Type (roles; install via `@expo-google-fonts/*`)
 - **Display / numerals:** a grotesque — recommend **Archivo** (or Space Grotesk). Distinct from
