@@ -644,8 +644,9 @@ Ian's certification review of the drafted Elasticity content (`knowledge/pace_fr
 Real app icon + splash art, replacing the Expo template defaults. Design is "The Gait Plate"
 per `docs/design/frontend-design-brief.md` §1: a ground rule, a posture line leaning off it, a
 short detached arc marking the lean angle (drawn like a goniometer/biomechanics annotation), and
-a filled landing marker at the vertex — the one point of color, `score.strong` (`#2E7D5B`),
-deliberately **not** `accent` (`#2F6BEB`), which the brief reserves for the primary CTA alone.
+a filled landing marker at the vertex — the one point of color, `score.strong` (`#3CB56E` dark /
+`#32965C` light as of the 2026-08-02 Calm swap, see `docs/change_log.md`), deliberately **not**
+`accent` (`#7558E8`), which the brief reserves for the primary CTA alone.
 
 ```
 assets/
@@ -677,9 +678,11 @@ scripts/
 - `assets/images/android-icon-background.png` is deleted — the Android adaptive icon's
   background is now a flat theme-token color (`app.json`'s `android.adaptiveIcon.backgroundColor`),
   so the PNG that used to hold a solid field was dead weight.
-- Closes GitHub issue #26: splash `backgroundColor` `#ffffff` → `#F4F1EA`, dark `#000000` →
-  `#1A1712`; Android `adaptiveIcon.backgroundColor` `#E6F4FE` (Expo template pale blue) →
-  `#F4F1EA`. All three are `constants/theme.ts` tokens now, not template defaults.
+- Closed GitHub issue #26 (2026-07-12) by wiring `app.json`'s splash and Android
+  `adaptiveIcon.backgroundColor` to `constants/theme.ts` tokens instead of the Expo template
+  defaults. The token values themselves were re-swapped 2026-08-02 (the Calm palette change);
+  see `docs/change_log.md` for the current hexes — `app.json` still points at the same tokens,
+  not template defaults, so issue #26 remains closed.
 
 ## Current — EAS build & release config (groundwork only; the pipeline half is Apple-blocked)
 
