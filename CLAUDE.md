@@ -119,11 +119,16 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
   - `Gradient.page` — the full-bleed page backdrop every screen sits on, via
     `<ScreenGradient>`. It carries **`text.primary` only**. Secondary text, score text, score fills,
     coaching prose and `Semantic.error` belong on an opaque `surface.*` (usually a `<SurfaceCard>`).
-  - `Glass` — translucent panels. Also **`text.primary` only**, and **never an interactive
-    control's fill or boundary**: no alpha that still reads as glass can meet WCAG 1.4.11's 3:1
-    against the wash, so buttons/inputs/checkboxes keep opaque fills with a `control.border` ring.
-    `<PillButton>`, `<CircleIconButton>` and `<SurfaceCard>` already encode this — prefer them over
-    hand-rolling a `Pressable`.
+  - `Glass` — translucent panels, drawn by `<GlassFrost>` (a real `expo-blur` layer under the
+    token). **Two tones, two contracts**, and reading the wrong one is how text goes invisible:
+    the **white-tinted** tones (`fill`/`raised`/`control`) carry **`text.primary` only**; the
+    **canvas-tinted** `chrome` tone is the single one proven for **both** text roles, which is why
+    the floating tab bar uses it. Glass **may** be an interactive control's fill — but only with a
+    `control.border` ring, because no alpha that still reads as glass can meet WCAG 1.4.11's 3:1
+    itself (the ring pays it, on both of its sides). `<PillButton>`, `<CircleIconButton>` and
+    `<SurfaceCard>`/`<GlassCard>` already encode all of this — prefer them over hand-rolling a
+    `Pressable`. The captain widened this contract on 2026-08-02; `constants/theme.ts`'s `Glass`
+    block names what it cost.
 - No business rules in the client. Tier, quota, frame cap, and analysis are server-only (edge
   functions); the client may display tier/quota state but is never the authority for it.
 - AI output validation is structural, not strict-content: validate shape, retry once, then

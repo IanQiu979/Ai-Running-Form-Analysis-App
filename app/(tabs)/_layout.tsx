@@ -4,6 +4,7 @@ import React from 'react';
 import { StyleSheet } from 'react-native';
 
 import { HapticTab } from '@/components/haptic-tab';
+import { GlassFrost } from '@/components/ui/glass-frost';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Copy } from '@/constants/copy';
 import {
@@ -63,17 +64,33 @@ export default function TabLayout() {
         // `position: 'absolute'` with a margin, `Radius.sheet`, no top border, and
         // `Elevation.floating` to lift it off the wash.
         //
-        // The fill stays OPAQUE `surface.base` rather than becoming glass: the tab bar carries
-        // `text.secondary` on its inactive items, and the `Glass` contract (constants/theme.ts)
-        // proves translucency for `text.primary` only. An opaque bar is also the only way the
-        // inactive tint keeps the contrast it was tuned for while content scrolls beneath it.
+        // TRANSLUCENT AGAIN (2026-08-02, captain's decision). The redesign shipped this bar opaque
+        // and said why: it carries `text.secondary` on its inactive items, and `Glass` proved
+        // translucency for `text.primary` only. Both halves of that were true, and the second half
+        // is why a white-tinted glass bar is still impossible here — a dimmed white inactive tint
+        // over the bright end of the page wash tops out near 3.7:1, short of AA for a 13pt label.
+        // The fix is not to lower the bar but to change the material: `Glass.chrome` is tinted
+        // toward the scheme's own `background` rather than toward white, so it darkens (dark) /
+        // lightens (light) the wash toward the surface `text.secondary` was tuned against instead of
+        // washing it out. Both text roles are now proven on it, per stop, in
+        // `constants/__tests__/theme-contrast.test.ts`. The bar is genuinely see-through — content
+        // scrolling under it is visible — and no tint lost its contrast to get there.
+        //
+        // `backgroundColor: 'transparent'` plus `tabBarBackground` is the required shape: React
+        // Navigation paints `tabBarStyle.backgroundColor` OVER the `tabBarBackground` element, so
+        // leaving a solid colour there would hide the frost entirely.
         //
         // Screens are responsible for their own bottom padding under this bar — it no longer
         // occupies layout space, so a screen that ends flush at the bottom would otherwise have
         // its last element sitting beneath it. `TabBar.clearance` (constants/theme.ts) is that
         // space, and every tab screen pads its scroll content by it.
+        // The frost rounds ITSELF rather than the bar clipping it. `overflow: 'hidden'` on
+        // `tabBarStyle` would clip the bar's own `Elevation.floating` shadow too (iOS compiles it
+        // to `masksToBounds`, which masks the layer's shadow as well as its children — the same
+        // trap `components/ui/surface-card.tsx` documents and splits two nodes to avoid).
+        tabBarBackground: () => <GlassFrost tone="chrome" radius={Radius.sheet} testID="tab-bar-frost" />,
         tabBarStyle: {
-          backgroundColor: colors.surface.base,
+          backgroundColor: 'transparent',
           borderTopWidth: 0,
           borderRadius: Radius.sheet,
           borderWidth: StyleSheet.hairlineWidth * 2,

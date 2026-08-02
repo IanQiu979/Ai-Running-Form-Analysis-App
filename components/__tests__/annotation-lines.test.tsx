@@ -47,4 +47,25 @@ describe('AnnotationLines', () => {
     expect(onComplete).toHaveBeenCalledTimes(1);
     jest.useRealTimers();
   });
+
+  // `startDelayMs` (2026-08-02) exists so the result hero can hold the wireframe until
+  // `<Aperture>`'s iris has opened. The failure mode worth locking is not the delay itself but what
+  // it must not break: a caller waiting on `onComplete` to reveal the score bars would be stranded
+  // forever if the delay swallowed the callback rather than postponing it.
+  it('postpones the draw by startDelayMs and still fires onComplete afterwards', async () => {
+    jest.useFakeTimers();
+    const onComplete = jest.fn();
+    await render(
+      <AnnotationLines lines={LINES} play startDelayMs={900} onComplete={onComplete} testID="lines" />
+    );
+
+    jest.advanceTimersByTime(500);
+    await Promise.resolve();
+    expect(onComplete).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1500);
+    await Promise.resolve();
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    jest.useRealTimers();
+  });
 });

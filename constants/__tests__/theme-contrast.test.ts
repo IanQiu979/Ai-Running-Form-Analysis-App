@@ -21,6 +21,11 @@
  *     guards against is `control.border` being set equal to (or as weak as) `hairline`, which
  *     would silently reintroduce the exact bug #96 filed. That assertion is computed from the
  *     live `hairline` export, not a hardcoded ratio, so it tracks the token if it ever moves.
+ *     EXTENDED 2026-08-02 (pass 3): the same ring is now also proven against every `Gradient.page`
+ *     stop and against every one of those stops seen through every `Glass` tone. Since the Calm
+ *     redesign a control does not sit on an opaque surface at all — it sits on the page wash — and
+ *     proving the ring only against surfaces was proving it against a backdrop it had left. Both
+ *     schemes' `control.border` values moved to satisfy the wider set; see theme.ts.
  *   - every stop of `Gradient.page` against that scheme's `text.primary` — text, >=4.5:1
  *     (2026-08-02, added with the token). A full-bleed page backdrop is something headlines get
  *     drawn straight onto, so shipping its stops unproven would be exactly the "assume it passes"
@@ -44,6 +49,7 @@ import {
   Score,
   ScoreBandOrder,
   Semantic,
+  WhiteTintedGlassTones,
 } from '../theme';
 
 const SCHEMES: readonly ColorScheme[] = ['light', 'dark'];
@@ -142,11 +148,23 @@ accentTextPairs.push({ label: 'onAccent (white) on accent', fg: Accent.onAccent,
 // Nothing here trusts a comment or a hand-computed number; the alpha is parsed out of the token
 // itself, so editing `Glass` in theme.ts and forgetting to re-derive anything is caught here.
 //
-// WHAT IS PROVEN: `text.primary` on glass, >= 4.5:1. That is the entire contract `Glass` states
-// (constants/theme.ts) — glass carries the primary tone only, and is never an interactive
-// control's fill or boundary. The counter-guard below proves the second half of that: that
-// `text.secondary` on dark glass genuinely FAILS, so the narrow contract is a real constraint
-// someone measured rather than an arbitrary rule that could be quietly widened later.
+// WHAT IS PROVEN, and this list CHANGED on 2026-08-02 by the captain's decision to make glass
+// genuinely translucent on controls (see the revised contract at `Glass` in constants/theme.ts):
+//
+//   1. `text.primary` on every WHITE-TINTED glass tone (`fill`, `raised`, and the new `control`),
+//      >= 4.5:1. Unchanged in kind, wider in coverage. Iterated from the `WhiteTintedGlassTones`
+//      export rather than a literal list, so a tone added to `Glass` cannot slip past this.
+//   2. BOTH text roles on the new canvas-tinted `chrome` tone, >= 4.5:1. This is a genuinely NEW
+//      guarantee, not a relaxed one — `chrome` is the tab bar's tone and the tab bar renders
+//      inactive items in `text.secondary`.
+//   3. `control.border` >= 3:1 against every glass tone over every legal backdrop (below, with the
+//      other non-text pairs). This is what lets clause 3 of the contract be honest: the frosted
+//      fill never carries the boundary, the ring does.
+//
+// The counter-guard further down is UNCHANGED IN SUBSTANCE and still fails-by-design: white-tinted
+// glass genuinely cannot carry `text.secondary` over the wash, and proving that is what stops the
+// primary-only half of the contract being quietly widened. It is now scoped to the white-tinted
+// tones explicitly, because `chrome` is the measured exception rather than a loophole.
 // ---------------------------------------------------------------------------------------------
 
 /** Parses `rgba(r, g, b, a)` into channels + alpha. Only the form `Glass` actually uses. */
@@ -173,6 +191,9 @@ function composite(layer: string, backdropHex: Hex): Hex {
 
 const glassTextPairs: Pair[] = [];
 const glassSecondaryFailurePairs: Pair[] = [];
+const glassChromeTextPairs: Pair[] = [];
+const controlRingOnGlassPairs: Pair[] = [];
+const controlRingOnWashPairs: Pair[] = [];
 
 for (const scheme of SCHEMES) {
   const c = Colors[scheme];
@@ -184,12 +205,19 @@ for (const scheme of SCHEMES) {
     ...Gradient.page[scheme].map((stop, i) => [`gradient.page[${i}]`, stop] as [string, Hex]),
   ];
 
-  for (const [tone, layer] of [
-    ['fill', glass.fill],
-    ['raised', glass.raised],
-  ] as const) {
+  // The ring's OUTER neighbour: the page wash itself. Before 2026-08-02 this was never asserted,
+  // and both schemes' rings failed it outright — see the header note on `control.border`.
+  for (const [backdropName, backdropHex] of backdrops) {
+    controlRingOnWashPairs.push({
+      label: `${scheme} control.border on ${backdropName}`,
+      fg: c.control.border,
+      bg: backdropHex,
+    });
+  }
+
+  for (const tone of WhiteTintedGlassTones) {
     for (const [backdropName, backdropHex] of backdrops) {
-      const composited = composite(layer, backdropHex);
+      const composited = composite(glass[tone], backdropHex);
       glassTextPairs.push({
         label: `${scheme} text.primary on glass.${tone} over ${backdropName}`,
         fg: c.text.primary,
@@ -199,6 +227,37 @@ for (const scheme of SCHEMES) {
         label: `${scheme} text.secondary on glass.${tone} over ${backdropName}`,
         fg: c.text.secondary,
         bg: composited,
+      });
+    }
+  }
+
+  // `chrome` — the canvas-tinted exception, proven for BOTH text roles. Iterated separately from
+  // the white-tinted tones on purpose: the two sets have genuinely different contracts, and
+  // collapsing them into one loop is how a future edit would lose track of which is which.
+  for (const [backdropName, backdropHex] of backdrops) {
+    const composited = composite(glass.chrome, backdropHex);
+    glassChromeTextPairs.push({
+      label: `${scheme} text.primary on glass.chrome over ${backdropName}`,
+      fg: c.text.primary,
+      bg: composited,
+    });
+    glassChromeTextPairs.push({
+      label: `${scheme} text.secondary on glass.chrome over ${backdropName}`,
+      fg: c.text.secondary,
+      bg: composited,
+    });
+  }
+
+  // The ring's INNER neighbour: the frosted fill it encircles. Every tone, not just `control` —
+  // a `<GlassCard>` that ever gains an interactive edge must find this already proven, and the
+  // binding case is whichever tone lands closest in luminance to the ring, which is not something
+  // a call site should have to reason about.
+  for (const tone of [...WhiteTintedGlassTones, 'chrome'] as const) {
+    for (const [backdropName, backdropHex] of backdrops) {
+      controlRingOnGlassPairs.push({
+        label: `${scheme} control.border on glass.${tone} over ${backdropName}`,
+        fg: c.control.border,
+        bg: composite(glass[tone], backdropHex),
       });
     }
   }
@@ -228,14 +287,29 @@ describe('theme contrast — text pairs clear AA (>=4.5:1)', () => {
   test.each(glassTextPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_TEXT);
   });
+
+  // The new dual-role tone (2026-08-02, captain's decision). `text.secondary` appearing in a
+  // passing AA list is the whole point of `chrome` existing — see contract note 2 in theme.ts.
+  test.each(glassChromeTextPairs)('$label', ({ fg, bg }) => {
+    expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_TEXT);
+  });
 });
 
 describe('the Glass contract is a real constraint, not a preference', () => {
   // The mirror of `hairlineBelowControlFloorPairs` below: proving a token FAILS where its contract
   // says it must not be used is what stops the contract being quietly widened later. `Glass`
-  // (constants/theme.ts) says glass carries `text.primary` ONLY. If someone raises the alpha to
-  // match the reference's heavier ~0.15-0.18 wash, or drops secondary text onto a glass panel,
-  // this is what breaks.
+  // (constants/theme.ts) says WHITE-TINTED glass carries `text.primary` ONLY. If someone raises the
+  // alpha to match the reference's heavier ~0.15-0.18 wash, or drops secondary text onto a
+  // white-tinted glass panel, this is what breaks.
+  //
+  // KEPT DELIBERATELY THROUGH THE 2026-08-02 CAPTAIN'S DECISION. That decision widened the contract
+  // in two directions — glass may now be a control's FILL (clause 3), and one canvas-tinted tone
+  // (`chrome`) now carries both text roles (clause 2) — but it did NOT touch the thing this guard
+  // pins, and the numbers say so: `text.secondary` on white-tinted glass over the gradient still
+  // measures 1.8-3.0:1 in dark mode, exactly as it did before. So this assertion states the same
+  // truth it always did, and is neither skipped nor loosened. It now iterates
+  // `WhiteTintedGlassTones` (which includes the NEW `control` tone) rather than a hardcoded pair,
+  // so the frosted control fill is covered by it too.
   //
   // Scoped to DARK GLASS OVER THE GRADIENT, and both halves of that scope are load-bearing:
   //
@@ -275,6 +349,18 @@ describe('theme contrast — non-text pairs clear AA (>=3:1)', () => {
   });
 
   test.each(controlBorderPairs)('$label', ({ fg, bg }) => {
+    expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  // Added 2026-08-02 with the captain's translucent-glass decision. These two blocks are what make
+  // a frosted control honest: the fill cannot carry WCAG 1.4.11 (an 8-13% wash reads ~1.1:1 and no
+  // alpha that clears 3:1 is still translucent), so the RING carries it, on both of its sides —
+  // against the page wash outside it and against the frosted fill inside it.
+  test.each(controlRingOnWashPairs)('$label', ({ fg, bg }) => {
+    expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  test.each(controlRingOnGlassPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
   });
 });

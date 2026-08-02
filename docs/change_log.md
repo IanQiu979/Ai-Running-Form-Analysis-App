@@ -5,6 +5,64 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-02 (the bold pass — the three things the Calm redesign declined)
+
+The redesign below deliberately declined three things and flagged each. The captain asked for all
+three. This pass builds on that redesign rather than reversing any of it: `Radius.card` stays 24,
+history rows stay score-led, Delete keeps its visible word, the result screen stays titleless. No
+behaviour, routing, auth, RLS, schema, edge-function or copy-string changed.
+
+- **Glass is genuinely translucent on controls now — and the boundary was NOT traded away.** The
+  old `Glass` contract banned glass from being an interactive control's fill, on the true premise
+  that an 8–13% wash reads ~1.1:1 and can never meet WCAG 1.4.11's 3:1. That premise conflated a
+  control's FILL with its BOUNDARY, which are independent. So the fill is frosted and the **ring**
+  pays the 3:1: `<PillButton variant="secondary">`, `<CircleIconButton>` and `<GlassCard>` now
+  render `components/ui/glass-frost.tsx` (a real `expo-blur` backdrop blur under the `Glass` token)
+  behind a `control.border` ring. **No control lost its boundary guarantee.**
+  - **`Colors.*.control.border` retuned in both schemes** (light `#7986A6` → `#6C7A9D`, dark
+    `#6B77A0` → `#D4D7E3`). This is a **widened** guarantee, and it closes a real gap the redesign
+    shipped: the old ring was proven only against the three opaque surfaces, but since the redesign
+    every control sits on `Gradient.page` — where it measured **1.43 / 1.83 / 2.38:1** (dark) and
+    **2.94 / 2.85 / 2.86:1** (light), well under the 3:1 it advertised. The new values are solved
+    against surfaces + wash + every glass composite. Dark had to go *lighter*: the only darker
+    colour clearing the darkest stop is pure black, at exactly 3.00:1.
+  - **New `Glass.*.control`** (frosted control fill) and **`Glass.*.chrome`** (canvas-tinted, the
+    only tone proven for BOTH text roles). `chrome` is what lets the **floating tab bar become
+    translucent** without demoting its inactive `text.secondary` label — a white-tinted glass bar
+    tops out near 3.7:1 there, short of AA, which is exactly why the redesign kept it opaque.
+  - **The counter-guard was kept, not loosened.** `text.secondary` on white-tinted glass over the
+    wash still genuinely fails AA (1.8–3.0:1 dark), so that assertion states the same truth it
+    always did; it now iterates `WhiteTintedGlassTones` so the new `control` tone is covered too.
+  - **What the captain's choice actually cost** (stated here so it is not left to the diff): a
+    frosted control's affordance now rests on a 1pt ring instead of a solid fill, and its label
+    falls from 15.81:1 on the old opaque `surface.raised` to **4.72:1** worst case — still AA,
+    **no longer AAA**. Nothing dropped below AA.
+- **The low-poly mark morphs per-vertex.** The captain lifted the standing `react-native-svg` ban
+  for this purpose, and **the now-false ruling in `components/annotation-lines.tsx`'s header was
+  corrected rather than left to mislead**. A facet is an SVG `<Polygon>` and a pose is three
+  independent vertices, so a triangle genuinely becomes a *different* triangle — a CSS
+  border-triangle is always isoceles about its own axis and could only move/scale/rotate.
+  `annotation-lines.tsx` itself stays on plain views: that was re-evaluated and declined on merit
+  (a straight line has no internal geometry to morph), not blocked.
+- **The aperture is restored AND consumed.** `components/aperture.tsx` — a permanent radial
+  vignette, plus a six-bladed even-odd iris and an `expo-blur` rack focus that play once — now wraps
+  the result hero. It **composes with** the existing duotone frame and annotation wireframe rather
+  than fighting them: the vignette is tinted in the same `background` the grade uses (a neutral
+  black would have greyed the grade), it stays fully clear inside 62% of the radius so the ground
+  rule's ends survive, and the wireframe is **sequenced behind** the iris via the new
+  `AnnotationLines.startDelayMs` instead of drawing underneath a shut iris.
+  - **It was rebuilt from its description, not recovered.** The redesign deleted it before
+    committing, so it is in no commit — `git rev-list --all --objects | grep aperture` is empty and
+    PR #164's file list carries neither it nor `expo-blur`. Recorded in its header.
+- **Reduced motion still suppresses movement, never content, and each fallback is locked by a test.**
+  The mark renders pose 0's real vertices as plain un-animated polygons (asserted at the geometry,
+  so "it rendered" cannot pass on an empty box); the aperture keeps its vignette and drops only the
+  iris and rack focus, and still fires `onOpened` so the hero is never stranded mid-sequence.
+- **Dependencies:** `expo-blur` and `react-native-svg` added — both first-party/Expo-managed, both
+  requested by the captain's decision.
+- **Tests:** 1099 Jest (was 1003) + 369 Deno passing; typecheck and lint clean. The contrast proof
+  alone went from 117 to 179 assertions.
+
 ## 2026-08-02 (the Calm redesign — shape, type, spacing, component and motion layer)
 
 The follow-up the palette swap below was not: a recolor was only ever half the ask. This pass moves

@@ -21,8 +21,14 @@ person now, so the design frames real photographic content with restraint instea
 it.
 
 **Shared with V2.2 (the "related"):** honest motion only (nothing moves unless a real event caused
-it); no AI-glow, glassmorphism, frosted panels, or particle fields; mono numerals for anything
-measured; hairline structure; works in light and dark.
+it); no AI-glow or particle fields; mono numerals for anything measured; hairline structure; works
+in light and dark.
+
+> Superseded: the "no glassmorphism, frosted panels" clause above stood through pass 2, when
+> `Glass` tones were opaque colour workarounds rather than true translucency. The captain
+> overrode it on 2026-08-02 (pass 3) for a genuinely frosted control fill, on the condition that
+> the WCAG 1.4.11 boundary the ban was protecting is carried by a solid `control.border` ring
+> instead — see `constants/theme.ts`'s `Glass` block for the contract and what it cost.
 
 **New for V2.3 (the "distinct"):** the information is a **score**, so the palette *is* a score scale
 (warm "needs work" → cool "strong"), not V2.2's intensity ramp. The base is a **blue/violet night**
@@ -72,7 +78,7 @@ surfaces tinted toward Calm's sky blue, text in the same deep blue-violet as dar
 | `text.primary` | `#FFFFFF` | `#131832` | Headlines, scores |
 | `text.secondary` | `#97A3C4` | `#4E5A7A` | Labels, captions (≥4.5:1: 6.29–7.33 / 5.93–6.85) |
 | `hairline` | `#2C3350` | `#CBD5EA` | Rules, ticks, annotations (decorative; held under 3:1) |
-| `control.border` | `#6B77A0` | `#7986A6` | Non-accent button/input/checkbox edge (≥3:1, issue #96) |
+| `control.border` | `#D4D7E3` | `#6C7A9D` | Non-accent button/input/checkbox edge (≥3:1, issue #96); retuned 2026-08-02 pass 3 — see `constants/theme.ts` |
 
 **Pure white is rationed**, exactly as the reference rations it: `text.primary` in dark mode, and
 the one primary action pill (`accent.onAccent`). Secondary text is the same white family at reduced
