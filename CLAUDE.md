@@ -15,9 +15,10 @@ and the linked brainstorm / product / engineering docs it indexes.
 
 Client: Expo SDK 54, expo-router, TypeScript strict. Backend: Supabase (Postgres + Auth +
 Storage + Edge Functions). AI: Claude (`claude-sonnet-5`), called only from the `analyze-form`
-edge function, never from the client. The app, its migrations, and all six edge functions exist and
-are live on the Supabase project — the sign-up → analysis → result path ran end to end against it
-on 2026-07-26 (issue #128). Route tree, `lib/` layout, the `analyze-form` flow, the API table
+edge function, never from the client. The app, its migrations, and all seven edge functions exist
+and are live on the Supabase project — the sign-up → analysis → result path ran end to end against
+it on 2026-07-26 (issue #128), and `signup-with-captcha` (Known Issue #12) followed on 2026-08-03.
+Route tree, `lib/` layout, the `analyze-form` flow, the API table
 (which owns per-endpoint deployment status), and the DB schema all live in
 [`docs/architecture.md`](docs/architecture.md); current milestone and live-state detail is in
 [`docs/status.md`](docs/status.md).
@@ -52,10 +53,10 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
 
 ## Secrets & env — read this before touching any env file
 
-- `.env` (gitignored) holds ONLY `EXPO_PUBLIC_SUPABASE_URL` and
-  `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — nothing Google-related belongs there, ever; the
-  browser OAuth flow never reads a client-ID var. `.env.example` is the committed template —
-  copy it, never edit it in place.
+- `.env` (gitignored) holds ONLY `EXPO_PUBLIC_SUPABASE_URL`,
+  `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `EXPO_PUBLIC_TURNSTILE_SITE_KEY` — nothing
+  Google-related belongs there, ever; the browser OAuth flow never reads a client-ID var.
+  `.env.example` is the committed template — copy it, never edit it in place.
 - Anything prefixed `EXPO_PUBLIC_` is inlined in **plain text** into the compiled app bundle.
   Treat it as public. Always read it with static dot notation (`process.env.EXPO_PUBLIC_X`) —
   the `expo/no-dynamic-env-var` lint rule enforces this; destructuring or bracket access

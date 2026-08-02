@@ -1,0 +1,111 @@
+// `POST /functions/v1/signup-with-captcha` (issue #12/Known Issue #12) — the anti-farming gate
+// in front of account creation. The app's client (`app/(auth)/sign-in.tsx`) calls this instead of
+// `supabase.auth.signUp()` directly in sign-up mode; sign-in is untouched.
+//
+//     { email, password, captchaToken }
+//       -> 200 { session: {...} | null, user: {...} }
+//       -> 400 { error, code: "invalid_body" | "captcha_invalid" | "email_in_use"
+//                        | "weak_password_length" | "weak_password_pwned" | "signup_failed" }
+//       -> 405 { error, code: "method_not_allowed" }
+//       -> 500 { error, code: "signup_unavailable" | "signup_failed" | "no_session" }
+//
+// WHY THIS FUNCTION EXISTS: see `_shared/signup-with-captcha.ts`'s header for the full story —
+// short version, Supabase Auth's native `auth.captcha` is project-wide (verified live: it also
+// 400s sign-in), so this function puts the Turnstile check in front of a plain, unprivileged
+// `supabase.auth.signUp()` proxy instead, leaving `auth.captcha` disabled and sign-in completely
+// unaffected. No admin/service-role client anywhere in this path.
+//
+// UNAUTHENTICATED BY DESIGN: there is no user yet at signup, so unlike `purchase-tier`/
+// `quota-status`, this route takes no `Authorization` header and does no `auth.getUser()` check.
+// Anti-abuse comes entirely from the Turnstile verification below, run BEFORE the proxied signUp.
+//
+// This file is deliberately thin: request validation, the Turnstile check, and response shaping
+// all live in `_shared/signup-with-captcha.ts` + `_shared/captcha.ts` (Deno/Jest-portable, unit
+// tested — `_shared/__tests__/signup-with-captcha.deno.test.ts`), same split `purchase-tier/
+// index.ts` uses for `_shared/purchase-tier.ts`. This is just the HTTP/env glue.
+import { createSignUpClient } from '../_shared/signup-client.ts';
+import { TurnstileVerifier } from '../_shared/captcha.ts';
+import { errorClassOf, logEvent, newRequestId } from '../_shared/log.ts';
+import { handleSignupWithCaptcha } from '../_shared/signup-with-captcha.ts';
+
+function jsonResponse(status: number, body: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+Deno.serve(async (req) => {
+  const startedAt = Date.now();
+  const requestId = newRequestId();
+
+  if (req.method !== 'POST') {
+    return jsonResponse(405, {
+      error: 'Only POST is supported on this route.',
+      code: 'method_not_allowed',
+    });
+  }
+
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return jsonResponse(400, {
+      error: 'Request body must be { email, password, captchaToken }.',
+      code: 'invalid_body',
+    });
+  }
+
+  const secretKey = Deno.env.get('TURNSTILE_SECRET_KEY');
+  if (!secretKey) {
+    // A missing secret is an operational misconfiguration, never something to fail open on —
+    // signup must refuse outright rather than silently skip the CAPTCHA check.
+    logEvent({
+      level: 'error',
+      fn: 'signup-with-captcha',
+      event: 'missing_turnstile_secret',
+      requestId,
+    });
+    return jsonResponse(500, {
+      error: 'Signup is temporarily unavailable. Please try again shortly.',
+      code: 'signup_unavailable',
+    });
+  }
+
+  // Best-effort client IP for Cloudflare's optional `remoteip` siteverify param — take the first
+  // hop only; not load-bearing (siteverify still validates the token itself without it).
+  const forwardedFor = req.headers.get('x-forwarded-for');
+  const remoteIp = forwardedFor ? forwardedFor.split(',')[0].trim() : null;
+
+  try {
+    const result = await handleSignupWithCaptcha(
+      { captchaVerifier: new TurnstileVerifier(secretKey), signUpClient: createSignUpClient() },
+      rawBody,
+      remoteIp,
+    );
+
+    logEvent({
+      level: result.status === 200 ? 'info' : result.status >= 500 ? 'error' : 'warn',
+      fn: 'signup-with-captcha',
+      event: result.status === 200 ? 'signup_completed' : 'signup_rejected',
+      requestId,
+      code: result.status === 200 ? undefined : result.body.code,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return jsonResponse(result.status, result.body);
+  } catch (err) {
+    logEvent({
+      level: 'error',
+      fn: 'signup-with-captcha',
+      event: 'signup_failed',
+      requestId,
+      durationMs: Date.now() - startedAt,
+      errorClass: errorClassOf(err),
+    });
+    return jsonResponse(500, {
+      error: 'Something went wrong. Please try again.',
+      code: 'signup_failed',
+    });
+  }
+});

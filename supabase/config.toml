@@ -170,11 +170,18 @@ max_indexes = 5
 # OPEN AUTH-HARDENING ITEMS (tracked here 2026-07-11, from the M1 security audit — not blockers
 # for M1, but do not lose track of them):
 #
-#   1. CAPTCHA (auth.captcha, currently absent/disabled below): must be enabled before
-#      analyze-form (M4) goes live. Without it, signup/sign-in is farmable, and every farmed
-#      account is a route to real Anthropic API spend once the analysis endpoint exists. Needs
-#      Ian to create provider keys (hcaptcha or turnstile) before this can be turned on — an
-#      account-creation step, not something this agent can do from the repo.
+#   1. ~~CAPTCHA (auth.captcha, currently absent/disabled below): must be enabled before
+#      analyze-form (M4) goes live.~~ **RESOLVED (Known Issue #12), NOT via this setting.** Ian
+#      created a Cloudflare Turnstile widget and provided real site/secret keys, but native
+#      `auth.captcha` was tried and reverted live the same day: it is project-wide, not
+#      per-endpoint — enabling it also 400s `signInWithPassword`, not just `signup`, confirmed by
+#      direct testing against the hosted project. `[auth.captcha]` below stays disabled,
+#      permanently, by design. The actual fix is `supabase/functions/signup-with-captcha`: it
+#      verifies the Turnstile token itself (Cloudflare's siteverify API) and, only if that
+#      passes, proxies a plain `supabase.auth.signUp()` call — so GoTrue's own
+#      `minimum_password_length`/`password_hibp_enabled` enforcement is untouched and sign-in
+#      never sees a captcha requirement at all. See that function's `_shared/
+#      signup-with-captcha.ts` header for the full story.
 #   2. Session storage (lib/supabase.ts, today): AsyncStorage, which stores the session
 #      (including the refresh token) in plaintext on-device. Move to a SecureStore-backed
 #      adapter at M2 (the "LargeSecureStore" pattern: SecureStore for the encryption key,
@@ -315,9 +322,10 @@ token_refresh = 150
 # dropped (HTTP 200, value never appears in the response) rather than rejected — confirmed by
 # re-GET immediately after. This value only takes effect for a local `supabase start` stack, not
 # for this hosted project; there is currently no way to rate-limit sign-in/sign-up attempts
-# specifically on the hosted side through this file or this API. CAPTCHA (auth.captcha, still
-# disabled — see the open-items note above [auth]) is the real, available lever against
-# signup/sign-in abuse on this plan; treat that as the actual mitigation, not this key.
+# specifically on the hosted side through this file or this API. `supabase/functions/
+# signup-with-captcha` (issue #12/Known Issue #12 — see the open-items note above [auth] for why
+# it's a custom function and not `auth.captcha`) is the real, available lever against signup
+# abuse on this plan; treat that as the actual mitigation, not this key.
 sign_in_sign_ups = 30
 # Number of OTP / Magic link verifications that can be made in a 5 minute interval per IP address.
 token_verifications = 30
@@ -325,9 +333,31 @@ token_verifications = 30
 web3 = 30
 
 # Configure one of the supported captcha providers: `hcaptcha`, `turnstile`.
+#
+# DELIBERATELY, PERMANENTLY DISABLED (issue #12/Known Issue #12, 2026-08-02) — this is not an
+# unfinished step, it's the outcome of an experiment. Ian created a Cloudflare Turnstile widget
+# and provided real site/secret keys; `security_captcha_enabled = true` / `provider = "turnstile"`
+# WAS applied live to the hosted project via a scoped Management API PATCH (same mechanism as
+# password_hibp_enabled above), then REVERTED minutes later after direct testing against the
+# live project showed it 400s BOTH `/auth/v1/signup` AND `/auth/v1/token?grant_type=password`
+# (sign-in) with `captcha_failed` when no token is supplied — this setting is project-wide, not
+# per-endpoint, and there is no server-side knob to scope it to signup only. Known Issue #12's
+# whole point is gating disposable SIGNUP without touching sign-in, which this setting cannot do.
+#
+# THE ACTUAL FIX: `supabase/functions/signup-with-captcha`. It verifies the Turnstile token
+# itself (`_shared/captcha.ts`, Cloudflare's siteverify API) and, only if that passes, proxies a
+# plain, unprivileged `supabase.auth.signUp()` call — so `minimum_password_length` and
+# `password_hibp_enabled` above keep being enforced exactly as before, and sign-in
+# (`supabase.auth.signInWithPassword`, called directly, unchanged) never sees a captcha
+# requirement. `app/(auth)/sign-in.tsx` renders the Turnstile widget and calls this function only
+# in sign-up mode. See `_shared/signup-with-captcha.ts`'s header for the full story, and
+# `TURNSTILE_SECRET_KEY` in the edge function environment (`supabase secrets set
+# TURNSTILE_SECRET_KEY=...` for production; `supabase/functions/.env`, gitignored, for local dev)
+# for where the real secret actually lives — never in this file, never in git.
+#
 # [auth.captcha]
 # enabled = true
-# provider = "hcaptcha"
+# provider = "turnstile"
 # secret = ""
 
 [auth.email]

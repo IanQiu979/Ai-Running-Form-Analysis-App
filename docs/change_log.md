@@ -5,6 +5,53 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-03 (CAPTCHA on signup — Known Issue #12, resolved via a custom edge function)
+
+- **Signup is now Turnstile-gated; sign-in is untouched.** Closes Known Issue #12: the hosted
+  Supabase project has no signup rate-limit field and `mailer_autoconfirm` is on, so a disposable
+  signup was unthrottled and worth ~4 potential Anthropic calls once `analyze-form` (M4) went
+  live, which it now has.
+  - **Native `auth.captcha` was tried and reverted, live, within minutes, on 2026-08-02.** It's
+    project-wide, not per-endpoint: enabling it (`security_captcha_enabled = true`, provider
+    `turnstile`, via the same scoped Management API PATCH mechanism `password_hibp_enabled` uses)
+    made `POST /auth/v1/token?grant_type=password` (sign-in) 400 with `captcha_failed` too,
+    confirmed by direct testing against the live project, not doc-reading. Known Issue #12
+    explicitly does not want sign-in gated, and there is no server-side knob to scope
+    `auth.captcha` to signup only — so it was reverted (`security_captcha_enabled = false`,
+    verified by a follow-up sign-in test returning the normal `invalid_credentials` error) and
+    stays disabled, permanently, in `supabase/config.toml`.
+  - **The actual fix: `supabase/functions/signup-with-captcha`.** It verifies the Turnstile token
+    itself (`_shared/captcha.ts`, Cloudflare's siteverify API, fails CLOSED on any network/parse
+    failure) and, only if that passes, proxies a plain, unprivileged `supabase.auth.signUp()`
+    call using the publishable key (`_shared/signup-client.ts`) — no admin/service-role API
+    involved, so `minimum_password_length`/`password_hibp_enabled` keep being enforced by GoTrue
+    exactly as before. The already-registered-email non-enumeration behavior (`{ session: null }`
+    with an empty `identities` array) and the weak-password length-vs-pwned precedence are both
+    ported from `app/(auth)/sign-in.tsx`'s prior inline logic.
+  - **Client**: `components/turnstile-widget.tsx` hosts Cloudflare's `turnstile/v0/api.js` inside
+    a minimal `react-native-webview` HTML shell (no first-party RN SDK exists) and bridges its
+    callbacks back via `postMessage`. `app/(auth)/sign-in.tsx` renders it only in sign-up mode,
+    disables submit until a token arrives, and calls `lib/signup-with-captcha.ts`'s
+    `signUpWithCaptcha` instead of `supabase.auth.signUp` directly; on success it hydrates the
+    on-device session via `supabase.auth.setSession` (`lib/session-provider.tsx`'s
+    `onAuthStateChange` treats this identically to a session from `signInWithPassword`). Turnstile
+    tokens are single-use — the widget is reset after every submit attempt, success or failure.
+  - **Secrets**: `TURNSTILE_SECRET_KEY` (the real key, captain-provided) is set via
+    `supabase secrets set` on the hosted project — never committed, never `EXPO_PUBLIC_*`. The
+    site key (`0x4AAAAAAEEhQ-XT-o1iB6kd`, safe to expose client-side by Cloudflare's own design) is
+    read from `EXPO_PUBLIC_TURNSTILE_SITE_KEY`. Local dev (`supabase/functions/.env`, gitignored)
+    and `eas.json`'s `development-local`/`preview-local` profiles use Cloudflare's public,
+    documented "always passes" test key pair instead of the real one, so local testing doesn't
+    depend on the real widget's domain restrictions.
+  - **Verified live**: a request with no `captchaToken` gets `400 invalid_body`; a request with a
+    garbage token gets `400 captcha_invalid`. The "succeeds with a valid token" path is proven by
+    the full Deno + Jest test suite (a fake `CaptchaVerifier` returning `true`, exercising the real
+    `signUp` proxy end to end) — no browser-automation tool was available in this session to solve
+    a live Turnstile challenge, which would be the only way to prove it more strongly than that.
+  - New tests: `supabase/functions/_shared/__tests__/{captcha,signup-with-captcha}.deno.test.ts`,
+    `lib/__tests__/signup-with-captcha.test.ts`, `components/__tests__/turnstile-widget.test.tsx`,
+    plus new cases in `lib/__tests__/auth-errors.test.ts` for `mapSignupWithCaptchaError`.
+
 ## 2026-08-02 (the bold pass — the three things the Calm redesign declined)
 
 The redesign below deliberately declined three things and flagged each. The captain asked for all

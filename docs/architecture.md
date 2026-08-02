@@ -1209,6 +1209,7 @@ RLS.
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #50, 2026-07-12; deployed with #128) — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Redeployed 2026-07-26 from the current repo code, so issue #132's second-purge/`orphans_remaining` behavior is now live** — that deploy also carried the shared-key parse fix (`docs/status.md` Known Issue #35). |
 | `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26, verified live** (issue #58, 2026-07-13; response contract fixed post-review, same date; deployed with #128 — see `docs/status.md` Known Issue #35). The client (`lib/delete-account.ts`) has called the real function since PR #122 (2026-07-13, `docs/status.md` Known Issue #23), so the Settings flow reaches it end to end. See "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
+| `POST /functions/v1/signup-with-captcha` | none (pre-auth) | `{ email, password, captchaToken }` | `200 { session, user }` or `400 { error, code }` for `invalid_body` / `captcha_invalid` / `email_in_use` / `weak_password_length` / `weak_password_pwned` / `signup_failed`, or `500` for `signup_unavailable` / `no_session` | **Built, Deno-tested, and DEPLOYED to the live project 2026-08-03** (issue #12/Known Issue #12 — see `docs/status.md`). Verifies a Cloudflare Turnstile token server-side, then — only if valid — proxies a plain `supabase.auth.signUp()` (publishable key, no admin API), so GoTrue's own `minimum_password_length`/`password_hibp_enabled` keep being enforced unchanged. Replaces native `auth.captcha`, which was tried live and reverted the same day for gating sign-in too (project-wide, not per-endpoint). `app/(auth)/sign-in.tsx` calls this in sign-up mode only; sign-in calls `signInWithPassword` directly, untouched. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
 `supabase.functions.invoke()` wraps non-2xx responses in a generic `FunctionsHttpError` whose
@@ -1734,10 +1735,14 @@ table — this is **intentional**, not a gap: RLS enabled + zero policies + `rev
 not "fix" this by adding a policy.
 
 Design spec: `docs/superpowers/specs/2026-07-12-ai-spend-guardrails-design.md`. Built because
-issue #48 established account creation on this project is currently unbounded (no signup rate
-limit, autoconfirm on, CAPTCHA blocked on Ian) and its own conclusion is that this blocks M4
-*going live*, not the M4 *build* — so M4 (#44, still Not Started) is expected to land with that
-hole open. This substrate is the brake it lands behind.
+issue #48 established account creation on this project was then unbounded (no signup rate limit,
+autoconfirm on, CAPTCHA blocked on Ian) and its own conclusion was that this blocked M4 *going
+live*, not the M4 *build* — so M4 (#44, still Not Started at the time) was expected to land with
+that hole open. This substrate is the brake it landed behind. **CAPTCHA on signup is now closed**
+(`docs/status.md` Known Issue #12, resolved 2026-08-03 via `supabase/functions/
+signup-with-captcha` — see the "Current — `POST /functions/v1/signup-with-captcha`" section and
+the API table above) — this substrate remains the defense-in-depth layer behind it, not the only
+brake anymore.
 
 ```sql
 -- public.ai_ops_config: singleton row (id boolean primary key default true check (id)).
@@ -1931,14 +1936,83 @@ to own).
 - **A discovery, not a config change**: the hosted Management API has **no field for a
   sign-in/sign-up rate limit** — `[auth.rate_limit].sign_in_sign_ups` in `config.toml` is a
   CLI/self-hosted-`supabase start`-only setting with no hosted equivalent; a PATCH attempt was
-  silently accepted (HTTP 200) but never took effect, confirmed by a re-GET. CAPTCHA
-  (`auth.captcha`, still disabled) is therefore the only real anti-farming lever available on
-  this plan — tracked as blocking M4 going live in `docs/status.md` Known Issue #12, not
-  something more config-file tuning can fix.
+  silently accepted (HTTP 200) but never took effect, confirmed by a re-GET. **Native
+  `auth.captcha` was tried live and reverted the same day it was tested** (2026-08-02) — it's
+  project-wide, not per-endpoint, and gates sign-in along with signup. `supabase/functions/
+  signup-with-captcha` (`docs/status.md` Known Issue #12, resolved 2026-08-03) is the actual
+  anti-farming lever now in place, not `auth.captcha`.
 - **Local-stack-only settings that mean nothing for this hosted project**: everything else in
   `config.toml` outside the `[auth]` block (`[db]`, `[storage]`, `[api]`, etc.) governs a local
   `supabase start` stack only, present because `supabase init` generates the full default file —
   not evidence of any corresponding hosted configuration.
+
+## Current — `POST /functions/v1/signup-with-captcha` (issue #12/Known Issue #12, 2026-08-03)
+
+**Built, Deno + Jest-tested, and DEPLOYED to the live project.** The anti-farming gate in front of
+account creation — replaces the client's direct `supabase.auth.signUp()` call in sign-up mode.
+
+```
+POST /functions/v1/signup-with-captcha   { email, password, captchaToken }
+  -> 200 { session: {...} | null, user: {...} }
+  -> 400 invalid_body | captcha_invalid | email_in_use
+       | weak_password_length | weak_password_pwned | signup_failed
+  -> 405 method_not_allowed
+  -> 500 signup_unavailable | signup_failed | no_session
+```
+
+**Why a custom function and not `auth.captcha`.** Cloudflare Turnstile keys were created and
+provided by Ian; native `auth.captcha` was enabled live via the same scoped Management API PATCH
+mechanism `password_hibp_enabled` uses, then reverted minutes later — direct testing against the
+hosted project showed it also 400s `POST /auth/v1/token?grant_type=password` (sign-in) with
+`captcha_failed` when no token is supplied. It is project-wide, not per-endpoint, and there is no
+server-side knob to scope it to signup only. `supabase/config.toml`'s `[auth.captcha]` block stays
+disabled, permanently, by design.
+
+**Design.** `_shared/captcha.ts`'s `TurnstileVerifier` posts the token to Cloudflare's siteverify
+API and resolves `false` on ANY failure mode (network, non-2xx, malformed JSON, `success: false`)
+— fails CLOSED, unlike `lib/hibp.ts`'s client-side check, because this IS the anti-farming gate
+itself. Only once that passes does `_shared/signup-client.ts` proxy a plain
+`supabase.auth.signUp()` call using the PUBLISHABLE key — no admin/service-role API anywhere in
+this path, so `minimum_password_length` and `password_hibp_enabled` (both `supabase/config.toml`)
+keep being enforced by GoTrue exactly as they were before this function existed. The
+already-registered-email non-enumeration behavior (`{ session: null }` with an empty `identities`
+array) and the weak-password length-vs-pwned precedence are both ported from
+`app/(auth)/sign-in.tsx`'s prior inline logic — `weak_password_length` vs `weak_password_pwned` is
+decided server-side (not via a `reasons` array on the wire) because `lib/functions-client.ts`'s
+shared `invokeFunction` wrapper only forwards `{ error, code }` on a non-2xx response, and
+widening that contract for one caller wasn't worth it.
+
+**Client.** `components/turnstile-widget.tsx` hosts Cloudflare's `turnstile/v0/api.js` inside a
+minimal `react-native-webview` HTML shell (Turnstile has no first-party React Native SDK) and
+bridges its `callback`/`error-callback`/`expired-callback` back to RN via `postMessage`.
+`app/(auth)/sign-in.tsx` renders it only in sign-up mode, disables the submit button until a token
+arrives, and calls `lib/signup-with-captcha.ts`'s `signUpWithCaptcha` instead of
+`supabase.auth.signUp` directly; on success it hydrates the on-device session via
+`supabase.auth.setSession` (`lib/session-provider.tsx`'s `onAuthStateChange` treats this
+identically to a session from `signInWithPassword` — no special-casing needed there). Turnstile
+tokens are single-use, so the widget is reset (`ref.current.reset()`) after every submit attempt,
+success or failure.
+
+**Secrets.** `TURNSTILE_SECRET_KEY` (the real key) is set via `supabase secrets set` on the hosted
+project — never committed, never `EXPO_PUBLIC_*`. The site key is safe client-side by Cloudflare's
+own design and is read from `EXPO_PUBLIC_TURNSTILE_SITE_KEY`. Local dev
+(`supabase/functions/.env`, gitignored) and `eas.json`'s `development-local`/`preview-local`
+profiles use Cloudflare's public, documented "always passes" test key pair instead of the real
+one, so local testing doesn't depend on the real widget's domain restrictions.
+
+**Verified live**: a request with no `captchaToken` gets `400 invalid_body`; a request with a
+garbage token gets `400 captcha_invalid`. The "succeeds with a valid token" path is proven by the
+full Deno + Jest test suite (a fake `CaptchaVerifier` returning `true`, exercising the real
+`signUp` proxy end to end) rather than a live Turnstile solve — no browser-automation tool was
+available in this session to script that, which would be the only way to prove it more strongly;
+same "honest ceiling" reasoning `purchase-tier.deno.test.ts`'s header documents for its own
+untestable-live-Postgres case.
+
+**Files.** `supabase/functions/signup-with-captcha/index.ts` (HTTP/env glue only) ·
+`_shared/signup-with-captcha.ts` (portable validation + shaping, unit-tested) ·
+`_shared/captcha.ts` (Turnstile verification, unit-tested) · `_shared/signup-client.ts`
+(Deno/`npm:` publishable-key `signUp` proxy) · `lib/signup-with-captcha.ts` (client) ·
+`components/turnstile-widget.tsx` (client widget).
 
 ## Current — `POST /functions/v1/purchase-tier` (issue #51, 2026-07-13; hardened same day after a security audit on PR #123)
 
@@ -1997,8 +2071,9 @@ the existing `updated_at` column, no new state. Said plainly: **this does not mi
 actual amplification vector.** That attack uses one throwaway account per call; a per-user cooldown
 cannot throttle a campaign that never calls this endpoint twice with the same user. The two real
 levers are the deployment gate above (closes the whole vector when off) and CAPTCHA/signup
-throttling (`docs/status.md` Known Issue #12, blocked on Ian). This control's actual job is
-narrower: stopping one compromised or scripted account from hammering the endpoint in a tight loop.
+throttling (`docs/status.md` Known Issue #12, resolved 2026-08-03 —
+`supabase/functions/signup-with-captcha`). This control's actual job is narrower: stopping one
+compromised or scripted account from hammering the endpoint in a tight loop.
 
 The contract is **deliberately identical to V2.2's** so v2 can swap `source` to real receipt
 verification without changing its shape. No real money moves in v1 — no IAP, no Stripe (real IAP
