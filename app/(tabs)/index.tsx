@@ -5,7 +5,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-nat
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KineticText } from '@/components/kinetic-text';
-import { LowPolyField, POSES } from '@/components/low-poly-field';
+import { LowPolyField } from '@/components/low-poly-field';
 import { Marquee } from '@/components/marquee';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
 import { Eyebrow } from '@/components/ui/eyebrow';
@@ -235,7 +235,6 @@ export default function HomeScreen() {
             is chrome and the CTA block is the subject. */}
         <View style={styles.topBar}>
           <LowPolyField
-            poses={[POSES.gather, POSES.stride]}
             color={colors.text.secondary}
             size={ControlHeight.circle}
             testID="home-mark"
@@ -287,7 +286,6 @@ export default function HomeScreen() {
               the composition is the point, the movement is the enhancement. */}
           <View style={styles.heroBlock}>
             <LowPolyField
-              poses={[POSES.scatter, POSES.stride, POSES.gather]}
               color={colors.text.primary}
               size={HERO_MARK_SIZE}
               style={styles.heroMark}

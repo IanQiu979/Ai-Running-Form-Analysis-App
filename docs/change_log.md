@@ -7,6 +7,27 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-08-03 (design polish pass — heading copy, motion-budget doc reconciliation)
 
+- **Redesigned `components/low-poly-field.tsx`'s mark: shatter-into-a-running-figure, replacing
+  the `scatter`/`stride`/`gather` 3-pose cycle entirely.** New cycle: an abstract `DEFAULT_POSE`
+  shatters apart, reassembles into a runner that cycles a full gait (contact → load → toe-off →
+  swing → knee drive → landing, `RUNNER_KEYFRAMES`, 8 phases × 3 loops), then shatters back to
+  the default and holds. The shatter is a genuine fly-apart-and-reassemble (each vertex explodes
+  outward from the field's centre through a shared waypoint, not a straight-line dissolve) on the
+  two transitions that cross the abstract/runner boundary; plain gait-to-gait steps stay a
+  straight eased morph. The runner's pose is grounded in `knowledge/pace_framework.md`: a ~7°
+  whole-body lean from the ankles (Posture), a compact landing under the hip rather than reaching
+  ahead (Cadence — deliberately not the overstride silhouette PACE flags), a deepest-knee-bend
+  load phase with a subtle hip-height bob (Elasticity), and a bent-elbow front-to-back arm swing
+  contralateral to the legs (Arm swing). `FACET_COUNT` moved 9 → 17, reached by rendering the
+  gait keyframes to SVG and iterating until the figure read as a runner, not a guessed number.
+  Reduced motion still renders `DEFAULT_POSE` statically, unanimated, zero Reanimated work
+  scheduled — the abstract mark, never a held gait-cycle instant (which would misleadingly imply
+  in-progress motion). The component's `poses` prop is gone (there is now exactly one cycle, so
+  callers no longer choose one) — all four consumers (`app/(auth)/sign-in.tsx`,
+  `app/(tabs)/index.tsx`, `app/analyzing.tsx`, `app/capture/extracting.tsx`) updated to the
+  simplified `color`/`size`/`style`/`testID` API. Verified visually via a live Expo web render
+  (the runner reads clearly across multiple gait phases; the shatter is a legible burst of
+  shards, not a chaotic dissolve) in addition to the full `typecheck && lint && test` gate.
 - **Investigated the reported "morphing mark isn't playing" (PRs #163-#165).** Found no code
   regression: `components/low-poly-field.tsx` is unchanged since #165, its own test suite (per-
   vertex morph, reduced-motion still-frame) passes, and a live Expo web render of `/sign-in`
