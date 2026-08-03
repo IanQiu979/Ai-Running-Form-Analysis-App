@@ -19,8 +19,9 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   measured against the real `Archivo_700Bold`/`600SemiBold` font metrics (not estimated): `Copy.
   history.title` ("Past Analyses" → "History", `FontSize.display` 64pt), `Copy.analyzing.error.
   failed.title` ("Your analysis didn't go through" → "Your analysis failed"), and `Copy.analyzing.
-  error.previousAttemptFailed.title` ("That analysis didn't finish" → "Analysis didn't finish").
-  `docs/design/copy-deck.md` updated in the same pass so the prescribed copy doesn't go stale.
+  error.previousAttemptFailed.title` ("That analysis didn't finish" → "Analysis stopped", after an
+  interim "Analysis didn't finish" still wrapped at the narrowest supported width, iPhone SE/mini
+  375pt). `docs/design/copy-deck.md` updated in the same pass so the prescribed copy doesn't go stale.
   Checked every other `accessibilityRole="header"` heading in the app the same way (precise font-
   metric measurement, not character counting) — none of the rest exceed two lines, and the sign-in
   wordmark's two-line wrap ("Pace" / "AnalysisAI") is the hero lockup working as designed, not a
