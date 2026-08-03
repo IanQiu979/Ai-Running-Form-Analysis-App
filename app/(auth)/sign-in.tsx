@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KineticText } from '@/components/kinetic-text';
-import { LowPolyField, POSES } from '@/components/low-poly-field';
+import { LowPolyField } from '@/components/low-poly-field';
 import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/turnstile-widget';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
@@ -239,7 +239,6 @@ export default function SignInScreen() {
               are recognisably one design. */}
           <View style={styles.header}>
             <LowPolyField
-              poses={[POSES.scatter, POSES.gather]}
               color={colors.text.primary}
               size={SPLASH_MARK_SIZE}
               style={styles.headerMark}

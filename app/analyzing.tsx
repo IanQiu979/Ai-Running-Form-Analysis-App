@@ -49,7 +49,7 @@ import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KineticText } from '@/components/kinetic-text';
-import { LowPolyField, POSES } from '@/components/low-poly-field';
+import { LowPolyField } from '@/components/low-poly-field';
 import { Eyebrow } from '@/components/ui/eyebrow';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
@@ -396,7 +396,6 @@ export default function AnalyzingScreen() {
                 screen's header already documents why its wait-state signaling is exempt from
                 blanket motion suppression, and a static mark is the honest middle. */}
             <LowPolyField
-              poses={[POSES.scatter, POSES.stride, POSES.gather]}
               color={colors.text.primary}
               size={WAIT_MARK_SIZE}
               testID="analyzing-mark"

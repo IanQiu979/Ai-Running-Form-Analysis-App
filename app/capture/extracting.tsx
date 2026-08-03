@@ -41,7 +41,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { LowPolyField, POSES } from '@/components/low-poly-field';
+import { LowPolyField } from '@/components/low-poly-field';
 import { Eyebrow } from '@/components/ui/eyebrow';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
@@ -264,7 +264,6 @@ export default function ExtractingScreen() {
                 under the same rule: it signals "alive", never progress. The progress BAR below
                 is different — that one is real, driven by a known frame count. */}
             <LowPolyField
-              poses={[POSES.scatter, POSES.stride, POSES.gather]}
               color={colors.text.primary}
               size={WAIT_MARK_SIZE}
               testID="extracting-mark"
@@ -274,11 +273,7 @@ export default function ExtractingScreen() {
 
         {state.status === 'extracting' && (
           <View style={styles.centered}>
-            <LowPolyField
-              poses={[POSES.scatter, POSES.stride, POSES.gather]}
-              color={colors.text.primary}
-              size={WAIT_MARK_SIZE}
-            />
+            <LowPolyField color={colors.text.primary} size={WAIT_MARK_SIZE} />
             <Text style={styles.caption} accessibilityLiveRegion="polite">
               {Copy.upload.step.extracting(state.done, state.total)}
             </Text>
