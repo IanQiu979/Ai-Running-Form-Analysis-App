@@ -332,8 +332,9 @@ export const Copy = {
       // way. Wording mirrors the server's own message ("Start a new analysis to try again").
       previousAttemptFailed: {
         // Design polish pass: "That analysis didn't finish" wraps to two lines at `FontSize.xxl`
-        // — shortened to fit one line. Deviates from docs/design/copy-deck.md; updated there too.
-        title: "Analysis didn't finish",
+        // — shortened to fit one line down to the narrowest supported width (iPhone SE/mini,
+        // 375pt). Deviates from docs/design/copy-deck.md; updated there too.
+        title: 'Analysis stopped',
         body: "An earlier attempt at this one stopped before it completed. It wasn't counted against your quota — start a new analysis to try again.",
       },
       cta: {

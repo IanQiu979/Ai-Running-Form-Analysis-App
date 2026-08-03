@@ -257,7 +257,7 @@ verbatim from `constants/copy.ts`, a draft until certified (`docs/status.md` Kno
 
 | Key | String | Shows when |
 |---|---|---|
-| `analyzing.error.previousAttemptFailed.title` | "Analysis didn't finish" | The reservation for this request was already released — server `409 previous_attempt_failed`, or issue #64's reconciled `released` phase. Shortened from "That analysis didn't finish" in the 2026-08-03 design polish pass — the original wraps to two lines at `FontSize.xxl`. |
+| `analyzing.error.previousAttemptFailed.title` | "Analysis stopped" | The reservation for this request was already released — server `409 previous_attempt_failed`, or issue #64's reconciled `released` phase. Shortened from "That analysis didn't finish" in the 2026-08-03 design polish pass — the original (and an interim "Analysis didn't finish") wraps to two lines at `FontSize.xxl` on the narrowest supported width (iPhone SE/mini, 375pt). |
 | `analyzing.error.previousAttemptFailed.body` | "An earlier attempt at this one stopped before it completed. It wasn't counted against your quota — start a new analysis to try again." | Deliberately drops the bare "try again" the `failed`/`timeout` copy carries, which here would name an action that cannot work. |
 | `analyzing.error.cta.startNew` | "Start a new analysis" | Primary action on that panel; routes to `/capture`, where the normal flow mints a fresh idempotency key. Cancel is still the second exit. |
 
