@@ -5,6 +5,41 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-03 (design polish pass — heading copy, motion-budget doc reconciliation)
+
+- **Investigated the reported "morphing mark isn't playing" (PRs #163-#165).** Found no code
+  regression: `components/low-poly-field.tsx` is unchanged since #165, its own test suite (per-
+  vertex morph, reduced-motion still-frame) passes, and a live Expo web render of `/sign-in`
+  showed the SVG `<Polygon>` geometry genuinely changing every ~2.5s, matching the authored
+  `scatter`→`gather` pose cycle exactly. No fix applied here — flagged back to the captain in case
+  what was seen was a stale native build, since nothing in the diff since #165 touches this file,
+  `hooks/use-reduced-motion.ts`, `constants/theme.ts`'s `Motion` tokens, or the Reanimated/worklets
+  toolchain.
+- **Shortened three headings that wrapped to two lines against their own container width**,
+  measured against the real `Archivo_700Bold`/`600SemiBold` font metrics (not estimated): `Copy.
+  history.title` ("Past Analyses" → "History", `FontSize.display` 64pt), `Copy.analyzing.error.
+  failed.title` ("Your analysis didn't go through" → "Your analysis failed"), and `Copy.analyzing.
+  error.previousAttemptFailed.title` ("That analysis didn't finish" → "Analysis didn't finish").
+  `docs/design/copy-deck.md` updated in the same pass so the prescribed copy doesn't go stale.
+  Checked every other `accessibilityRole="header"` heading in the app the same way (precise font-
+  metric measurement, not character counting) — none of the rest exceed two lines, and the sign-in
+  wordmark's two-line wrap ("Pace" / "AnalysisAI") is the hero lockup working as designed, not a
+  copy problem.
+- **Reconciled `docs/design/frontend-design-brief.md` §6.1** ("the motion budget," amended
+  2026-07-26): it still said "nothing else animates... no per-word reveals, no marquees or
+  tickers," which PRs #164/#165 already contradicted on merge (`components/kinetic-text.tsx`,
+  `components/marquee.tsx`, and the low-poly ambient field all shipped after that line was
+  written and were never reconciled against it). Marked the line superseded and recorded the
+  actual current budget instead of leaving the stale rule in place to mislead the next reader.
+- **General cleanliness pass**: verified `/sign-in` (light + dark, mobile viewport, sign-in and
+  sign-up modes) renders cleanly via a live Expo web render — no element overlap (checked the
+  low-poly mark's actual DOM bounds against the form fields below it: 64px of clear space, not
+  the collision a first glance at a screenshot suggested), and a repo-wide grep found no
+  hardcoded colors/spacing outside `constants/theme.ts`. Screens gated behind a real Supabase
+  session (Home, Result, Settings, Paywall, Compare, History) could not be rendered in this
+  environment (placeholder `.env`, no live backend) — no changes made there beyond the copy-deck
+  fixes above; flagging this as an open gap rather than guessing at "messy" without evidence.
+
 ## 2026-08-03 (CAPTCHA on signup — Known Issue #12, resolved via a custom edge function)
 
 - **Signup is now Turnstile-gated; sign-in is untouched.** Closes Known Issue #12: the hosted

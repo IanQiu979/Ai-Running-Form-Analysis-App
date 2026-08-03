@@ -237,7 +237,7 @@ failure, not a network one).
 | `analyzing.step.reading` | "Reading your form…" | Early client-side step list, per brief §4.6. |
 | `analyzing.step.scoring` | "Scoring the four pillars…" | |
 | `analyzing.longWait` | "Still analyzing — a full read takes a moment." | Calm static line after the honesty threshold (no fake progress bar, no spinner-forever). |
-| `analyzing.error.failed.title` | "Your analysis didn't go through" | Model response failed structural validation twice (retry-once, then fail). |
+| `analyzing.error.failed.title` | "Your analysis failed" | Model response failed structural validation twice (retry-once, then fail). Shortened from "Your analysis didn't go through" in the 2026-08-03 design polish pass — the original wraps to two lines at `FontSize.xxl` in `app/analyzing.tsx`'s `ErrorPanel`. |
 | `analyzing.error.failed.body` | "The analysis service didn't return a usable result. This one wasn't counted against your quota — try again." | Explicitly says quota wasn't burned, per the task's requirement. |
 | `analyzing.error.timeout.title` | "Analysis timed out" | The vision call exceeds the wait threshold with no response. |
 | `analyzing.error.timeout.body` | "The read took too long to finish. This one wasn't counted against your quota — try again." | |
@@ -257,7 +257,7 @@ verbatim from `constants/copy.ts`, a draft until certified (`docs/status.md` Kno
 
 | Key | String | Shows when |
 |---|---|---|
-| `analyzing.error.previousAttemptFailed.title` | "That analysis didn't finish" | The reservation for this request was already released — server `409 previous_attempt_failed`, or issue #64's reconciled `released` phase. |
+| `analyzing.error.previousAttemptFailed.title` | "Analysis didn't finish" | The reservation for this request was already released — server `409 previous_attempt_failed`, or issue #64's reconciled `released` phase. Shortened from "That analysis didn't finish" in the 2026-08-03 design polish pass — the original wraps to two lines at `FontSize.xxl`. |
 | `analyzing.error.previousAttemptFailed.body` | "An earlier attempt at this one stopped before it completed. It wasn't counted against your quota — start a new analysis to try again." | Deliberately drops the bare "try again" the `failed`/`timeout` copy carries, which here would name an action that cannot work. |
 | `analyzing.error.cta.startNew` | "Start a new analysis" | Primary action on that panel; routes to `/capture`, where the normal flow mints a fresh idempotency key. Cancel is still the second exit. |
 
@@ -302,7 +302,7 @@ verbatim from `constants/copy.ts`, a draft until certified (`docs/status.md` Kno
 
 | Key | String | Shows when |
 |---|---|---|
-| `history.title` | "Past Analyses" | Tab header. |
+| `history.title` | "History" | Tab header (also the screen's own `KineticText` heading). Shortened from "Past Analyses" in the 2026-08-03 design polish pass — the original wraps to two lines at `FontSize.display` (64pt). |
 | `history.loading` | "Loading your analyses…" | List fetch in flight. |
 | `history.empty.title` | "No analyses yet" | No history. |
 | `history.empty.body` | "Your analyses will live here." | Per brief §4.8, verbatim. |
