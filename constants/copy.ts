@@ -314,7 +314,11 @@ export const Copy = {
     longWait: 'Still analyzing — a full read takes a moment.',
     error: {
       failed: {
-        title: "Your analysis didn't go through",
+        // Design polish pass: the deck's "Your analysis didn't go through" wraps to two lines
+        // at `FontSize.xxl` in `app/analyzing.tsx`'s ErrorPanel — shortened to fit one line
+        // without losing the "your analysis, not a system-wide failure" framing. Deviates from
+        // docs/design/copy-deck.md; that doc is updated to match in the same pass.
+        title: 'Your analysis failed',
         body: "The analysis service didn't return a usable result. This one wasn't counted against your quota — try again.",
       },
       timeout: {
@@ -327,7 +331,10 @@ export const Copy = {
       // with the same already-released row — so a Retry in either case can only ever fail the same
       // way. Wording mirrors the server's own message ("Start a new analysis to try again").
       previousAttemptFailed: {
-        title: "That analysis didn't finish",
+        // Design polish pass: "That analysis didn't finish" wraps to two lines at `FontSize.xxl`
+        // — shortened to fit one line down to the narrowest supported width (iPhone SE/mini,
+        // 375pt). Deviates from docs/design/copy-deck.md; updated there too.
+        title: 'Analysis stopped',
         body: "An earlier attempt at this one stopped before it completed. It wasn't counted against your quota — start a new analysis to try again.",
       },
       cta: {
@@ -410,7 +417,10 @@ export const Copy = {
   // a route nothing routes to would be exactly the dead key `settings`'s own header comment
   // above warns against. Add them back in the same change that builds Compare.
   history: {
-    title: 'Past Analyses',
+    // Design polish pass: "Past Analyses" wraps to two lines at `FontSize.display` (64pt) in
+    // both this screen's KineticText header and the tab bar label — shortened to fit one line.
+    // Deviates from docs/design/copy-deck.md; that doc is updated to match in the same pass.
+    title: 'History',
     loading: 'Loading your analyses…',
     empty: {
       title: 'No analyses yet',
