@@ -41,6 +41,38 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   environment (placeholder `.env`, no live backend) — no changes made there beyond the copy-deck
   fixes above; flagging this as an open gap rather than guessing at "messy" without evidence.
 
+## 2026-08-03 (diagnosed: "the analyzer crashes" was a stale `node_modules`, not an app bug)
+
+- **Root cause found and confirmed reproducible; no tracked file was wrong.** The captain reported
+  the photo/video analyzer erroring or crashing instead of completing. Reproduced by running this
+  worktree's own gate: `npm run typecheck` failed immediately with `Cannot find module
+  'react-native-webview' or its corresponding type declarations.` in `components/turnstile-widget.tsx`,
+  and `expo start --web` confirmed the same failure at the Metro-bundling level (`Metro error:
+  ... Unable to resolve module react-native-webview`). Metro bundles the whole JS dependency graph
+  in one pass — `app/(auth)/sign-in.tsx` imports `turnstile-widget.tsx` at the top level (not
+  lazily) — so an unresolvable import anywhere in that graph fails the ENTIRE app bundle, not just
+  the sign-up screen. That is exactly the shape of "the analyzer crashes rather than completing":
+  the analyze flow was never reached because nothing in the app could load.
+  - **What was actually wrong:** this worktree's `node_modules/` (installed 2026-08-02, before the
+    Turnstile PR #166 landed 2026-08-03 01:23) never got `react-native-webview` installed, even
+    though PR #166 correctly added it to both `package.json` and `package-lock.json` — `npm ls
+    react-native-webview` showed it declared but not present on disk. `package.json`/
+    `package-lock.json` were never wrong; `node_modules` was simply never brought back in sync
+    with the lockfile after that dependency landed.
+  - **Fix: `npm ci`** (not `npm install`, which pointlessly rewrote the pin to `^13.15.0` in both
+    files) — a clean install from the existing lockfile, restoring `node_modules` to match
+    `package-lock.json` exactly, with zero diff to either tracked file.
+  - **Verified afterward:** `npm run typecheck && npm run lint && npm test` all clean (68/68 Jest
+    suites, 1128 Jest tests, 389 Deno tests), and `expo start --web` now bundles the full app
+    (1462 modules) with no resolution errors — the only remaining error there is the expected
+    "copy `.env.example` to `.env`" guard for an unconfigured local environment, not a bug.
+  - **Why no code changed:** the repository's own CI (`.github/workflows/ci.yml`) already runs
+    `npm ci` from a clean checkout on every push/PR, so this class of drift cannot reach `main`
+    or a review build — it is purely local/worktree `node_modules` going stale relative to a
+    lockfile that gained a new dependency. **Anyone hitting an "Unable to resolve module" crash
+    after pulling latest `main`, especially right after a commit that added a dependency, should
+    run `npm ci` before assuming it's an app bug.**
+
 ## 2026-08-03 (CAPTCHA on signup — Known Issue #12, resolved via a custom edge function)
 
 - **Signup is now Turnstile-gated; sign-in is untouched.** Closes Known Issue #12: the hosted
