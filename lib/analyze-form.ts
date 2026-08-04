@@ -34,7 +34,14 @@ import * as Crypto from 'expo-crypto';
 
 import type { PaceFrameSet } from '@/lib/frames';
 import { invokeFunction } from './functions-client';
-import { isPaceAnalysisOutcome, PACE_PILLARS, type PacePillarId, type PacePillarResult, type PaceResult } from '@shared/pace';
+import {
+  isPaceAnalysisOutcome,
+  isPaceResult,
+  PACE_PILLARS,
+  type PacePillarId,
+  type PacePillarResult,
+  type PaceResult,
+} from '@shared/pace';
 
 export type AnalyzeFormMediaType = 'photo' | 'video';
 
@@ -78,17 +85,23 @@ export function toAnalyzeFormRequest(
 }
 
 /**
- * The documented 200 response (`docs/architecture.md` "API" table): `{ result, analysisId,
- * isFallback }`. A real success and an honest-partial fallback are the SAME shape — see
- * `@shared/pace`'s `PaceAnalysisOutcome` doc comment — differentiated only by `isFallback`, never
- * by a different response type. `app/analyzing.tsx` must route both to the result screen as a
- * result, never as a failure (issue #45).
+ * The documented 200 response (`docs/architecture.md` "API" table). Two structurally distinct
+ * shapes, discriminated by `kind` — never a bolted-on nullable field, because a sample response
+ * has nothing DB-backed to reconcile against and no `analysisId`/`isFallback` to speak of:
+ *
+ *  - `'result'` — `{ result, analysisId, isFallback }`, Pro/Elite's real (or honest-partial
+ *    fallback) analysis. A real success and an honest-partial fallback are the SAME shape — see
+ *    `@shared/pace`'s `PaceAnalysisOutcome` doc comment — differentiated only by `isFallback`,
+ *    never by a different response type. `app/analyzing.tsx` must route both to the result screen
+ *    as a result, never as a failure (issue #45).
+ *  - `'sample'` — `{ result }`, Free tier's zero-model-call labeled preview (captain-approved
+ *    2026-07-26). The wire body is `{ result, isSample: true }` with no `analysisId`/`isFallback`
+ *    keys at all — see `supabase/functions/_shared/analyze-form-sample.ts`'s header for why the
+ *    content is fabricated, never persisted, and always paired with this honest label.
  */
-export interface AnalyzeFormSuccess {
-  result: PaceResult;
-  analysisId: string;
-  isFallback: boolean;
-}
+export type AnalyzeFormSuccess =
+  | { kind: 'result'; result: PaceResult; analysisId: string; isFallback: boolean }
+  | { kind: 'sample'; result: PaceResult };
 
 /** Every non-2xx `analyze-form` response body (`docs/architecture.md` "Error contract": "every
  * non-2xx response body is structured `{ error, code }`"). `code` is what would route a `402` to
@@ -171,13 +184,22 @@ export function parseAnalyzeFormSuccess(raw: unknown): AnalyzeFormSuccess | null
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const body = raw as Record<string, unknown>;
 
+  // Free tier's sample branch (`{ result, isSample: true }`, no `analysisId`/`isFallback`).
+  // Checked first and structurally, same validation philosophy as the real-result branch below —
+  // a client that doesn't yet know about `isSample` falls through to the `analysisId` check next,
+  // which a sample body fails (no such key), so an older client fails CLOSED on an unrecognized
+  // shape rather than misrendering it.
+  if (body.isSample === true) {
+    return isPaceResult(body.result) ? { kind: 'sample', result: body.result } : null;
+  }
+
   const { analysisId } = body;
   if (typeof analysisId !== 'string' || !ANALYSIS_ID_PATTERN.test(analysisId)) return null;
 
   const outcome = { result: body.result, isFallback: body.isFallback };
   if (!isPaceAnalysisOutcome(outcome)) return null;
 
-  return { result: outcome.result, analysisId, isFallback: outcome.isFallback };
+  return { kind: 'result', result: outcome.result, analysisId, isFallback: outcome.isFallback };
 }
 
 /**
@@ -340,12 +362,18 @@ export function createMockAnalyzeFormClient(options: MockAnalyzeFormClientOption
         case 'success':
           return {
             ok: true,
-            data: { result: mockPaceResult(PACE_PILLARS), analysisId: mockAnalysisId(), isFallback: false },
+            data: {
+              kind: 'result',
+              result: mockPaceResult(PACE_PILLARS),
+              analysisId: mockAnalysisId(),
+              isFallback: false,
+            },
           };
         case 'fallback':
           return {
             ok: true,
             data: {
+              kind: 'result',
               result: mockPaceResult(['posture', 'armSwing']),
               analysisId: mockAnalysisId(),
               isFallback: true,

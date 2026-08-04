@@ -13,7 +13,7 @@
  * opposite, e.g. by trusting a stale attempt's late resolution over the current one (see
  * `isCurrentAttempt` below).
  */
-import type { PaceAnalysisOutcome } from '@shared/pace';
+import type { PaceAnalysisOutcome, PaceResult } from '@shared/pace';
 
 import type { AnalyzeFormError } from './analyze-form';
 
@@ -121,10 +121,17 @@ export function captionPhaseForElapsed(elapsedMs: number): AnalyzingCaptionPhase
  * untouched, so `app/analyzing.tsx` can route on it (`code === 'quota_exceeded'` -> `/paywall`,
  * issue #52) without adding client-side quota logic. That routing decision, like every other
  * quota/tier decision, belongs to the screen reading server state, never to this reducer.
+ *
+ * `'sample'` (captain-approved 2026-07-26): Free tier's zero-model-call labeled preview. Kept as
+ * its own phase, not folded into `'succeeded'`, because a sample has nothing in common with a
+ * real result's `analysisId`/DB row — see `lib/analyze-form.ts`'s `AnalyzeFormSuccess` union.
+ * Like `'released'`, a sample is not a failure, so `retry` (below) does not list it: there is
+ * nothing to retry, and the sample screen's own Upgrade/Done CTAs are the only exits.
  */
 export type AnalyzingState =
   | { phase: 'waiting'; attempt: number }
   | { phase: 'succeeded'; outcome: PaceAnalysisOutcome; analysisId: string }
+  | { phase: 'sample'; result: PaceResult; heroDataUri: string | null }
   | { phase: 'failed'; attempt: number; code?: AnalyzeFormError['code'] }
   | { phase: 'timedOut'; attempt: number }
   | { phase: 'offline'; attempt: number }
@@ -134,6 +141,9 @@ export const INITIAL_ANALYZING_STATE: AnalyzingState = { phase: 'waiting', attem
 
 export type AnalyzingEvent =
   | { type: 'succeeded'; attempt: number; outcome: PaceAnalysisOutcome; analysisId: string }
+  /** Free tier's response resolved. Guarded by the same `isCurrentAttempt` staleness check as
+   * every other attempt-tagged event — see `'sample'` phase's doc comment above. */
+  | { type: 'sample'; attempt: number; result: PaceResult; heroDataUri: string | null }
   /**
    * `code` (issue #136): threaded straight from `AnalyzeFormClientResult`'s `error.code` — see
    * `AnalyzingState`'s `failed` doc comment above for what carries it and what doesn't, and why
@@ -177,6 +187,10 @@ export function analyzingReducer(state: AnalyzingState, event: AnalyzingEvent): 
     case 'succeeded':
       return isCurrentAttempt(state, event.attempt)
         ? { phase: 'succeeded', outcome: event.outcome, analysisId: event.analysisId }
+        : state;
+    case 'sample':
+      return isCurrentAttempt(state, event.attempt)
+        ? { phase: 'sample', result: event.result, heroDataUri: event.heroDataUri }
         : state;
     case 'failed':
       return isCurrentAttempt(state, event.attempt)

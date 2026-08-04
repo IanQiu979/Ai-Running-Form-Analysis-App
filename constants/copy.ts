@@ -409,6 +409,29 @@ export const Copy = {
         'This is not medical advice. PACE analyzes visible running form and flags movement patterns that research associates with elevated injury risk — it does not diagnose injuries or conditions. Form assessment from a photo or short video is an estimate, not a lab measurement. If you have pain, swelling, or a persistent problem, or before making a big change to how you run, consult a doctor or a qualified sports physiotherapist.',
     },
     // --- issue #56 additions end ---
+    // --- Free-tier sample preview additions start (captain-approved 2026-07-26) — NOT in the
+    // copy deck. Free tier makes zero model calls; this is the labeled preview shown on
+    // `/result/sample` instead of a real result. `banner.body` is the load-bearing honesty
+    // sentence the whole feature exists for — it must always read as "here's an example of what
+    // Pro returns," never as "here's what we found in your photo." No price appears here or
+    // anywhere in this block by design (captain will set pricing separately). `cta.upgrade` is
+    // DELIBERATELY its own string, not a reuse of `paywall.cta.upgrade.pro` ("Upgrade to Pro"):
+    // this CTA routes to the paywall's plan-picker (`/paywall`), not straight into a Pro
+    // purchase, so "See Pro plans" describes what actually happens on tap.
+    sample: {
+      banner: {
+        title: 'This is a sample',
+        body: "We didn't analyze your photo — Free doesn't run a real analysis. This is an example of what Pro looks like, so you can see the depth before you upgrade.",
+      },
+      cta: {
+        upgrade: 'See Pro plans',
+      },
+      // Distinct from `result.hero.altText` on purpose: this screen's `<DuotoneFrame>` renders
+      // with no `annotate` prop (no lines are drawn over a sample), so reusing the real result's
+      // alt text ("marked with posture and ground lines") would describe something not on screen.
+      heroAltText: 'Your uploaded photo.',
+    },
+    // --- Free-tier sample preview additions end ---
   },
   // Screen 8 — Past Analyses (issue #55). Lifted verbatim by key from docs/design/copy-deck.md §
   // Screen 8, same convention as every namespace above. The deck's `history.compare.*` keys

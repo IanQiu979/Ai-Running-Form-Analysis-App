@@ -27,6 +27,17 @@
  *     dead end to begin with — its own primary CTA and Settings link stay fully usable underneath),
  *     clear the marker.
  *
+ * KNOWN GAP (captain-approved 2026-07-26, Free tier's zero-model-call sample preview): the marker
+ * is set unconditionally the instant ANY request exists, before the server has told the client
+ * which tier it is. A Free-tier request never creates an `analyses` row at all (it short-circuits
+ * before `reserve_analysis` — see `supabase/functions/analyze-form/flow.ts`), so a kill between
+ * navigating to `/analyzing` and the (normally near-instant) sample response landing leaves a
+ * marker with "no row yet" forever — `sweep_stale_reservations`'s 15-minute backstop cannot help,
+ * since there was never a row for it to flip to `released`. Impact is minimal: `'pending'` renders
+ * no UI on Home, and the marker is silently overwritten the next time the user starts any
+ * analysis — but unlike the cases above, this one does not self-resolve on its own. Not fixed
+ * here; flagged so a future reader isn't surprised.
+ *
  * STORAGE CHOICE: plain `AsyncStorage`, NOT `lib/secure-storage.ts`'s Keychain/Keystore-backed
  * adapter. That adapter exists to protect a Supabase session (an access + refresh token pair) —
  * genuine credentials. An idempotency key is a random UUID with no standalone value (it cannot be

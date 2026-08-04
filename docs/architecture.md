@@ -174,6 +174,12 @@ app/
                           # navigates to `result/[id]` (singular, matching this table);
                           # docs/design/motion-consult.md's nav-param example was corrected to
                           # match (docs/status.md Known Issue #20, resolved).
+  result/sample               # current (captain-approved 2026-07-26) — Free tier's zero-model-
+                          # call labeled sample preview. A static sibling route, not a `[id]`
+                          # dynamic match — no `analyses` row exists to fetch for a sample.
+                          # `app/analyzing.tsx` routes here instead of `result/[id]` for a
+                          # `kind: 'sample'` response; see "Current — `analyze-form` edge
+                          # function" below.
   settings                   # current (issue #53) — top-level pushed route, not a tab; see
                           # "Current — the Settings screen" below.
   paywall                     # current (issue #52, 2026-07-13) — the M5 dummy paywall; see
@@ -1204,7 +1210,7 @@ RLS.
 
 | Method / Route | Auth | Body | Returns | Notes |
 |---|---|---|---|---|
-| `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | `{ result, analysisId, isFallback }` or `402` over-quota / `403` anon | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issues #44 + #45, built 2026-07-13; deployed with #128, and `lib/analyze-form.ts` is now bound to the real client) — see "Current" below. Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. |
+| `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | Pro/Elite: `{ result, analysisId, isFallback }`. **Free: `{ result, isSample: true }` — no `analysisId`/`isFallback`, no Anthropic call, no `analyses` row** (captain-approved 2026-07-26). Also `402` over-quota / `403` anon | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issues #44 + #45, built 2026-07-13; deployed with #128, and `lib/analyze-form.ts` is now bound to the real client) — see "Current" below. Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. **Free tier is a zero-Anthropic-spend, honestly-labeled sample preview, not a real analysis** — see "Current — `analyze-form` edge function" below for the `pace_current_tier` short-circuit. |
 | `POST /functions/v1/purchase-tier` | JWT + gate | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` or `404 not_found` (gate off) / `429 rate_limited` / `400 invalid_tier` / `invalid_source` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #51, 2026-07-13; hardened same day, PR #123; deployed with #128) — see "Current" below. **Gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — it is set to `true` on the live project today by deliberate captain decision and MUST be unset before any TestFlight build or public release; `docs/status.md` Known Issue #21 owns that release gate and its current live state.** Same contract as V2.2; v2 swaps `source` to receipt verification (a non-`dummy` source is refused today). The only legitimate writer to `subscriptions`, via the service-role-only `pace_purchase_tier` RPC — no client-writable INSERT/UPDATE policy exists, and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`. Idempotent: `purchased_at` (the period anchor) is written once on first purchase and never moved (no caller-suppliable `p_as_of` either), so a repurchase cannot reset the quota period. |
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #50, 2026-07-12; deployed with #128) — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Redeployed 2026-07-26 from the current repo code, so issue #132's second-purge/`orphans_remaining` behavior is now live** — that deploy also carried the shared-key parse fix (`docs/status.md` Known Issue #35). |
@@ -1496,13 +1502,20 @@ consents       (id uuid pk default gen_random_uuid(),
 -- "latest row for this user and key".
 ```
 
-**Quota RPC family — `reserve_analysis` / `settle_analysis` / `release_analysis`, live and the
-sole enforcement point.** All three are `SECURITY DEFINER`, `EXECUTE` revoked from
-`public`/`anon`/`authenticated` and granted only to `service_role` — so only a future edge
-function calling with the service-role key can invoke them, never the client directly.
-**Signatures below reflect #88's migration, applied and verified live 2026-07-12**:
+**Quota RPC family — `reserve_analysis` / `settle_analysis` / `release_analysis` /
+`pace_current_tier`, live and the sole enforcement point.** All four are `SECURITY DEFINER`,
+`EXECUTE` revoked from `public`/`anon`/`authenticated` and granted only to `service_role` — so
+only a future edge function calling with the service-role key can invoke them, never the client
+directly. **Signatures below reflect #88's migration, applied and verified live 2026-07-12**:
 `reserve_analysis` is 4 args (`p_media_paths` dropped), `settle_analysis` is 5 (gained it, with
 a `{p_user_id}/{p_analysis_id}/` namespace guard).
+
+- **`pace_current_tier(p_user_id)`** (captain-approved 2026-07-26,
+  `20260804120000_pace_current_tier_function.sql`) — a side-effect-free tier lookup, split out of
+  `reserve_analysis` so `analyze-form` can answer "which tier is this caller on" WITHOUT reserving
+  a row or spending a quota slot. Does the identical `subscriptions` lookup `reserve_analysis`
+  does internally (no active row = `'free'`), just with no insert. This is what lets Free tier's
+  sample preview cost nothing — no reservation, no `analyses` row, ever.
 
 - **`reserve_analysis(p_user_id, p_idempotency_key, p_media_type, p_frame_count)`**
   — the sole write path for new `analyses` rows (4 args as of #88 — the row is minted with an
@@ -2466,9 +2479,33 @@ The model is a **fake queue** in every test. The suite makes **zero Anthropic ca
 **The order, as built:**
 
 ```
-auth → consent → AI gate → idempotency + reserve → prompt → call (+1 retry)
-     → settle → upload → attach_media_paths          ↘ (any failure before the settle) release
+auth → consent → tier lookup (free short-circuits here) → AI gate → idempotency + reserve
+     → prompt → call (+1 retry) → settle → upload → attach_media_paths
+                                              ↘ (any failure before the settle) release
 ```
+
+**Free tier makes ZERO Anthropic calls (captain-approved 2026-07-26).** `pace_current_tier` —
+a new, side-effect-free RPC (`supabase/migrations/20260804120000_pace_current_tier_function.sql`,
+same `SECURITY DEFINER`/pinned-`search_path`/service-role-only grant pattern as the other four
+quota RPCs) — runs right after consent and before the AI gate, purely to answer "which tier is
+this caller on," with none of `reserve_analysis`'s side effects (no row, no quota slot spent). A
+`'free'` result returns `200 { result: FREE_SAMPLE_PACE_RESULT, isSample: true }` immediately: no
+AI gate, no reserve, no model call, no `analyses` row, no frame upload — this is a hand-authored,
+never-persisted sample result (`supabase/functions/_shared/analyze-form-sample.ts`), honestly
+labeled so it can never be mistaken for a personalized analysis (a cost-control requirement, not
+just UX — the rationale being both an App Store policy risk and a refund-dispute risk if a canned
+result were presented as real). `'pro'`/`'elite'` fall straight through to the unmodified path
+below. On any `pace_current_tier` RPC failure (or an unrecognized returned value), the lookup
+throws and the request fails as a `500 internal_error` — deliberately NOT defaulting to `'free'`
+(would silently swallow a paying user's real analysis on a transient DB blip) and NOT defaulting to
+a paid tier (the actual spend risk). The client (`app/analyzing.tsx`) routes a `kind: 'sample'`
+response to the static `app/result/sample.tsx` route — never `/result/[id]`, since no DB row
+exists to fetch — showing the sample PACE readout next to the user's own just-captured photo (a
+`data:` URI built client-side from the frame already in memory; nothing is uploaded to Storage for
+a sample) inside a `<SampleResultBanner>` that states plainly this is an example of Pro's output,
+with an upgrade CTA immediately adjacent. See `supabase/functions/analyze-form/__tests__/
+flow.deno.test.ts`'s "FREE-TIER SAMPLE PREVIEW" suite for the regression lock proving zero model/
+gate/reserve calls.
 
 **Settle before upload (#130).** The last three steps used to run `upload → settle`. They were
 inverted so that a `'reserved'` row can never have frames — see step 10 of the call-ordering list
