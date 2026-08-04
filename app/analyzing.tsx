@@ -86,6 +86,7 @@ import {
 import { onAppForeground } from '@/lib/app-state';
 import { checkConnectivity } from '@/lib/connectivity';
 import { clearPendingAnalysisMarker, setPendingAnalysisMarker } from '@/lib/pending-analysis';
+import { setPendingSampleResult } from '@/lib/pending-sample-result';
 import { useSession } from '@/lib/session-provider';
 import { supabase } from '@/lib/supabase';
 import { useAnnounce } from '@/lib/use-announce';
@@ -178,19 +179,32 @@ export default function AnalyzingScreen() {
       analyzeFormClient
         .submit(request)
         .then((result) => {
-          if (result.ok) {
-            dispatch({
-              type: 'succeeded',
-              attempt,
-              outcome: { result: result.data.result, isFallback: result.data.isFallback },
-              analysisId: result.data.analysisId,
-            });
-          } else {
+          if (!result.ok) {
             // Issue #136: carry the server's code through, so a 402 quota_exceeded can open the
             // paywall below instead of offering a Retry that would resubmit into the same
             // exhausted quota.
             dispatch({ type: 'failed', attempt, code: result.error.code });
+            return;
           }
+
+          if (result.data.kind === 'sample') {
+            // Free tier (captain-approved 2026-07-26): zero model calls, a labeled preview
+            // instead. `heroDataUri` is built from the frame ALREADY in memory — the "their own
+            // uploaded photo" requirement, with nothing uploaded to Storage for a sample. A photo
+            // submission is always exactly one frame server-side, but this stays defensive rather
+            // than assuming it.
+            const heroDataUri =
+              request.frames.length > 0 ? `data:image/jpeg;base64,${request.frames[0]}` : null;
+            dispatch({ type: 'sample', attempt, result: result.data.result, heroDataUri });
+            return;
+          }
+
+          dispatch({
+            type: 'succeeded',
+            attempt,
+            outcome: { result: result.data.result, isFallback: result.data.isFallback },
+            analysisId: result.data.analysisId,
+          });
         })
         .catch(() => {
           // Folded into the same failure copy as a documented error — every analyze-form failure
@@ -333,6 +347,19 @@ export default function AnalyzingScreen() {
       pathname: '/result/[id]',
       params: { id: state.analysisId, justAnalyzed: '1' },
     } as Href);
+  }, [state, router]);
+
+  // Free tier's sample preview (captain-approved 2026-07-26), mirroring the 'succeeded' effect
+  // above: stage the result in its own one-shot mailbox (a `PaceResult` plus a `data:` URI is far
+  // past what's sane as a serialized route param, same reasoning `justAnalyzed` above avoids for
+  // the real path) and hand off to the static `/result/sample` route. No `analyses` row exists for
+  // a sample, so there is nothing for the marker below to reconcile later — clear it the same way
+  // the real success path does.
+  useEffect(() => {
+    if (state.phase !== 'sample') return;
+    clearPendingAnalysisMarker();
+    setPendingSampleResult({ result: state.result, heroDataUri: state.heroDataUri });
+    router.replace('/result/sample');
   }, [state, router]);
 
   // Issue #136: a real 402 quota_exceeded opens the paywall rather than the generic retryable

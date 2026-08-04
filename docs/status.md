@@ -910,6 +910,25 @@ milestone "done" criteria.
     neither guessed nor printed, so its runtime behavior on the live project is unverified. Five of
     the six are verified live; this one is deploy-only.
 
+36. **NEW — Free tier's zero-model-call sample preview (captain-approved 2026-07-26) has no
+    per-user rate limit, flagged by both the threat-modeling and security-review passes on that
+    change.** Before this change, every `analyze-form` caller — Free included — went through
+    `reserve_analysis`, which enforced a hard lifetime cap of 1 for Free plus the 3-strike
+    anti-farming counter. The new `pace_current_tier` short-circuit (see `docs/architecture.md`'s
+    "Current — `analyze-form` edge function") returns the canned sample and exits BEFORE
+    `reserve_analysis` (or any other counter) is ever called — by design, since the whole point is
+    zero cost and zero quota consumption for a fabricated preview. The only remaining bound on a
+    Free-tier caller is `parseRequestBody`'s existing global DoS ceiling (≤8 frames, ≤5MB per
+    request — `PACE_FRAME_CAP.elite`/`PACE_MAX_REQUEST_BODY_BYTES`), which was never a per-user
+    throttle. Net effect: a Free-tier account can call `analyze-form` an unlimited number of times,
+    each up to a 5MB authenticated POST, with no AI spend (the goal is fully met) but also no
+    counter on edge-function invocation volume or bandwidth — a regression from the prior
+    lifetime-cap behavior along that one axis. Both review passes rated this MEDIUM, not a blocker:
+    worth a deliberate follow-up (a lightweight per-user throttle, or Supabase's project-level rate
+    limiting), not a silent gap — recorded here rather than fixed in the same change, since it
+    would mean new schema/RPC surface beyond this task's captain-approved scope (the free-tier
+    behavior change, not new abuse-prevention infrastructure).
+
 ## Next action
 
 **RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the

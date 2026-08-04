@@ -10,7 +10,8 @@
  *
  * ══ THE CALL ORDER IS THE CONTRACT ══════════════════════════════════════════════════════════
  *
- *   auth → consent → AI GATE → idempotency + quota reserve → model call (+1 retry)
+ *   auth → consent → TIER LOOKUP (free short-circuits here) → AI GATE
+ *        → idempotency + quota reserve → model call (+1 retry)
  *        → settle → upload frames → attach ... and on any failure: release
  *
  * Every arrow is load-bearing and each has a named failure mode. In order:
@@ -27,6 +28,20 @@
  *    `<ConsentGate />` is UX and is bypassable by calling this endpoint directly — THIS is the
  *    control. A missing row, a `granted = false` row, AND a query error all mean refuse; see
  *    `checkConsent()`. Skip it and the app processes Art. 9 health data with no legal basis.
+ *
+ * 2.5. TIER LOOKUP, side-effect-free (captain-approved 2026-07-26). `pace_current_tier` answers
+ *    "which tier is this user on" with none of `reserve_analysis`'s side effects — no row, no
+ *    quota slot spent. A `'free'` result short-circuits the ENTIRE rest of this function: no AI
+ *    gate, no reserve, no model call, ever. Free tier is a zero-Anthropic-spend, honestly-labeled
+ *    sample preview (`_shared/analyze-form-sample.ts`), a hard cost-control requirement, not just
+ *    UX — see that file's header. `'pro'`/`'elite'` fall straight through to the existing path
+ *    below, completely unmodified; `reserveAnalysis` re-derives the tier a second time internally,
+ *    an accepted redundant `SELECT` traded for not touching the hardened path that follows at all.
+ *    On any RPC failure here, `currentTier` throws — same as `reserveAnalysis`'s own error
+ *    handling — and the outer `catch` turns it into the same `internal_error` 500 every other
+ *    unexpected RPC failure in this function already produces. It deliberately does NOT default to
+ *    `'free'` on error: that would silently swallow a paying user's real analysis on a transient
+ *    DB blip, which is a worse failure mode than a request that has to be retried.
  *
  * 3. AI SPEND GATE, before idempotency and before the reserve — not after (#91's binding call
  *    order). If the gate ran after the reserve, every kill-switch/cap/breaker denial would have to
@@ -77,6 +92,7 @@ import {
   type RpcClient,
 } from '../_shared/ai-guard.ts';
 import { estimateTokensForCall } from '../_shared/ai-pricing.ts';
+import { FREE_SAMPLE_PACE_RESULT } from '../_shared/analyze-form-sample.ts';
 import {
   buildAnalyzeFormRequest,
   type AnalyzeFormRequest as AnthropicRequest,
@@ -364,6 +380,28 @@ interface ReserveResult {
   [key: string]: unknown;
 }
 
+/**
+ * `pace_current_tier` — the side-effect-free tier lookup (new migration
+ * `20260804120000_pace_current_tier_function.sql`), used ONLY to decide whether this request can
+ * skip the model call entirely. MUST throw (not silently default) on an RPC error or an
+ * unrecognized value — same posture as `reserveAnalysis` just below, and deliberately the
+ * opposite of `checkConsent`'s fail-closed-refuse: defaulting to `'free'` here would silently
+ * swallow a paying user's real analysis on a transient DB blip, and defaulting to a paid tier
+ * would be the actual spend risk this whole feature exists to avoid. The caller lets the throw
+ * propagate to the function's own top-level `catch`, which already turns any unexpected RPC
+ * failure into the same `internal_error` 500.
+ */
+async function currentTier(rpc: RpcClient, userId: string): Promise<PaceTier> {
+  const { data, error } = await rpc.rpc('pace_current_tier', { p_user_id: userId });
+  if (error) {
+    throw new Error(`pace_current_tier failed: ${error.message}`);
+  }
+  if (data !== 'free' && data !== 'pro' && data !== 'elite') {
+    throw new Error(`pace_current_tier returned an unexpected tier: ${JSON.stringify(data)}`);
+  }
+  return data;
+}
+
 async function reserveAnalysis(
   rpc: RpcClient,
   args: { userId: string; idempotencyKey: string; mediaType: PaceMediaKind; frameCount: number }
@@ -634,13 +672,31 @@ export async function runAnalyzeForm(
       ));
     }
 
+    // ── 2.5. Tier lookup — side-effect-free, before the AI gate and the reserve. ────────────
+    //
+    // See the file header's "TIER LOOKUP" section above. A free result answers the whole request
+    // right here: no gate check, no reservation, no `analyses` row, no model call — this is a
+    // fabricated preview, always labeled `isSample: true`. Nothing below this branch ever runs for
+    // a free-tier caller, so `openCalls`/`reservation` stay empty/null and the `finally` at the
+    // bottom is a no-op by construction, exactly like every other early return above it.
+    tier = await currentTier(deps.rpc, callerUserId);
+
+    if (tier === 'free') {
+      outcome = 'sample';
+      return (response = {
+        status: 200,
+        body: { result: FREE_SAMPLE_PACE_RESULT, isSample: true },
+      });
+    }
+
     // ── 3. AI spend gate — BEFORE idempotency and reserve (#91's binding order). ────────────
     //
-    // The tier is not known yet (only `reserve_analysis` may decide it), so the pre-call estimate
-    // is made at the WORST case: elite's 8k output budget. That errs strictly toward reserving too
-    // much headroom, which `ai-pricing.ts` names as the intended direction of error — the gate is a
-    // ceiling, not an accountant, and `record_ai_call` settles the real cost from real token counts
-    // moments later. The retry's gate, below, knows the true tier and uses it.
+    // Tier is now known to be 'pro' or 'elite' (free short-circuited above), but the pre-call
+    // estimate below still deliberately uses the WORST case (elite's 8k output budget) rather than
+    // the now-known real tier. That errs strictly toward reserving too much headroom, which
+    // `ai-pricing.ts` names as the intended direction of error — the gate is a ceiling, not an
+    // accountant, and `record_ai_call` settles the real cost from real token counts moments later.
+    // The retry's gate, below, knows the true tier and uses it.
     const firstEstimate = estimateTokensForCall(request.frames.length, 'elite');
     const gate = await gateAiCall(deps.rpc, {
       userId: callerUserId,

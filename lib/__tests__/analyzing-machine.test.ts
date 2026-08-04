@@ -31,6 +31,8 @@ const mockOutcome = {
   isFallback: false,
 };
 
+const mockSampleResult = mockOutcome.result;
+
 describe('captionPhaseForElapsed', () => {
   it('shows the first step at t=0', () => {
     expect(captionPhaseForElapsed(0)).toEqual({ kind: 'step', stepIndex: 0, stepKey: 'reading' });
@@ -104,6 +106,52 @@ describe('analyzingReducer', () => {
     });
 
     expect(next).toEqual({ phase: 'succeeded', outcome: fallbackOutcome, analysisId: 'analysis-2' });
+  });
+
+  // Free tier's zero-model-call preview (captain-approved 2026-07-26). Kept as its own phase
+  // rather than folded into 'succeeded' — see AnalyzingState's 'sample' doc comment.
+  describe('sample (Free tier preview)', () => {
+    it('moves to sample on a matching-attempt sample event, carrying the result and hero URI through', () => {
+      const next = analyzingReducer(INITIAL_ANALYZING_STATE, {
+        type: 'sample',
+        attempt: 1,
+        result: mockSampleResult,
+        heroDataUri: 'data:image/jpeg;base64,AAAA',
+      });
+
+      expect(next).toEqual({ phase: 'sample', result: mockSampleResult, heroDataUri: 'data:image/jpeg;base64,AAAA' });
+    });
+
+    it('accepts a null heroDataUri (the defensive empty-frame-array case)', () => {
+      const next = analyzingReducer(INITIAL_ANALYZING_STATE, {
+        type: 'sample',
+        attempt: 1,
+        result: mockSampleResult,
+        heroDataUri: null,
+      });
+
+      expect(next).toEqual({ phase: 'sample', result: mockSampleResult, heroDataUri: null });
+    });
+
+    it('drops a stale sample event from an old attempt after a Retry has already started a new one', () => {
+      const failed: AnalyzingState = { phase: 'failed', attempt: 1 };
+      const retried = analyzingReducer(failed, { type: 'retry' });
+
+      const next = analyzingReducer(retried, {
+        type: 'sample',
+        attempt: 1,
+        result: mockSampleResult,
+        heroDataUri: null,
+      });
+
+      expect(next).toBe(retried);
+    });
+
+    // Not a failure — see the reducer's own comment on why 'sample' is excluded from 'retry'.
+    it('ignores a retry event from the sample phase (nothing to retry — a sample is not a failure)', () => {
+      const sample: AnalyzingState = { phase: 'sample', result: mockSampleResult, heroDataUri: null };
+      expect(analyzingReducer(sample, { type: 'retry' })).toBe(sample);
+    });
   });
 
   it('moves to failed on a matching-attempt failure', () => {

@@ -33,6 +33,7 @@ import {
 import type { RpcClient } from '../../_shared/ai-guard.ts';
 import { PACE_ANALYSIS_TOOL_NAME } from '../../_shared/analyze-form-prompt.ts';
 import type { AnthropicMessageResponse } from '../../_shared/analyze-form-validation.ts';
+import { FREE_SAMPLE_PACE_RESULT } from '../../_shared/analyze-form-sample.ts';
 
 const CALLER = '11111111-1111-4111-8111-111111111111';
 const ATTACKER_TARGET = '22222222-2222-4222-8222-222222222222';
@@ -54,6 +55,10 @@ class FakeRpc implements RpcClient {
   private gateSeq = 0;
 
   handlers: Record<string, RpcHandler> = {
+    // Defaults to 'pro' — the free-tier short-circuit (`currentTier`, before the gate) is tested
+    // explicitly in its own suite below; every OTHER test in this file exercises the pro/elite
+    // path, which is what a default of 'pro' preserves without touching each one individually.
+    pace_current_tier: () => ({ data: 'pro', error: null }),
     gate_ai_call: () => {
       this.gateSeq += 1;
       return { data: { allowed: true, call_id: `call-${this.gateSeq}`, estimated_usd: 0.09 }, error: null };
@@ -705,11 +710,12 @@ Deno.test('rule 5: the kill switch and the circuit breaker are also 503s', async
   }
 });
 
-Deno.test('rule 5: gate ordering is auth -> consent -> gate -> reserve -> settle -> attach', async () => {
+Deno.test('rule 5: gate ordering is auth -> consent -> tier -> gate -> reserve -> settle -> attach', async () => {
   const h = harness([ok()]);
   await run(h);
 
   assertEquals(h.rpc.names(), [
+    'pace_current_tier',
     'gate_ai_call',
     'reserve_analysis',
     'settle_analysis',
@@ -1352,4 +1358,80 @@ Deno.test('#130: a purge that itself fails still delivers 200 — nothing after 
 
   assertEquals(res.status, 200);
   assertEquals(h.rpc.to('release_analysis').length, 0);
+});
+
+// ===========================================================================
+// FREE-TIER SAMPLE PREVIEW (captain-approved 2026-07-26) — Free makes ZERO Anthropic calls, ever.
+// `pace_current_tier` short-circuits BEFORE the AI gate and BEFORE reserve_analysis: this is the
+// concrete proof that a free-tier request never reaches `deps.model.send`, never reserves a row,
+// and never gates AI spend — a code-review claim is not sufficient given the AI-spend stakes.
+// ===========================================================================
+
+Deno.test('free tier: zero model calls, zero gate, zero reserve — a labeled sample instead', async () => {
+  const h = harness([]); // an empty model queue — `deps.model.send` throws if ever invoked
+  h.rpc.handlers.pace_current_tier = () => ({ data: 'free', error: null });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(res.body, { result: FREE_SAMPLE_PACE_RESULT, isSample: true });
+  assertEquals(h.model.sent.length, 0, 'free tier must never call the model');
+  assertEquals(h.rpc.to('gate_ai_call').length, 0, 'free tier must never gate AI spend');
+  assertEquals(h.rpc.to('reserve_analysis').length, 0, 'free tier must never reserve a row/quota slot');
+  assertEquals(h.rpc.to('settle_analysis').length, 0);
+  assertEquals(h.rpc.to('release_analysis').length, 0);
+  assertEquals(h.rpc.to('record_ai_call').length, 0);
+  assertEquals(h.storage.uploads.length, 0, 'nothing is uploaded for a sample — no frame ever lands');
+  assertEquals(h.rpc.names(), ['pace_current_tier']);
+});
+
+Deno.test('free tier: consent (CONTRACT RULE 4) still governs — the tier lookup never runs before it', async () => {
+  const h = harness([], { granted: false });
+  h.rpc.handlers.pace_current_tier = () => ({ data: 'free', error: null });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 403);
+  assertEquals(res.body.code, 'consent_required');
+  assertEquals(h.rpc.calls.length, 0, 'refused before the tier lookup ever ran');
+});
+
+Deno.test('pro/elite tiers are completely unaffected by the tier-lookup branch', async () => {
+  for (const tier of ['pro', 'elite']) {
+    const h = harness([ok()]);
+    h.rpc.handlers.pace_current_tier = () => ({ data: tier, error: null });
+    h.rpc.handlers.reserve_analysis = () => ({
+      data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
+      error: null,
+    });
+
+    const res = await run(h);
+
+    assertEquals(res.status, 200);
+    assertEquals(h.model.sent.length, 1, `${tier} must still call the model exactly once`);
+    assert(!('isSample' in res.body), `${tier} response must never carry isSample`);
+  }
+});
+
+Deno.test('a pace_current_tier RPC failure fails CLOSED as a 500, never silently as a sample or a paid call', async () => {
+  const h = harness([]);
+  h.rpc.handlers.pace_current_tier = () => ({ data: null, error: { message: 'db is on fire' } });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 500);
+  assertEquals(res.body.code, 'internal_error');
+  assertEquals(h.model.sent.length, 0);
+  assert(!('isSample' in res.body), 'an RPC failure must not silently degrade into a sample response');
+});
+
+Deno.test('a pace_current_tier RPC returning an unrecognized value also fails closed as a 500', async () => {
+  const h = harness([]);
+  h.rpc.handlers.pace_current_tier = () => ({ data: 'platinum', error: null });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 500);
+  assertEquals(res.body.code, 'internal_error');
+  assertEquals(h.model.sent.length, 0);
 });

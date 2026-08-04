@@ -5,6 +5,43 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-04 (Free tier is now a zero-model-call sample preview, not a real analysis)
+
+- **Free tier makes ZERO Anthropic model calls, ever (captain-approved 2026-07-26).** Previously
+  Free ran the exact same `analyze-form` code path as Pro/Elite (only prompt verbosity differed);
+  now a new side-effect-free RPC, `pace_current_tier` (`supabase/migrations/
+  20260804120000_pace_current_tier_function.sql`), runs right after consent and before the AI
+  spend gate to learn the caller's tier without reserving a row or spending a quota slot. A
+  `'free'` result short-circuits the whole request: no AI gate, no `reserve_analysis`, no model
+  call, no `analyses` row, no frame upload — the response is `200 { result: FREE_SAMPLE_PACE_RESULT,
+  isSample: true }`, a hand-authored, never-persisted, Pro-depth sample result
+  (`supabase/functions/_shared/analyze-form-sample.ts`). Pro/Elite are completely unchanged — same
+  gate → reserve → model → retry → settle path as before, and a regression test asserts they
+  still call the model exactly once. On any `pace_current_tier` RPC failure or an unrecognized
+  tier value, the request fails as a `500 internal_error` — deliberately not defaulting to
+  `'free'` (would silently swallow a paying user's real analysis) or to a paid tier (the actual
+  spend risk).
+- **The client shows the sample next to the user's own uploaded photo, honestly labeled as a
+  preview, with an upgrade path immediately adjacent.** `lib/analyze-form.ts`'s
+  `AnalyzeFormSuccess` is now a discriminated union (`kind: 'result' | 'sample'`) rather than a
+  bolted-on nullable field, since a sample has nothing DB-backed to reconcile against.
+  `app/analyzing.tsx` routes a `kind: 'sample'` response to a new static route,
+  `app/result/sample.tsx` (never `/result/[id]`, which would try to fetch a row that was never
+  created) — staged through a new one-shot mailbox, `lib/pending-sample-result.ts`, carrying the
+  fabricated result plus a `data:image/jpeg;base64,...` URI built client-side from the frame
+  already in memory (nothing is uploaded to Storage for a sample). The new screen renders a
+  `<SampleResultBanner>` (`components/sample-result-banner.tsx`) above the PACE readout stating
+  plainly this is an example of Pro's output, not a read of the user's actual photo, with an
+  upgrade CTA inside the same banner — the App Store policy / refund-dispute control this whole
+  feature exists for. New copy: `Copy.result.sample.*` in `constants/copy.ts`. No subscription
+  price is encoded anywhere in this change (pricing is a separate, later decision).
+- **Known gap, tracked, not fixed here (docs/status.md Known Issue #36, GitHub issue #170):** Free
+  tier's sample path is no longer rate-limited per user — `reserve_analysis`'s lifetime cap and
+  anti-farming counter no longer apply to it, since the whole point is to skip that RPC entirely.
+  Flagged MEDIUM by both a threat-modeling and a security-review pass; the only remaining bound is
+  the existing global per-request size cap. Filed as a follow-up rather than expanding this
+  change's scope into new abuse-prevention infrastructure.
+
 ## 2026-08-03 (design polish pass — heading copy, motion-budget doc reconciliation)
 
 - **Redesigned `components/low-poly-field.tsx`'s mark: shatter-into-a-running-figure, replacing

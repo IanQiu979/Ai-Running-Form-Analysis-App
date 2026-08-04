@@ -105,7 +105,7 @@ describe('createAnalyzeFormClient (the real implementation)', () => {
     expect(mockInvoke).toHaveBeenCalledWith('analyze-form', { method: 'POST', body: sampleRequest });
     expect(result).toEqual({
       ok: true,
-      data: { result: proTierVideoResult, analysisId: REAL_ANALYSIS_ID, isFallback: false },
+      data: { kind: 'result', result: proTierVideoResult, analysisId: REAL_ANALYSIS_ID, isFallback: false },
     });
   });
 
@@ -122,6 +122,7 @@ describe('createAnalyzeFormClient (the real implementation)', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected the success branch');
+    if (result.data.kind !== 'result') throw new Error('expected the result branch, not sample');
     expect(result.data.isFallback).toBe(true);
   });
 
@@ -200,6 +201,49 @@ describe('createAnalyzeFormClient (the real implementation)', () => {
   });
 });
 
+// Free tier's zero-model-call sample preview (captain-approved 2026-07-26). The wire body has NO
+// `analysisId`/`isFallback` keys at all — see `AnalyzeFormSuccess`'s doc comment for why this is a
+// structurally distinct `kind: 'sample'` branch, not a nullable field bolted onto the real shape.
+describe('sample response (Free tier)', () => {
+  it('parses a { result, isSample: true } body as kind: "sample"', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { result: proTierVideoResult, isSample: true },
+      error: null,
+    } as never);
+
+    const result = await createAnalyzeFormClient().submit(sampleRequest);
+
+    expect(result).toEqual({ ok: true, data: { kind: 'sample', result: proTierVideoResult } });
+  });
+
+  it('does NOT report success for isSample: true whose result fails the PACE structural check', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { result: { pillars: 'not-an-object' }, isSample: true },
+      error: null,
+    } as never);
+
+    const result = await createAnalyzeFormClient().submit(sampleRequest);
+
+    expect(result.ok).toBe(false);
+  });
+
+  // A real result body never carries isSample, so it must keep parsing as kind: 'result' — the
+  // isSample check must not accidentally swallow the ordinary success path.
+  it('does not affect parsing of an ordinary result response with no isSample key', async () => {
+    mockInvoke.mockResolvedValue({
+      data: { result: proTierVideoResult, analysisId: REAL_ANALYSIS_ID, isFallback: false },
+      error: null,
+    } as never);
+
+    const result = await createAnalyzeFormClient().submit(sampleRequest);
+
+    expect(result).toEqual({
+      ok: true,
+      data: { kind: 'result', result: proTierVideoResult, analysisId: REAL_ANALYSIS_ID, isFallback: false },
+    });
+  });
+});
+
 // THE REGRESSION GUARD FOR #128 ITSELF. The bug was never a wrong implementation — both clients
 // were correct — it was the BINDING pointing at the mock. Assert the shipped binding calls the
 // edge function, so rebinding it back to the mock fails here instead of in production.
@@ -224,6 +268,7 @@ describe('createMockAnalyzeFormClient', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected ok:true');
+    if (result.data.kind !== 'result') throw new Error('expected the result branch, not sample');
     expect(result.data.isFallback).toBe(false);
     expect(isPaceResult(result.data.result)).toBe(true);
     expect(typeof result.data.analysisId).toBe('string');
@@ -240,6 +285,7 @@ describe('createMockAnalyzeFormClient', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected ok:true');
+    if (result.data.kind !== 'result') throw new Error('expected the result branch, not sample');
     expect(result.data.isFallback).toBe(true);
     expect(isPaceAnalysisOutcome({ result: result.data.result, isFallback: result.data.isFallback })).toBe(true);
 
