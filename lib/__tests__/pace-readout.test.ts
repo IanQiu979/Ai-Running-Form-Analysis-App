@@ -115,8 +115,14 @@ describe('overallA11yLabel', () => {
 
 describe('formatPartialBannerBody', () => {
   it('interpolates the assessed-pillar count into the deck template', () => {
-    expect(formatPartialBannerBody(2)).toBe(
+    expect(formatPartialBannerBody(2, 'video')).toBe(
       "We could confidently score 2 of 4 pillars from this clip. The rest are marked not assessed — we don't guess at a score."
+    );
+  });
+
+  it('says "photo" instead of "clip" for a photo submission (M3, v23-ux-audit-r1)', () => {
+    expect(formatPartialBannerBody(2, 'photo')).toBe(
+      "We could confidently score 2 of 4 pillars from this photo. The rest are marked not assessed — we don't guess at a score."
     );
   });
 });

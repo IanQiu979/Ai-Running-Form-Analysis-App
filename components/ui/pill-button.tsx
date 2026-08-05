@@ -151,7 +151,15 @@ export function PillButton({
           disabled && styles.disabled,
           pressed && !disabled && styles.pressed,
         ]}>
-        {variant === 'secondary' ? <GlassFrost tone="control" testID={testID ? `${testID}-frost` : undefined} /> : null}
+        {variant === 'secondary' ? (
+          // M9 (v23-ux-audit-r1): the parent `Pressable`'s own `borderRadius` +
+          // `overflow: 'hidden'` above is supposed to clip this, but a pale rectangular stripe
+          // was observed past the pill's rounded corner (web-rendered `expo-blur`, unverified on
+          // a native device — see this issue's own note). `radius` makes `<GlassFrost>` clip
+          // ITSELF to the same `Radius.pill` as a defensive second clip, redundant wherever the
+          // parent's clip already works, load-bearing wherever it doesn't.
+          <GlassFrost tone="control" radius={Radius.pill} testID={testID ? `${testID}-frost` : undefined} />
+        ) : null}
         {busy ? (
           <ActivityIndicator color={labelColor} />
         ) : (

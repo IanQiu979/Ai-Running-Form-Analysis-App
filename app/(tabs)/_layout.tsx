@@ -12,6 +12,7 @@ import {
   Elevation,
   FontFamily,
   FontSize,
+  LineHeight,
   Radius,
   Spacing,
   TabBar,
@@ -110,6 +111,10 @@ export default function TabLayout() {
         tabBarLabelStyle: {
           fontFamily: FontFamily.body.semiBold,
           fontSize: FontSize.xs,
+          // M6 (v23-ux-audit-r1): with no explicit lineHeight the label's tight default clipped
+          // "HOME"/"HISTORY" at the bottom. `FontSize.xs * LineHeight.body` is the same ratio
+          // every other body-scale label in the app uses.
+          lineHeight: FontSize.xs * LineHeight.body,
           letterSpacing: Tracking.eyebrow,
           textTransform: 'uppercase',
         },

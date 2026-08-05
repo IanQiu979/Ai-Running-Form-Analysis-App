@@ -905,10 +905,10 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       fontFamily: FontFamily.body.semiBold,
       fontSize: FontSize.xs,
       letterSpacing: Tracking.eyebrow,
-      // On the wash — `text.primary` only (`Gradient`'s contract, constants/theme.ts). Held back
-      // by opacity so it still reads as a quiet label.
+      // On the wash — `text.primary` only, at full opacity (`Gradient`'s contract,
+      // constants/theme.ts; H3, v23-ux-audit-r1: opacity here dropped this below WCAG AA).
+      // Quietness comes from the xs eyebrow size/tracking alone, not from a dimmed color.
       color: colors.text.primary,
-      opacity: Opacity.pressed,
       textTransform: 'uppercase',
     },
     card: {

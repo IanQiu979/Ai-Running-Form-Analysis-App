@@ -43,9 +43,9 @@
  * triggers, not state indicators") — so, deliberately, nothing here branches on
  * `useReducedMotion()`. That is a considered reading of the spec, not an oversight.
  */
-import { useRouter, type Href } from 'expo-router';
+import { Redirect, useRouter, type Href } from 'expo-router';
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
-import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KineticText } from '@/components/kinetic-text';
@@ -88,6 +88,7 @@ import { checkConnectivity } from '@/lib/connectivity';
 import { clearPendingAnalysisMarker, setPendingAnalysisMarker } from '@/lib/pending-analysis';
 import { setPendingSampleResult } from '@/lib/pending-sample-result';
 import { useSession } from '@/lib/session-provider';
+import { signOut, type SignOutResult } from '@/lib/sign-out';
 import { supabase } from '@/lib/supabase';
 import { useAnnounce } from '@/lib/use-announce';
 import { isPaceAnalysisOutcome } from '@shared/pace';
@@ -109,6 +110,16 @@ export default function AnalyzingScreen() {
   const [captionPhase, setCaptionPhase] = useState<AnalyzingCaptionPhase>(() => captionPhaseForElapsed(0));
   const longWaitOpacity = useRef(new Animated.Value(0)).current;
   const { session } = useSession();
+  // This screen unmounts the instant `session` flips to null (the route guard) — which is exactly
+  // what a successful handleUnauthorizedSignOut() below does. Same guard app/settings.tsx's
+  // isMountedRef uses for its own signOut() call, for the same reason.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   // Issue #11: the waiting-phase caption below carries `accessibilityLiveRegion="polite"`,
   // Android-only — this is the iOS complement, same pattern as app/(tabs)/index.tsx. Derived from
   // the same `captionPhase` the caption itself renders, so the announcement always matches what's
@@ -131,10 +142,11 @@ export default function AnalyzingScreen() {
   // emptied — out of scope here, see this issue's DOCS block. There is no copy-deck string for
   // this case because the real flow should never reach it; back out quietly rather than invent
   // wording the deck doesn't have.
-  useEffect(() => {
-    if (request) return;
-    router.replace('/');
-  }, [request, router]);
+  // H4 (v23-ux-audit-r1): this used to be `router.replace('/')` inside a mount effect, which
+  // fires before the root navigator has mounted on a cold start/deep link and throws "Attempted
+  // to navigate before mounting the Root Layout component." A declarative `<Redirect>` in the
+  // JSX below (guarded by the `!request` check further down) defers the navigation until the
+  // navigator is actually ready.
 
   // Issue #140: persist a marker of this analysis (keyed by idempotency key) the moment a real
   // request exists, so a process KILL during the wait can still be reconciled on the next cold
@@ -376,6 +388,61 @@ export default function AnalyzingScreen() {
     dispatch({ type: 'retry' });
   }
 
+  // L7 follow-up (v23-ux-audit-r1, review-1): the `unauthorized` panel's copy tells the user to
+  // "sign in and try again", but the session that expired is still the one a plain Retry would
+  // resubmit under — that CTA must actually clear the session, not resubmit into it. Reuses
+  // lib/sign-out.ts's signOut() (the same helper app/settings.tsx calls) so a successful sign-out
+  // clears the local session and lets app/_layout.tsx's Stack.Protected guard redirect to
+  // (auth)/sign-in on its own; this screen does not navigate itself.
+  const [isSigningOutOfExpiredSession, setIsSigningOutOfExpiredSession] = useState(false);
+
+  async function handleUnauthorizedSignOut() {
+    if (isSigningOutOfExpiredSession) return;
+    setIsSigningOutOfExpiredSession(true);
+
+    const result = await signOut();
+    if (!result.ok) {
+      showUnauthorizedSignOutFailureAlert(result);
+    }
+
+    if (isMountedRef.current) setIsSigningOutOfExpiredSession(false);
+  }
+
+  // Mirrors app/settings.tsx's showSignOutFailureAlert exactly (same three-state result, same
+  // copy, same exhaustiveness guard) rather than inventing a second error-handling philosophy for
+  // the same underlying call.
+  function showUnauthorizedSignOutFailureAlert(result: Extract<SignOutResult, { ok: false }>) {
+    const reason = result.reason;
+    switch (reason) {
+      case 'globalRevokeFailed':
+        Alert.alert(
+          Copy.settings.signOutError.globalRevokeFailed.title,
+          Copy.settings.signOutError.globalRevokeFailed.body,
+          [{ text: Copy.settings.alertDismiss }]
+        );
+        return;
+      case 'stillSignedIn':
+        Alert.alert(
+          Copy.settings.signOutError.stillSignedIn.title,
+          Copy.settings.signOutError.stillSignedIn.body,
+          [
+            { text: Copy.settings.signOutError.stillSignedIn.cta.secondary, style: 'cancel' },
+            {
+              text: Copy.settings.signOutError.stillSignedIn.cta.primary,
+              onPress: () => {
+                void handleUnauthorizedSignOut();
+              },
+            },
+          ]
+        );
+        return;
+      default: {
+        const exhaustive: never = reason;
+        throw new Error(`Unhandled SignOutResult reason: ${String(exhaustive)}`);
+      }
+    }
+  }
+
   // The server answered 409 `previous_attempt_failed`: the reservation for THIS idempotency key was
   // already released, and `reserve_analysis` hands an idempotency match back as-is whatever its
   // status — so re-submitting `request` can only ever produce the same 409. The only real recovery
@@ -397,7 +464,7 @@ export default function AnalyzingScreen() {
   }
 
   if (!request) {
-    return null;
+    return <Redirect href="/" />;
   }
 
   return (
@@ -456,11 +523,30 @@ export default function AnalyzingScreen() {
           />
         )}
 
+        {/* L7 (v23-ux-audit-r1): a session that expired mid-wait used to read identically to a
+            generic server failure. The code is already tracked (`state.code`), so this is a
+            copy-only split, not a new failure path. */}
+        {state.phase === 'failed' && state.code === 'unauthorized' && (
+          <ErrorPanel
+            styles={styles}
+            title={Copy.analyzing.error.unauthorized.title}
+            body={Copy.analyzing.error.unauthorized.body}
+            primary={{
+              label: Copy.analyzing.error.cta.signOut,
+              onPress: () => {
+                void handleUnauthorizedSignOut();
+              },
+            }}
+            onCancel={handleCancel}
+          />
+        )}
+
         {/* Issue #136: `quota_exceeded` is excluded here — the effect above routes it to /paywall.
             Rendering a Retry for it would resubmit into the same exhausted quota. */}
         {state.phase === 'failed' &&
           state.code !== 'quota_exceeded' &&
-          state.code !== 'previous_attempt_failed' && (
+          state.code !== 'previous_attempt_failed' &&
+          state.code !== 'unauthorized' && (
             <ErrorPanel
               styles={styles}
               title={Copy.analyzing.error.failed.title}

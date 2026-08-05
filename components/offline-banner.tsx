@@ -12,8 +12,14 @@
  * This is a passive NOTICE, not a gate: its own copy says so ("capture still works"). The gate is
  * `lib/connectivity.ts`'s `checkConnectivity()`, called at the specific network-dependent call
  * sites this issue's report hands off — this component never blocks anything itself, it only
- * tells the user their state. `pointerEvents="none"` below is what makes that literal: the
- * overlay never intercepts a tap meant for the screen underneath it.
+ * tells the user their state.
+ *
+ * M4 (v23-ux-audit-r1): this used to render as an absolutely-positioned overlay above the Stack,
+ * which meant it covered every screen's own top row — on `/capture/extracting` it sat directly
+ * over the screen's own "PREPARING YOUR ANALYSIS" title. It is now a normal-flow sibling rendered
+ * BEFORE `<Stack>` in `app/_layout.tsx`'s column, so while it's visible it pushes the Stack (and
+ * therefore every screen's content) down by its own height instead of drawing over it, and while
+ * it's hidden (`isOffline: false`) it contributes nothing to layout, same as before.
  */
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -52,7 +58,7 @@ export function OfflineBanner() {
   const styles = createStyles(colors, insets.top);
 
   return (
-    <View style={styles.container} pointerEvents="none">
+    <View style={styles.container}>
       <Text
         testID="offline-banner-text"
         style={styles.text}
@@ -67,13 +73,8 @@ export function OfflineBanner() {
 function createStyles(colors: ThemeColors, topInset: number) {
   return StyleSheet.create({
     container: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      // Above the Stack's screens, below nothing else — this is the only global overlay in the
-      // app today, so there is no competing z-index to reconcile against.
-      zIndex: 10,
+      // Normal flow, not an overlay (M4, v23-ux-audit-r1) — rendered before `<Stack>` in
+      // `app/_layout.tsx`'s column, so it pushes screen content down instead of drawing over it.
       backgroundColor: colors.surface.raised,
       // Rounded at the BOTTOM only, so the banner reads as a strip that has slid down from the
       // device's own edge rather than as a slab welded across the top. Same relationship the

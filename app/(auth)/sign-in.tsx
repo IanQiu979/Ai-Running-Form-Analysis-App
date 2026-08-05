@@ -238,11 +238,13 @@ export default function SignInScreen() {
               the same relationship Home's hero uses, so the two first screens a new user sees
               are recognisably one design. */}
           <View style={styles.header}>
-            <LowPolyField
-              color={colors.text.primary}
-              size={SPLASH_MARK_SIZE}
-              style={styles.headerMark}
-            />
+            <View style={styles.headerMarkBox} pointerEvents="none">
+              <LowPolyField
+                color={colors.text.primary}
+                size={SPLASH_MARK_SIZE}
+                style={styles.headerMark}
+              />
+            </View>
             <KineticText
               accessibilityRole="header"
               staggerMs={Motion.stagger.line}
@@ -387,8 +389,10 @@ export default function SignInScreen() {
   );
 }
 
-/** The splash mark's drawn size — atmosphere behind the wordmark, same role Home's hero uses. */
-const SPLASH_MARK_SIZE = 260;
+/** The splash mark's drawn size — atmosphere behind the wordmark, same role Home's hero uses.
+ * Clipped to `headerMarkBox` below, so this only needs to roughly fill that box, not the whole
+ * header (H2, v23-ux-audit-r1: 260 overhung the header and drew through the wordmark). */
+const SPLASH_MARK_SIZE = 160;
 
 function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
@@ -421,10 +425,21 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       gap: Spacing.md,
       justifyContent: 'center',
     },
-    headerMark: {
-      // Behind the wordmark, adding no height — so a small device still fits the form without
-      // the mark pushing the CTAs off-screen.
+    // H2 (v23-ux-audit-r1): the mark's own layout box, absolutely filling `header` so it adds no
+    // height (a small device still fits the form without the mark pushing the CTAs off-screen),
+    // but clipped and behind the wordmark/value-prop so its shards can never draw through them.
+    headerMarkBox: {
       position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+      zIndex: -1,
+    },
+    headerMark: {
       opacity: Opacity.disabled,
     },
     wordmarkRow: {
@@ -476,11 +491,12 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     },
     // Small, secondary, quiet — the proactive password rule (issue #9), sign-up mode only. Sits
     // on the wash, so `text.primary` at the smallest step rather than `text.secondary`.
+    // H3 (v23-ux-audit-r1): no `opacity` here — `text.primary` at full opacity is the only pair
+    // the gradient proves. Quietness comes from the xs size alone.
     passwordHint: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
       color: colors.text.primary,
-      opacity: Opacity.pressed,
       paddingHorizontal: Spacing.lg,
     },
     inlineLink: {

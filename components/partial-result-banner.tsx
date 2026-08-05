@@ -36,9 +36,12 @@ type Props = {
   /** How many of the four pillars carried a real score (`lib/pace-readout.ts`'s
    * `countAssessedPillars`) — interpolated into `result.partial.banner.body`'s `{n}`. */
   assessedCount: number;
+  /** Which medium was submitted — interpolated into `result.partial.banner.body`'s `{medium}`
+   * (M3, v23-ux-audit-r1: the banner used to always say "clip", even for a photo). */
+  mediaType: 'photo' | 'video';
 };
 
-export function PartialResultBanner({ assessedCount }: Props) {
+export function PartialResultBanner({ assessedCount, mediaType }: Props) {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -49,7 +52,7 @@ export function PartialResultBanner({ assessedCount }: Props) {
         {Copy.result.partial.banner.title}
       </Text>
       <Text testID="partial-banner-body" style={styles.body}>
-        {formatPartialBannerBody(assessedCount)}
+        {formatPartialBannerBody(assessedCount, mediaType)}
       </Text>
     </View>
   );

@@ -100,9 +100,13 @@ export function overallA11yLabel(overall: PaceOverall): string {
     .replace('{band}', ScoreBandLabel[overall.band]);
 }
 
-/** `result.partial.banner.body`'s `{n}` interpolation. */
-export function formatPartialBannerBody(assessedCount: number): string {
-  return Copy.result.partial.banner.body.replace('{n}', String(assessedCount));
+/** `result.partial.banner.body`'s `{n}` and `{medium}` interpolation — `{medium}` reads "photo"
+ * for a photo submission and "clip" for a video, so the banner never calls a still image a
+ * "clip" (M3, v23-ux-audit-r1). */
+export function formatPartialBannerBody(assessedCount: number, mediaType: 'photo' | 'video'): string {
+  return Copy.result.partial.banner.body
+    .replace('{n}', String(assessedCount))
+    .replace('{medium}', mediaType === 'photo' ? 'photo' : 'clip');
 }
 
 /**

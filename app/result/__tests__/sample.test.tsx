@@ -7,7 +7,7 @@
  * banner actually renders on the real navigated-to screen, not just that the component works in
  * isolation).
  */
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent } from '@testing-library/react-native';
 
 import { Copy } from '@/constants/copy';
 
@@ -18,9 +18,19 @@ jest.mock('react-native-safe-area-context', () =>
 
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
-jest.mock('expo-router', () => ({
-  useRouter: () => ({ replace: mockReplace, push: mockPush }),
-}));
+jest.mock('expo-router', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createElement } = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Text } = require('react-native');
+  return {
+    useRouter: () => ({ replace: mockReplace, push: mockPush }),
+    // H4 (v23-ux-audit-r1): the real bail-out is now a declarative <Redirect>, not a
+    // mount-effect router.replace — stub it as a plain, queryable marker rather than a no-op so
+    // the test below can assert on it without reaching into expo-router's real navigator.
+    Redirect: ({ href }: { href: string }) => createElement(Text, { testID: 'redirect-to-home' }, href),
+  };
+});
 
 const mockTakePendingSampleResult = jest.fn();
 jest.mock('@/lib/pending-sample-result', () => ({
@@ -46,7 +56,11 @@ describe('SampleResultScreen', () => {
 
     await render(<SampleResultScreen />);
 
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/'));
+    // H4 (v23-ux-audit-r1): a declarative <Redirect href="/" />, not a mount-effect
+    // router.replace — the effect version throws on a cold start/deep link, before the root
+    // navigator has mounted.
+    expect(screen.getByTestId('redirect-to-home')).toHaveTextContent('/');
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it('renders the sample banner, never as if it were a real personalized result', async () => {
@@ -93,5 +107,16 @@ describe('SampleResultScreen', () => {
     fireEvent.press(screen.getByTestId('sample-done'));
 
     expect(mockReplace).toHaveBeenCalledWith('/');
+  });
+
+  it('the terminal CTA is the upgrade, not "Back to Home" (M10, v23-ux-audit-r1)', async () => {
+    mockTakePendingSampleResult.mockReturnValue(samplePayload);
+
+    await render(<SampleResultScreen />);
+
+    expect(screen.getByText(Copy.result.sample.cta.terminalUpgrade)).toBeTruthy();
+    fireEvent.press(screen.getByTestId('sample-upgrade'));
+
+    expect(mockPush).toHaveBeenCalledWith('/paywall');
   });
 });

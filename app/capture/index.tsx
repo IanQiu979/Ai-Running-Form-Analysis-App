@@ -425,10 +425,10 @@ function createStyles(colors: ThemeColors) {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
       lineHeight: FontSize.xs * LineHeight.body,
-      // On the wash — `text.primary` only (`Gradient`'s contract). Held back by opacity rather
-      // than by a lighter token so it still reads as the quietest thing on the screen.
+      // On the wash — `text.primary` only, at full opacity (`Gradient`'s contract; H3,
+      // v23-ux-audit-r1: opacity here dropped this below WCAG AA). Quietness comes from the xs
+      // size alone, not from a dimmed color.
       color: colors.text.primary,
-      opacity: Opacity.pressed,
       textAlign: 'center',
     },
     pressed: {
