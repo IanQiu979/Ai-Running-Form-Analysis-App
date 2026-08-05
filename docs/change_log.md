@@ -48,13 +48,26 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   `jest.resetModules()` + re-`require` hands the screen a second React instance, breaking every
   hook; Jest's per-file module registry is what actually isolates the two cases. Verified the new
   tests fail against the pre-fix screen before landing them.
-- **Not changed, awaiting a captain decision:** the `$0` Elite self-grant (§5.3). Confirmed the
-  live secret state — `PURCHASE_TIER_DUMMY_ENABLED` is set (2026-07-26) and
-  `PURCHASE_TIER_ALLOWED_USER_IDS` is **unset**, so `checkDeploymentGate` allows every
-  authenticated caller. Both remediation options the audit floated are pure secret config with
-  **zero code change** (`purchase-tier/index.ts` already reads both vars and collapses "disabled"
-  and "not on the allowlist" to the same indistinguishable 404), so whichever the captain picks is
-  one CLI command. Left alone deliberately — see `docs/status.md` Known Issue #21.
+- **Closed the `$0` Elite self-grant by narrowing it to an allowlist** (§5.3; captain's decision
+  was "narrow, not shut off", reversing the 2026-07-26 call recorded in Known Issue #21).
+  `PURCHASE_TIER_DUMMY_ENABLED` stays `true` so tier testing keeps working, but
+  `PURCHASE_TIER_ALLOWED_USER_IDS` — previously **unset**, which is why `checkDeploymentGate`
+  was allowing *every* authenticated caller — is now set to the captain's own two account uids,
+  comma-separated. **Pure secret config, zero code change:** `purchase-tier/index.ts` already read
+  both vars and already collapsed "flag off" and "not on the allowlist" into the same
+  indistinguishable `404`, precisely so this lever could be pulled without a deploy.
+  Verified live: a freshly created third account got `404 not_found` from
+  `POST /functions/v1/purchase-tier {"tier":"elite","source":"dummy"}` and stayed on
+  `tier: free, limit: 1, frameCap: 1` — the audit had recorded `200` and `limit: 30, frameCap: 8`
+  for that identical sequence hours earlier. Took effect with no redeploy. The stored value was
+  confirmed exactly without printing it: `supabase secrets list` returns a SHA256 per value, and
+  both secrets matched their expected digests. Throwaway account deleted; project back to baseline
+  (2 users / 3 analyses / 9 AI calls) with the captain's `pro:active` subscription untouched.
+  **This closes only the `$0`-Elite half of the chain** — raw `POST /auth/v1/signup` is still
+  unauthenticated and unthrottled, since Turnstile gates only the app's own button and never the
+  GoTrue endpoint, so throwaway accounts can still be created; they just can't self-grant a paid
+  tier any more. What throttles raw signup remains an open decision. See `docs/status.md` Known
+  Issue #21 for the full updated live state.
 
 ## 2026-08-05 (Sign-in wordmark reads as three words again)
 

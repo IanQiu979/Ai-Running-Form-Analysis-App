@@ -456,7 +456,7 @@ milestone "done" criteria.
     deployed without its deployment gate switched on deliberately (security audit on PR #123,
     2026-07-13).**
 
-    > ### ⚠️ CURRENT LIVE STATE — `PURCHASE_TIER_DUMMY_ENABLED=true` IS SET IN PRODUCTION SECRETS
+    > ### ⚠️ CURRENT LIVE STATE — flag still ON, but NARROWED TO AN ALLOWLIST as of 2026-08-05
     >
     > **As of 2026-07-26, by explicit captain decision, this flag is SET TO `true` on the live
     > `v2.3Analysis` project (`vputdomdlknvthnzritt`), and `purchase-tier` is deployed.** This was
@@ -464,10 +464,31 @@ milestone "done" criteria.
     > It is a **known, accepted, temporary risk**, not an oversight and not a resolution of this
     > issue.
     >
-    > **The captain declined to narrow it with `PURCHASE_TIER_ALLOWED_USER_IDS`**, so the endpoint
-    > is currently open to *any* account that can sign up — which, with `enable_signup = true` and
-    > `enable_confirmations = false`, means anyone on the internet. The exact $0 self-grant →
-    > daily-spend-cap DoS chain described below is **live and reachable right now**.
+    > **UPDATED 2026-08-05 (captain's decision, v23-launch-audit-r1 §5.3 — "narrow, not shut
+    > off").** The previous paragraph here said the captain had *declined* to narrow this with
+    > `PURCHASE_TIER_ALLOWED_USER_IDS`; that is no longer true. The v23-launch-audit-r1 audit
+    > re-measured the risk with real numbers ($0 Elite → 30 analyses × ~$0.12 → two or three
+    > throwaway accounts exhaust the $10/day cap for everyone), and the captain reversed the call.
+    > `PURCHASE_TIER_ALLOWED_USER_IDS` is now **set to the captain's own two account uids**
+    > (comma-separated). Every other caller — including any new signup — gets the same
+    > indistinguishable `404`.
+    >
+    > **Verified live 2026-08-05, not assumed.** A freshly created third account got
+    > `404 {"error":"Not found.","code":"not_found"}` from
+    > `POST /functions/v1/purchase-tier {"tier":"elite","source":"dummy"}` and its `quota-status`
+    > stayed `tier: free, limit: 1, frameCap: 1` — where the audit had recorded `200` and
+    > `limit: 30, frameCap: 8` for that same sequence hours earlier. The secret took effect with
+    > **no redeploy**. The stored value was checked exactly: `supabase secrets list` returns a
+    > SHA256 of each value, and both `PURCHASE_TIER_ALLOWED_USER_IDS` and
+    > `PURCHASE_TIER_DUMMY_ENABLED` (still literally `"true"`) matched their expected digests.
+    > That digest trick is the way to confirm a secret's exact value without ever printing it.
+    >
+    > **What this does and does not close.** It closes the `$0`-Elite half. It does **not** close
+    > the other half: `POST /auth/v1/signup` is still unauthenticated and unthrottled — Turnstile
+    > gates only the app's own sign-up button, never the raw GoTrue endpoint (see Known Issue #12,
+    > which is resolved for the app path *only*) — so unlimited throwaway accounts can still be
+    > created; they simply can no longer grant themselves a paid tier. Deciding what, if anything,
+    > throttles raw signup is still open.
     >
     > **THIS REMAINS A HARD RELEASE GATE. `PURCHASE_TIER_DUMMY_ENABLED` MUST BE UNSET BEFORE ANY
     > TestFlight BUILD OR PUBLIC RELEASE** — not merely set to `false`, unset:
