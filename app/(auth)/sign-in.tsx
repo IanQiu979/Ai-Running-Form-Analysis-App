@@ -332,30 +332,64 @@ export default function SignInScreen() {
                     style={styles.inlineLink}
                   />
                 )}
-                {/* Issue #12/Known Issue #12 — sign-up only. `TURNSTILE_SITE_KEY` is only unset
-                    in a misconfigured environment (see .env.example); guard rather than crash. */}
-                {mode === 'signUp' && TURNSTILE_SITE_KEY && (
-                  <TurnstileWidget
-                    ref={turnstileRef}
-                    siteKey={TURNSTILE_SITE_KEY}
-                    onToken={(token) => {
-                      setCaptchaToken(token);
-                      clearErrors();
-                    }}
-                    onExpire={() => {
-                      setCaptchaToken(null);
-                      setErrorMessage(Copy.auth.error.captchaExpired);
-                    }}
-                    onError={() => {
-                      setCaptchaToken(null);
-                      setErrorMessage(Copy.auth.error.captchaLoadFailed);
-                    }}
-                  />
-                )}
+                {/* Issue #12/Known Issue #12 — sign-up only. `TURNSTILE_SITE_KEY` is only unset in
+                    a misconfigured environment (see .env.example), but "misconfigured" was shipped:
+                    the v23-launch-audit-r1 audit found the key empty in every environment it could
+                    read, and this branch used to render NOTHING — no widget, therefore no token,
+                    therefore a permanently disabled "Create account" button with no explanation.
+                    That is the silent dead end this else-branch exists to remove. It does not make
+                    sign-up work (only a real key can; the token is verified server-side by
+                    supabase/functions/signup-with-captcha), it makes the failure HONEST — the same
+                    degrade-visibly contract `paywall.purchase.error.unavailable` already follows.
+                    Keep this as a ternary, not two separate guards: the two states are mutually
+                    exclusive by construction and a future edit that drops the else-branch would
+                    silently restore the dead end. */}
+                {mode === 'signUp' &&
+                  (TURNSTILE_SITE_KEY ? (
+                    <TurnstileWidget
+                      ref={turnstileRef}
+                      siteKey={TURNSTILE_SITE_KEY}
+                      onToken={(token) => {
+                        setCaptchaToken(token);
+                        clearErrors();
+                      }}
+                      onExpire={() => {
+                        setCaptchaToken(null);
+                        setErrorMessage(Copy.auth.error.captchaExpired);
+                      }}
+                      onError={() => {
+                        setCaptchaToken(null);
+                        setErrorMessage(Copy.auth.error.captchaLoadFailed);
+                      }}
+                    />
+                  ) : (
+                    // OPAQUE card, not the wash: `text.secondary` (the body below) is only proven
+                    // against `surface.*`, never against `Gradient.page` — constants/theme.ts's
+                    // token contract, enforced by constants/__tests__/theme-contrast.test.ts.
+                    // `accessibilityLiveRegion` matches the error card below it (Android); iOS gets
+                    // the same fact through the submit button's `accessibilityHint`.
+                    <SurfaceCard
+                      padding={Spacing.lg}
+                      testID="signup-unavailable-notice"
+                      accessibilityLiveRegion="polite">
+                      <Text style={styles.noticeTitle}>
+                        {Copy.auth.signUp.unavailable.title}
+                      </Text>
+                      <Text style={styles.noticeBody}>{Copy.auth.signUp.unavailable.body}</Text>
+                    </SurfaceCard>
+                  ))}
                 <PillButton
                   label={mode === 'signUp' ? Copy.auth.signUp.submit : Copy.auth.signIn.submit}
                   onPress={handleEmailSubmit}
                   disabled={isBusy || (mode === 'signUp' && !captchaToken)}
+                  // Only when the button can NEVER become enabled. A missing token with a key
+                  // present is the ordinary "solve the challenge" wait, which the visible widget
+                  // already explains — hinting there would nag on every render.
+                  accessibilityHint={
+                    mode === 'signUp' && !TURNSTILE_SITE_KEY
+                      ? Copy.auth.signUp.unavailable.a11yHint
+                      : undefined
+                  }
                   busy={pendingAction === 'email'}
                 />
               </View>
@@ -511,6 +545,25 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       lineHeight: FontSize.sm * LineHeight.body,
       color: Semantic.error[scheme],
       textAlign: 'center',
+    },
+    // The missing-Turnstile-key notice. Deliberately NOT `Semantic.error` — nothing the user did
+    // failed, and painting a build-configuration fact in error red would read as "you broke it".
+    // Both tones are legal here only because the notice sits on an opaque `<SurfaceCard>`; on the
+    // page gradient, `text.secondary` below would be an invisible-text bug (constants/theme.ts).
+    noticeTitle: {
+      fontFamily: FontFamily.body.semiBold,
+      fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
+      color: colors.text.primary,
+      textAlign: 'center',
+    },
+    noticeBody: {
+      fontFamily: FontFamily.body.regular,
+      fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
+      color: colors.text.secondary,
+      textAlign: 'center',
+      marginTop: Spacing.xs,
     },
   });
 }

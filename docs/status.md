@@ -456,7 +456,7 @@ milestone "done" criteria.
     deployed without its deployment gate switched on deliberately (security audit on PR #123,
     2026-07-13).**
 
-    > ### ⚠️ CURRENT LIVE STATE — `PURCHASE_TIER_DUMMY_ENABLED=true` IS SET IN PRODUCTION SECRETS
+    > ### ⚠️ CURRENT LIVE STATE — flag still ON, but NARROWED TO AN ALLOWLIST as of 2026-08-05
     >
     > **As of 2026-07-26, by explicit captain decision, this flag is SET TO `true` on the live
     > `v2.3Analysis` project (`vputdomdlknvthnzritt`), and `purchase-tier` is deployed.** This was
@@ -464,10 +464,31 @@ milestone "done" criteria.
     > It is a **known, accepted, temporary risk**, not an oversight and not a resolution of this
     > issue.
     >
-    > **The captain declined to narrow it with `PURCHASE_TIER_ALLOWED_USER_IDS`**, so the endpoint
-    > is currently open to *any* account that can sign up — which, with `enable_signup = true` and
-    > `enable_confirmations = false`, means anyone on the internet. The exact $0 self-grant →
-    > daily-spend-cap DoS chain described below is **live and reachable right now**.
+    > **UPDATED 2026-08-05 (captain's decision, v23-launch-audit-r1 §5.3 — "narrow, not shut
+    > off").** The previous paragraph here said the captain had *declined* to narrow this with
+    > `PURCHASE_TIER_ALLOWED_USER_IDS`; that is no longer true. The v23-launch-audit-r1 audit
+    > re-measured the risk with real numbers ($0 Elite → 30 analyses × ~$0.12 → two or three
+    > throwaway accounts exhaust the $10/day cap for everyone), and the captain reversed the call.
+    > `PURCHASE_TIER_ALLOWED_USER_IDS` is now **set to the captain's own two account uids**
+    > (comma-separated). Every other caller — including any new signup — gets the same
+    > indistinguishable `404`.
+    >
+    > **Verified live 2026-08-05, not assumed.** A freshly created third account got
+    > `404 {"error":"Not found.","code":"not_found"}` from
+    > `POST /functions/v1/purchase-tier {"tier":"elite","source":"dummy"}` and its `quota-status`
+    > stayed `tier: free, limit: 1, frameCap: 1` — where the audit had recorded `200` and
+    > `limit: 30, frameCap: 8` for that same sequence hours earlier. The secret took effect with
+    > **no redeploy**. The stored value was checked exactly: `supabase secrets list` returns a
+    > SHA256 of each value, and both `PURCHASE_TIER_ALLOWED_USER_IDS` and
+    > `PURCHASE_TIER_DUMMY_ENABLED` (still literally `"true"`) matched their expected digests.
+    > That digest trick is the way to confirm a secret's exact value without ever printing it.
+    >
+    > **What this does and does not close.** It closes the `$0`-Elite half. It does **not** close
+    > the other half: `POST /auth/v1/signup` is still unauthenticated and unthrottled — Turnstile
+    > gates only the app's own sign-up button, never the raw GoTrue endpoint (see Known Issue #12,
+    > which is resolved for the app path *only*) — so unlimited throwaway accounts can still be
+    > created; they simply can no longer grant themselves a paid tier. Deciding what, if anything,
+    > throttles raw signup is still open.
     >
     > **THIS REMAINS A HARD RELEASE GATE. `PURCHASE_TIER_DUMMY_ENABLED` MUST BE UNSET BEFORE ANY
     > TestFlight BUILD OR PUBLIC RELEASE** — not merely set to `false`, unset:
@@ -912,7 +933,11 @@ milestone "done" criteria.
 
 36. **NEW — Free tier's zero-model-call sample preview (captain-approved 2026-07-26) has no
     per-user rate limit, flagged by both the threat-modeling and security-review passes on that
-    change.** Before this change, every `analyze-form` caller — Free included — went through
+    change.** ⚠️ **LIVE AS OF 2026-08-05.** This issue described the behavior of code that, until
+    that date, was merged to `main` but not deployed — the v23-launch-audit-r1 audit checked it
+    against production and correctly found the described gap absent, because the short-circuit
+    itself wasn't running yet (see #37). The deploy in #37 made this issue real: it is now
+    production behavior, and the follow-up it asks for is tracked as **issue #170**. Before this change, every `analyze-form` caller — Free included — went through
     `reserve_analysis`, which enforced a hard lifetime cap of 1 for Free plus the 3-strike
     anti-farming counter. The new `pace_current_tier` short-circuit (see `docs/architecture.md`'s
     "Current — `analyze-form` edge function") returns the canned sample and exits BEFORE
@@ -928,6 +953,29 @@ milestone "done" criteria.
     limiting), not a silent gap — recorded here rather than fixed in the same change, since it
     would mean new schema/RPC surface beyond this task's captain-approved scope (the free-tier
     behavior change, not new abuse-prevention infrastructure).
+
+37. **RESOLVED 2026-08-05 — `main` had been three commits ahead of production for ten days, and
+    the drift was costing real money while the shipped copy said otherwise.** PR #171 ("make Free
+    tier a zero-model-call sample preview") merged 2026-07-26, but **neither half of it was ever
+    shipped**: `20260804120000_pace_current_tier_function.sql` was never applied (repo had 25
+    migrations, the live ledger had 24, and `pg_proc` had no `pace_current_tier`), and
+    `analyze-form` was still serving the version deployed 2026-07-26T03:32:37Z — from *before* the
+    fix. The v23-launch-audit-r1 audit proved the consequence by calling the live endpoint as a new
+    Free user: it got back a real, paid, model-generated analysis of its own photo
+    (`isFallback: false`, with an `analysisId` — the pre-#171 wire shape), which cost **$0.1023**
+    and spent that account's one lifetime slot. Meanwhile `constants/copy.ts`'s 2026-08-05 honesty
+    fix had already shipped, telling those users they had "viewed the sample." **The docs in this
+    repo were not wrong about the design — they were wrong about what was running**, which is the
+    reusable lesson: `docs/architecture.md`'s "deployed 2026-07-26" annotations described a merge,
+    not a deploy, and nothing in the repo distinguishes the two. Fixed by applying the migration
+    and redeploying, **strictly in that order** — `analyze-form` deployed against a database
+    without `pace_current_tier` would 500 every request, because `currentTier` deliberately throws
+    rather than defaulting to free. Verified live afterwards rather than assumed: a fresh Free
+    account got exactly `{result, isSample: true}` with no `analysisId`, its quota unspent
+    (`used: 0`), and **zero** new `ai_call_log` / `analyses` / storage rows. Ledger is now 25
+    (latest `20260804120000`); `analyze-form` is version 8. **Check deployed state against `main`
+    before trusting any "deployed" annotation in these docs** — `supabase migration list` and the
+    functions' `updated_at` are the authorities, not a merge commit.
 
 ## Next action
 
