@@ -47,6 +47,12 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 ## 2026-08-05 (UX audit fix batch — `v23-ux-audit-r1`)
 
+- **H4 follow-up — `/result/sample` is now a real member of `app/_layout.tsx`'s Stack, matching
+  `result/[id]`.** The earlier H4 fix (declarative `<Redirect href="/" />` on a missing pending
+  sample) had a gap: this route was never declared as a `<Stack.Screen>` anywhere, so on a genuine
+  cold/direct navigation (a fresh tab, not an in-app push) the route was never a real navigator
+  member for the `<Redirect>` to fire from, and the screen dead-ended blank instead. Fixed by
+  declaring it inside the session-guarded block, same placement as `result/[id]`.
 - **H1 — Free-tier pre-purchase copy now matches the already-approved sample-preview policy.**
   `constants/copy.ts`'s Free tier detail, quota-available, and quota-exhausted strings used to
   promise a "certified" real read of the user's own upload even though PR #171 already made Free
