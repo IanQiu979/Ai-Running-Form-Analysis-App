@@ -101,6 +101,15 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   deliberate exemption in `constants/theme.ts` rather than an unresolved ambiguity. L5 (floating
   labels on auth inputs) and L6 (a connectivity pre-flight check on the capture flow, which has no
   actual network call to gate) were judged out of scope for this batch — see the PR description.
+- **Review follow-up — Paywall's Free-tier gate copy brought in line with H1.** `constants/copy.ts`'s
+  `paywall.gate.free` title/body still promised "your free analysis" after H1 above rewrote the
+  pre-purchase Free copy to the sample-preview framing; this was the same captain-approved policy,
+  not a new decision, so it was updated the same way.
+- **Review follow-up (L7) — the `analyzing` screen's `unauthorized` error CTA now signs the user
+  out instead of offering Retry.** Retry there would resubmit under the same expired session that
+  just failed; the CTA now calls `lib/sign-out.ts`'s `signOut()` (the same helper `app/settings.tsx`
+  uses) and lets `app/_layout.tsx`'s route guard redirect to sign-in, guarded by an `isMountedRef`
+  against a post-unmount `setState` if sign-out resolves after the screen has already unmounted.
 
 ## 2026-08-04 (Free tier is now a zero-model-call sample preview, not a real analysis)
 

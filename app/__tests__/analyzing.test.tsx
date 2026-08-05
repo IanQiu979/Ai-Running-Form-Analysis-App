@@ -9,7 +9,7 @@
  * and can only ever hand back the same released row; it must offer "Start a new analysis" instead.
  * A plain failure and a timeout must still offer Retry.
  */
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { Copy } from '@/constants/copy';
 
@@ -47,6 +47,9 @@ const mockSetPendingSampleResult = jest.fn();
 jest.mock('@/lib/pending-sample-result', () => ({
   setPendingSampleResult: (...args: unknown[]) => mockSetPendingSampleResult(...args),
 }));
+
+const mockSignOut = jest.fn();
+jest.mock('@/lib/sign-out', () => ({ signOut: (...args: unknown[]) => mockSignOut(...args) }));
 
 const mockSubmit = jest.fn();
 jest.mock('@/lib/analyze-form', () => {
@@ -158,5 +161,34 @@ describe('AnalyzingScreen terminal branches', () => {
       result: sampleResult,
       heroDataUri: 'data:image/jpeg;base64,base64',
     });
+  });
+
+  // L7 follow-up (v23-ux-audit-r1, review-1): the `unauthorized` panel's primary CTA must sign the
+  // user out (lib/sign-out.ts), not resubmit into the same expired session the way a plain Retry
+  // would — this is the regression a bare "Retry" label would silently reintroduce.
+  it('signs out (does not retry) when the primary CTA on an unauthorized failure is pressed', async () => {
+    mockSubmit.mockResolvedValue({
+      ok: false,
+      error: { error: 'session expired', code: 'unauthorized' },
+    });
+    mockSignOut.mockResolvedValue({ ok: true });
+
+    await render(<AnalyzingScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(Copy.analyzing.error.unauthorized.title)).toBeTruthy()
+    );
+    expect(screen.getByText(Copy.analyzing.error.unauthorized.body)).toBeTruthy();
+    expect(screen.queryByText(Copy.analyzing.error.cta.retry)).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(screen.getByText(Copy.analyzing.error.cta.signOut));
+      // Let the handler's `await signOut()` and its post-await setState settle inside this act().
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
+    expect(mockSubmit).toHaveBeenCalledTimes(1); // pressing sign-out must not resubmit the form
   });
 });
