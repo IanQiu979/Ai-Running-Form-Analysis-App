@@ -191,10 +191,10 @@ export const Copy = {
     },
     quota: {
       free: {
-        available: '1 free analysis available',
+        available: 'Sample preview available',
       },
       exhausted: {
-        free: "You've used your free analysis",
+        free: "You've viewed the sample",
         // --- issues #54/#15 additions start — lifted verbatim from the deck §Screen 2.
         pro: "You've used all {limit} analyses this period — renews {date}",
         elite: "You've used all {limit} analyses this period — renews {date}",
@@ -325,6 +325,14 @@ export const Copy = {
         title: 'Analysis timed out',
         body: "The read took too long to finish. This one wasn't counted against your quota — try again.",
       },
+      // NEW — not in the deck. L7 (v23-ux-audit-r1): a session that expired mid-wait used to
+      // collapse into the same generic "service didn't return a usable result" copy as a real
+      // server error, even though the honest, actionable difference (sign in again, not just
+      // retry) is already known client-side via the server's own `unauthorized` error code.
+      unauthorized: {
+        title: "You've been signed out",
+        body: "Your session ended before this could finish. This one wasn't counted against your quota — sign in and try again.",
+      },
       // NEW (not in docs/design/copy-deck.md): both released-reservation dead ends — the server's
       // 409 `previous_attempt_failed`, and issue #64's `released` phase found by foreground
       // reconciliation. Retrying reuses the same idempotency key, which `reserve_analysis` answers
@@ -384,7 +392,7 @@ export const Copy = {
     partial: {
       banner: {
         title: 'Partial read',
-        body: "We could confidently score {n} of 4 pillars from this clip. The rest are marked not assessed — we don't guess at a score.",
+        body: "We could confidently score {n} of 4 pillars from this {medium}. The rest are marked not assessed — we don't guess at a score.",
       },
     },
     // NEW keys, not in the deck. The deck covers this screen's happy/partial/disclaimer states
@@ -398,6 +406,10 @@ export const Copy = {
     },
     cta: {
       done: 'Back to Home',
+      // NEW key, not in the deck — H5 (v23-ux-audit-r1): an all-not-assessed result used to
+      // offer only "Back to Home", a dead end for a Free user who has just spent their one-ever
+      // analysis on nothing.
+      tryAnother: 'Try another clip',
     },
     // Deck key `result.loadingFromHistory` — its table row sits under the Screen 8 (Past
     // Analyses) heading, but the key's own namespace (`result.*`, not `history.*`) and its
@@ -425,6 +437,11 @@ export const Copy = {
       },
       cta: {
         upgrade: 'See Pro plans',
+        // NEW key, not in the deck — M10 (v23-ux-audit-r1): the screen's terminal CTA (the
+        // bottom of the scroll, the moment right after the user has understood what the product
+        // does) used to route to "Back to Home" while the upgrade CTA lived only inside the
+        // banner at the top. This is the actual conversion moment, so it gets the accent pill.
+        terminalUpgrade: 'Analyse my own form — upgrade',
       },
       // Distinct from `result.hero.altText` on purpose: this screen's `<DuotoneFrame>` renders
       // with no `annotate` prop (no lines are drawn over a sample), so reusing the real result's
@@ -860,7 +877,7 @@ export const Copy = {
         name: 'Free',
         price: '$0',
         detail:
-          '1 analysis, once — try it before you commit. Certified PACE scores and one line of feedback per pillar. No drills.',
+          "See a worked example — a real PACE readout on a sample runner, so you know exactly what you're buying. Your own form needs Pro.",
       },
       pro: {
         name: 'Pro',

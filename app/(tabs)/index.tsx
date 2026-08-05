@@ -234,6 +234,10 @@ export default function HomeScreen() {
             from a 24pt display heading to the eyebrow register, because on this screen the heading
             is chrome and the CTA block is the subject. */}
         <View style={styles.topBar}>
+          {/* L8 (v23-ux-audit-r1): `text.secondary` directly on `Gradient.page` is a deliberate,
+              written exemption for a purely decorative non-text glyph — see the "EXEMPTION"
+              paragraph on `Gradient`'s own contract in constants/theme.ts. Do not treat this as
+              precedent for dimming actual copy the same way. */}
           <LowPolyField
             color={colors.text.secondary}
             size={ControlHeight.circle}

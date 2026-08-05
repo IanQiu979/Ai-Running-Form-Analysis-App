@@ -128,6 +128,11 @@ function RootLayoutNav() {
   return (
     <ThemeProvider value={navigationTheme(colorScheme === 'dark' ? 'dark' : 'light')}>
       <View style={styles.stackAndBannerContainer}>
+        {/* Global connectivity notice (issue #93), moved ahead of `<Stack>` in this column
+            (M4, v23-ux-audit-r1): normal flow, not an absolute overlay, so it pushes the Stack
+            down instead of drawing over every screen's own top row. Renders nothing while
+            online; see components/offline-banner.tsx's header for the layout rationale. */}
+        <OfflineBanner />
         {/* The only animation that exists in this app today is expo-router's default stack
             push/pop transition (the auth <-> tabs swap below) — gated behind the OS Reduce
             Motion setting (issue #29), per docs/design/motion-consult.md's reduced-motion map:
@@ -190,11 +195,6 @@ function RootLayoutNav() {
             <Stack.Screen name="(auth)" options={{ headerShown: false }} />
           </Stack.Protected>
         </Stack>
-        {/* Global connectivity notice (issue #93) — mounted once here rather than per-screen so
-            it's honest everywhere, not just on the two screens the copy deck names. Renders
-            nothing while online; see components/offline-banner.tsx's header for why an overlay,
-            not a gate. */}
-        <OfflineBanner />
         {/* Moments 1 and 2 sit visually above the Stack (and above the session/auth guard it
             already applies), which has already mounted underneath — neither delays isReady's own
             fonts/session gate or the Stack's own routing, they only overlay on top of it once
@@ -247,9 +247,8 @@ function navigationTheme(scheme: ColorScheme): Theme {
 }
 
 const styles = StyleSheet.create({
-  // Default `position: 'relative'` — this is what OfflineBanner's `position: 'absolute'` resolves
-  // against, so it overlays whichever screen the Stack is currently showing rather than the
-  // ThemeProvider or the window.
+  // Column flex: `<OfflineBanner>` (normal flow, M4) then `<Stack>`, so the banner pushes the
+  // Stack down while visible instead of overlaying it.
   stackAndBannerContainer: {
     flex: 1,
   },

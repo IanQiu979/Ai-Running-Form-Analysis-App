@@ -45,6 +45,63 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   No code change made for this half of the report — the animation is working as designed, just
   quick enough on a glance to read as absent.
 
+## 2026-08-05 (UX audit fix batch — `v23-ux-audit-r1`)
+
+- **H1 — Free-tier pre-purchase copy now matches the already-approved sample-preview policy.**
+  `constants/copy.ts`'s Free tier detail, quota-available, and quota-exhausted strings used to
+  promise a "certified" real read of the user's own upload even though PR #171 already made Free
+  a zero-model-call labeled sample. Rewritten to describe a worked example honestly, per the
+  captain's 2026-07-26 approval — no real analysis was restored for Free.
+- **H2 — sign-in's decorative mark no longer draws through the wordmark.** Shrunk from 260pt to
+  160pt, given its own absolutely-positioned, clipped, `zIndex: -1` layout box behind the header
+  (`app/(auth)/sign-in.tsx`) instead of overhanging it.
+- **H3 — a systemic WCAG AA contrast failure (`opacity` dimming `text.primary` on the page
+  gradient, which is only proven at full opacity) is fixed at all 6 sites it turned out to exist
+  at** (`capture/index.tsx`, `settings.tsx`, `paywall.tsx`, `compare.tsx`, and both auth screens'
+  `passwordHint`) and locked with a new regression test,
+  `app/__tests__/gradient-opacity-guard.test.ts`, that scans every `<ScreenGradient>` screen's
+  style objects for the `opacity` + `color: colors.text.*` combination.
+- **H4 — the cold-nav crash on `/analyzing` and `/result/sample`** (a mount-effect
+  `router.replace('/')` that fires before the root navigator has mounted) **is now a declarative
+  `<Redirect href="/" />`.** `app/result/[id].tsx` was also named in the audit but, on inspection,
+  never had this pattern — it already renders an `'unavailable'` state instead of navigating on
+  mount, so nothing needed to change there.
+- **H5/M1/M2 — a zero-pillar result is no longer a dead end.** `app/result/[id].tsx` adds a
+  primary "Try another clip" CTA (→ `/capture`) when zero pillars scored; `pace-readout.tsx`
+  renders a not-assessed pillar's bar track dashed/transparent instead of shape-identical to a
+  filled bar; the partial-read banner (`partial-result-banner.tsx`) now gates on
+  `scoredPillarCount < 4` rather than the server's `isFallback` flag, so a photo submission that
+  legitimately scores 2 of 4 pillars gets the disclosure too.
+- **M3 — the partial-read banner says "photo" for a photo submission**, not always "clip"
+  (`lib/pace-readout.ts`'s `formatPartialBannerBody` now takes `mediaType`).
+- **M4 — the global offline banner no longer covers screen headers.** It's rendered in normal
+  flow ahead of `<Stack>` in `app/_layout.tsx` instead of as an absolute overlay, so it pushes
+  content down while visible instead of drawing over it.
+- **M5 (partial) — History's top bar now has a Settings entry point**, matching Home's. The
+  broader "one header primitive per screen role" consistency pass was left alone — it's a real
+  design call across many screens, out of a mechanical audit-fix's judgment to make unilaterally.
+- **M6 — the floating tab bar's "HOME"/"HISTORY" labels no longer clip** (explicit `lineHeight`
+  added to `tabBarLabelStyle`).
+- **M7 — the Paywall's Free card no longer goes blank while the plan fetch is loading or
+  errored** (the common case the audit actually observed) — it now shows the "Current plan" chip
+  by default and only hides it once a fetch confirms a paid tier.
+- **M8 — the Paywall's plan-load error state is wrapped in `<SurfaceCard>`**, matching every
+  other error state in the app.
+- **M9 — `<GlassFrost>` self-clips to `Radius.pill` on `PillButton`'s secondary variant** as a
+  defensive second clip alongside the parent's existing `overflow: 'hidden'`. Unverified visually
+  (no browser/device tooling in this pass) — see the code comment for the reasoning.
+- **M10 — `/result/sample`'s terminal CTA is now the upgrade** ("Analyse my own form — upgrade" →
+  `/paywall`), with "Back to Home" demoted to a ghost button beneath it.
+- **L1-L4, L7, L8 — small polish**: Cancel affordance on both extraction wait states; the
+  extracting screen's error state no longer says "Preparing your analysis" and "Couldn't process
+  this clip" at once; `/update-password`'s expired state gained a "Back to sign in" ghost button;
+  its "Confirming your link…" wait now shows the same mark every other wait state uses; a session
+  that expires mid-`/analyzing` now gets distinct, actionable copy instead of the generic
+  service-failure string; Home's top-bar mark's `text.secondary`-on-gradient use is now a written,
+  deliberate exemption in `constants/theme.ts` rather than an unresolved ambiguity. L5 (floating
+  labels on auth inputs) and L6 (a connectivity pre-flight check on the capture flow, which has no
+  actual network call to gate) were judged out of scope for this batch — see the PR description.
+
 ## 2026-08-04 (Free tier is now a zero-model-call sample preview, not a real analysis)
 
 - **Free tier makes ZERO Anthropic model calls, ever (captain-approved 2026-07-26).** Previously

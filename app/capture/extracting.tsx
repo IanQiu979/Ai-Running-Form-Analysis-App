@@ -250,9 +250,15 @@ export default function ExtractingScreen() {
           and up to two buttons, which could otherwise overflow a small phone at the largest
           accessibility text sizes with no way to reach the second button. */}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <Eyebrow tone="primary" accessibilityRole="header">
-          {Copy.upload.title}
-        </Eyebrow>
+        {/* L2 (v23-ux-audit-r1): this eyebrow used to render unconditionally, so the error state
+            said "Preparing your analysis" and "Couldn't process this clip" at the same time.
+            Skipped in the error branch — its own title below carries `accessibilityRole="header"`
+            instead, so the screen still has exactly one heading, just a failure-appropriate one. */}
+        {state.status !== 'error' && (
+          <Eyebrow tone="primary" accessibilityRole="header">
+            {Copy.upload.title}
+          </Eyebrow>
+        )}
 
         {/* Spinner only, and no numeric caption or progress bar — the total is not known yet and
             this screen must not name one it might not honour. The always-rendered title above
@@ -268,6 +274,10 @@ export default function ExtractingScreen() {
               size={WAIT_MARK_SIZE}
               testID="extracting-mark"
             />
+            {/* L1 (v23-ux-audit-r1): neither wait state offered an escape — bounded by
+                QUOTA_WAIT_TIMEOUT_MS so it can't hang forever, but a long extraction otherwise
+                trapped the user on this screen with nothing to press. */}
+            <PillButton variant="ghost" label="Cancel" onPress={goToSourcePicker} />
           </View>
         )}
 
@@ -285,6 +295,7 @@ export default function ExtractingScreen() {
                 ]}
               />
             </View>
+            <PillButton variant="ghost" label="Cancel" onPress={goToSourcePicker} />
           </View>
         )}
 
@@ -300,7 +311,7 @@ export default function ExtractingScreen() {
 
         {state.status === 'error' && (
           <View style={styles.centered}>
-            <Text style={styles.errorTitle} accessibilityLiveRegion="polite">
+            <Text style={styles.errorTitle} accessibilityRole="header" accessibilityLiveRegion="polite">
               {errorCopy(state).title}
             </Text>
             <Text style={styles.caption}>{errorCopy(state).body}</Text>

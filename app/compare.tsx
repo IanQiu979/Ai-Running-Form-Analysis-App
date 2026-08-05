@@ -548,9 +548,9 @@ function createStyles(colors: ThemeColors) {
       alignSelf: 'center',
       fontFamily: FontFamily.display.medium,
       fontSize: FontSize.sm,
-      // On the wash — `text.primary` only; held back by opacity so it stays a quiet separator.
+      // On the wash — `text.primary` only, at full opacity (H3, v23-ux-audit-r1: opacity here
+      // dropped this below WCAG AA). Quietness comes from the sm size alone.
       color: colors.text.primary,
-      opacity: Opacity.pressed,
       textTransform: 'uppercase',
       letterSpacing: Tracking.eyebrow,
     },

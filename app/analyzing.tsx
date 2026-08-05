@@ -43,7 +43,7 @@
  * triggers, not state indicators") — so, deliberately, nothing here branches on
  * `useReducedMotion()`. That is a considered reading of the spec, not an oversight.
  */
-import { useRouter, type Href } from 'expo-router';
+import { Redirect, useRouter, type Href } from 'expo-router';
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -131,10 +131,11 @@ export default function AnalyzingScreen() {
   // emptied — out of scope here, see this issue's DOCS block. There is no copy-deck string for
   // this case because the real flow should never reach it; back out quietly rather than invent
   // wording the deck doesn't have.
-  useEffect(() => {
-    if (request) return;
-    router.replace('/');
-  }, [request, router]);
+  // H4 (v23-ux-audit-r1): this used to be `router.replace('/')` inside a mount effect, which
+  // fires before the root navigator has mounted on a cold start/deep link and throws "Attempted
+  // to navigate before mounting the Root Layout component." A declarative `<Redirect>` in the
+  // JSX below (guarded by the `!request` check further down) defers the navigation until the
+  // navigator is actually ready.
 
   // Issue #140: persist a marker of this analysis (keyed by idempotency key) the moment a real
   // request exists, so a process KILL during the wait can still be reconciled on the next cold
@@ -397,7 +398,7 @@ export default function AnalyzingScreen() {
   }
 
   if (!request) {
-    return null;
+    return <Redirect href="/" />;
   }
 
   return (
@@ -456,11 +457,25 @@ export default function AnalyzingScreen() {
           />
         )}
 
+        {/* L7 (v23-ux-audit-r1): a session that expired mid-wait used to read identically to a
+            generic server failure. The code is already tracked (`state.code`), so this is a
+            copy-only split, not a new failure path. */}
+        {state.phase === 'failed' && state.code === 'unauthorized' && (
+          <ErrorPanel
+            styles={styles}
+            title={Copy.analyzing.error.unauthorized.title}
+            body={Copy.analyzing.error.unauthorized.body}
+            primary={{ label: Copy.analyzing.error.cta.retry, onPress: handleRetry }}
+            onCancel={handleCancel}
+          />
+        )}
+
         {/* Issue #136: `quota_exceeded` is excluded here — the effect above routes it to /paywall.
             Rendering a Retry for it would resubmit into the same exhausted quota. */}
         {state.phase === 'failed' &&
           state.code !== 'quota_exceeded' &&
-          state.code !== 'previous_attempt_failed' && (
+          state.code !== 'previous_attempt_failed' &&
+          state.code !== 'unauthorized' && (
             <ErrorPanel
               styles={styles}
               title={Copy.analyzing.error.failed.title}

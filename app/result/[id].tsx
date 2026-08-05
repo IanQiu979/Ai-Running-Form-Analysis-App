@@ -112,6 +112,9 @@ type ScreenState =
        * `annotationsDone`'s fallback below only fires once resolution has actually finished,
        * never while a real hero is still on its way in. */
       heroPending: boolean;
+      /** M3 (v23-ux-audit-r1): threaded through to `<PartialResultBanner>` so its copy can say
+       * "photo" instead of always "clip". */
+      mediaType: 'photo' | 'video';
     };
 
 /** Mirrors `app/(tabs)/index.tsx`'s own `ActiveFlag` pattern: minted per fetch attempt, flipped
@@ -207,7 +210,13 @@ export default function ResultScreen() {
       }
 
       const heroPath = read.mediaPaths[0];
-      setState({ status: 'ready', outcome: read.outcome, heroUri: null, heroPending: !!heroPath });
+      setState({
+        status: 'ready',
+        outcome: read.outcome,
+        heroUri: null,
+        heroPending: !!heroPath,
+        mediaType: read.mediaType,
+      });
 
       if (heroPath) {
         const heroUri = await resolveHeroImageUri(heroPath);
@@ -232,6 +241,10 @@ export default function ResultScreen() {
 
   function goHome() {
     router.replace('/');
+  }
+
+  function goToCapture() {
+    router.push('/capture');
   }
 
   function retry() {
@@ -274,7 +287,7 @@ export default function ResultScreen() {
     );
   }
 
-  const { outcome, heroUri, heroPending } = state;
+  const { outcome, heroUri, heroPending, mediaType } = state;
   const assessedCount = countAssessedPillars(outcome.result);
   // Moment 3 sequencing (Phase 2 plan Task 5): if there is no hero to draw on at all — resolution
   // finished and came back with nothing (`!heroPending && !heroUri`) — there is nothing for the
@@ -335,7 +348,11 @@ export default function ResultScreen() {
                 certified. The per-word kinetic reveal this screen would have spent on a title
                 goes to the coaching prose inside `<PaceReadout>` instead, which is the one place
                 on this screen where the words genuinely are the product. */}
-            {outcome.isFallback ? <PartialResultBanner assessedCount={assessedCount} /> : null}
+            {/* M2 (v23-ux-audit-r1): gated on the pillar count actually scored, not on the
+                server's `isFallback` flag — a legitimate photo submission can score 2 of 4
+                pillars with `isFallback: false` (motion-over-time pillars a still can't show),
+                and that is exactly the case this banner exists to disclose. */}
+            {assessedCount < 4 ? <PartialResultBanner assessedCount={assessedCount} mediaType={mediaType} /> : null}
 
             <SurfaceCard tone="raised" testID="result-readout-card">
               <PaceReadout result={outcome.result} firstReveal={justAnalyzed} revealReady={revealReady} />
@@ -343,7 +360,17 @@ export default function ResultScreen() {
 
             <ResultDisclaimer />
 
-            <PillButton label={Copy.result.cta.done} onPress={goHome} testID="result-done" />
+            {/* H5 (v23-ux-audit-r1): a zero-pillar result used to offer only "Back to Home" — a
+                dead end for a Free user whose one-ever analysis was just spent on nothing. */}
+            {assessedCount === 0 ? (
+              <PillButton label={Copy.result.cta.tryAnother} onPress={goToCapture} testID="result-try-another" />
+            ) : null}
+            <PillButton
+              variant={assessedCount === 0 ? 'ghost' : 'primary'}
+              label={Copy.result.cta.done}
+              onPress={goHome}
+              testID="result-done"
+            />
           </View>
         </Animated.ScrollView>
       </SafeAreaView>

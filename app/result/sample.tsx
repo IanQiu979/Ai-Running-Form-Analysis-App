@@ -26,8 +26,8 @@
  * refund-dispute risk per the captain's brief — so it renders ABOVE the readout, not buried below
  * it, with the upgrade CTA inside the same banner.
  */
-import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { Redirect, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -50,15 +50,12 @@ export default function SampleResultScreen() {
 
   // Mirrors app/analyzing.tsx's own defensive bail-out for a missing pending payload — a direct
   // or cold navigation here has nothing to render, so back out to Home rather than crash on a
-  // null `pending.result` below. A `useEffect`, not a render-time call: `router.replace` is a
-  // side effect and must not run during render.
-  useEffect(() => {
-    if (pending) return;
-    router.replace('/');
-  }, [pending, router]);
-
+  // null `pending.result` below. A declarative `<Redirect>` rather than a mount-effect
+  // `router.replace` (H4, v23-ux-audit-r1): the effect version fires before the root navigator
+  // has mounted on a cold start and throws "Attempted to navigate before mounting the Root
+  // Layout component."
   if (!pending) {
-    return null;
+    return <Redirect href="/" />;
   }
 
   function goHome() {
@@ -92,7 +89,17 @@ export default function SampleResultScreen() {
 
             <ResultDisclaimer />
 
-            <PillButton label={Copy.result.cta.done} onPress={goHome} testID="sample-done" />
+            {/* M10 (v23-ux-audit-r1): the terminal CTA — the bottom of the scroll, the single
+                most prominent control on the screen's single conversion moment — now routes to
+                the upgrade, not away from it. "Back to Home" survives as a ghost button beneath
+                it rather than disappearing. */}
+            <PillButton label={Copy.result.sample.cta.terminalUpgrade} onPress={goToPaywall} testID="sample-upgrade" />
+            <PillButton
+              variant="ghost"
+              label={Copy.result.cta.done}
+              onPress={goHome}
+              testID="sample-done"
+            />
           </View>
         </ScrollView>
       </SafeAreaView>

@@ -403,6 +403,15 @@ export const Accent = {
 // both text roles. Secondary text, score fills and score text belong on a surface — or, since
 // 2026-08-02's pass 3, on the one canvas-tinted `Glass.*.chrome` tone that is proven for both
 // roles — never directly on the wash. Asserted per stop in theme-contrast.test.ts.
+//
+// EXEMPTION, ruled deliberately (L8, v23-ux-audit-r1): `text.secondary` directly on the wash is
+// permitted for a purely DECORATIVE, non-text glyph — e.g. Home's top-bar `<LowPolyField>` mark
+// (`app/(tabs)/index.tsx`) — because WCAG 1.4.3 text contrast does not apply to it at all; it
+// carries no information a screen reader or a contrast failure could hide. This is narrower than
+// H3's rule (which is about TEXT dimmed with `opacity`): do not read this exemption as licence to
+// dim actual copy the same way — that is exactly the bug H3 fixed. If a decorative mark like this
+// one is ever given `opacity` on top of `text.secondary`/`text.primary`, treat it as landing back
+// in H3's failure mode and route it to a surface instead.
 // -------------------------------------------------------------------------------------------
 
 export const Gradient = {

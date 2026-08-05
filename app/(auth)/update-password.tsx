@@ -43,7 +43,6 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -55,6 +54,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KineticText } from '@/components/kinetic-text';
+import { LowPolyField } from '@/components/low-poly-field';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { SurfaceCard } from '@/components/ui/surface-card';
@@ -67,7 +67,6 @@ import {
   FontSize,
   LineHeight,
   Motion,
-  Opacity,
   Radius,
   Semantic,
   Spacing,
@@ -85,6 +84,10 @@ import { useAnnounce } from '@/lib/use-announce';
 // One PKCE exchange round-trip's worth of patience — same order of magnitude as
 // lib/hibp.ts's own TOTAL_TIMEOUT_MS for a single network call, not an arbitrary guess.
 const RECOVERY_WAIT_TIMEOUT_MS = 4000;
+
+/** The waiting field's drawn size — same value every other wait state in the app uses
+ * (`app/capture/extracting.tsx`'s own `WAIT_MARK_SIZE`), L4 (v23-ux-audit-r1). */
+const WAIT_MARK_SIZE = 200;
 
 type LinkPhase = 'checking' | 'ready' | 'expired';
 type SubmitStatus = 'idle' | 'submitting' | 'success';
@@ -175,7 +178,9 @@ export default function UpdatePasswordScreen() {
       <ScreenGradient>
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.centered}>
-            <ActivityIndicator color={colors.text.primary} />
+            {/* L4 (v23-ux-audit-r1): every other wait in the app shows this mark
+                (`app/analyzing.tsx`, `app/capture/extracting.tsx`) — this one was text-only. */}
+            <LowPolyField color={colors.text.primary} size={WAIT_MARK_SIZE} testID="update-password-checking-mark" />
             <Text style={styles.body}>{Copy.auth.reset.update.checking}</Text>
           </View>
         </SafeAreaView>
@@ -200,6 +205,16 @@ export default function UpdatePasswordScreen() {
             label={Copy.auth.reset.update.error.expiredLink.cta}
             onPress={() => router.replace('/reset-password')}
             style={styles.centeredButton}
+          />
+          {/* L3 (v23-ux-audit-r1): this used to be the only control on this state, so a user who
+              simply remembers their password had to make a two-hop trip through the reset flow.
+              `router.replace`, not `router.back()`: this screen's own header notes it has "no
+              in-app entry point" — it is reached only via an emailed deep link, so there is no
+              back-stack entry to return to. */}
+          <PillButton
+            variant="ghost"
+            label={Copy.auth.reset.request.cta.backToSignIn}
+            onPress={() => router.replace('/sign-in')}
           />
         </View>
         </SafeAreaView>
@@ -388,9 +403,9 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     passwordHint: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
-      // On the wash — `text.primary` only, held back by opacity so it stays the quietest line.
+      // On the wash — `text.primary` only, at full opacity (H3, v23-ux-audit-r1: opacity here
+      // dropped this below WCAG AA). Quietness comes from the xs size alone.
       color: colors.text.primary,
-      opacity: Opacity.pressed,
       paddingHorizontal: Spacing.lg,
     },
     errorText: {

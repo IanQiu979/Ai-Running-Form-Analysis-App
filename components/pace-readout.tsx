@@ -220,7 +220,14 @@ function PillarRow({
         ) : null}
       </View>
 
-      <View style={styles.barTrack}>
+      <View
+        style={[
+          styles.barTrack,
+          // M1 (v23-ux-audit-r1): a not-assessed pillar's empty track used to be shape-identical
+          // to a filled bar's track, which read as a score of zero. A dashed border on a
+          // transparent fill is structurally distinct from "filled at 0%" at a glance.
+          pillar.score === null || pillar.band === null ? styles.barTrackNotAssessed : null,
+        ]}>
         {pillar.score !== null && pillar.band !== null ? (
           revealMode === 'animate' ? (
             <AnimatedPillarBarFill
@@ -406,6 +413,10 @@ function createStyles(colors: ThemeColors) {
     barFill: {
       borderRadius: Radius.pill,
       height: '100%',
+    },
+    barTrackNotAssessed: {
+      backgroundColor: 'transparent',
+      borderStyle: 'dashed',
     },
     notAssessedText: {
       color: colors.text.secondary,

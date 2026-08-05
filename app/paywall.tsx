@@ -108,10 +108,18 @@ function ctaForPurchasableTier(
 }
 
 /** Free has no purchase path (see lib/subscription.ts's `PurchasableTier` — 'free' is excluded at
- *  the type level), so its only possible CTA states are "Current plan" or nothing at all. */
+ *  the type level), so its only possible CTA states are "Current plan" or nothing at all.
+ *
+ * M7 (v23-ux-audit-r1): this used to show `{ kind: 'current' }` ONLY once the plan fetch had
+ * confirmed `tier === 'free'`, and `{ kind: 'none' }` (a blank card, no control at all)
+ * otherwise — including while `plan.status` is still `'loading'` or came back `'error'`, which
+ * is the common case, not an edge case. That left Free the only card with nothing to look at
+ * while Pro/Elite already showed real "Upgrade" buttons. Free is every account's default
+ * baseline, so showing "Current plan" is the safe default; the only state that should suppress
+ * it is a CONFIRMED paid tier. */
 function ctaForFree(plan: PlanState): TierCardCta {
-  if (plan.status === 'ready' && plan.data.tier === 'free') return { kind: 'current' };
-  return { kind: 'none' };
+  if (plan.status === 'ready' && plan.data.tier !== 'free') return { kind: 'none' };
+  return { kind: 'current' };
 }
 
 export default function PaywallScreen() {
@@ -252,11 +260,13 @@ export default function PaywallScreen() {
           </View>
         )}
 
+        {/* M8 (v23-ux-audit-r1): this used to be a bare View with no card, no theme spacing, and
+            no alignment with the rest of the screen — it read as debug output. `<SurfaceCard>` +
+            `<PillButton>` matches every other error state's own treatment (e.g. `analyzing.tsx`'s
+            `ErrorPanel`). */}
         {plan.status === 'error' && (
-          <View style={styles.planErrorBlock}>
-            <Text style={styles.planStatusText} accessibilityLiveRegion="polite">
-              {Copy.paywall.plan.error}
-            </Text>
+          <SurfaceCard style={styles.planErrorCard} padding={Spacing.lg} accessibilityLiveRegion="polite">
+            <Text style={styles.planStatusText}>{Copy.paywall.plan.error}</Text>
             <PillButton
               variant="ghost"
               label={Copy.paywall.plan.retry}
@@ -265,7 +275,7 @@ export default function PaywallScreen() {
                 void fetchPlan();
               }}
             />
-          </View>
+          </SurfaceCard>
         )}
 
         <View style={styles.cards}>
@@ -402,8 +412,8 @@ function createStyles(colors: ThemeColors) {
       // On the wash — `text.primary` only (`Gradient`'s contract, constants/theme.ts).
       color: colors.text.primary,
     },
-    planErrorBlock: {
-      gap: Spacing.xs,
+    planErrorCard: {
+      gap: Spacing.sm,
       alignItems: 'flex-start',
     },
     cards: {
@@ -471,10 +481,9 @@ function createStyles(colors: ThemeColors) {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
       lineHeight: FontSize.xs * LineHeight.body,
-      // On the wash — held back by opacity rather than by a lighter token, which the gradient
-      // does not prove.
+      // On the wash — `text.primary` only, at full opacity (the gradient does not prove
+      // anything dimmer; H3, v23-ux-audit-r1: opacity here dropped this below WCAG AA).
       color: colors.text.primary,
-      opacity: Opacity.pressed,
       textAlign: 'center',
     },
     disabled: {

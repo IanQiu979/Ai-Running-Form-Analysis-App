@@ -23,6 +23,7 @@
  * decide whether Storage successfully purged anything — it only renders what `lib/history.ts`'s
  * reads report and sends the caller's own intent (open, delete) to the server.
  */
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -30,6 +31,7 @@ import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View }
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KineticText } from '@/components/kinetic-text';
+import { CircleIconButton } from '@/components/ui/circle-icon-button';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { Copy } from '@/constants/copy';
@@ -233,9 +235,21 @@ export default function HistoryScreen() {
             accessibilityRole="header"
             staggerMs={Motion.stagger.line}
             style={styles.header}
+            containerStyle={styles.headerTitleRow}
             testID="history-title">
             {Copy.history.title}
           </KineticText>
+          {/* M5 (v23-ux-audit-r1): Home's top bar has a Settings entry point
+              (`app/(tabs)/index.tsx`'s `home-settings`); History had none, so reaching Settings
+              from here required going back to Home first. Same control, same destination. */}
+          <CircleIconButton
+            accessibilityLabel={Copy.settings.title}
+            onPress={() => {
+              router.push('/settings');
+            }}
+            testID="history-settings">
+            <MaterialIcons name="tune" size={20} color={colors.text.primary} />
+          </CircleIconButton>
         </View>
 
       {state.status === 'loading' && (
@@ -388,9 +402,18 @@ function createStyles(colors: ThemeColors) {
       width: '100%',
       maxWidth: ContentWidth.readable,
       alignSelf: 'center',
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: Spacing.md,
+      justifyContent: 'space-between',
       paddingHorizontal: Spacing.xl,
       paddingTop: Spacing.xl,
       paddingBottom: Spacing.lg,
+    },
+    // `<KineticText>`'s own `containerStyle` (the wrapping row `style` gets applied per-word to
+    // — flex has no meaningful effect on an individual word's TextStyle).
+    headerTitleRow: {
+      flex: 1,
     },
     header: {
       fontFamily: FontFamily.display.bold,
