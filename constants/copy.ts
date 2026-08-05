@@ -860,8 +860,8 @@ export const Copy = {
     back: 'Back',
     gate: {
       free: {
-        title: "You've used your free analysis",
-        body: 'Free includes one analysis, ever. Upgrade to Pro or Elite to keep going.',
+        title: "You've viewed the sample",
+        body: 'Free shows a worked example, not your own form. Upgrade to Pro or Elite to analyze your own running.',
       },
       paid: {
         title: "You're out of analyses this period",
