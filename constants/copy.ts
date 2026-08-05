@@ -20,7 +20,7 @@ export const Copy = {
     // `valueProp` below to never restate the app name because "the logo already carries it";
     // that's only true once this becomes the actual mark. Swapping this string for the real
     // asset is future work (issue #30 only routes the existing string through the deck).
-    wordmark: 'Pace AnalysisAI',
+    wordmark: 'Pace Analysis AI',
     valueProp:
       'Submit a photo or video of your run and get clear, specific feedback on your form.',
     cta: {

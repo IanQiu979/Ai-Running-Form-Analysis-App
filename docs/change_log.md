@@ -5,6 +5,46 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-05 (Sign-in wordmark reads as three words again)
+
+- **`Copy.auth.wordmark` fixed from `'Pace AnalysisAI'` to `'Pace Analysis AI'`** (captain's call,
+  reversing the 2026-08-04 note that called the two-word wrap "the hero lockup working as
+  designed" — see that entry above). `components/kinetic-text.tsx` splits its `children` string on
+  whitespace to animate each word independently; with no space between "Analysis" and "AI" it only
+  ever produced two word-tokens, and the second one visually read as "AnalysisAI." The fix is a
+  three-word, two-space string so `<KineticText>` naturally treats it as three independent words.
+  Checked every other rendering of the app name: `app/(tabs)/index.tsx`'s Home heading reads
+  `Copy.home.title` ("Home"), a separate key, so it was never affected. The permission soft-ask
+  copy (`sourcePicker.permission.library.title`, `capture.permission.camera.title`) and every
+  doc/planning reference to the app's actual name
+  ("Pace AnalysisAI," one compound word) are untouched — those are the product name, not this
+  wordmark's display treatment, and out of scope for this fix. Added a regression test
+  (`components/__tests__/kinetic-text.test.tsx`) asserting the wordmark splits into exactly three
+  word-tokens.
+- **Investigated a second captain report — "the sign-in animation doesn't play at all" — and
+  confirmed it is not a code defect.** Built and ran a real native iOS Simulator dev client
+  (`npx expo run:ios`) rather than reasoning from source alone. Confirmed via injected debug
+  logging: `useReducedMotion()` correctly returns `false`; every `<KineticText>` word's
+  `useEffect` fires with the correct per-word delay; the JS-side Reanimated version
+  (`_REANIMATED_VERSION_JS`) matches the native side (`_REANIMATED_VERSION_CPP`) exactly
+  (4.1.7 == 4.1.7), which is only possible if Reanimated's native module is properly linked and
+  reachable — ruling out a broken babel/worklets pipeline (also verified `babel-preset-expo`
+  correctly auto-selects `react-native-worklets/plugin`, the correct v4 plugin, since this repo
+  has no `babel.config.js` and relies on Metro's built-in default preset). Disabling
+  `experiments.reactCompiler` and rebuilding ruled out a React Compiler/Reanimated interaction.
+  **Conclusive test**: temporarily stretched `Motion.duration.gentle` to 60000ms and logged
+  `Date.now()` at each word's animation start and completion (`withTiming`'s `finished` callback)
+  straight to the Metro console on a real device — no screenshots, no timing guesswork. Each word's
+  completion landed within ~150-350ms of its own `delay + 60000ms` mark, exactly on schedule: the
+  animation genuinely runs for its full configured duration and reliably fires its completion
+  callback. Screenshots taken well before that 60s mark (as early as ~32s in) already looked fully
+  settled — not because the animation had stopped, but because `Motion.curve.calm`
+  (`cubic-bezier(0.22, 1, 0.36, 1)`, an aggressive ease-out) visually plateaus near full opacity
+  long before the timing driver's nominal end, the same shape that made every earlier
+  short-duration (~570ms) screenshot look identical: the motion is real but front-loaded and fast.
+  No code change made for this half of the report — the animation is working as designed, just
+  quick enough on a glance to read as absent.
+
 ## 2026-08-04 (Free tier is now a zero-model-call sample preview, not a real analysis)
 
 - **Free tier makes ZERO Anthropic model calls, ever (captain-approved 2026-07-26).** Previously

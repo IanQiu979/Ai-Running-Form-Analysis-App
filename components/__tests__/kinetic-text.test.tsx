@@ -14,6 +14,8 @@
  */
 import { render, screen, waitFor } from '@testing-library/react-native';
 
+import { Copy } from '@/constants/copy';
+
 import { KineticText } from '../kinetic-text';
 
 const mockUseReducedMotion = jest.fn(() => false);
@@ -98,5 +100,25 @@ describe('KineticText', () => {
     );
 
     expect(screen.getByTestId('kt').props.accessibilityRole).toBe('header');
+  });
+
+  // Regression lock for the sign-in wordmark bug: `constants/copy.ts`'s `wordmark` string once
+  // read 'Pace AnalysisAI' (two words, "Analysis" and "AI" glued together with no space), which
+  // this component's whitespace split turned into only two animated word-tokens instead of
+  // three, and the second one visually read as "AnalysisAI". Asserting the split here catches
+  // any future edit to the copy string that reintroduces a missing space between words.
+  it("splits the sign-in wordmark into three independent words, not two", async () => {
+    await render(<KineticText testID="kt">{Copy.auth.wordmark}</KineticText>);
+
+    expect(screen.getByTestId('kt-word-0', { includeHiddenElements: true }).props.children).toBe(
+      'Pace '
+    );
+    expect(screen.getByTestId('kt-word-1', { includeHiddenElements: true }).props.children).toBe(
+      'Analysis '
+    );
+    expect(screen.getByTestId('kt-word-2', { includeHiddenElements: true }).props.children).toBe(
+      'AI'
+    );
+    expect(screen.queryByTestId('kt-word-3', { includeHiddenElements: true })).toBeNull();
   });
 });
