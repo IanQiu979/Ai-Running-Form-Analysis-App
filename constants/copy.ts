@@ -356,6 +356,11 @@ export const Copy = {
         retry: 'Retry',
         startNew: 'Start a new analysis',
         cancel: 'Cancel',
+        // NEW — not in the deck. Distinct from `retry`: the `unauthorized` panel's primary
+        // action signs the user out (via lib/sign-out.ts) rather than resubmitting under the
+        // same expired session, so it needs its own label. Reuses `settings.signOut.cta`'s
+        // wording rather than inventing new phrasing for the same action.
+        signOut: 'Sign out',
       },
     },
   },

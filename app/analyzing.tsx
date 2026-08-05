@@ -45,7 +45,7 @@
  */
 import { Redirect, useRouter, type Href } from 'expo-router';
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
-import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KineticText } from '@/components/kinetic-text';
@@ -88,6 +88,7 @@ import { checkConnectivity } from '@/lib/connectivity';
 import { clearPendingAnalysisMarker, setPendingAnalysisMarker } from '@/lib/pending-analysis';
 import { setPendingSampleResult } from '@/lib/pending-sample-result';
 import { useSession } from '@/lib/session-provider';
+import { signOut, type SignOutResult } from '@/lib/sign-out';
 import { supabase } from '@/lib/supabase';
 import { useAnnounce } from '@/lib/use-announce';
 import { isPaceAnalysisOutcome } from '@shared/pace';
@@ -377,6 +378,61 @@ export default function AnalyzingScreen() {
     dispatch({ type: 'retry' });
   }
 
+  // L7 follow-up (v23-ux-audit-r1, review-1): the `unauthorized` panel's copy tells the user to
+  // "sign in and try again", but the session that expired is still the one a plain Retry would
+  // resubmit under — that CTA must actually clear the session, not resubmit into it. Reuses
+  // lib/sign-out.ts's signOut() (the same helper app/settings.tsx calls) so a successful sign-out
+  // clears the local session and lets app/_layout.tsx's Stack.Protected guard redirect to
+  // (auth)/sign-in on its own; this screen does not navigate itself.
+  const [isSigningOutOfExpiredSession, setIsSigningOutOfExpiredSession] = useState(false);
+
+  async function handleUnauthorizedSignOut() {
+    if (isSigningOutOfExpiredSession) return;
+    setIsSigningOutOfExpiredSession(true);
+
+    const result = await signOut();
+    if (!result.ok) {
+      showUnauthorizedSignOutFailureAlert(result);
+    }
+
+    setIsSigningOutOfExpiredSession(false);
+  }
+
+  // Mirrors app/settings.tsx's showSignOutFailureAlert exactly (same three-state result, same
+  // copy, same exhaustiveness guard) rather than inventing a second error-handling philosophy for
+  // the same underlying call.
+  function showUnauthorizedSignOutFailureAlert(result: Extract<SignOutResult, { ok: false }>) {
+    const reason = result.reason;
+    switch (reason) {
+      case 'globalRevokeFailed':
+        Alert.alert(
+          Copy.settings.signOutError.globalRevokeFailed.title,
+          Copy.settings.signOutError.globalRevokeFailed.body,
+          [{ text: Copy.settings.alertDismiss }]
+        );
+        return;
+      case 'stillSignedIn':
+        Alert.alert(
+          Copy.settings.signOutError.stillSignedIn.title,
+          Copy.settings.signOutError.stillSignedIn.body,
+          [
+            { text: Copy.settings.signOutError.stillSignedIn.cta.secondary, style: 'cancel' },
+            {
+              text: Copy.settings.signOutError.stillSignedIn.cta.primary,
+              onPress: () => {
+                void handleUnauthorizedSignOut();
+              },
+            },
+          ]
+        );
+        return;
+      default: {
+        const exhaustive: never = reason;
+        throw new Error(`Unhandled SignOutResult reason: ${String(exhaustive)}`);
+      }
+    }
+  }
+
   // The server answered 409 `previous_attempt_failed`: the reservation for THIS idempotency key was
   // already released, and `reserve_analysis` hands an idempotency match back as-is whatever its
   // status — so re-submitting `request` can only ever produce the same 409. The only real recovery
@@ -465,7 +521,12 @@ export default function AnalyzingScreen() {
             styles={styles}
             title={Copy.analyzing.error.unauthorized.title}
             body={Copy.analyzing.error.unauthorized.body}
-            primary={{ label: Copy.analyzing.error.cta.retry, onPress: handleRetry }}
+            primary={{
+              label: Copy.analyzing.error.cta.signOut,
+              onPress: () => {
+                void handleUnauthorizedSignOut();
+              },
+            }}
             onCancel={handleCancel}
           />
         )}
