@@ -110,6 +110,16 @@ export default function AnalyzingScreen() {
   const [captionPhase, setCaptionPhase] = useState<AnalyzingCaptionPhase>(() => captionPhaseForElapsed(0));
   const longWaitOpacity = useRef(new Animated.Value(0)).current;
   const { session } = useSession();
+  // This screen unmounts the instant `session` flips to null (the route guard) — which is exactly
+  // what a successful handleUnauthorizedSignOut() below does. Same guard app/settings.tsx's
+  // isMountedRef uses for its own signOut() call, for the same reason.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   // Issue #11: the waiting-phase caption below carries `accessibilityLiveRegion="polite"`,
   // Android-only — this is the iOS complement, same pattern as app/(tabs)/index.tsx. Derived from
   // the same `captionPhase` the caption itself renders, so the announcement always matches what's
@@ -395,7 +405,7 @@ export default function AnalyzingScreen() {
       showUnauthorizedSignOutFailureAlert(result);
     }
 
-    setIsSigningOutOfExpiredSession(false);
+    if (isMountedRef.current) setIsSigningOutOfExpiredSession(false);
   }
 
   // Mirrors app/settings.tsx's showSignOutFailureAlert exactly (same three-state result, same
