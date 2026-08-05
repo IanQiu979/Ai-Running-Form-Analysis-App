@@ -912,7 +912,11 @@ milestone "done" criteria.
 
 36. **NEW — Free tier's zero-model-call sample preview (captain-approved 2026-07-26) has no
     per-user rate limit, flagged by both the threat-modeling and security-review passes on that
-    change.** Before this change, every `analyze-form` caller — Free included — went through
+    change.** ⚠️ **LIVE AS OF 2026-08-05.** This issue described the behavior of code that, until
+    that date, was merged to `main` but not deployed — the v23-launch-audit-r1 audit checked it
+    against production and correctly found the described gap absent, because the short-circuit
+    itself wasn't running yet (see #37). The deploy in #37 made this issue real: it is now
+    production behavior, and the follow-up it asks for is tracked as **issue #170**. Before this change, every `analyze-form` caller — Free included — went through
     `reserve_analysis`, which enforced a hard lifetime cap of 1 for Free plus the 3-strike
     anti-farming counter. The new `pace_current_tier` short-circuit (see `docs/architecture.md`'s
     "Current — `analyze-form` edge function") returns the canned sample and exits BEFORE
@@ -928,6 +932,29 @@ milestone "done" criteria.
     limiting), not a silent gap — recorded here rather than fixed in the same change, since it
     would mean new schema/RPC surface beyond this task's captain-approved scope (the free-tier
     behavior change, not new abuse-prevention infrastructure).
+
+37. **RESOLVED 2026-08-05 — `main` had been three commits ahead of production for ten days, and
+    the drift was costing real money while the shipped copy said otherwise.** PR #171 ("make Free
+    tier a zero-model-call sample preview") merged 2026-07-26, but **neither half of it was ever
+    shipped**: `20260804120000_pace_current_tier_function.sql` was never applied (repo had 25
+    migrations, the live ledger had 24, and `pg_proc` had no `pace_current_tier`), and
+    `analyze-form` was still serving the version deployed 2026-07-26T03:32:37Z — from *before* the
+    fix. The v23-launch-audit-r1 audit proved the consequence by calling the live endpoint as a new
+    Free user: it got back a real, paid, model-generated analysis of its own photo
+    (`isFallback: false`, with an `analysisId` — the pre-#171 wire shape), which cost **$0.1023**
+    and spent that account's one lifetime slot. Meanwhile `constants/copy.ts`'s 2026-08-05 honesty
+    fix had already shipped, telling those users they had "viewed the sample." **The docs in this
+    repo were not wrong about the design — they were wrong about what was running**, which is the
+    reusable lesson: `docs/architecture.md`'s "deployed 2026-07-26" annotations described a merge,
+    not a deploy, and nothing in the repo distinguishes the two. Fixed by applying the migration
+    and redeploying, **strictly in that order** — `analyze-form` deployed against a database
+    without `pace_current_tier` would 500 every request, because `currentTier` deliberately throws
+    rather than defaulting to free. Verified live afterwards rather than assumed: a fresh Free
+    account got exactly `{result, isSample: true}` with no `analysisId`, its quota unspent
+    (`used: 0`), and **zero** new `ai_call_log` / `analyses` / storage rows. Ledger is now 25
+    (latest `20260804120000`); `analyze-form` is version 8. **Check deployed state against `main`
+    before trusting any "deployed" annotation in these docs** — `supabase migration list` and the
+    functions' `updated_at` are the authorities, not a merge commit.
 
 ## Next action
 

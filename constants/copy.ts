@@ -45,6 +45,22 @@ export const Copy = {
     signUp: {
       submit: 'Create account',
       link: 'New here? Create an account',
+      // Issue #12/Known Issue #12 — shown INSTEAD of the Turnstile widget when
+      // `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is unset, which is the only way this string appears.
+      // Sign-up genuinely cannot complete without a captcha token (supabase/functions/
+      // signup-with-captcha verifies one server-side), so the submit button stays disabled — this
+      // is the *reason* the user was previously never given. Deliberately mirrors
+      // `paywall.purchase.error.unavailable`'s idiom, for the same reasons recorded there: it does
+      // NOT say "something went wrong" (nothing did — this is a build that was shipped without a
+      // key), it does NOT name the env var or the feature it gates, and it points at the one
+      // action still open to the reader. `a11yHint` is the same fact for a screen reader, carried
+      // on the disabled button itself, because a sighted user infers the link between the button
+      // and the adjacent card from proximity and a screen-reader user cannot.
+      unavailable: {
+        title: "Creating an account isn't available right now",
+        body: "This build can't run the security check new accounts need. If you already have an account, you can still sign in.",
+        a11yHint: "Disabled — creating an account isn't available in this build.",
+      },
     },
     error: {
       // --- issue #17 NEW keys start — NOT in docs/design/copy-deck.md, NOT copy-certified.

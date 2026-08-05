@@ -5,6 +5,57 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-05 (Launch-audit fix batch r1 — #171 shipped to production; honest sign-up failure state)
+
+- **Shipped PR #171 to production, migration first** (v23-launch-audit-r1 §5.1, report bug B2).
+  `main` had been three commits ahead of the live project since 2026-07-26: the migration
+  `20260804120000_pace_current_tier_function.sql` was merged but never applied, and `analyze-form`
+  was last deployed *before* the fix. The live consequence was concrete and expensive — every Free
+  signup burned a real paid Anthropic call on the user's own photo (the audit measured $0.1023),
+  spent their one lifetime slot, and then the shipped copy told them they had only seen a sample.
+  Order was forced and observed: `supabase db push` (migration ledger 24 → 25, latest version now
+  `20260804120000`), verify `public.pace_current_tier` exists, *then*
+  `supabase functions deploy analyze-form` (v7 → v8). Deploying in the other order would have 500'd
+  every request, since `currentTier` deliberately throws rather than defaulting to free.
+  **Verified live after deploy, not assumed:** a fresh Free account posting one frame got back
+  exactly `{result, isSample: true}` — keys `['isSample','result']`, **no `analysisId`** — with
+  `quota-status` still reading `used: 0, remaining: 1` afterwards, and **zero** new `ai_call_log`
+  rows (count held at 9), zero new `analyses` rows, zero new storage objects. That is the $0 the
+  #171 design promised, and it makes `constants/copy.ts`'s "you've viewed the sample" wording true
+  for the first time. Throwaway test accounts were deleted and the project verified back to its
+  pre-test baseline (2 users / 3 analyses / 3 media objects / 9 AI calls).
+  Also confirmed while testing: `public.consents` grants `authenticated` a **column-level** INSERT
+  on `(consent_key, granted)` only (`20260712030617_consents_grant_hardening.sql`), so a write that
+  names `user_id` explicitly is denied — `lib/consent.ts` is already correct in omitting it. Noted
+  because the denial surfaces as a table-level "permission denied for table consents" and reads
+  like a broken policy when it is a working one.
+- **The sign-up button now says why it's disabled instead of dead-ending silently**
+  (v23-launch-audit-r1 §3.1/§5.2, report bug B1). `app/(auth)/sign-in.tsx` rendered the Turnstile
+  widget only when `EXPO_PUBLIC_TURNSTILE_SITE_KEY` was set; with the key unset it rendered
+  *nothing*, so no token could ever arrive and "Create account" stayed permanently greyed out with
+  no explanation. The audit reproduced this against a real build and found the key empty in every
+  environment it could read, including the dev client built the same day. The missing-key branch
+  now renders an explicit `<SurfaceCard>` notice (`Copy.auth.signUp.unavailable`) in the widget's
+  place. **This does not make sign-up work** — only a real site key can, since
+  `supabase/functions/signup-with-captcha` verifies the token server-side — and the button
+  correctly stays disabled; what changed is that the failure is now visible and explained, the same
+  degrade-honestly contract `paywall.purchase.error.unavailable` already follows. The copy avoids
+  "something went wrong" (nothing did), never names the env var, and points the reader at the one
+  action still open to them (sign in, if they already have an account). A screen-reader user gets
+  the same fact via `accessibilityHint` on the disabled button, since they cannot infer the link
+  from proximity to the card. Locked by `app/(auth)/__tests__/sign-in-no-captcha-key.test.tsx` — a
+  separate file because `TURNSTILE_SITE_KEY` is captured at module-evaluation time and
+  `jest.resetModules()` + re-`require` hands the screen a second React instance, breaking every
+  hook; Jest's per-file module registry is what actually isolates the two cases. Verified the new
+  tests fail against the pre-fix screen before landing them.
+- **Not changed, awaiting a captain decision:** the `$0` Elite self-grant (§5.3). Confirmed the
+  live secret state — `PURCHASE_TIER_DUMMY_ENABLED` is set (2026-07-26) and
+  `PURCHASE_TIER_ALLOWED_USER_IDS` is **unset**, so `checkDeploymentGate` allows every
+  authenticated caller. Both remediation options the audit floated are pure secret config with
+  **zero code change** (`purchase-tier/index.ts` already reads both vars and collapses "disabled"
+  and "not on the allowlist" to the same indistinguishable 404), so whichever the captain picks is
+  one CLI command. Left alone deliberately — see `docs/status.md` Known Issue #21.
+
 ## 2026-08-05 (Sign-in wordmark reads as three words again)
 
 - **`Copy.auth.wordmark` fixed from `'Pace AnalysisAI'` to `'Pace Analysis AI'`** (captain's call,
