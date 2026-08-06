@@ -850,16 +850,34 @@ milestone "done" criteria.
     in this sandbox (a Maestro iOS accessibility-tree driver flakiness, not an app/script bug). Do
     not yet treat these as a passing gate. See `docs/architecture.md`'s `.maestro/` E2E section and
     `.maestro/README.md`'s 2026-07-25 update for the full diagnosis and how to get a clean run.
-32. **NEW — a per-user orphan-purge ACTION exists but is wired to no schedule (issue #7's action
-    half, 2026-07-13).** `supabase/functions/_shared/storage-sweep.ts`'s
-    `sweepOrphanedMediaPrefixes()` is pure, Deno-tested orchestration that calls the new
-    `public.list_orphaned_media_prefixes` detection RPC (see Known Issue #33) and purges what it
-    finds through the real Storage API. Its entrypoint now exists — `supabase/functions/
-    sweep-orphaned-media/`, **deployed 2026-07-26 but never exercised** (it is gated on an
-    `X-Cron-Secret`, not a user JWT; see Known Issue #35). **Nothing calls it on a schedule.**
-    Still needed: a Supabase Dashboard Cron Job or a `pg_cron`+`pg_net`+Vault-secret trigger — a
-    `jobs-queues-edge` + deploy/config task, and a scheduling-mechanism decision (Dashboard Cron
-    Job vs. `pg_net`+Vault) that needs Ian's input before it's built (GitHub issue #137).
+32. **RESOLVED 2026-08-06 — the per-user orphan-purge ACTION is now scheduled (issue #7's action
+    half, 2026-07-13; decision `orphan-sweep-scheduling-mechanism`).**
+    `supabase/functions/_shared/storage-sweep.ts`'s `sweepOrphanedMediaPrefixes()` is pure,
+    Deno-tested orchestration that calls `public.list_orphaned_media_prefixes` (see Known Issue
+    #33) and purges what it finds through the real Storage API. Its entrypoint,
+    `supabase/functions/sweep-orphaned-media/`, deployed 2026-07-26, is now called daily by a
+    `pg_cron` job (`sweep-orphaned-media-daily`, `0 9 * * *` UTC — `supabase/migrations/
+    20260806090000_sweep_orphaned_media_cron.sql`), via `pg_net.http_post` authenticated with the
+    `X-Cron-Secret` shared secret pulled from **Supabase Vault** at call time (secret name
+    `sweep_orphaned_media_cron_secret`) — never committed, never inline in the cron job SQL.
+    Route: `pg_cron`+`pg_net`+Vault, chosen over a Dashboard Cron Job because this environment has
+    no interactive Studio UI login (see the migration's own header for the full reasoning against
+    #47's sweep's prior Design Decision 3 against this same route).
+
+    **Also fixed in this pass:** the function was live with `verify_jwt: true`, which would have
+    401'd every cron call at the platform gateway before its own `X-Cron-Secret` check ever ran —
+    contradicting the function's own header instruction. Redeployed with `--no-verify-jwt`, now
+    pinned in `supabase/config.toml`'s `[functions.sweep-orphaned-media]`.
+
+    **Verified live, immediately:** `cron.job` shows the schedule (`jobid` 2, `active: true`); a
+    manual `net.http_post` call using the same statement the schedule runs returned `200
+    {"mode":"dry_run","candidateCount":0,"candidates":[],"durationMs":421}` — the credential,
+    endpoint, and Vault wiring all work end to end. Still gated on `dryRun: true` (the scheduled
+    body is `{}`, which defaults to dry-run) — no media has been deleted by this schedule.
+    Flipping to live deletion (`{"dryRun": false}`) is left as a deliberate follow-up decision once
+    dry-run output has been reviewed in the edge function logs; it was intentionally not made here
+    since it permanently deletes user media. See `docs/architecture.md`'s updated "Current —
+    orphan-purge action, scheduled daily" section.
 33. **RESOLVED 2026-07-26 — these migrations ARE applied; this entry was stale.** Verified live
     against `vputdomdlknvthnzritt` on 2026-07-26 via `list_migrations` + a `pg_proc` query: **all 24
     migrations in `supabase/migrations/` are present**, and `pace_quota_status`, `pace_purchase_tier`,

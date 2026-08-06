@@ -2661,18 +2661,39 @@ Issue #33, which owns that verification and previously said the opposite).
   the `pace_media_object_guard` trigger. `CLAUDE.md`'s "Uploaded media is sensitive" section and
   `docs/status.md` Known Issue #18 own that fact — do not re-attempt this revoke.
 
-## Current — orphan-purge action, wired to nothing (issue #7's action half, 2026-07-13)
+## Current — orphan-purge action, scheduled daily (issue #7's action half, 2026-07-13; scheduled 2026-08-06)
 
 `supabase/functions/_shared/storage-sweep.ts` — the ACTION half of the detection RPC above.
 `sweepOrphanedMediaPrefixes()` is pure, dependency-free orchestration (same discipline as
 `ai-guard.ts`/`delete-analysis.ts`), fully Deno-tested, and deliberately does not import
 `delete-analysis.ts`'s `purgePrefix()` (the ~30-line list→remove→verify idiom is reimplemented
 independently to avoid coupling two parallel worktrees' files — a candidate follow-up refactor,
-not forced here). Its entrypoint, `supabase/functions/sweep-orphaned-media/`, now exists and is
-**deployed (2026-07-26) but never exercised** — it is gated on an `X-Cron-Secret` shared secret
-rather than a user JWT. **Nothing calls it on a schedule**; wiring one up (a Dashboard Cron Job or
-a `pg_cron`+`pg_net`+Vault trigger) is a `jobs-queues-edge` + deploy/config task, not done here.
-See `docs/status.md` Known Issues #32 and #35.
+not forced here). Its entrypoint, `supabase/functions/sweep-orphaned-media/`, is deployed and, as
+of `20260806090000_sweep_orphaned_media_cron.sql` (decision `orphan-sweep-scheduling-mechanism`),
+**scheduled**: a `pg_cron` job (`sweep-orphaned-media-daily`, `0 9 * * *` UTC, `cron.job` id 2)
+calls it once a day via `pg_net.http_post`, authenticating with the `X-Cron-Secret` shared secret
+pulled from **Supabase Vault** (`vault.decrypted_secrets`, secret name
+`sweep_orphaned_media_cron_secret`) — the value is never in git, never in the migration file, and
+was provisioned ad hoc directly against the live project, matching what's set as the edge
+function's own `SWEEP_ORPHANED_MEDIA_SECRET` env var. Route chosen over a Dashboard Cron Job
+because this environment has no interactive Studio UI login but does have direct SQL access
+(functionally the same mechanism the Dashboard's own Cron Jobs integration uses) — see that
+migration's header for the full reasoning against `20260713130000_stale_reservation_sweep.sql`'s
+prior Design Decision 3.
+
+Two things fixed in the same pass, both required for the schedule to actually work: (1) the
+function was live with `verify_jwt: true`, which would have 401'd every cron call at the platform
+gateway before the function's own `checkCronAuth` ever ran — redeployed with `--no-verify-jwt`,
+now pinned in `supabase/config.toml`'s `[functions.sweep-orphaned-media]` so a future plain
+`supabase functions deploy` can't regress it; (2) verified end to end via a manual
+`net.http_post` call (bypassing the schedule) — `200`, `{"mode":"dry_run","candidateCount":0,...}`.
+
+**Still dry-run only.** The scheduled request body is `{}`, which defaults to `dryRun: true` (the
+function's own posture for "freshly wired-up but not-yet-reviewed"). Flipping to live deletion
+(`{"dryRun": false}` in the `cron.schedule` body) is a deliberate follow-up act once dry-run output
+has been reviewed in the edge function logs — it permanently deletes user media and was
+intentionally left to a human decision, not made here. See `docs/status.md` Known Issues #32 and
+#35.
 
 ## Current — the two-phase consent gate (issues #68 restatement + #94, 2026-07-13)
 
