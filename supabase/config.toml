@@ -553,6 +553,13 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# sweep-orphaned-media is called by a scheduled pg_cron job, not a signed-in user — it has no
+# Supabase Auth JWT to present. Auth is instead the `X-Cron-Secret` shared-secret check in
+# `supabase/functions/sweep-orphaned-media/core.ts`'s `checkCronAuth`. Without this, the platform
+# gateway 401s every cron invocation before that check ever runs (see that function's own header).
+[functions.sweep-orphaned-media]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

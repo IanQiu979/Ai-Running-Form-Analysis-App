@@ -1,17 +1,19 @@
 // `POST /functions/v1/sweep-orphaned-media` (issue #137) — the schedule `_shared/storage-sweep.ts`
-// never got. That file is a tested purge orchestrator (list → remove → verify) over the
-// `public.list_orphaned_media_prefixes` detection RPC (`20260713152000_storage_user_budget.sql`),
-// but nothing has ever called it: orphaned `{user_id}/{analysis_id}/` prefixes in the private
-// `media` bucket accumulate unswept, and the failure mode is a Supabase plan upgrade nobody chose
-// (free-plan storage is 1 GB total / 5 GB egress per month — this org is on Pro, but the same
-// unbounded-growth problem still costs real money there).
+// lacked until 2026-08-06. That file is a tested purge orchestrator (list → remove → verify) over
+// the `public.list_orphaned_media_prefixes` detection RPC
+// (`20260713152000_storage_user_budget.sql`); orphaned `{user_id}/{analysis_id}/` prefixes in the
+// private `media` bucket would otherwise accumulate unswept, and the failure mode is a Supabase
+// plan upgrade nobody chose (free-plan storage is 1 GB total / 5 GB egress per month — this org is
+// on Pro, but the same unbounded-growth problem still costs real money there). This is now called
+// daily by the `pg_cron` job in `20260806090000_sweep_orphaned_media_cron.sql` — see the ROUTE
+// DECISION section below.
 //
 // ═══════════════════════════════════════════════════════════════════════════════════════════
-// ROUTE DECISION — Supabase Dashboard Cron Job → this edge function, NOT pg_cron+pg_net+Vault.
+// ROUTE DECISION — pg_cron + pg_net + Supabase Vault, NOT a Dashboard Cron Job. UPDATED.
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 //
-// The issue posed two options. This picks the Dashboard Cron Job route, for reasons specific to
-// THIS sweep (not a blanket "always prefer Dashboard cron" rule):
+// This function was originally built to be scheduled via a Supabase Dashboard Cron Job, for
+// reasons specific to THIS sweep (not a blanket "always prefer Dashboard cron" rule):
 //
 //   1. `storage.objects` is Postgres METADATA only (storage-sweep.ts's own header) — actually
 //      removing an object requires the real Storage HTTP API, which no SQL statement can reach.
@@ -27,22 +29,24 @@
 //      `cron.schedule(...)` call needs a credential in its request headers, which needs to live in
 //      Supabase Vault — and a migration file (checked into git) can never safely provision the
 //      ACTUAL secret VALUE into Vault (same problem that migration's Design Decision 3 already
-//      names). Confirmed live via read-only `list_extensions`: `pg_net` is NOT even installed on
-//      this project today (`pg_cron` is, from that same migration) — route (b) would need a NEW
-//      `create extension pg_net` migration on top of the Vault-provisioning gap.
-//   3. A Supabase Dashboard Cron Job targeting an Edge Function is the platform's own built-in
-//      answer to "schedule an HTTP call, keep the credential out of git": the header (holding the
-//      shared secret below) is configured in the Dashboard, never in a repo file, never in a
-//      migration. This is a config/deploy-time decision, same category CLAUDE.md already reserves
-//      for `ANTHROPIC_API_KEY` (`.env`/`supabase secrets set`, never source) — just applied to a
-//      Cron Job's headers instead of a function's runtime env.
-//   4. Org is on the Pro plan (confirmed — `docs/status.md`), where Dashboard Cron Jobs are fully
-//      available; nothing about this route needs Pro specifically (Free plan has it too), but it
-//      rules out "we're gated by plan" as a reason to prefer the other route.
+//      names).
 //
-// THIS ROUTE IS NOT YET ARMED. Building this function does not schedule it — no code in this repo
-// can create a Dashboard Cron Job; that is a Studio UI action only Ian can take. See this issue's
-// final report for the exact steps (deploy command, secret, Cron Job configuration).
+// That reasoning favored the Dashboard route ONLY because this repo's automation had no way to
+// create a Dashboard Cron Job — a Studio UI action only Ian could take — while pg_net+Vault could,
+// in principle, be scripted from a migration once the credential-provisioning gap was closed. The
+// environment that actually shipped this schedule inverts that constraint: no interactive Studio UI
+// login, but direct SQL/CLI access to the live project — functionally equivalent to what the
+// Dashboard's own Cron Jobs integration does under the hood (pg_cron + pg_net). So the route taken
+// is pg_cron + pg_net + Vault: `supabase/migrations/20260806090000_sweep_orphaned_media_cron.sql`
+// installs `pg_net` (not previously installed on this project) and calls `cron.schedule()` with a
+// `net.http_post` that reads the shared secret from `vault.decrypted_secrets` BY NAME only — the
+// secret's actual value was provisioned ad hoc via `vault.create_secret(...)`, never inlined in a
+// committed file, closing the gap point (2) above named.
+//
+// THIS ROUTE IS ARMED: `cron.job` shows the active schedule (`sweep-orphaned-media-daily`,
+// `0 9 * * *` UTC). The scheduled request body is `{}`, which `parseSweepRequest` defaults to
+// `dryRun: true` — flipping to live deletion is a deliberate separate follow-up, not part of this
+// change.
 //
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 // AUTH — a shared secret, not a user JWT. See `core.ts`'s `checkCronAuth` for the mechanics.
@@ -51,9 +55,11 @@
 // Every other endpoint in this codebase (`analyze-form`, `analysis`, `delete-account`,
 // `quota-status`, `purchase-tier`) verifies the CALLER'S OWN identity via `auth.getUser()` — that
 // pattern has no meaning here, because a Cron Job has no user session to present. Instead:
-//   - This function MUST be deployed with `--no-verify-jwt` (Ian's step — see the final report).
-//     Without it, Supabase's platform gateway rejects every Cron Job request before this file's
-//     code ever runs, since a Cron Job carries no Supabase Auth JWT either.
+//   - This function MUST be deployed with `--no-verify-jwt`, now pinned in `supabase/config.toml`'s
+//     `[functions.sweep-orphaned-media]` so a future plain deploy can't regress it. Without it,
+//     Supabase's platform gateway rejects every Cron Job request before this file's code ever
+//     runs, since a Cron Job carries no Supabase Auth JWT either — this was live as a real
+//     production blocker (`verify_jwt: true`) until fixed alongside the pg_cron migration above.
 //   - `checkCronAuth` then does the real gating: the `X-Cron-Secret` header must match
 //     `SWEEP_ORPHANED_MEDIA_SECRET` (an env var ONLY this function reads, set via
 //     `supabase secrets set` — never a repo file, never `EXPO_PUBLIC_*`), compared in constant

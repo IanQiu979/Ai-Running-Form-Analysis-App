@@ -1,6 +1,6 @@
 /**
- * Pure logic for `POST /functions/v1/sweep-orphaned-media` (issue #137) — the missing schedule
- * for `_shared/storage-sweep.ts`'s tested purge orchestrator (issue #7's `sweepOrphanedMediaPrefixes`).
+ * Pure logic for `POST /functions/v1/sweep-orphaned-media` (issue #137) — the daily `pg_cron`
+ * schedule for `_shared/storage-sweep.ts`'s tested purge orchestrator (issue #7's `sweepOrphanedMediaPrefixes`).
  * See `index.ts`'s header for the full picture (route decision, auth model, why this function
  * exists at all); this file is deliberately free of `Deno.env`/`npm:` imports so it is
  * unit-testable exactly like `_shared/storage-sweep.ts`'s own tests — fakes in, assertions out, no
