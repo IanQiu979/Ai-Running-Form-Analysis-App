@@ -2504,8 +2504,11 @@ a paid tier (the actual spend risk). The client (`app/analyzing.tsx`) routes a `
 response to the static `app/result/sample.tsx` route — never `/result/[id]`, since no DB row
 exists to fetch — showing the sample PACE readout next to the user's own just-captured photo (a
 `data:` URI built client-side from the frame already in memory; nothing is uploaded to Storage for
-a sample) inside a `<SampleResultBanner>` that states plainly this is an example of Pro's output,
-with an upgrade CTA immediately adjacent. See `supabase/functions/analyze-form/__tests__/
+a sample) inside a `<SampleResultBanner>` that states honestly (copy rewritten 2026-08-06,
+`free-tier-frame-cap` option b) that a real single-photo analysis could only ever score 2 of the 4
+pillars (Posture, Arm swing) — Cadence and Elasticity need multiple frames — framing the full
+4-pillar sample as what Pro/Elite's multi-frame capture unlocks, with an upgrade CTA immediately
+adjacent. See `supabase/functions/analyze-form/__tests__/
 flow.deno.test.ts`'s "FREE-TIER SAMPLE PREVIEW" suite for the regression lock proving zero model/
 gate/reserve calls.
 
