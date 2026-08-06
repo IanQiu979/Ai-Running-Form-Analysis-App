@@ -47,22 +47,13 @@ first TestFlight submission**, never after (see #67 below).
    it at a public URL, and attach it to the App Store Connect record.
 6. **Enter the App Store privacy labels** from `docs/app-store-privacy-labels.md` — the answers are
    already derived, so this is a lookup, not a re-derivation.
-7. **🚨 UNSET `PURCHASE_TIER_DUMMY_ENABLED` BEFORE THE FIRST SUBMISSION — do not skip this.**
-   It was deliberately set to `true` on the live project on **2026-07-26** (captain's decision) so
-   Pro/Elite could be self-granted during development, with **no `PURCHASE_TIER_ALLOWED_USER_IDS`
-   allowlist narrowing it**. While it is on, anyone who can sign up can grant themselves Elite for
-   $0 and burn the shared daily AI spend cap, denying `analyze-form` to every real user — the
-   attack chain in `docs/status.md` Known Issue #21, which is a **release blocker** and is *live
-   right now*.
-
-   ```
-   supabase secrets unset PURCHASE_TIER_DUMMY_ENABLED --project-ref vputdomdlknvthnzritt
-   supabase secrets list --project-ref vputdomdlknvthnzritt   # confirm the name is GONE
-   ```
-
-   Then confirm `POST /functions/v1/purchase-tier` answers `404 not_found`. Unset it — do not set
-   it to `"false"` and call it done. If a closed tester group genuinely needs dummy purchases, set
-   `PURCHASE_TIER_ALLOWED_USER_IDS` to those exact user ids *first*.
+7. ~~**🚨 UNSET `PURCHASE_TIER_DUMMY_ENABLED` BEFORE THE FIRST SUBMISSION**~~ **RESOLVED
+   2026-08-06** — both `PURCHASE_TIER_DUMMY_ENABLED` and `PURCHASE_TIER_ALLOWED_USER_IDS` are
+   unset on the live project (captain decision `purchase-tier-dummy-flag-now`: the captain is the
+   only tester right now, so the allowlist approach was declined rather than adopted — see
+   `docs/status.md` Known Issue #21 for the live verification). If a closed tester group ever
+   needs dummy purchases again before submission, re-set `PURCHASE_TIER_DUMMY_ENABLED=true`
+   deliberately (optionally narrowed with `PURCHASE_TIER_ALLOWED_USER_IDS`) and re-add this item.
 8. **`eas submit` → TestFlight.** Beta excludes EU/UK testers (recorded decision — keeps GDPR out
    of scope for the beta and avoids needing an Art. 27 representative).
 
