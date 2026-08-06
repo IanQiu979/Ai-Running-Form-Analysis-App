@@ -5,6 +5,29 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-06 (`purchase-tier` dummy flag turned OFF, not allowlisted — decision `purchase-tier-dummy-flag-now`)
+
+- **No app code changed — a production secret change plus docs.** Captain decision
+  `purchase-tier-dummy-flag-now`: unset `PURCHASE_TIER_DUMMY_ENABLED` entirely rather than maintain
+  the `PURCHASE_TIER_ALLOWED_USER_IDS` allowlist adopted 2026-08-05 — the captain is the only
+  tester right now, so the self-grant-tier dummy-purchase mechanism isn't needed, closing the abuse
+  path `data/v23-launch-audit-r1/report.md` measured live (a throwaway account could self-grant
+  Elite for $0 via `POST /functions/v1/purchase-tier {"tier":"elite","source":"dummy"}`).
+- Ran `supabase secrets unset PURCHASE_TIER_DUMMY_ENABLED --project-ref vputdomdlknvthnzritt` and
+  `supabase secrets unset PURCHASE_TIER_ALLOWED_USER_IDS --project-ref vputdomdlknvthnzritt`
+  against the live `v2.3Analysis` project — no redeploy needed, `purchase-tier/index.ts` reads
+  `Deno.env.get('PURCHASE_TIER_DUMMY_ENABLED') === 'true'`, so unset (or any non-`"true"` value)
+  already disables the gate; unsetting (not `"false"`) matches the code's actual check and drops
+  the now-pointless allowlist secret too.
+- **Verified live, the same way the original audit verified the vulnerability**: signed up a fresh
+  throwaway account and got `404 {"error":"Not found.","code":"not_found"}` from
+  `POST /functions/v1/purchase-tier {"tier":"elite","source":"dummy"}`; `quota-status` afterward
+  showed `tier: free, limit: 1, frameCap: 1` — no tier granted. `supabase secrets list` confirms
+  both variable names are absent from the live secret set.
+- Updated `docs/status.md` Known Issue #21 (RESOLVED, replacing the 2026-08-05 allowlist state) and
+  `docs/blocked-on-apple.md` item 7 (RESOLVED, no longer a pre-submission blocker); updated
+  `docs/architecture.md`'s three `purchase-tier`-live-state references to match.
+
 ## 2026-08-06 (sweep-orphaned-media scheduled daily — issue #137, decision `orphan-sweep-scheduling-mechanism`)
 
 - **Scheduled the existing, already-tested `sweep-orphaned-media` edge function** on a recurring
