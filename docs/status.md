@@ -140,9 +140,10 @@ milestone "done" criteria.
 
 ## Known issues
 
-1. ~~**Final app name not picked.**~~ **RESOLVED 2026-07-11.** Name is **"Pace AnalysisAI"**
+1. ~~**Final app name not picked.**~~ **RESOLVED 2026-07-11**, spacing corrected 2026-08-06
+   (`wordmark-rename-scope`, option b). Name is **"Pace Analysis AI"**
    (repo/directory keeps the "V2.3" codename internally). `app.json` updated: `name`
-   "Pace AnalysisAI", `scheme` "paceanalysisai".
+   "Pace Analysis AI", `scheme` "paceanalysisai".
 2. ~~**`app.json` slug `v2.3-photo-video-analysis` fails `expo-doctor`**~~ **RESOLVED
    2026-07-11.** `slug` fixed to `pace-analysis-ai` (dots removed); `ios.bundleIdentifier` and
    `android.package` both set to `com.ian.paceanalysisai` (follows V2.2's `com.ian.*`
@@ -188,6 +189,41 @@ milestone "done" criteria.
    entry breaks Google sign-in on-device. Do it in the same pass as the dev build, while the
    custom `paceanalysisai://` scheme is confirmed working. This does **not** need an Apple
    Developer account — `development`'s `ios.simulator: true` build is enough to retire Expo Go.
+
+   **PARTIAL PROGRESS 2026-08-06 (decision `google-auth-fix-path`, option A) — the dev build now
+   exists; the on-device confirmation this note requires does not yet.** `eas build --profile
+   development --platform ios` (build `c424ce3d-0014-4b8a-a62b-f80b8a6240c4`, iOS Simulator,
+   `eas.json`'s `development` profile — no changes needed, it was already correctly shaped:
+   `developmentClient: true`, `ios.simulator: true`, `environment: development`) built clean and
+   was installed and launched on an iOS 17 Pro simulator via `eas build:run`. It came up on the
+   Expo dev-client launcher (pointed at a local `expo start --dev-client` Metro server) with no
+   crash and no white screen — confirms the dev-client binary itself is sound. **Verified live,
+   server side, before touching anything:** the hosted project's `uri_allow_list` already contains
+   `paceanalysisai://oauth-callback` and `paceanalysisai://**` (queried via the Management API
+   `GET /v1/projects/vputdomdlknvthnzritt/config/auth`, not assumed from `config.toml`), Google is
+   `external_google_enabled: true` with a real `client_id`/`secret` on file (not placeholders), and
+   `exp://**` is still present, unchanged — correctly, since the next paragraph is exactly the
+   precondition for removing it. **What did NOT get confirmed this pass:** actually tapping through
+   the dev-client launcher to the sign-in screen and pressing "Continue with Google" to observe the
+   browser session open and the redirect land back in-app. The agent doing this build had no
+   working way to simulate a tap/click on this machine's simulator — `osascript`/System Events GUI
+   scripting returned error `-25204` (Accessibility permission not granted to the calling process),
+   and `cliclick`'s synthetic mouse events had no visible effect either, most likely blocked by the
+   same missing permission. A full-desktop screenshot taken while debugging the coordinates showed
+   this machine's screen is shared with unrelated windows and personal content, so that debugging
+   path was abandoned rather than pursued further — coordinate-guessing against a screenshot that
+   captures things outside this task's scope is not an acceptable verification method here. Auth
+   logs (`get_logs`, service `auth`) were checked before and after and show no new events at all in
+   this window — consistent with no OAuth attempt having reached the server, not with one
+   succeeding or failing. **Net effect: the white-screen root cause (issue #69) has a real,
+   verified-correct fix in place (dev build + already-allowlisted custom-scheme redirect + real
+   Google credentials), but "confirmed working" — the condition this note itself sets for dropping
+   `exp://**` — is still open.** Do not remove `exp://**` until a human (or an agent with working
+   simulator input) actually taps through one real Google sign-in on this build and confirms the
+   redirect resolves back into the app. To do that by hand: the dev-client build is installed on
+   the booted "iPhone 17 Pro" simulator, `npx expo start --dev-client` is running in this repo
+   (Metro on `localhost:8081`) — open the Simulator, tap the `localhost:8081` row on the launcher
+   screen, then use the app's normal sign-in screen.
 8. **Echo V1's Supabase project** (`IanQiu979's Project`, ref `trgpnnyqonaxhnyhtmlz`) is
    **paused**, which is what freed the Free-plan slot for `v2.3Analysis`. 90-day restore
    window from 2026-07-10.

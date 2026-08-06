@@ -1,7 +1,7 @@
 # V2.3 — Product Requirements (Part A: What & Why)
 
 > Status: draft from brainstorm (2026-07-07), reconciled 2026-07-11 against
-> `docs/mvp-build-prompt.md`'s rulings + decision gate. App name decided: **Pace AnalysisAI**
+> `docs/mvp-build-prompt.md`'s rulings + decision gate. App name decided: **Pace Analysis AI**
 > (PACE family; repo/codename stays "V2.3"). Real-launch goal.
 
 ## Who it's for

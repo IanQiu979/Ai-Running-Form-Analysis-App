@@ -5,6 +5,30 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-06 (Google auth white-screen — real dev build produced, decision `google-auth-fix-path` option A)
+
+- **No code changed.** Built and ran the first real Expo development build (`eas build --profile
+  development --platform ios`, build `c424ce3d-0014-4b8a-a62b-f80b8a6240c4`) to retire the Expo Go
+  LAN-IP redirect that causes issue #69's white screen. `eas.json`'s `development` profile needed
+  no changes — `developmentClient: true` / `ios.simulator: true` / `environment: development` was
+  already correctly shaped, and the EAS `development` environment already carries the right
+  `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (verified via `eas env:list`).
+  Build succeeded, installed and launched cleanly on an iOS 17 Pro simulator via `eas build:run` —
+  no crash, no white screen at the dev-client launcher.
+- **Verified live, server-side, before assuming anything from `config.toml`:** queried the hosted
+  project's real auth config (Management API) and confirmed `uri_allow_list` already contains
+  `paceanalysisai://oauth-callback` and `paceanalysisai://**`, and Google is enabled with a real
+  `client_id`/`secret` on file. No allowlist change was made — nothing needed adding, and
+  `exp://**` was deliberately left in place (see the reason below).
+- **Did not confirm the actual OAuth tap-through.** Could not simulate a tap/click on this
+  machine's iOS Simulator from this session — GUI-scripting attempts failed on missing Accessibility
+  permission, and a full-desktop screenshot taken while debugging surfaced unrelated windows/content
+  outside this task's scope, so that debugging path was stopped rather than pursued further. Auth
+  logs show no new sign-in attempts in this window, consistent with "not attempted" rather than
+  "attempted and failed." See `docs/status.md` Known Issue #7's 2026-08-06 update for the full
+  detail and what's still needed before `exp://**` can be dropped (issue #69's actual remaining
+  action).
+
 ## 2026-08-05 (Launch-audit fix batch r1 — #171 shipped to production; honest sign-up failure state)
 
 - **Shipped PR #171 to production, migration first** (v23-launch-audit-r1 §5.1, report bug B2).

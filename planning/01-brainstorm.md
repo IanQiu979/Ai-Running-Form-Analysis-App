@@ -88,5 +88,5 @@
 ### Remaining before coding
 - [x] Copy the 4 source files (mapping to 3 targets) into the V2.3 repo and adapt ECHO → PACE
   pillars (build step 1) — done 2026-07-10, pending Ian's certification of the Elasticity content
-- [x] Pick the app name — **"Pace AnalysisAI"**, decided 2026-07-11
+- [x] Pick the app name — **"Pace Analysis AI"**, decided 2026-07-11
 - [ ] Provision infra (checklist in 03)

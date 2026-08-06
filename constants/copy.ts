@@ -454,7 +454,7 @@ export const Copy = {
     sample: {
       banner: {
         title: 'This is a sample',
-        body: "We didn't analyze your photo — Free doesn't run a real analysis. This is an example of what Pro looks like, so you can see the depth before you upgrade.",
+        body: "We didn't analyze your photo — Free doesn't run a real analysis. Even a real one from a single photo could only score Posture and Arm swing; Cadence and Elasticity need multiple frames of movement. This sample shows the full 4-pillar read Pro and Elite unlock.",
       },
       cta: {
         upgrade: 'See Pro plans',
@@ -882,7 +882,7 @@ export const Copy = {
     gate: {
       free: {
         title: "You've viewed the sample",
-        body: 'Free shows a worked example, not your own form. Upgrade to Pro or Elite to analyze your own running.',
+        body: 'Free shows a worked example, not your own form — and a single photo of your own could only ever score 2 of 4 pillars. Upgrade to Pro or Elite for a full 4-pillar read from multiple frames.',
       },
       paid: {
         title: "You're out of analyses this period",
@@ -898,7 +898,7 @@ export const Copy = {
         name: 'Free',
         price: '$0',
         detail:
-          "See a worked example — a real PACE readout on a sample runner, so you know exactly what you're buying. Your own form needs Pro.",
+          'A worked example of a full 4-pillar read, on a sample runner. Your own photo can only score 2 of 4 (Posture, Arm swing) — Pro unlocks Cadence and Elasticity too.',
       },
       pro: {
         name: 'Pro',
@@ -1013,7 +1013,7 @@ export const Copy = {
     framingTip: 'Best read comes from a side-on shot — full body, good light.',
     permission: {
       library: {
-        title: 'Pace AnalysisAI needs your photo library',
+        title: 'Pace Analysis AI needs your photo library',
         body: 'To choose a running photo or video already saved on your phone. We only access what you pick.',
         cta: 'Allow library access',
         denied: {
@@ -1058,7 +1058,7 @@ export const Copy = {
     },
     permission: {
       camera: {
-        title: 'Pace AnalysisAI needs your camera',
+        title: 'Pace Analysis AI needs your camera',
         body: 'To record your running form. Recording is muted — we never access your microphone.',
         cta: 'Allow camera access',
         denied: {
