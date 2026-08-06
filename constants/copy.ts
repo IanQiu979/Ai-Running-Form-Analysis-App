@@ -957,10 +957,9 @@ export const Copy = {
       error: {
         // lib/subscription.ts's PurchaseErrorCode 'not_found' — the dummy purchase-tier endpoint
         // is deployed and live (docs/architecture.md, issue #51) but gated behind
-        // PURCHASE_TIER_DUMMY_ENABLED (default OFF; a caller not on the allowlist gets this same
-        // code even when the flag is on). Both cases collapse to this SAME code and get this
-        // honest, non-alarming copy: it does not say "something went wrong" (nothing did) and it
-        // does not name the feature flag.
+        // PURCHASE_TIER_DUMMY_ENABLED (default OFF; currently unset on the live project — Known
+        // Issue #21). This code gets this honest, non-alarming copy: it does not say "something
+        // went wrong" (nothing did) and it does not name the feature flag.
         unavailable: {
           title: "Upgrading isn't available yet",
           body: "This build can't complete an upgrade right now. Check back soon.",
