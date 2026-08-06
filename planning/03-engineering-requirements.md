@@ -2,7 +2,7 @@
 
 > Status: draft (2026-07-07), reconciled 2026-07-11 against `docs/mvp-build-prompt.md`'s 14
 > rulings + fully-answered decision gate. Stack mirrors Echo V1 / V2.2 — known tools,
-> cherry-pickable code. App name: **Pace AnalysisAI**.
+> cherry-pickable code. App name: **Pace Analysis AI**.
 
 ## Tech stack (explicit)
 

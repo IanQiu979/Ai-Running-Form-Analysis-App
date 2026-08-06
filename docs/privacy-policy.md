@@ -23,11 +23,11 @@
   (repo is at M1).
 -->
 
-# Pace AnalysisAI — Privacy Policy
+# Pace Analysis AI — Privacy Policy
 
 **Last updated: 2026-07-12**
 
-Pace AnalysisAI ("the app," "we," "us") is operated by
+Pace Analysis AI ("the app," "we," "us") is operated by
 **[DATA CONTROLLER — LEGAL NAME AND COUNTRY TBC]**. This policy explains what we collect
 when you use the app, why, how long we keep it, who else sees it, and how to get it
 deleted.
@@ -36,7 +36,7 @@ deleted.
 
 ## This is not medical advice
 
-Pace AnalysisAI analyzes a photo or video of your running form and returns scores and
+Pace Analysis AI analyzes a photo or video of your running form and returns scores and
 feedback, including flags for movement patterns that research associates with elevated
 injury risk. **It does not diagnose injuries or conditions, and it is not a substitute for
 a doctor or a qualified sports physiotherapist.** If you have pain, swelling, or a
@@ -197,7 +197,7 @@ your personal information.
 
 ## Age and other people in your media
 
-You must be 16 or older to use the app. Pace AnalysisAI is intended for the account
+You must be 16 or older to use the app. Pace Analysis AI is intended for the account
 holder's own running form. If your photo or video includes another person — a friend, a
 coached athlete, or a minor — you're responsible for having their (or their
 parent's/guardian's, for a minor) permission before submitting it.

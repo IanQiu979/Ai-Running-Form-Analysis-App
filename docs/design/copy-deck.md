@@ -9,7 +9,8 @@
 > **Voice, held everywhere:** plain, calm, specific, coach-not-scold. No "Oops," no exclamation
 > marks in errors, no apologizing twice, no judgment-loaded language about bodies. Buttons name
 > the outcome, not "Submit" / "OK." Sentence case throughout. App display name is exactly
-> **Pace AnalysisAI** — that casing, everywhere it appears as a string (not "PACE AnalysisAI").
+> **Pace Analysis AI** — that casing, everywhere it appears as a string (not "PACE AnalysisAI" or
+> the glued "Pace AnalysisAI").
 > Free tier copy never promises more than 1 lifetime analysis, and paid-tier quota copy never
 > says "this month" — it's "this period" or a renewal date, because periods are purchase-day-
 > anchored, not calendar months.
@@ -146,7 +147,7 @@ a draft until certified.
 | `sourcePicker.card.record.title` | "Record" | |
 | `sourcePicker.card.record.subtitle` | "Film a new clip in the app — muted, no microphone." | Names the muted-by-design fact right on the card, not just inside Capture. |
 | `sourcePicker.framingTip` | "Best read comes from a side-on shot — full body, good light." | One-line tip below the two cards, per brief §4.3. |
-| `sourcePicker.permission.library.title` | "Pace AnalysisAI needs your photo library" | Soft-ask shown before the OS prompt, first time Upload is tapped. |
+| `sourcePicker.permission.library.title` | "Pace Analysis AI needs your photo library" | Soft-ask shown before the OS prompt, first time Upload is tapped. |
 | `sourcePicker.permission.library.body` | "To choose a running photo or video already saved on your phone. We only access what you pick." | |
 | `sourcePicker.permission.library.cta` | "Allow library access" | Triggers the OS permission prompt. |
 | `sourcePicker.permission.library.denied.title` | "Photo library access is off" | User previously denied or later revoked the permission. |
@@ -169,7 +170,7 @@ a draft until certified.
 | `capture.overlay.muted` | "Recording is muted — no audio, no microphone." | Shown once near the record button; states the privacy feature plainly rather than leaving a silent recording unexplained. |
 | `capture.recording.autoCap` | "Clips stop automatically at 15 seconds." | Shown before/while recording. |
 | `capture.recording.timer` | "{elapsed}s / 15s" | Live counter while recording. |
-| `capture.permission.camera.title` | "Pace AnalysisAI needs your camera" | Soft-ask before the OS prompt, first time Record is tapped. |
+| `capture.permission.camera.title` | "Pace Analysis AI needs your camera" | Soft-ask before the OS prompt, first time Record is tapped. |
 | `capture.permission.camera.body` | "To record your running form. Recording is muted — we never access your microphone." | States what the permission is for, per Apple review + the rule that a permission prompt must say what the app does with it. |
 | `capture.permission.camera.cta` | "Allow camera access" | Triggers the OS permission prompt. |
 | `capture.permission.camera.denied.title` | "Camera access is off" | User previously denied or later revoked the permission. |
@@ -181,7 +182,7 @@ a draft until certified.
 
 | Key | String | Info.plist key |
 |---|---|---|
-| `infoPlist.cameraUsage` | "Used to record a video or photo of your running form for analysis. Recording is muted — Pace AnalysisAI never accesses your microphone." | `NSCameraUsageDescription` |
+| `infoPlist.cameraUsage` | "Used to record a video or photo of your running form for analysis. Recording is muted — Pace Analysis AI never accesses your microphone." | `NSCameraUsageDescription` |
 | `infoPlist.photoLibraryUsage` | "Used to choose an existing photo or video of your running form to analyze." | `NSPhotoLibraryUsageDescription` |
 
 There is **no** `NSMicrophoneUsageDescription` — no microphone permission is ever requested, by
