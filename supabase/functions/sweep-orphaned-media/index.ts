@@ -1,10 +1,12 @@
 // `POST /functions/v1/sweep-orphaned-media` (issue #137) — the schedule `_shared/storage-sweep.ts`
-// never got. That file is a tested purge orchestrator (list → remove → verify) over the
-// `public.list_orphaned_media_prefixes` detection RPC (`20260713152000_storage_user_budget.sql`),
-// but nothing has ever called it: orphaned `{user_id}/{analysis_id}/` prefixes in the private
-// `media` bucket accumulate unswept, and the failure mode is a Supabase plan upgrade nobody chose
-// (free-plan storage is 1 GB total / 5 GB egress per month — this org is on Pro, but the same
-// unbounded-growth problem still costs real money there).
+// lacked until 2026-08-06. That file is a tested purge orchestrator (list → remove → verify) over
+// the `public.list_orphaned_media_prefixes` detection RPC
+// (`20260713152000_storage_user_budget.sql`); orphaned `{user_id}/{analysis_id}/` prefixes in the
+// private `media` bucket would otherwise accumulate unswept, and the failure mode is a Supabase
+// plan upgrade nobody chose (free-plan storage is 1 GB total / 5 GB egress per month — this org is
+// on Pro, but the same unbounded-growth problem still costs real money there). This is now called
+// daily by the `pg_cron` job in `20260806090000_sweep_orphaned_media_cron.sql` — see the ROUTE
+// DECISION section below.
 //
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 // ROUTE DECISION — pg_cron + pg_net + Supabase Vault, NOT a Dashboard Cron Job. UPDATED.

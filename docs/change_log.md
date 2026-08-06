@@ -5,6 +5,29 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-06 (sweep-orphaned-media scheduled daily — issue #137, decision `orphan-sweep-scheduling-mechanism`)
+
+- **Scheduled the existing, already-tested `sweep-orphaned-media` edge function** on a recurring
+  daily `pg_cron` job (`sweep-orphaned-media-daily`, `0 9 * * *` UTC) against the live project, via
+  `supabase/migrations/20260806090000_sweep_orphaned_media_cron.sql`. Chose `pg_cron`+`pg_net`+
+  Supabase Vault over a Dashboard Cron Job because this environment has no interactive Studio UI
+  login but does have direct SQL/CLI access (functionally equivalent to what the Dashboard's own
+  Cron Jobs integration does under the hood). The `X-Cron-Secret` value is provisioned in Vault via
+  `vault.create_secret` and read by name only (`vault.decrypted_secrets`) inside the migration's SQL
+  body — never inlined as a literal in any committed file. See `docs/architecture.md`'s "Current —
+  orphan-purge action, scheduled daily" and `docs/status.md` Known Issue #32.
+- **Fixed a real production blocker found along the way:** the function was live with
+  `verify_jwt: true`, which would have 401'd every cron call at the platform gateway before its own
+  `X-Cron-Secret` check ever ran. Redeployed with `--no-verify-jwt` and pinned that setting in
+  `supabase/config.toml`'s `[functions.sweep-orphaned-media]` so a future plain deploy can't regress
+  it.
+- **Still dry-run only, deliberately.** The scheduled request body is `{}`, which `parseSweepRequest`
+  defaults to `dryRun: true` — flipping to live deletion of user media (`{"dryRun": false}`) is a
+  separate decision reserved for a human, not made here.
+- **Verified live end-to-end:** `cron.job` shows the active schedule (`jobid` 2), and a manual
+  `net.http_post` using the same statement the schedule runs returned `200` with a dry-run report
+  (`candidateCount: 0`).
+
 ## 2026-08-06 (Google auth white-screen — real dev build produced, decision `google-auth-fix-path` option A)
 
 - **No code changed.** Built and ran the first real Expo development build (`eas build --profile
