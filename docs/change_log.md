@@ -5,6 +5,47 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-07 (`expo-network` ruled out as cruft; netinfo locked in as the single connectivity source)
+
+- **Investigated an uncommitted, unexplained `expo-network` install and concluded it is leftover
+  cruft, not an abandoned partial fix.** It was `npm install`ed into a working copy of this app and
+  never committed; `npm ls` reports it `extraneous`, and it has **zero references** in `app/`,
+  `lib/`, `components/`, `hooks/`, `constants/`, `supabase/`, `.maestro/` or `docs/`. Nothing in
+  the repo — no commit, no changelog entry, no issue — has ever mentioned it.
+- **No code adopts it, because there is nothing left for it to do.** Connectivity detection landed
+  in full on 2026-07-13 (issue #93, commit `997070c`) on `@react-native-community/netinfo`:
+  `lib/connectivity.ts` exports the live `useIsOffline()` behind the global
+  `components/offline-banner.tsx` and the one-shot `checkConnectivity()` pre-flight gate, which
+  **is** wired at its intended call site (`app/analyzing.tsx:183`, ahead of
+  `analyzeFormClient.submit()`). `expo-network` overlaps that rather than extending it.
+- **Ruled out the `TypeError: Network request failed` bug class a sibling app (workout-v2.2) hit
+  over Expo tunnel mode on a physical device — this app has no foothold for it.** The client reads
+  a hosted `https://` Supabase URL from `EXPO_PUBLIC_SUPABASE_URL`, and there is no `http://` and
+  no `localhost`/`127.0.0.1` anywhere in app source; tunnel mode tunnels Metro's *bundler*, not the
+  app's own `fetch` calls, so device→Supabase reachability never depends on it. `eas.json`'s
+  `development-local`/`preview-local` profiles do pin `http://127.0.0.1:54321`, but both declare
+  `ios.simulator: true`, where sharing the Mac host's loopback is the documented point (issue #84).
+  `lib/functions-client.ts` already folds the `FunctionsFetchError` that surfaces as "Network
+  request failed" into `kind: 'network'`, distinct from a server-authored `{ error, code }`.
+- **Added a dependency-manifest regression lock** (`lib/__tests__/connectivity.test.ts`, new
+  `connectivity dependency contract` block) asserting that `@react-native-community/netinfo` is
+  declared and that no competing connectivity library (`expo-network`, `react-native-offline`,
+  `react-native-network-info`, netinfo's pre-rename `@react-native-community/net-info`) is declared
+  beside it. Verified it actually fails — adding `expo-network` to `package.json` reproduces the
+  captain's exact local state and the test fails naming the package. This is the enforcement that
+  makes the finding stick: two independent connectivity sources classify NetInfo's indeterminate
+  "connected, reachability still probing" state differently, so the banner and the pre-flight gate
+  could disagree about whether the device is online — the "never claim a state that isn't true"
+  failure issue #93 exists to prevent.
+- **No dependency was removed in this commit because none was ever committed.** The `expo-network`
+  entry lives only in the captain's uncommitted `package.json`/`package-lock.json`; clearing it on
+  that machine is `npm uninstall expo-network` (or reverting those two files), after which this
+  repo already forbids it coming back silently.
+- Follow-up noted, deliberately NOT changed here: `mapAuthError` (`lib/auth-errors.ts`) has no
+  network branch, so a genuine offline failure during sign-in surfaces as the generic
+  `Copy.auth.error.generic` rather than the certified `Copy.offline.blocked.*` strings. Real, but
+  it is a copy-deck decision, not part of this investigation.
+
 ## 2026-08-07 (sign-in wordmark mid-word wrap fixed — `components/kinetic-text.tsx`)
 
 - **Fixed a real-device bug**: the animated sign-in wordmark ("Pace Analysis AI") wrapped

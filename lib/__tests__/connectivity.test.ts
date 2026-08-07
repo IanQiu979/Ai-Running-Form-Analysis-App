@@ -5,7 +5,13 @@
  * `lib/__tests__/media-file-size.test.ts` (`expo-file-system`) and
  * `lib/__tests__/secure-storage.test.ts` (`expo-secure-store`) — it's mocked here rather than
  * exercised for real.
+ *
+ * The last `describe` block is a different kind of lock — it guards the dependency manifest, not
+ * the module. See its own header for the 2026-08-07 finding that put it there.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 
@@ -145,5 +151,77 @@ describe('useIsOffline', () => {
     await unmount();
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Dependency-manifest lock — one connectivity library, not two.
+ *
+ * WHY THIS EXISTS (2026-08-07). `expo-network@8.0.8` turned up installed into `node_modules` on a
+ * working copy of this app with **zero references anywhere in `app/`, `lib/`, `components/`,
+ * `hooks/`, `constants/`, `supabase/` or `.maestro/`** — `npm ls` reported it `extraneous`. It had
+ * never been committed, and nobody could say what it was for. The investigation's conclusion was
+ * that it is leftover cruft, not a half-finished fix, and the reasoning is worth keeping because
+ * the same dead end is easy to walk into twice:
+ *
+ *  - Connectivity is ALREADY SOLVED, by `lib/connectivity.ts` on
+ *    `@react-native-community/netinfo` (issue #93) — a live `useIsOffline()` behind the global
+ *    `components/offline-banner.tsx`, and a one-shot `checkConnectivity()` pre-flight gate wired
+ *    at `app/analyzing.tsx`. Everything above this comment proves that half works.
+ *  - `expo-network` overlaps it (`getNetworkStateAsync`) rather than adding to it. Two independent
+ *    connectivity sources is an active hazard, not redundancy: they classify the indeterminate
+ *    "connected, reachability still probing" state differently, so the banner and the pre-flight
+ *    gate could disagree about whether the device is online — exactly the "never claim a state
+ *    that isn't true" failure issue #93 exists to prevent.
+ *  - The `TypeError: Network request failed` class of bug (a sibling app hit it over Expo tunnel
+ *    mode on a physical device) has NO foothold here, so there is no problem for a second library
+ *    to solve. This app talks to a hosted `https://` Supabase project read from
+ *    `EXPO_PUBLIC_SUPABASE_URL`; there is no `http://` and no `localhost`/`127.0.0.1` anywhere in
+ *    app source. Tunnel mode tunnels Metro's *bundler*, not the app's own `fetch` calls, so the
+ *    device reaching Supabase never depends on it. (`eas.json`'s `development-local` /
+ *    `preview-local` profiles do pin `http://127.0.0.1:54321`, but both are declared
+ *    `ios.simulator: true` — the Simulator shares the Mac host's loopback, which is the documented
+ *    point of them. See `docs/architecture.md`'s issue #84 section.)
+ *  - `lib/functions-client.ts` already classifies the failure that surfaces as "Network request
+ *    failed" — `@supabase/functions-js` wraps it as `FunctionsFetchError` — into
+ *    `kind: 'network'`, distinct from a server-authored `{ error, code }`. Nothing about
+ *    detecting it is missing.
+ *
+ * So: if a future change wants a second network library, it needs a reason none of the above
+ * covers, and this test is where it has to be argued.
+ */
+describe('connectivity dependency contract', () => {
+  /**
+   * Packages that would each become a SECOND source of truth for "is the device online". Not an
+   * exhaustive list of every networking package on npm — it is the set that has plausibly shown up
+   * in, or been reached for by, this project. `@react-native-community/netinfo` is deliberately
+   * absent: it is the one that is supposed to be here.
+   */
+  const COMPETING_CONNECTIVITY_PACKAGES = [
+    'expo-network',
+    'react-native-offline',
+    'react-native-network-info',
+    '@react-native-community/net-info', // netinfo's pre-rename name — installing both is the same bug
+  ];
+
+  const manifest = JSON.parse(
+    readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')
+  ) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+
+  const declared = new Set([
+    ...Object.keys(manifest.dependencies ?? {}),
+    ...Object.keys(manifest.devDependencies ?? {}),
+  ]);
+
+  it('declares @react-native-community/netinfo — the source of truth lib/connectivity.ts imports', () => {
+    expect(declared.has('@react-native-community/netinfo')).toBe(true);
+  });
+
+  it('declares no competing connectivity library alongside it', () => {
+    const competitors = COMPETING_CONNECTIVITY_PACKAGES.filter((name) => declared.has(name));
+
+    // Named in the matcher rather than asserted as a bare `toHaveLength(0)` so the failure output
+    // says *which* package was added, and this block's header says why that is a problem.
+    expect(competitors).toEqual([]);
   });
 });
