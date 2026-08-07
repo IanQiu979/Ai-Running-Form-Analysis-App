@@ -2803,11 +2803,24 @@ blocking a working connection outright. Uses the deck's pre-existing `offline.ba
 `offline.blocked.*` copy (already specced in `docs/design/copy-deck.md`'s "Cross-cutting —
 Offline" section — nothing new to mirror there).
 
-**Partial, stated plainly: the pre-flight gate is not wired in.** `checkConnectivity()` is
-exported and tested but neither `app/analyzing.tsx`'s submit nor `app/capture/index.tsx`'s upload
-handoff calls it — both are owned by other in-flight work. Today only the passive banner is live;
-a user who taps Analyze while offline still watches a spinner before failing. See `docs/status.md`'s
-Known Issues.
+**Complete as of the 2026-08-07 audit — this section previously said the pre-flight gate was not
+wired in, which is stale.** `app/analyzing.tsx:183` calls `checkConnectivity()` inside its
+`waiting`-phase effect and dispatches `{ type: 'offline' }` *before* `analyzeFormClient.submit()`
+is ever reached (`lib/analyzing-machine.ts`'s `offline` transition), so a user who taps Analyze
+while offline is told immediately rather than watching a spinner fail. The other call site this
+section used to name, `app/capture/index.tsx`, needs no gate: it makes no network request at all —
+frame extraction is on-device, and the frames travel as base64 inside the `analyze-form` request
+body from the analyzing screen (see "Uploaded media" in `CLAUDE.md` § Secrets & env).
+
+**One connectivity library, deliberately.** `@react-native-community/netinfo` is the single source
+of truth here, locked by the `connectivity dependency contract` block in
+`lib/__tests__/connectivity.test.ts`. A second one (`expo-network` was installed uncommitted and
+investigated on 2026-08-07 — see `docs/change_log.md`) is a hazard rather than redundancy: two
+libraries classify the indeterminate "connected, reachability still probing" reading differently,
+so the global banner and this pre-flight gate could disagree about whether the device is online.
+Note also that no reachability gap exists for physical-device testing over Expo tunnel mode — the
+client reads a hosted `https://` `EXPO_PUBLIC_SUPABASE_URL` and app source contains no `http://` or
+`localhost`; tunnel mode tunnels Metro's bundler, not the app's own `fetch` calls.
 
 ## Current — sign-in hierarchy & a11y (issues #16, #20, #28, #11, 2026-07-13)
 
