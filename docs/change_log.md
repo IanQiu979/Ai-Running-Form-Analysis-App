@@ -5,6 +5,35 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-07 (sign-in wordmark mid-word wrap fixed — `components/kinetic-text.tsx`)
+
+- **Fixed a real-device bug**: the animated sign-in wordmark ("Pace Analysis AI") wrapped
+  mid-word — "Analysis" rendered as "Analysi" on one line and a lone "s" on the next. Root cause:
+  `KineticText` splits copy into one word per `Animated.Text` flex item in a `flexWrap` row; at
+  `FontSize.display` (64pt) a single long word's flex item can measure wider than the row (narrow
+  device or Dynamic Type scaled up), and Yoga constrains it to the remaining width rather than
+  letting it overflow, so native `Text` line-breaks it internally by character. The component's own
+  doc comment claimed this was "guarded anyway by the parent's Dynamic Type reflow" — that reflow
+  doesn't exist; the comment was wrong and has been corrected in place.
+- Fix: every word in `KineticText`'s `Word` component now carries `numberOfLines={1}` +
+  `adjustsFontSizeToFit` + `minimumFontScale={0.6}` — the same Dynamic Type guard
+  `pace-readout.tsx`'s overall-score numeral already uses — so an over-wide word shrinks to fit its
+  line instead of breaking or clipping. Fix lives in the shared component, so it applies to every
+  `KineticText` caller (`analyzing.tsx`, `paywall.tsx`, `settings.tsx`, `compare.tsx`,
+  `capture/record.tsx`, `(tabs)/history.tsx`, `(tabs)/index.tsx`, `reset-password.tsx`,
+  `update-password.tsx`), not just sign-in.
+- New regression test in `components/__tests__/kinetic-text.test.tsx` locks in the shrink-to-fit
+  props on the sign-in wordmark's words. Verified live on an iPhone 17 Pro simulator: "Pace" /
+  "Analysis AI" renders on two lines with no mid-word break.
+- The animation itself (opacity/`translateY` via `useAnimatedStyle`) was not touched by this fix.
+  A captain report that the reveal "looked like a still image" when the wrap bug was visible could
+  not be conclusively reproduced or ruled out live — screen-recording the ~700ms per-word stagger
+  during a cold dev-client launch was unreliable in this environment (CPU contention from
+  bundling/the native dev-menu overlay meant capture frequently skipped straight from
+  pre-mount to fully-settled with no intermediate frame, even at native ~50-100fps). Metro logs
+  showed no runtime errors from the added props. Flagging for a live check by an agent/human with
+  a warm (non-cold) launch and unobstructed capture, rather than asserting it's fine from here.
+
 ## 2026-08-06 (`purchase-tier` dummy flag turned OFF, not allowlisted — decision `purchase-tier-dummy-flag-now`)
 
 - **No app code changed — a production secret change plus docs.** Captain decision
