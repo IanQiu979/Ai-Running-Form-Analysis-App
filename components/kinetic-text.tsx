@@ -8,9 +8,15 @@
  * HOW IT IS BUILT, and why this shape:
  *  - The string is split on whitespace and each word rendered as its own `Animated.Text` inside a
  *    `flexWrap` row. That is the only way to move words independently in React Native, and it means
- *    native line-breaking still applies BETWEEN words (the row wraps) but never WITHIN one. A single
- *    word longer than the column would overflow rather than hyphenate — acceptable, because every
- *    caller passes copy-deck prose, and guarded anyway by the parent's Dynamic Type reflow.
+ *    native line-breaking still applies BETWEEN words (the row wraps). WITHIN one, a bare `Text`
+ *    would silently break mid-word: at large sizes (`FontSize.display`/`hero`) on a narrow device
+ *    or with Dynamic Type scaled up, a single word's flex item can measure wider than the row, and
+ *    Yoga constrains it to the remaining width rather than letting it overflow — the "parent's
+ *    Dynamic Type reflow" this comment used to claim would guard it doesn't exist, and a real
+ *    device showed "Analysis" split "Analysi"/"s" across two lines. So every `Word` carries the
+ *    same `numberOfLines={1}` + `adjustsFontSizeToFit` + `minimumFontScale` guard
+ *    `pace-readout.tsx`'s overall-score numeral already uses for the same reason: shrink that one
+ *    word to fit its line rather than breaking or clipping it.
  *  - Movement is `translateY` + `opacity` only: transforms and opacity are the two properties
  *    Reanimated drives on the UI thread without a layout pass, the same discipline
  *    `components/pace-reveal.tsx` and `components/annotation-lines.tsx` already document.
@@ -182,6 +188,9 @@ function Word({
     <Animated.Text
       testID={testID}
       style={[style, animatedStyle]}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={0.6}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants">
       {word}

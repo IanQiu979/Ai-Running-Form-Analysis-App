@@ -121,4 +121,20 @@ describe('KineticText', () => {
     );
     expect(screen.queryByTestId('kt-word-3', { includeHiddenElements: true })).toBeNull();
   });
+
+  // Regression lock for the sign-in wordmark mid-word wrap: a real device showed "Analysis"
+  // (a single flex item with no space to break on) render as "Analysi" on one line and a lone
+  // "s" on the next, because Yoga can constrain a word's flex item to less than its natural
+  // width and native Text then wraps by character rather than moving the whole word down. Every
+  // word must carry the same shrink-to-fit guard `pace-readout.tsx`'s overall-score numeral
+  // uses, so a too-wide word shrinks instead of breaking or clipping.
+  it('guards every word against mid-word wrapping by shrinking to fit its line, never breaking it', async () => {
+    await render(<KineticText testID="kt">{Copy.auth.wordmark}</KineticText>);
+
+    const word = screen.getByTestId('kt-word-1', { includeHiddenElements: true });
+    expect(word.props.numberOfLines).toBe(1);
+    expect(word.props.adjustsFontSizeToFit).toBe(true);
+    expect(word.props.minimumFontScale).toBeGreaterThan(0);
+    expect(word.props.minimumFontScale).toBeLessThan(1);
+  });
 });
