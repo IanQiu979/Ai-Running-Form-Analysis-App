@@ -48,9 +48,13 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
                           # ONE accessible node carrying the whole string — see its header.
   marquee.tsx             # the standing PACE-pillar ticker on Home.
   low-poly-field.tsx      # the morphing triangle mark (Analyzing wait, Home/sign-in atmosphere).
-                          # Per-vertex SVG polygons since 2026-08-02, when the captain lifted the
+                          # Per-vertex SVG since 2026-08-02, when the captain lifted the
                           # react-native-svg ban annotation-lines.tsx used to carry: a pose is
-                          # three independent vertices, so a facet genuinely reshapes.
+                          # three independent vertices, so a facet genuinely reshapes. Each facet
+                          # animates as a Path (its `d`), not a Polygon (its `points`) — under
+                          # Fabric, Reanimated's animatedProps bypasses Polygon's own JS render()
+                          # that turns `points` into the `d` it actually draws, so an animated
+                          # `points` prop is silently inert; see the component's own comments.
   aperture.tsx            # the result hero's lens (2026-08-02): a permanent radial vignette, plus
                           # a six-bladed iris and an expo-blur rack focus that play once on a
                           # fresh analysis. Wraps DuotoneFrame; sequenced ahead of its wireframe.

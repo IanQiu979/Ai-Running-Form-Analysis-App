@@ -52,6 +52,27 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   `/analyzing` (that mailbox seam had no coverage, and a truncation there would look exactly like
   the extraction bug it isn't).
 
+## 2026-08-08 (`LowPolyField`'s morph was silently frozen on every screen it renders on)
+
+- **Fixed `components/low-poly-field.tsx`'s per-vertex morph animation, dead since the #169
+  redesign.** Root cause: `MorphingFacet` animated a `<Polygon points=...>` via
+  `useAnimatedProps`/`Animated.createAnimatedComponent`. `react-native-svg`'s `Polygon` only
+  turns `points` into the `d` its native view draws inside `Polygon`'s own JS
+  `render()`/`setNativeProps` override — but under Fabric (`newArchEnabled: true`), Reanimated's
+  `animatedProps` commits straight to the native host view on the UI thread, bypassing both, so
+  the animated `points` prop was silently inert: the shared value advanced every frame, nothing
+  ever repainted, and the mark stayed frozen at `DEFAULT_POSE`. Reproduced live on an iOS
+  simulator with Reduce Motion confirmed off (ruling that gate out), then confirmed via a
+  `useAnimatedReaction` probe that the driver was in fact advancing while screenshots showed no
+  visual change. Fixed by animating a `<Path d=...>` instead — `d` is a real, untranslated native
+  prop — while leaving the reduced-motion static-render branch on `Polygon` untouched, since it
+  has no animated props. One shared-component fix; not patched per-screen. Affects every screen
+  that renders `LowPolyField`: `app/(auth)/sign-in.tsx`, `app/(tabs)/index.tsx`,
+  `app/analyzing.tsx`, `app/capture/extracting.tsx`. Regression-locked in
+  `components/__tests__/low-poly-field.test.tsx` (asserts the animating facets are built on
+  `Path`, never `Polygon`, using `react-test-renderer`'s `findAllByType` since RNTL's `render`
+  collapses both to the same host SVG node).
+
 ## 2026-08-07 (`expo-network` ruled out as cruft; netinfo locked in as the single connectivity source)
 
 - **Investigated an uncommitted, unexplained `expo-network` install and concluded it is leftover
