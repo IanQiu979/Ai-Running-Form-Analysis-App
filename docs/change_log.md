@@ -5,6 +5,29 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-08 (result screens: pillar-row cleanup + per-pillar detail modal)
+
+- **Cleanup pass on `<PaceReadout>`'s pillar rows** (shared by `app/result/[id].tsx` and
+  `app/result/sample.tsx`, so both screens got the same treatment automatically). The flags
+  (injury-risk) and drills (corrective exercise) sub-lists used to render back-to-back with
+  byte-identical styling and no label distinguishing the two — fixed with `<Eyebrow>` micro-labels
+  ("Watch for" / "Try this", new `Copy.result.pillar.flagsLabel`/`drillsLabel` keys) above each,
+  plus a thin `colors.hairline` divider between the coaching feedback and that block (only when the
+  block is non-empty, so it never leads to nothing). Removed a redundant `marginTop` on `subList`
+  now that `pillarRow`'s own `gap` plus the new divider already establish the rhythm. Every value
+  used is an existing token from `constants/theme.ts` — no new colors/spacing/type sizes.
+- **New feature: per-pillar detail.** Each pillar row now has a small info-icon `<CircleIconButton>`
+  (`accessibilityLabel` via new `pillarDetailA11yLabel` helper in `lib/pace-readout.ts`) that opens
+  `components/pillar-detail-modal.tsx` — a full-screen `Modal` reusing `app/settings.tsx`'s
+  step-up-reauth modal pattern (the only precedent in this codebase), showing that pillar's
+  score/band or its honest not-assessed reason, full coaching feedback, and the same labeled
+  flags/drills lists. Renders exactly the `PacePillarResult` fields already in the contract —
+  nothing fabricated. Dismissible via a labeled close button and `onRequestClose` (Android back);
+  unlike the row's own not-assessed text, nothing in the modal is hidden from the accessibility
+  tree, since the modal has no duplicate spoken announcement standing in for it.
+- New tests: `components/__tests__/pillar-detail-modal.test.tsx`, plus additions to
+  `components/__tests__/pace-readout.test.tsx` and `lib/__tests__/pace-readout.test.ts`.
+
 ## 2026-08-08 (in-app recording measured its own clip wrong; the "single frame" report is the free tier's cap)
 
 - **Investigated a report that the record path (`app/capture/record.tsx` → `app/capture/extracting.tsx`)

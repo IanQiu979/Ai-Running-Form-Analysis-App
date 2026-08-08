@@ -4,7 +4,7 @@
  * hollow track and a plain-language reason instead. If a future edit ever coerces `null` into
  * "0", these are the tests that must go red.
  */
-import { render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { PaceReadout } from '../pace-readout';
@@ -17,6 +17,7 @@ import {
   poorFramingPhotoResult,
   proTierVideoResult,
 } from '@/lib/pace-fixtures';
+import { pillarDetailA11yLabel, pillarLabel } from '@/lib/pace-readout';
 
 describe('an assessed pillar (proTierVideoResult)', () => {
   it('renders the numeral, the band word, and a proportional fill bar', async () => {
@@ -181,6 +182,48 @@ it('does not swallow feedback, flags, and drills into the row-level accessible n
 // chrome, so it renders in the prose serif. Everything measured stays in mono — the pair below
 // is what stops a future edit sliding the whole readout into one family again.
 // ---------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------
+// Part 2 — the per-pillar detail modal (tap the info icon). The modal itself is proven in
+// `components/__tests__/pillar-detail-modal.test.tsx`; these tests cover the WIRING — the row's
+// own info button opens the RIGHT pillar's modal with the right content.
+// ---------------------------------------------------------------------------------------------
+describe('the per-pillar info button opens that pillar\'s detail modal', () => {
+  it('carries an accessible name naming the pillar, and no modal content is mounted until tapped', async () => {
+    await render(<PaceReadout result={proTierVideoResult} />);
+
+    const button = screen.getByTestId('pillar-detail-button-posture');
+    expect(button.props.accessibilityLabel).toBe(pillarDetailA11yLabel(pillarLabel('posture')));
+    expect(screen.queryByTestId('pillar-detail-modal-posture')).toBeNull();
+  });
+
+  it('opens that pillar\'s modal, with its own score/feedback, when the info button is pressed', async () => {
+    await render(<PaceReadout result={proTierVideoResult} />);
+
+    await fireEvent.press(screen.getByTestId('pillar-detail-button-cadence'));
+
+    expect(screen.getByTestId('pillar-detail-modal-cadence')).toBeTruthy();
+    expect(screen.getByTestId('pillar-detail-score-cadence').props.children).toBe(44);
+    expect(
+      screen.getByText(
+        'Foot is landing well ahead of the hips with a near-straight knee — the clearest fix available here.'
+      )
+    ).toBeTruthy();
+    // A different pillar's modal never mounts as a side effect of opening this one.
+    expect(screen.queryByTestId('pillar-detail-modal-posture')).toBeNull();
+  });
+
+  it('shows the not-assessed reason, never a fabricated numeral, for a null pillar (photoResult.cadence)', async () => {
+    await render(<PaceReadout result={photoResult} />);
+
+    await fireEvent.press(screen.getByTestId('pillar-detail-button-cadence'));
+
+    expect(screen.getByTestId('pillar-detail-not-assessed-cadence').props.children).toBe(
+      Copy.result.pillar.notAssessed.needsVideo
+    );
+    expect(screen.queryByTestId('pillar-detail-score-cadence')).toBeNull();
+  });
+});
+
 describe('coaching feedback typography', () => {
   it('renders per-pillar feedback in the prose serif, not the UI family', async () => {
     await render(<PaceReadout result={proTierVideoResult} />);

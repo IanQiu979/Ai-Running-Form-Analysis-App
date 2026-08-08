@@ -406,6 +406,21 @@ export const Copy = {
         generic: "Not assessed — the media didn't support scoring this.",
       },
       a11yLabel: '{pillar}, {score} out of 100, {band}.',
+      // --- pillar-detail-modal NEW keys start — NOT in docs/design/copy-deck.md, NOT
+      // copy-certified. `flagsLabel`/`drillsLabel` distinguish the injury-risk-flag sub-list from
+      // the corrective-drill sub-list, which previously rendered with byte-identical styling and
+      // no label at all — a user couldn't tell "this is a risk to watch for" from "this is an
+      // exercise to try" at a glance. Chosen to match the app's calm, non-alarmist tone (see
+      // `constants/theme.ts`'s notes on "caution not alarm") rather than clinical headings like
+      // "Flags"/"Drills". `detail.*` covers the new per-pillar detail modal's own controls.
+      flagsLabel: 'Watch for',
+      drillsLabel: 'Try this',
+      detail: {
+        a11yLabel: '{pillar} details',
+        a11yHint: 'Opens the full detail for this pillar.',
+        close: 'Close',
+      },
+      // --- pillar-detail-modal NEW keys end ---
     },
     hero: {
       altText: 'Your running frame, marked with posture and ground lines.',

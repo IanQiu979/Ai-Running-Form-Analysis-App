@@ -39,7 +39,10 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from '
 
 import { KineticText } from '@/components/kinetic-text';
 import { AnimatedOverallNumeral, AnimatedPillarBarFill } from '@/components/pace-reveal';
+import { PillarDetailModal } from '@/components/pillar-detail-modal';
+import { CircleIconButton } from '@/components/ui/circle-icon-button';
 import { Eyebrow } from '@/components/ui/eyebrow';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Copy } from '@/constants/copy';
 import {
   Colors,
@@ -62,6 +65,7 @@ import {
   notAssessedCopy,
   overallA11yLabel,
   pillarA11yLabel,
+  pillarDetailA11yLabel,
   pillarLabel,
   pillarLetter,
 } from '@/lib/pace-readout';
@@ -198,27 +202,52 @@ function PillarRow({
 }) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const label = pillarLabel(pillarId);
+  // Owned locally, not lifted to `<PaceReadout>` (only one pillar's modal can be open from one
+  // row's own button at a time — no cross-row coordination needed).
+  const [detailVisible, setDetailVisible] = useState(false);
+  const hasFlagsOrDrills = pillar.flags.length > 0 || pillar.drills.length > 0;
 
   return (
     <View testID={`pillar-row-${pillarId}`} style={styles.pillarRow}>
-      <View
-        testID={`pillar-header-${pillarId}`}
-        style={styles.pillarHeaderRow}
-        accessible
-        accessibilityLabel={pillarA11yLabel(label, pillar)}>
-        <Text style={styles.pillarLetter}>{pillarLetter(pillarId)}</Text>
-        <Text style={styles.pillarName}>{label}</Text>
-        {pillar.score !== null && pillar.band !== null ? (
-          <View style={styles.scoreRow}>
-            <Text testID={`pillar-score-${pillarId}`} style={styles.scoreNumeral}>
-              {pillar.score}
-            </Text>
-            <Text testID={`pillar-band-${pillarId}`} style={[styles.bandWord, { color: Score[pillar.band][scheme].text }]}>
-              {ScoreBandLabel[pillar.band]}
-            </Text>
-          </View>
-        ) : null}
+      <View style={styles.pillarHeaderRow}>
+        {/* The accessible-collapsing group is scoped to JUST the letter/name/score — the info
+            button below is a SIBLING, not a child, of this node. Issue #62's own fix nearby
+            (`pillar-row-${pillarId}` must not swallow feedback/flags/drills) is the same failure
+            mode a button nested inside this `accessible` view would repeat: its own
+            accessibilityLabel/role would be dropped in favor of one opaque parent label. */}
+        <View
+          testID={`pillar-header-${pillarId}`}
+          style={styles.pillarHeaderInfo}
+          accessible
+          accessibilityLabel={pillarA11yLabel(label, pillar)}>
+          <Text style={styles.pillarLetter}>{pillarLetter(pillarId)}</Text>
+          <Text style={styles.pillarName}>{label}</Text>
+          {pillar.score !== null && pillar.band !== null ? (
+            <View style={styles.scoreRow}>
+              <Text testID={`pillar-score-${pillarId}`} style={styles.scoreNumeral}>
+                {pillar.score}
+              </Text>
+              <Text testID={`pillar-band-${pillarId}`} style={[styles.bandWord, { color: Score[pillar.band][scheme].text }]}>
+                {ScoreBandLabel[pillar.band]}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        <CircleIconButton
+          testID={`pillar-detail-button-${pillarId}`}
+          accessibilityLabel={pillarDetailA11yLabel(label)}
+          accessibilityHint={Copy.result.pillar.detail.a11yHint}
+          onPress={() => setDetailVisible(true)}>
+          <IconSymbol name="info.circle" size={FontSize.lg} color={colors.text.primary} />
+        </CircleIconButton>
       </View>
+
+      <PillarDetailModal
+        visible={detailVisible}
+        onDismiss={() => setDetailVisible(false)}
+        pillarId={pillarId}
+        pillar={pillar}
+      />
 
       <View
         style={[
@@ -275,11 +304,18 @@ function PillarRow({
         </KineticText>
       ) : null}
 
+      {/* A thin visual break between the coach's feedback and the flags/drills block below it —
+          only when there IS a block below, so the divider never leads to nothing. Before this,
+          the flags and drills sub-lists rendered back-to-back with byte-identical styling and no
+          label distinguishing "this is a risk to watch for" from "this is an exercise to try". */}
+      {hasFlagsOrDrills ? <View style={styles.divider} /> : null}
+
       {/* Tier gating without re-deriving tier rules: the server already ships `flags: []` for
           Free and every not-assessed pillar (`pace.ts`'s own doc comment), so an empty array is
           simply nothing to render — never an empty "Flags" heading. */}
       {pillar.flags.length > 0 ? (
         <View style={styles.subList} testID={`pillar-flags-${pillarId}`}>
+          <Eyebrow>{Copy.result.pillar.flagsLabel}</Eyebrow>
           {pillar.flags.map((flag, index) => (
             <View key={`${flag.pattern}-${index}`} style={styles.subListItem}>
               <Text style={styles.subListTitle}>{flag.pattern}</Text>
@@ -291,6 +327,7 @@ function PillarRow({
 
       {pillar.drills.length > 0 ? (
         <View style={styles.subList} testID={`pillar-drills-${pillarId}`}>
+          <Eyebrow>{Copy.result.pillar.drillsLabel}</Eyebrow>
           {pillar.drills.map((drill, index) => (
             <View key={`${drill.name}-${index}`} style={styles.subListItem}>
               <Text style={styles.subListTitle}>{drill.name}</Text>
@@ -368,6 +405,15 @@ function createStyles(colors: ThemeColors) {
       flexDirection: 'row',
       gap: Spacing.sm,
     },
+    // The accessible-collapsing group (letter/name/score) — `flex: 1` so it still takes the row's
+    // full width minus the info button, matching what `pillarHeaderRow` gave it before the button
+    // existed.
+    pillarHeaderInfo: {
+      alignItems: 'center',
+      flex: 1,
+      flexDirection: 'row',
+      gap: Spacing.sm,
+    },
     pillarLetter: {
       color: colors.text.primary,
       fontFamily: FontFamily.display.semiBold,
@@ -440,9 +486,19 @@ function createStyles(colors: ThemeColors) {
       // without this, wrapped lines of a revealed paragraph sit tighter than an unrevealed one.
       rowGap: FontSize.md * (LineHeight.body - 1),
     },
+    // The divider above now owns the gap between the feedback prose and this block — `pillarRow`'s
+    // own `gap: Spacing.sm` already spaces every direct child from the last, so the extra
+    // `marginTop: Spacing.xs` this used to carry was doubling up on that rhythm rather than adding
+    // anything the divider doesn't already provide.
     subList: {
       gap: Spacing.sm,
-      marginTop: Spacing.xs,
+    },
+    // Only rendered when at least one of flags/drills is non-empty (see the render logic above) —
+    // never a divider that leads to nothing. `pillarRow`'s `gap: Spacing.sm` spaces it from the
+    // feedback prose above and the sub-list block below; no margin of its own is needed.
+    divider: {
+      backgroundColor: colors.hairline,
+      height: StyleSheet.hairlineWidth,
     },
     subListItem: {
       gap: Spacing.xs,
