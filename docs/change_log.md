@@ -5,6 +5,53 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-08 (in-app recording measured its own clip wrong; the "single frame" report is the free tier's cap)
+
+- **Investigated a report that the record path (`app/capture/record.tsx` → `app/capture/extracting.tsx`)
+  extracts only one frame per video, and found that symptom is the FREE TIER WORKING AS SPECIFIED,
+  not a defect.** `planning/02-product-requirements.md`'s tier table gives Free "1 frame (photo, or
+  one frame from video)", `PACE_FRAME_CAP.free` is 1, and the live project's `pace_quota_status`
+  returns `{"tier":"free","frame_cap":1}` for the reporting account — `public.subscriptions` has
+  zero rows, so every account there resolves to Free. Verified the client chain is intact and
+  carries whatever count the server hands it: driving the real `extracting.tsx` +
+  `lib/extraction-frame-cap.ts` + `lib/frames.ts` against an Elite quota response produced 8
+  distinct thumbnails at 8 distinct requested times and staged all 8 frames and 8 timestamps for
+  `analyze-form`. Not a loop that runs once, not an early return, not a race. **Raising Free's video
+  frame cap is a product/pricing decision and is deliberately NOT made here.**
+- **Fixed the real, record-path-only defect the reproduction surfaced: the screen reported a
+  wall-clock span as the recorded clip's duration.** `recordAsync` reports no duration, so the
+  screen measures the clip itself — but it stamped `Date.now()` on the record tap and again at the
+  moment `recordAsync`'s promise RESOLVED. That promise settles after the movie file is finalized,
+  which is not part of the clip, so the reported duration always overshot. Two consequences, both
+  live since the screen was written (issue #36, 2026-07-12 — `handleRecordPress` was byte-identical
+  until now, so this never worked rather than regressed):
+  - **A full-length recording was always rejected.** `recordAsync` is given
+    `maxDuration: MAX_CLIP_DURATION_MS / 1000`, so the camera hard-stops at exactly 15.000s of
+    media; the span around it is strictly greater than 15000ms, and `extracting.tsx`'s pre-flight
+    `checkMediaCaps` rejects `durationMs > 15000` as `clipTooLong`. The app refused the longest
+    clips its own recorder produced — the ones with the most motion to analyze.
+  - **Frames were sampled past the end of the clip.** `lib/frames.ts`'s `sampleTimestamps` spreads
+    samples across the 5%–95% window of whatever duration it is handed, so an inflated duration
+    pushed the late samples at or beyond the real last frame. iOS's `AVAssetImageGenerator` leaves
+    `requestedTimeToleranceBefore` at `.positiveInfinity` for a time past the asset's duration
+    (`expo-video-thumbnails`' `VideoThumbnailsModule.swift`), so those came back as the SAME final
+    still — duplicate frames where the analysis was supposed to see motion.
+- **The fix**: new `lib/recorded-clip-duration.ts` (`measureRecordedClipDurationMs`) clamps the
+  measurement to the recorder's own `maxDuration` guarantee, and `record.tsx` now stamps the stop
+  time where it calls `stopRecording()` rather than where the promise resolves. Stated honestly in
+  both files: this closes the tail (finalization) error and the `clipTooLong` false rejection, but
+  NOT the head (camera start-up) error — no expo-camera SDK 54 API reports when recording actually
+  began, and no installed module can read a duration off the finished file. Do not paper over the
+  remainder with a guessed constant.
+- **Tests**: new `lib/__tests__/recorded-clip-duration.test.ts` (clamp, the `clipTooLong` case it
+  prevents, and the `0` guards that keep a bad stamp out of `sampleTimestamps`' `RangeError`), new
+  `app/capture/__tests__/record.test.tsx` (screen-level — proves which `durationMs` the screen
+  actually pushes; verified red on the pre-fix code at `Expected: 15000, Received: 15400`), and two
+  additions to `app/capture/__tests__/extracting.test.tsx`: a full-length clip must reach extraction
+  rather than error, and every extracted frame + timestamp must survive the handoff to
+  `/analyzing` (that mailbox seam had no coverage, and a truncation there would look exactly like
+  the extraction bug it isn't).
+
 ## 2026-08-07 (`expo-network` ruled out as cruft; netinfo locked in as the single connectivity source)
 
 - **Investigated an uncommitted, unexplained `expo-network` install and concluded it is leftover

@@ -25,10 +25,12 @@
  * cases the screen parks in "extracting" with the resolved total on display, which is exactly the
  * state under test.
  */
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { Copy } from '@/constants/copy';
-import { extractFrames } from '@/lib/frames';
+import { takePendingAnalyzeFormRequest } from '@/lib/analyze-form';
+import { extractFrames, type PaceFrameSet } from '@/lib/frames';
+import { MAX_CLIP_DURATION_MS } from '@/lib/media-caps';
 import { quotaStatusClient, type QuotaStatus, type QuotaStatusResult } from '@/lib/quota';
 
 import { PACE_FRAME_CAP } from '@shared/pace';
@@ -234,6 +236,86 @@ describe('ExtractingScreen — video frame cap comes from the server (the paid-t
 
     await waitFor(() => expect(mockExtractFrames).toHaveBeenCalledTimes(1), WAIT);
     expect(extractedFrameCount()).toBe(PACE_FRAME_CAP.elite);
+  });
+});
+
+describe('ExtractingScreen — the in-app recording path (app/capture/record.tsx)', () => {
+  beforeEach(() => {
+    mockQuotaFetch.mockResolvedValue(quotaResult('elite', PACE_FRAME_CAP.elite));
+  });
+
+  // THE record-path regression lock. `record.tsx` gives `recordAsync` a `maxDuration` of exactly
+  // MAX_CLIP_DURATION_MS, so a full-length recording is exactly that many milliseconds of media —
+  // and it used to report a plain wall-clock span from the record tap to `recordAsync` resolving,
+  // which brackets the clip with camera start-up at the head and file finalization at the tail and
+  // so always read OVER the cap. This screen's pre-flight `checkMediaCaps` then rejected it as
+  // `clipTooLong`: the app refusing the longest clip its own recorder had just produced, and
+  // refusing it precisely on the recordings with the most motion to analyze. `record.tsx` now
+  // measures through `lib/recorded-clip-duration.ts`, which clamps to that same guarantee.
+  it('extracts a full-length recording instead of rejecting it as too long', async () => {
+    mockRouteParams = { ...VIDEO_PARAMS, durationMs: String(MAX_CLIP_DURATION_MS) };
+
+    await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(mockExtractFrames).toHaveBeenCalledTimes(1), WAIT);
+    expect(extractedFrameCount()).toBe(PACE_FRAME_CAP.elite);
+    expect(screen.queryByText(Copy.sourcePicker.error.clipTooLong.title)).toBeNull();
+  });
+
+  // The value `record.tsx` used to hand over for that same clip. Kept as a companion to the case
+  // above so the lock names the bug rather than just asserting the happy path: the cap check here
+  // is real and correct, which is exactly why the measurement upstream has to be.
+  it('still rejects a clip genuinely longer than the cap', async () => {
+    mockRouteParams = { ...VIDEO_PARAMS, durationMs: String(MAX_CLIP_DURATION_MS + 400) };
+
+    await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(screen.getByText(Copy.sourcePicker.error.clipTooLong.title)).toBeTruthy(), WAIT);
+    expect(mockExtractFrames).not.toHaveBeenCalled();
+  });
+});
+
+describe('ExtractingScreen — every extracted frame reaches the analysis step', () => {
+  /** A resolved multi-frame set, as `extractFrames` returns for a paying caller's video. */
+  function frameSetOf(count: number): PaceFrameSet {
+    const frames = Array.from({ length: count }, (_, i) => ({
+      base64: `frame-${i}-base64`,
+      timestampMs: 500 + i * 1_000,
+    }));
+    return { frames, totalBytes: frames.length * 16 };
+  }
+
+  afterEach(() => {
+    // Restore the file-wide never-resolving implementation every other case here depends on —
+    // `jest.clearAllMocks()` clears calls, not implementations.
+    mockExtractFrames.mockImplementation(() => new Promise(() => {}));
+    takePendingAnalyzeFormRequest();
+  });
+
+  // The complement to the frame-cap cases above, which prove how many frames are ASKED for. This
+  // proves how many survive the handoff: the screen stages an `AnalyzeFormRequest` on
+  // `lib/analyze-form.ts`'s one-shot mailbox for `/analyzing` to send, and nothing else covers
+  // that seam. A truncation there — sending `frames[0]`, dropping the timestamps, capping the
+  // arrays — would look exactly like the extraction bug it isn't: the user is told N frames were
+  // extracted and the model is shown one, so Cadence and Elasticity silently lose their evidence.
+  it('stages every frame and timestamp, not just the first', async () => {
+    const frameSet = frameSetOf(PACE_FRAME_CAP.elite);
+    mockRouteParams = { ...VIDEO_PARAMS };
+    mockQuotaFetch.mockResolvedValue(quotaResult('elite', PACE_FRAME_CAP.elite));
+    mockExtractFrames.mockImplementation(async () => frameSet);
+
+    const { getByText } = await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(getByText(Copy.upload.ready.cta)).toBeTruthy(), WAIT);
+    expect(getByText(Copy.upload.ready.body(PACE_FRAME_CAP.elite))).toBeTruthy();
+
+    fireEvent.press(getByText(Copy.upload.ready.cta));
+
+    const staged = takePendingAnalyzeFormRequest();
+    expect(staged).not.toBeNull();
+    expect(staged?.mediaType).toBe('video');
+    expect(staged?.frames).toEqual(frameSet.frames.map((frame) => frame.base64));
+    expect(staged?.timestamps).toEqual(frameSet.frames.map((frame) => frame.timestampMs));
   });
 });
 

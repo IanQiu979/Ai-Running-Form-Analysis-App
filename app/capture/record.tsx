@@ -8,8 +8,19 @@
  * Recording auto-caps at `MAX_CLIP_DURATION_MS` (`lib/media-caps.ts`) via `CameraView`'s own
  * `maxDuration` — the clip physically cannot exceed the cap, unlike a library pick (that's
  * `app/capture/index.tsx`'s job to check). `recordAsync` resolves with only `{ uri }` — no
- * duration — so this screen measures wall-clock elapsed time itself (also what drives the live
- * "{elapsed}s / 15s" counter) and hands that measured value on as the clip's `durationMs`.
+ * duration — so this screen measures the clip itself (the same stamps drive the live
+ * "{elapsed}s / 15s" counter) and hands the measured value on as `durationMs`.
+ *
+ * THAT MEASUREMENT IS NOT A PLAIN WALL-CLOCK SPAN, and reverting it to one re-breaks two things.
+ * The stop time is stamped where `stopRecording()` is called, NOT where `recordAsync` resolves —
+ * that promise settles after the movie file is finalized, which is not part of the clip — and
+ * `lib/recorded-clip-duration.ts` clamps the result to the recorder's own `maxDuration` guarantee.
+ * Without both, a full-length recording measured >15000ms and `app/capture/extracting.tsx`'s
+ * pre-flight `checkMediaCaps` rejected it as `clipTooLong` (the app refusing a clip it had capped
+ * itself), and `lib/frames.ts`'s `sampleTimestamps` spread its samples across a window running
+ * past the real last frame, so the late samples came back as duplicates of the final still instead
+ * of showing motion. See that file's header for the full derivation and for the head-end error it
+ * honestly does NOT close.
  */
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -43,6 +54,7 @@ import {
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { MAX_CLIP_DURATION_MS } from '@/lib/media-caps';
 import { classifyPermission, permissionRecoveryAction } from '@/lib/permission-state';
+import { measureRecordedClipDurationMs } from '@/lib/recorded-clip-duration';
 import { useAnnounce } from '@/lib/use-announce';
 
 // The record button's own geometry — a custom circular control, not a spacing value between UI
@@ -69,6 +81,12 @@ export default function RecordScreen() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [busy, setBusy] = useState(false);
   const recordingStartRef = useRef<number | null>(null);
+  // Stamped where `stopRecording()` is called, and read back after `recordAsync` resolves — the
+  // two happen in different invocations of `handleRecordPress`, which is why this is a ref and not
+  // a local. Stays null when the recorder auto-stops at `maxDuration` (nothing in this screen
+  // calls `stopRecording()` on that path), and the read below falls back to `Date.now()`, whose
+  // overshoot the clamp in `measureRecordedClipDurationMs` then absorbs.
+  const recordingStopRef = useRef<number | null>(null);
   // Issue #11: `accessibilityLiveRegion="polite"` on the recording caption below is Android-only —
   // this is the iOS complement, but deliberately keyed to the recording/idle TRANSITION rather
   // than the per-second "Ns / 15s" text change: a live region firing every second for the whole
@@ -107,6 +125,9 @@ export default function RecordScreen() {
     if (!camera || !cameraReady || busy) return;
 
     if (recording) {
+      // Stamped BEFORE the native call, so the measured clip ends where the user asked it to
+      // rather than where the movie file finished being written (see this file's header).
+      recordingStopRef.current = Date.now();
       camera.stopRecording();
       return;
     }
@@ -114,9 +135,14 @@ export default function RecordScreen() {
     setRecording(true);
     setElapsedMs(0);
     recordingStartRef.current = Date.now();
+    recordingStopRef.current = null;
     try {
       const video = await camera.recordAsync({ maxDuration: MAX_CLIP_DURATION_MS / 1000 });
-      const durationMs = recordingStartRef.current ? Date.now() - recordingStartRef.current : 0;
+      const startedAtMs = recordingStartRef.current;
+      const durationMs =
+        startedAtMs === null
+          ? 0
+          : measureRecordedClipDurationMs(startedAtMs, recordingStopRef.current ?? Date.now());
       if (video?.uri && durationMs > 0) {
         router.push({
           pathname: '/capture/extracting',
@@ -126,6 +152,7 @@ export default function RecordScreen() {
     } finally {
       setRecording(false);
       recordingStartRef.current = null;
+      recordingStopRef.current = null;
     }
   }
 
