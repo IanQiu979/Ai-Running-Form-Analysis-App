@@ -162,6 +162,10 @@ describe('LowPolyField', () => {
     // composite elements down to host nodes, which erases exactly the Path-vs-Polygon distinction
     // this test exists to lock — both compile to the same host SVG node either way. The classic
     // `react-test-renderer` keeps the composite tree intact, so `findAllByType` can tell them apart.
+    //
+    // Unlike RNTL's `render`, a bare `TestRenderer.create` instance is never auto-unmounted by the
+    // test framework — and this component starts an infinite `withRepeat` animation on mount, so an
+    // un-unmounted instance leaks that loop for the rest of the Jest process. Unmount it explicitly.
     let instance: TestRenderer.ReactTestRenderer;
     TestRenderer.act(() => {
       instance = TestRenderer.create(<LowPolyField color="#FFFFFF" size={100} testID="field" />);
@@ -169,6 +173,10 @@ describe('LowPolyField', () => {
 
     expect(instance!.root.findAllByType(Path)).toHaveLength(FACET_COUNT);
     expect(instance!.root.findAllByType(Polygon)).toHaveLength(0);
+
+    TestRenderer.act(() => {
+      instance.unmount();
+    });
   });
 
   it('shatters between DEFAULT_POSE and the runner — most facets genuinely differ in shape across the boundary, not just position', () => {
