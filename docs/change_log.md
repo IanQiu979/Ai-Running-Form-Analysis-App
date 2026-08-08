@@ -27,6 +27,26 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   (scroll feel, animation persistence, end-to-end sign-in) is still needed before merge — no booted
   simulator or browser-automation tool was available in this environment.
 
+## 2026-08-08 (Home tab cleanup: logo removed, type-scale drift fixed)
+
+- **Removed the `LowPolyField` mark from the Home tab's top bar entirely** (`app/(tabs)/index.tsx`,
+  `testID="home-mark"`) — it never got restyled when the rest of the redesign landed on
+  `app/result/[id].tsx` (see the memory note on Phase 1's scope), and the captain called its
+  presence there clutter. The wordmark `Eyebrow` and the settings `CircleIconButton` already sat on
+  a `flex`/`space-between` row, so removing the mark reflows the row naturally with no dead gap and
+  no compensating style needed.
+- **Removed a duplicate "Home" `Eyebrow` label that only appeared in the quota card's `ready` state**
+  — the loading and error states of the same card never rendered it, so the card's height/hierarchy
+  shifted depending on quota status, and the text duplicated the wordmark one scroll-length above it.
+- **Fixed a type-scale drift**: `pendingReleasedTitle` used `FontSize.md` even though its own
+  comment claims parity with `components/partial-result-banner.tsx`'s "same neutral-surface
+  treatment" — that component's title is actually `FontSize.lg`. Home's banner title now matches.
+  Every other repeated text role on this screen (`quotaCaption`, `quotaStaleCaption`, the two
+  `Eyebrow` labels, the ticker) was already internally consistent, and `heroLine`'s
+  `FontSize.xxl` + `LineHeight.display` pairing already matches the app-wide "large headline"
+  convention used in `capture/extracting.tsx`, `reset-password.tsx`, `update-password.tsx`,
+  `paywall.tsx`, and `compare.tsx` — left unchanged.
+
 ## 2026-08-08 (result screens: pillar-row cleanup + per-pillar detail modal)
 
 - **Cleanup pass on `<PaceReadout>`'s pillar rows** (shared by `app/result/[id].tsx` and
