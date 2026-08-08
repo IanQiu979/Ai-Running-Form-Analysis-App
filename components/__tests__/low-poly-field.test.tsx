@@ -17,6 +17,8 @@
  *      time rather than a render-time error.
  */
 import { render, screen } from '@testing-library/react-native';
+import TestRenderer from 'react-test-renderer';
+import { Path, Polygon } from 'react-native-svg';
 
 import {
   DEFAULT_POSE,
@@ -153,6 +155,20 @@ describe('LowPolyField', () => {
       }).some(Boolean);
       expect({ pose: p, anyReshaped }).toEqual({ pose: p, anyReshaped: true });
     }
+  });
+
+  it('builds the animating facets on react-native-svg Path, never Polygon — Polygon only turns `points` into the `d` its native view draws inside its own JS render()/setNativeProps, and Reanimated writes animated props straight to the native view on the UI thread under Fabric, bypassing both, so an animated `points` prop is silently inert (this froze the mark on every screen it renders on until this fix)', () => {
+    // `@testing-library/react-native`'s own `render` (used everywhere else in this file) collapses
+    // composite elements down to host nodes, which erases exactly the Path-vs-Polygon distinction
+    // this test exists to lock — both compile to the same host SVG node either way. The classic
+    // `react-test-renderer` keeps the composite tree intact, so `findAllByType` can tell them apart.
+    let instance: TestRenderer.ReactTestRenderer;
+    TestRenderer.act(() => {
+      instance = TestRenderer.create(<LowPolyField color="#FFFFFF" size={100} testID="field" />);
+    });
+
+    expect(instance!.root.findAllByType(Path)).toHaveLength(FACET_COUNT);
+    expect(instance!.root.findAllByType(Polygon)).toHaveLength(0);
   });
 
   it('shatters between DEFAULT_POSE and the runner — most facets genuinely differ in shape across the boundary, not just position', () => {

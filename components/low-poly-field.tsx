@@ -84,7 +84,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { Polygon } from 'react-native-svg';
+import Svg, { Path, Polygon } from 'react-native-svg';
 
 import { Motion } from '@/constants/theme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -343,7 +343,14 @@ function facetPoints(facet: Facet): string {
   return facet.points.map(([x, y]) => `${x * VIEWBOX},${y * VIEWBOX}`).join(' ');
 }
 
-const AnimatedPolygon = Animated.createAnimatedComponent(Polygon);
+/** Same shape as `facetPoints`, expressed as the `d` a `<Polygon points=...>` compiles to
+ *  internally (`Mx0 y0 x1 y1 x2 y2z`) — used directly by `MorphingFacet`'s at-rest value, see
+ *  its comment for why the animated facet is a `Path`, not a `Polygon`. */
+function facetPathD(facet: Facet): string {
+  return `M${facet.points.map(([x, y]) => `${x * VIEWBOX} ${y * VIEWBOX}`).join(' ')}z`;
+}
+
+const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 type LowPolyFieldProps = {
   /** Triangle colour. Callers pass a theme token — this component invents no colour. */
@@ -492,18 +499,24 @@ function MorphingFacet({
     const [x2, y2] = vertexPos(a.points[2], b.points[2], t, shatter);
 
     return {
-      points: `${x0},${y0} ${x1},${y1} ${x2},${y2}`,
+      // A real `d`, not a `points` string: `<Polygon points=...>` only turns `points` into the
+      // `d` its native view actually draws inside its own JS `render()`/`setNativeProps`, and
+      // under Fabric, Reanimated's UI-thread `animatedProps` commit writes straight to the host
+      // view without ever calling either of those — so an animated `points` prop is silently
+      // inert (the shared value keeps advancing; nothing ever repaints). Building `d` ourselves
+      // and animating a `<Path>` (whose `d` IS the native prop) is the fix, not a workaround.
+      d: `M${x0} ${y0} ${x1} ${y1} ${x2} ${y2}z`,
       opacity: a.opacity + (b.opacity - a.opacity) * smoothstep(t),
     };
   });
 
   return (
-    <AnimatedPolygon
+    <AnimatedPath
       testID={testID}
       animatedProps={animatedProps}
       // The at-rest value, so the first painted frame is a real facet rather than an empty
-      // polygon waiting for the driver's first tick.
-      points={facetPoints(DEFAULT_POSE[index])}
+      // path waiting for the driver's first tick.
+      d={facetPathD(DEFAULT_POSE[index])}
       opacity={DEFAULT_POSE[index].opacity}
       fill={color}
     />
