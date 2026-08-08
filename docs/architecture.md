@@ -899,9 +899,21 @@ app/capture/
                 # camera permission dance (capture.permission.camera.*). recordAsync's own
                 # maxDuration (MAX_CLIP_DURATION_MS/1000) makes the 15s clip cap physically
                 # unreachable to exceed by recording; recordAsync resolves with only `{ uri }` —
-                # no duration — so this screen measures wall-clock elapsed time itself, which
-                # both drives the live "{elapsed}s / 15s" counter and becomes the clip's
-                # `durationMs` handed to Extracting.
+                # no duration — so this screen measures the clip itself, which both drives the
+                # live "{elapsed}s / 15s" counter and becomes the `durationMs` handed to
+                # Extracting. CORRECTED 2026-08-08: that measurement is NOT a plain wall-clock
+                # span. It used to run from the record tap to the moment recordAsync's promise
+                # RESOLVED — which is after the movie file is finalized, so it always overshot the
+                # clip. A full-length recording therefore measured >15000ms and Extracting's
+                # pre-flight checkMediaCaps rejected it as `clipTooLong` (the app refusing a clip
+                # its own recorder had capped), and sampleTimestamps' 5%-95% window ran past the
+                # real last frame so the late samples came back as duplicates of the final still.
+                # The stop time is now stamped where stopRecording() is called, and
+                # lib/recorded-clip-duration.ts clamps the result to the recorder's own maxDuration
+                # guarantee. The head-end (camera start-up) error is NOT closed — no expo-camera
+                # SDK 54 API reports when recording actually began, and no installed module can
+                # read a duration off the finished file; see that file's header before "improving"
+                # it with a guessed constant.
   extracting.tsx # Extracting (screen 5, "Uploading / Extracting" in the deck): runs
                 # lib/frames.ts's extractFrames with real onProgress-driven counts
                 # (upload.step.extracting) against whatever the other two screens handed off via
