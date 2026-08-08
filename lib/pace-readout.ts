@@ -86,6 +86,14 @@ export function pillarA11yLabel(label: string, pillar: PacePillarResult): string
     .replace('{band}', ScoreBandLabel[pillar.band]);
 }
 
+/** The info-affordance's accessible name (`Copy.result.pillar.detail.a11yLabel`, e.g. "Posture
+ * details") — the `<CircleIconButton>` `pace-readout.tsx` renders per pillar row to open
+ * `<PillarDetailModal>`. Mirrors `pillarA11yLabel`'s style: one pure template fill, kept out of
+ * the component so it gets its own unit test. */
+export function pillarDetailA11yLabel(label: string): string {
+  return Copy.result.pillar.detail.a11yLabel.replace('{pillar}', label);
+}
+
 /** Same announcement shape as `pillarA11yLabel`, for the overall headline — reuses
  * `result.pillar.a11yLabel`'s template with `Copy.result.overall.label` ("Overall") standing in
  * for the pillar name, rather than inventing a second template string for what is structurally

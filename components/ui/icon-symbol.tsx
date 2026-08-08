@@ -18,6 +18,10 @@ const MAPPING = {
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  // Added for the per-pillar detail modal (components/pillar-detail-modal.tsx): the info
+  // affordance on each pillar row, and the modal's own close control.
+  'info.circle': 'info',
+  xmark: 'close',
 } as IconMapping;
 
 /**

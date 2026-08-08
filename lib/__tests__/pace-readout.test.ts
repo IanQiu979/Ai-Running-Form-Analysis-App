@@ -11,6 +11,7 @@ import {
   notAssessedCopy,
   overallA11yLabel,
   pillarA11yLabel,
+  pillarDetailA11yLabel,
   pillarLabel,
   pillarLetter,
 } from '../pace-readout';
@@ -96,6 +97,19 @@ describe('pillarA11yLabel', () => {
   it('uses the angle reason for a badly-framed pillar', () => {
     const label = pillarA11yLabel('Posture', poorFramingPhotoResult.pillars.posture);
     expect(label).toBe(`Posture. ${Copy.result.pillar.notAssessed.angle}`);
+  });
+});
+
+describe('pillarDetailA11yLabel', () => {
+  it('names the pillar the detail-modal info button opens', () => {
+    expect(pillarDetailA11yLabel('Posture')).toBe(Copy.result.pillar.detail.a11yLabel.replace('{pillar}', 'Posture'));
+    expect(pillarDetailA11yLabel('Posture')).toBe('Posture details');
+  });
+
+  it('templates cleanly for every pillar label', () => {
+    expect(pillarDetailA11yLabel('Arm swing')).toBe('Arm swing details');
+    expect(pillarDetailA11yLabel('Cadence')).toBe('Cadence details');
+    expect(pillarDetailA11yLabel('Elasticity')).toBe('Elasticity details');
   });
 });
 
