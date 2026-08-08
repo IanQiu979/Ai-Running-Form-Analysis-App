@@ -17,7 +17,6 @@ import {
   Accent,
   Colors,
   ContentWidth,
-  ControlHeight,
   FontFamily,
   FontSize,
   LineHeight,
@@ -228,21 +227,12 @@ export default function HomeScreen() {
           centers when there is room, but at the largest Dynamic Type sizes it scrolls instead
           of clipping (design brief §7: layouts reflow, never clip). */}
         <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        {/* The reference's top bar: a small mark, a tracked-out wordmark, and one circular glass
-            control — replacing the old "big heading + underlined text link" row. `Copy.home.title`
-            is unchanged and still carries `accessibilityRole="header"`; only its type role moved,
-            from a 24pt display heading to the eyebrow register, because on this screen the heading
-            is chrome and the CTA block is the subject. */}
+        {/* The top bar: a tracked-out wordmark and one circular glass control — replacing the old
+            "big heading + underlined text link" row. `Copy.home.title` is unchanged and still
+            carries `accessibilityRole="header"`; only its type role moved, from a 24pt display
+            heading to the eyebrow register, because on this screen the heading is chrome and the
+            CTA block is the subject. */}
         <View style={styles.topBar}>
-          {/* L8 (v23-ux-audit-r1): `text.secondary` directly on `Gradient.page` is a deliberate,
-              written exemption for a purely decorative non-text glyph — see the "EXEMPTION"
-              paragraph on `Gradient`'s own contract in constants/theme.ts. Do not treat this as
-              precedent for dimming actual copy the same way. */}
-          <LowPolyField
-            color={colors.text.secondary}
-            size={ControlHeight.circle}
-            testID="home-mark"
-          />
           <Eyebrow tone="primary" style={styles.wordmark} testID="home-title">
             {Copy.home.title}
           </Eyebrow>
@@ -323,7 +313,6 @@ export default function HomeScreen() {
 
             {quota.status === 'ready' && readyCaption && (
               <View style={styles.quotaBlock}>
-                <Eyebrow>{Copy.home.title}</Eyebrow>
                 <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
                   {readyCaption.primary}
                 </Text>
@@ -462,7 +451,7 @@ function createStyles(colors: ThemeColors) {
     },
     pendingReleasedTitle: {
       fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.md,
+      fontSize: FontSize.lg,
       color: colors.text.primary,
     },
     pendingReleasedBody: {
