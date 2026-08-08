@@ -41,7 +41,9 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
                           # expo-blur backdrop blur under a Glass token. One place decides the
                           # material, so the contrast proof composites one known layer.
   ui/pill-button.tsx      # every button in the app: primary / secondary / ghost.
-  ui/circle-icon-button.tsx # the circular back/settings control in a screen's top bar.
+  ui/circle-icon-button.tsx # the circular icon control — a screen's top-bar back/settings, and
+                          # (2026-08-08) the per-pillar info button and detail-modal close control
+                          # on the result screens' PaceReadout.
   ui/eyebrow.tsx          # the tracked uppercase micro-label — the redesign's main sub-display
                           # hierarchy tool.
   kinetic-text.tsx        # per-word reveal. Splits a sentence into one Text per word but keeps
