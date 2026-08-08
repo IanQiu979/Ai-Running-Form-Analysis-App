@@ -3,13 +3,23 @@ import { useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
+  type LayoutChangeEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, {
+  Easing,
+  Extrapolation,
+  interpolate,
+  useAnimatedRef,
+  useAnimatedStyle,
+  useScrollViewOffset,
+  useSharedValue,
+} from 'react-native-reanimated';
 
 import { KineticText } from '@/components/kinetic-text';
 import { LowPolyField } from '@/components/low-poly-field';
@@ -27,7 +37,6 @@ import {
   FontSize,
   LineHeight,
   Motion,
-  Opacity,
   Radius,
   Semantic,
   Spacing,
@@ -36,6 +45,7 @@ import {
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { signInWithGoogle } from '@/lib/auth';
 import { mapAuthError, mapSignupWithCaptchaError, validateSignInForm } from '@/lib/auth-errors';
 import { checkPasswordBreached } from '@/lib/hibp';
@@ -43,6 +53,14 @@ import { useSession } from '@/lib/session-provider';
 import { applySignupSession, signUpWithCaptcha } from '@/lib/signup-with-captcha';
 import { supabase } from '@/lib/supabase';
 import { useAnnounce } from '@/lib/use-announce';
+
+// The "cool zoom" reveal (see the mark section below): `Motion.curve.calm` is this app's
+// expressive-arrival curve ("used for kinetic text, hero reveals, aperture opens" — its own
+// doc comment in constants/theme.ts), the correct register for a section resolving into view
+// rather than `curve.morph` (a shape transforming in place) or `curve.linear` (a loop). Built
+// once at module scope, same as `constants/theme.ts`'s own curves, since `Easing.bezier`'s
+// returned function is itself a worklet callable from the UI-thread style below.
+const markRevealEasing = Easing.bezier(...Motion.curve.calm).factory();
 
 // The site key is Cloudflare's own public identifier for this Turnstile widget — safe to inline
 // into the client bundle by design (only the SECRET key, used server-side in
@@ -56,6 +74,39 @@ export default function SignInScreen() {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors, scheme), [colors, scheme]);
+
+  const reduceMotion = useReducedMotion();
+  const { height: windowHeight } = useWindowDimensions();
+  const scrollRef = useAnimatedRef<Animated.ScrollView>();
+  const scrollY = useScrollViewOffset(scrollRef);
+  // Set from the mark section's own `onLayout` (below) — its content-relative y offset, so the
+  // reveal threshold tracks wherever the section actually lands regardless of device/font size,
+  // rather than a guessed pixel constant.
+  const markOffsetY = useSharedValue(0);
+
+  const markAnimatedStyle = useAnimatedStyle(() => {
+    if (reduceMotion) {
+      // Reduced-motion contract: no scroll-triggered transform, the mark just sits at rest in
+      // its own section — same "still, not hidden" reading `LowPolyField` itself documents.
+      return { opacity: 1, transform: [{ scale: 1 }] };
+    }
+    // The zoom completes over the scroll distance between the section's top entering the bottom
+    // of the viewport (progress 0) and it having travelled ~60% of the way up the screen
+    // (progress 1) — a natural "approaching, then resolving" window tied to scroll position,
+    // not a fixed timer.
+    const revealStart = markOffsetY.value - windowHeight;
+    const revealEnd = markOffsetY.value - windowHeight * 0.4;
+    const progress = interpolate(scrollY.value, [revealStart, revealEnd], [0, 1], Extrapolation.CLAMP);
+    const eased = markRevealEasing(progress);
+    return {
+      opacity: eased,
+      transform: [{ scale: interpolate(eased, [0, 1], [MARK_REVEAL_START_SCALE, 1]) }],
+    };
+  });
+
+  function handleMarkSectionLayout(event: LayoutChangeEvent) {
+    markOffsetY.value = event.nativeEvent.layout.y;
+  }
 
   const [mode, setMode] = useState<Mode>('signIn');
   const [showEmailForm, setShowEmailForm] = useState(false);
@@ -228,23 +279,18 @@ export default function SignInScreen() {
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
+        <Animated.ScrollView
+          ref={scrollRef}
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled">
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={16}>
           {/* THE SPLASH-SCALE HEADER. The reference's own first screen is one line of type on a
               wash and nothing else; the wordmark here takes that scale (xxl -> display) and
-              assembles word by word on arrival. The low-poly mark sits behind it as atmosphere,
-              the same relationship Home's hero uses, so the two first screens a new user sees
-              are recognisably one design. */}
-          <View style={styles.header}>
-            <View style={styles.headerMarkBox} pointerEvents="none">
-              <LowPolyField
-                color={colors.text.primary}
-                size={SPLASH_MARK_SIZE}
-                style={styles.headerMark}
-              />
-            </View>
+              assembles word by word on arrival. This is the whole first screenful now — the
+              low-poly mark gets its own section below instead of sharing this one as atmosphere,
+              since it no longer needs to fit alongside the wordmark on first paint. */}
+          <View style={[styles.header, { minHeight: windowHeight * 0.6 }]}>
             <KineticText
               accessibilityRole="header"
               staggerMs={Motion.stagger.line}
@@ -254,6 +300,25 @@ export default function SignInScreen() {
             </KineticText>
             <Text style={styles.valueProp}>{Copy.auth.valueProp}</Text>
           </View>
+
+          {/* THE ZOOM REVEAL. `LowPolyField` is mounted unconditionally here — never gated behind
+              a scroll threshold or unmounted when scrolled past — so its own internal shatter/gait
+              loop (started once, in its own `useEffect`) keeps running regardless of scroll
+              position, exactly the "never stops" contract this section needs. Only the wrapping
+              `Animated.View`'s opacity/scale respond to scroll, via `markAnimatedStyle` above,
+              which is what makes this read as a reveal rather than the mark simply always being
+              there. Decorative and inert either way — `LowPolyField` itself hides its facets from
+              the accessibility tree, so this section carries no accessibility role of its own. */}
+          <Animated.View
+            style={[styles.markSection, { minHeight: windowHeight * 0.55 }, markAnimatedStyle]}
+            onLayout={handleMarkSectionLayout}
+            pointerEvents="none">
+            <LowPolyField
+              color={colors.text.primary}
+              size={MARK_SIZE}
+              testID="sign-in-mark"
+            />
+          </Animated.View>
 
           <View style={styles.actions}>
             {/* Issue #20: the primary CTA, per Ian's decision — Google is the lowest-friction
@@ -416,17 +481,22 @@ export default function SignInScreen() {
             disabled={isBusy}
             block
           />
-        </ScrollView>
+        </Animated.ScrollView>
       </KeyboardAvoidingView>
       </SafeAreaView>
     </ScreenGradient>
   );
 }
 
-/** The splash mark's drawn size — atmosphere behind the wordmark, same role Home's hero uses.
- * Clipped to `headerMarkBox` below, so this only needs to roughly fill that box, not the whole
- * header (H2, v23-ux-audit-r1: 260 overhung the header and drew through the wordmark). */
-const SPLASH_MARK_SIZE = 160;
+/** The mark's drawn size, now that it fills its own section rather than sitting small and
+ * translucent behind the wordmark — bumped up from the old 160 (H2, v23-ux-audit-r1) since it no
+ * longer has to leave room for the wordmark/value-prop sharing its box. */
+const MARK_SIZE = 220;
+
+/** The zoom's starting scale — how "far away" the mark reads before the reveal resolves it to
+ * its resting size. Chosen by feel, the same way `kinetic-text.tsx`'s `RISE` is: small enough to
+ * read as a genuine zoom, not so small the shape is illegible mid-reveal. */
+const MARK_REVEAL_START_SCALE = 0.62;
 
 function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
@@ -450,31 +520,24 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       width: '100%',
       maxWidth: ContentWidth.readable,
       alignSelf: 'center',
-      justifyContent: 'center',
       padding: Spacing.xl,
       gap: Spacing.xxl,
     },
+    // Given a `minHeight` of most of the viewport at the render site (it needs `useWindowDimensions`,
+    // which a `StyleSheet.create` module can't read) so this reads as its own first screenful and
+    // scrolling is required to reach the mark section below it — the deliberate scroll-reveal this
+    // screen is now built around, replacing the old single-screen layout.
     header: {
       alignItems: 'center',
-      gap: Spacing.md,
       justifyContent: 'center',
+      gap: Spacing.md,
     },
-    // H2 (v23-ux-audit-r1): the mark's own layout box, absolutely filling `header` so it adds no
-    // height (a small device still fits the form without the mark pushing the CTAs off-screen),
-    // but clipped and behind the wordmark/value-prop so its shards can never draw through them.
-    headerMarkBox: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
+    // The zoom-reveal section (see `markAnimatedStyle` at the render site). Also given a
+    // `minHeight` inline so it reads as its own screenful rather than a cramped strip between the
+    // header and the actions.
+    markSection: {
       alignItems: 'center',
       justifyContent: 'center',
-      overflow: 'hidden',
-      zIndex: -1,
-    },
-    headerMark: {
-      opacity: Opacity.disabled,
     },
     wordmarkRow: {
       justifyContent: 'center',

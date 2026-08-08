@@ -76,6 +76,10 @@ jest.mock('@/components/turnstile-widget', () => {
   };
 });
 
+jest.mock('@/hooks/use-reduced-motion', () => ({
+  useReducedMotion: () => false,
+}));
+
 // THE POINT OF THIS FILE: unset before `sign-in.tsx` is first evaluated. A plain ES `import` is
 // hoisted above this line, hence the `require` below — same mechanism `sign-in.test.tsx` uses to
 // set it, inverted.
