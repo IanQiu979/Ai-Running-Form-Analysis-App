@@ -49,7 +49,8 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
   kinetic-text.tsx        # per-word reveal. Splits a sentence into one Text per word but keeps
                           # ONE accessible node carrying the whole string — see its header.
   marquee.tsx             # the standing PACE-pillar ticker on Home.
-  low-poly-field.tsx      # the morphing triangle mark (Analyzing wait, Home/sign-in atmosphere).
+  low-poly-field.tsx      # the morphing triangle mark (Analyzing wait, Home ambient, sign-in's
+                          # own full-opacity scroll-reveal section since 2026-08-08).
                           # Per-vertex SVG since 2026-08-02, when the captain lifted the
                           # react-native-svg ban annotation-lines.tsx used to carry: a pose is
                           # three independent vertices, so a facet genuinely reshapes. Each facet

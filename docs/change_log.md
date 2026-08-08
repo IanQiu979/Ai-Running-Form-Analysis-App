@@ -5,6 +5,28 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-08 (sign-in: scroll-reveal restructuring with LowPolyField zoom)
+
+- **Restructured `app/(auth)/sign-in.tsx` into a scroll-based reveal**, now that
+  `components/low-poly-field.tsx`'s shared animation bug is fixed (see the entry above). The mark
+  no longer sits absolutely-positioned behind the wordmark at `Opacity.disabled` as translucent
+  atmosphere (the old `headerMarkBox`/`headerMark` styles and `SPLASH_MARK_SIZE` constant are
+  gone); it gets its own full-opacity section (`MARK_SIZE` 220, up from the old 160) revealed by a
+  "cool zoom" (0.62 → 1 scale, 0 → 1 opacity) as the user scrolls to it. The transition runs on
+  `Motion.curve.calm` (`constants/theme.ts`'s hero-reveal curve) via `Animated.ScrollView` +
+  `useScrollViewOffset`, interpolated against the mark section's own measured `onLayout` offset
+  rather than a guessed pixel constant. `LowPolyField` is mounted unconditionally throughout —
+  only the wrapping `Animated.View`'s opacity/scale respond to scroll — so its internal
+  shatter/gait loop is never restarted or gated. `useReducedMotion()` renders every section
+  statically (no scroll-gated transform); no section is ever gated behind scroll for any user, so
+  every control stays reachable. New `testID="sign-in-mark"` plus regression coverage in
+  `app/(auth)/__tests__/sign-in.test.tsx` and `sign-in-no-captcha-key.test.tsx` locks all controls
+  mounted and reachable on first render, normal and reduced-motion, without simulating a scroll
+  event. Auth logic, validation, and the email/password form's behavior are unchanged. Verified via
+  full typecheck/lint/test and a static web export render of `/sign-in`; a manual simulator pass
+  (scroll feel, animation persistence, end-to-end sign-in) is still needed before merge — no booted
+  simulator or browser-automation tool was available in this environment.
+
 ## 2026-08-08 (result screens: pillar-row cleanup + per-pillar detail modal)
 
 - **Cleanup pass on `<PaceReadout>`'s pillar rows** (shared by `app/result/[id].tsx` and
