@@ -211,6 +211,10 @@ export default function HistoryScreen() {
     router.push({ pathname: '/result/[id]', params: { id: item.id } });
   }
 
+  function openCompare() {
+    router.push('/compare');
+  }
+
   function retry() {
     load(activeFlagRef.current);
   }
@@ -293,6 +297,17 @@ export default function HistoryScreen() {
           keyExtractor={(item) => item.id}
           style={styles.list}
           contentContainerStyle={styles.listContent}
+          ListHeaderComponent={
+            state.items.length >= 2 ? (
+              <PillButton
+                variant="secondary"
+                label={Copy.history.compare.cta}
+                accessibilityHint={Copy.history.compare.a11yHint}
+                onPress={openCompare}
+                style={styles.compareCta}
+              />
+            ) : null
+          }
           renderItem={({ item }) => (
             <HistoryRow
               item={item}
@@ -472,6 +487,10 @@ function createStyles(colors: ThemeColors) {
       // Without this the last row scrolls under the bar and stops there.
       paddingBottom: TabBar.clearance,
       gap: Spacing.md,
+    },
+    compareCta: {
+      alignSelf: 'stretch',
+      marginBottom: Spacing.sm,
     },
     row: {
       flexDirection: 'row',

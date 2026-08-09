@@ -17,15 +17,6 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
 import { supabase } from '../supabase';
-
-jest.mock('../supabase', () => ({
-  supabase: { functions: { invoke: jest.fn() } },
-}));
-
-const mockInvoke = supabase.functions.invoke as jest.MockedFunction<typeof supabase.functions.invoke>;
-
-// Re-imported after the mock is registered, matching this repo's established pattern
-// (lib/__tests__/delete-account.test.ts mocks `../supabase` the same way).
 import {
   formatRenewalDate,
   getQuotaStatus,
@@ -33,6 +24,12 @@ import {
   purchaseTier,
   type QuotaStatus,
 } from '../subscription';
+
+jest.mock('../supabase', () => ({
+  supabase: { functions: { invoke: jest.fn() } },
+}));
+
+const mockInvoke = supabase.functions.invoke as jest.MockedFunction<typeof supabase.functions.invoke>;
 
 beforeEach(() => {
   mockInvoke.mockReset();
@@ -50,6 +47,7 @@ const FULL_QUOTA_STATUS_BODY = {
   limit: 10,
   remaining: 7,
   frameCap: 5,
+  unlimited: false,
   isLifetime: false,
   periodStart: '2026-07-01T00:00:00.000Z',
   periodEnd: '2026-08-01T00:00:00.000Z',
@@ -72,6 +70,23 @@ describe('getQuotaStatus', () => {
   // equivalent) and starts using it instead of the server's own `limit` field, this is the test
   // that would have to be broken to hide it — the server's number and the returned number must be
   // the exact same value, from a mock that could just as easily have said something else.
+  it('accepts the temporary unlimited Elite shape with null limit/remaining', async () => {
+    const unlimited = {
+      ...FULL_QUOTA_STATUS_BODY,
+      tier: 'elite',
+      used: 42,
+      limit: null,
+      remaining: null,
+      frameCap: 8,
+      unlimited: true,
+      periodStart: null,
+      periodEnd: null,
+    } as const;
+    mockInvoke.mockResolvedValue({ data: unlimited, error: null } as never);
+
+    await expect(getQuotaStatus()).resolves.toEqual({ ok: true, data: unlimited });
+  });
+
   it('never substitutes a hardcoded limit/frameCap for whatever the server actually sent', async () => {
     mockInvoke.mockResolvedValue({
       data: { ...FULL_QUOTA_STATUS_BODY, tier: 'free', limit: 1, used: 0, remaining: 1, frameCap: 1 },
@@ -197,6 +212,7 @@ describe('parseQuotaStatus', () => {
       limit: 1,
       remaining: 0,
       frameCap: 1,
+      unlimited: false,
       isLifetime: true,
       periodStart: null,
       periodEnd: null,

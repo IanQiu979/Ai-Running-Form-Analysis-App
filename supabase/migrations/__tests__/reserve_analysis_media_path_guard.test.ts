@@ -146,17 +146,22 @@ describe('premise check: reserve_analysis no longer accepts p_media_paths anywhe
       join(MIGRATIONS_DIR, '..', 'functions', 'analyze-form', 'flow.ts'),
       'utf8'
     );
-    const callMatch = flowSql.match(
-      /rpc\.rpc\('reserve_analysis',\s*\{([\s\S]*?)\}\s*\)/
+    // The temporary access override selects between the normal 4-arg RPC and an additive
+    // 4-arg unlimited wrapper, so the call now uses a local `fn` rather than a string literal.
+    // Both signatures deliberately remain path-free.
+    expect(flowSql).toMatch(
+      /const fn = args\.allUsersUnlimitedAccess \? 'reserve_analysis_unlimited' : 'reserve_analysis';/
     );
-    expect(callMatch).not.toBeNull();
-    const callArgs = callMatch![1];
+    const reserveStart = flowSql.indexOf('async function reserveAnalysis(');
+    const reserveEnd = flowSql.indexOf('async function settleAnalysis(', reserveStart);
+    const reserveFunction = flowSql.slice(reserveStart, reserveEnd);
+    expect(reserveFunction).toMatch(/rpc\.rpc\(fn,\s*\{/);
     for (const arg of ['p_user_id', 'p_idempotency_key', 'p_media_type', 'p_frame_count']) {
-      expect(callArgs).toMatch(new RegExp(`${arg}\\s*:`));
+      expect(reserveFunction).toMatch(new RegExp(`${arg}\\s*:`));
     }
     // Checks for an actual `p_media_paths:` key, not the explanatory comment mentioning the
     // name (flow.ts deliberately documents *why* it's absent — see the comment right there).
-    expect(callArgs).not.toMatch(/p_media_paths\s*:/);
+    expect(reserveFunction).not.toMatch(/p_media_paths\s*:/);
   });
 });
 

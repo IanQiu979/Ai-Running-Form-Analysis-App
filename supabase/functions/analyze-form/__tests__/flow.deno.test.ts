@@ -1396,6 +1396,26 @@ Deno.test('free tier: consent (CONTRACT RULE 4) still governs — the tier looku
   assertEquals(h.rpc.calls.length, 0, 'refused before the tier lookup ever ran');
 });
 
+Deno.test('all-users override: a normally-free account runs the full Elite path through the additive RPCs', async () => {
+  const h = harness([ok()]);
+  h.deps.allUsersUnlimitedAccess = true;
+  h.rpc.handlers.pace_current_tier_unlimited = () => ({ data: 'elite', error: null });
+  h.rpc.handlers.reserve_analysis_unlimited = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'elite' },
+    error: null,
+  });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(h.model.sent.length, 1, 'override must produce a real model analysis, never the Free sample');
+  assert(!('isSample' in res.body), 'override responses must never carry the Free sample marker');
+  assertEquals(h.rpc.names().includes('pace_current_tier'), false);
+  assertEquals(h.rpc.names().includes('reserve_analysis'), false);
+  assertEquals(h.rpc.names().includes('pace_current_tier_unlimited'), true);
+  assertEquals(h.rpc.names().includes('reserve_analysis_unlimited'), true);
+});
+
 Deno.test('pro/elite tiers are completely unaffected by the tier-lookup branch', async () => {
   for (const tier of ['pro', 'elite']) {
     const h = harness([ok()]);

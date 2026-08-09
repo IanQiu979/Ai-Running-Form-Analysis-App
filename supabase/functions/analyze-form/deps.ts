@@ -15,6 +15,7 @@
 // set with `supabase secrets set`. `SUPABASE_URL` / `SUPABASE_SECRET_KEYS` are auto-injected by the
 // platform — never set by hand (CLAUDE.md).
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.110.2';
+import { isAllUsersUnlimitedAccess } from '../_shared/access-override.ts';
 import type { RpcClient } from '../_shared/ai-guard.ts';
 import type { AnalyzeFormRequest } from '../_shared/analyze-form-prompt.ts';
 import type { AnthropicMessageResponse } from '../_shared/analyze-form-validation.ts';
@@ -203,6 +204,9 @@ export function createAnalyzeFormDeps(): AnalyzeFormDeps {
 
   return {
     rpc,
+    allUsersUnlimitedAccess: isAllUsersUnlimitedAccess(
+      Deno.env.get('ALL_USERS_UNLIMITED_ACCESS')
+    ),
     consents,
     storage,
     model: createModelCaller(apiKey),

@@ -36,9 +36,13 @@ export type BlockedReason = 'too_many_failed_attempts';
 export interface QuotaStatus {
   tier: SubscriptionTier;
   used: number;
-  limit: number;
-  remaining: number;
+  /** Null only while the temporary all-users unlimited override is enabled. */
+  limit: number | null;
+  /** Null means unlimited; a finite quota always reports a number. */
+  remaining: number | null;
   frameCap: number;
+  /** True only for the temporary, server-side all-users test override. */
+  unlimited: boolean;
   /** True only for free — the copy deck is emphatic this must never read "this month". */
   isLifetime: boolean;
   /** ISO 8601, null for free (lifetime has no period). */
@@ -99,22 +103,28 @@ export function parseQuotaStatusRow(raw: unknown): QuotaStatus {
   const used = row.used;
   const limit = row.limit;
   const frameCap = row.frame_cap;
-  if (typeof used !== 'number' || typeof limit !== 'number' || typeof frameCap !== 'number') {
-    throw new Error(`pace_quota_status returned non-numeric used/limit/frame_cap: ${JSON.stringify(row)}`);
+  const unlimited = row.unlimited === true;
+  if (
+    typeof used !== 'number' ||
+    typeof frameCap !== 'number' ||
+    (unlimited ? limit !== null : typeof limit !== 'number')
+  ) {
+    throw new Error(`pace_quota_status returned invalid used/limit/frame_cap: ${JSON.stringify(row)}`);
   }
 
-  const blocked = Boolean(row.blocked);
+  const blocked = unlimited ? false : Boolean(row.blocked);
   const blockedReason: BlockedReason | null =
     blocked && row.blocked_reason === 'too_many_failed_attempts' ? 'too_many_failed_attempts' : null;
 
   return {
     tier,
     used,
-    limit,
+    limit: unlimited ? null : (limit as number),
     // Never negative — a defensive floor, not a claim this can happen under correct counting.
-    remaining: Math.max(limit - used, 0),
+    remaining: unlimited ? null : Math.max((limit as number) - used, 0),
     frameCap,
-    isLifetime: Boolean(row.is_lifetime),
+    unlimited,
+    isLifetime: unlimited ? false : Boolean(row.is_lifetime),
     periodStart: nullableString(row.period_start),
     periodEnd: nullableString(row.period_end),
     blocked,

@@ -64,6 +64,12 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
 - `ANTHROPIC_API_KEY` must NEVER get an `EXPO_PUBLIC_` prefix and must NEVER go in `.env`. It
   belongs in `supabase/functions/.env` (gitignored, local dev) and is pushed to production with
   `supabase secrets set` — done 2026-07-26, alongside the first `analyze-form` deploy.
+- **Temporary comprehensive-test override:** the server-only secret
+  `ALL_USERS_UNLIMITED_ACCESS=true` makes every authenticated account behave as Elite with an
+  unlimited analysis-count quota. The additive wrapper RPCs live in
+  `20260807090000_all_users_unlimited_access_override.sql`; the normal hardened quota/RLS path is
+  untouched and remains the default. **Unset this secret (or set it to `false`) before onboarding
+  real users.** Never add an `EXPO_PUBLIC_` version and never replace the underlying quota system.
 - Supabase auto-injects `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEYS`, `SUPABASE_SECRET_KEYS`
   into edge functions at runtime. Never set these by hand. **Both `*_KEYS` vars hold a JSON object
   keyed by key name (`{"default":"sb_..."}`), not an array or a bare string** — always read them

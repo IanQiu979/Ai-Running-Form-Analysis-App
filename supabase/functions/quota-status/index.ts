@@ -24,6 +24,7 @@
 // exactly (kept as a separate copy per that file's own "limit blast radius" rationale, extended
 // here to cover concurrent multi-agent work on `_shared/`).
 import { createClient } from 'npm:@supabase/supabase-js@2.110.2';
+import { isAllUsersUnlimitedAccess } from '../_shared/access-override.ts';
 import { errorClassOf, hashUserId, logEvent, newRequestId } from '../_shared/log.ts';
 import { getQuotaStatus, httpStatusForQuotaStatus, responseBodyForQuotaStatus } from '../_shared/quota-status.ts';
 import { createQuotaStatusClient } from '../_shared/quota-status-client.ts';
@@ -81,7 +82,10 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const status = await getQuotaStatus(createQuotaStatusClient(), callerUserId);
+    const status = await getQuotaStatus(
+      createQuotaStatusClient(isAllUsersUnlimitedAccess(Deno.env.get('ALL_USERS_UNLIMITED_ACCESS'))),
+      callerUserId
+    );
     return jsonResponse(httpStatusForQuotaStatus(), responseBodyForQuotaStatus(status));
   } catch (err) {
     // A DB-side failure (including "pace_quota_status does not exist" if this is ever hit before

@@ -72,8 +72,8 @@ type PurchaseState = { status: 'idle' } | { status: 'pending'; tier: Purchasable
  *  (or the read hasn't resolved yet) with quota still available. */
 function gateBannerFor(plan: PlanState): { title: string; body: string } | null {
   if (plan.status !== 'ready') return null;
-  const { tier, remaining, limit, periodEnd } = plan.data;
-  if (remaining > 0) return null;
+  const { tier, remaining, limit, periodEnd, unlimited } = plan.data;
+  if (unlimited || remaining === null || remaining > 0) return null;
 
   if (tier === 'free') {
     return { title: Copy.paywall.gate.free.title, body: Copy.paywall.gate.free.body };
@@ -81,7 +81,10 @@ function gateBannerFor(plan: PlanState): { title: string; body: string } | null 
   // periodEnd is documented non-null for a paid tier (lib/subscription.ts's QuotaStatus doc
   // comment) — the '—' fallback is defensive only, never expected to render.
   const renewsOn = periodEnd ? formatRenewalDate(periodEnd) : '—';
-  return { title: Copy.paywall.gate.paid.title, body: Copy.paywall.gate.paid.body(limit, renewsOn) };
+  return {
+    title: Copy.paywall.gate.paid.title,
+    body: Copy.paywall.gate.paid.body(limit ?? 0, renewsOn),
+  };
 }
 
 type TierCardCta =
@@ -95,8 +98,12 @@ function ctaForPurchasableTier(
   purchase: PurchaseState,
   onUpgrade: (tier: PurchasableTier) => void
 ): TierCardCta {
-  if (plan.status === 'ready' && plan.data.tier === tierKey) {
-    return { kind: 'current' };
+  if (plan.status === 'ready') {
+    if (plan.data.tier === tierKey) return { kind: 'current' };
+    // Never offer a downgrade as an "Upgrade". An Elite account used to see an active
+    // "Upgrade to Pro" control, which was both false copy and a route into the lower-tier
+    // purchase RPC. Purchase mechanics remain untouched; the impossible CTA is simply absent.
+    if (plan.data.tier === 'elite' && tierKey === 'pro') return { kind: 'none' };
   }
   return {
     kind: 'upgrade',
