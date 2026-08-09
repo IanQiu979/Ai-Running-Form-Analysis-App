@@ -17,15 +17,6 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
 import { supabase } from '../supabase';
-
-jest.mock('../supabase', () => ({
-  supabase: { functions: { invoke: jest.fn() } },
-}));
-
-const mockInvoke = supabase.functions.invoke as jest.MockedFunction<typeof supabase.functions.invoke>;
-
-// Re-imported after the mock is registered, matching this repo's established pattern
-// (lib/__tests__/delete-account.test.ts mocks `../supabase` the same way).
 import {
   formatRenewalDate,
   getQuotaStatus,
@@ -33,6 +24,12 @@ import {
   purchaseTier,
   type QuotaStatus,
 } from '../subscription';
+
+jest.mock('../supabase', () => ({
+  supabase: { functions: { invoke: jest.fn() } },
+}));
+
+const mockInvoke = supabase.functions.invoke as jest.MockedFunction<typeof supabase.functions.invoke>;
 
 beforeEach(() => {
   mockInvoke.mockReset();

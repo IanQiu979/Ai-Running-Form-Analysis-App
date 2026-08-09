@@ -2776,7 +2776,11 @@ folds into a per-row "no thumbnail" state rather than crashing the whole list. D
 through `DELETE /functions/v1/analysis/:id` (see its section above, including issue #132's second
 purge). New, uncertified `history.item.a11yLabelNotAssessed`, `history.item.deleteCta`,
 `history.delete.error.*`, and `history.error.*` — states the deck never specced. The Elite Compare
-screen (`history.compare.*`) is **not built** — out of #55's scope.
+screen (`app/compare.tsx`, `lib/compare.ts`, issue #60) was built after #55 but stayed unreachable
+from navigation until the 2026-08-07 comprehensive audit added a "Compare two analyses" entry
+point here (`Copy.history.compare`) once at least two stored results exist — see
+`docs/change_log.md`'s 2026-08-07 entry. Compare still re-checks Elite entitlement itself
+server-side rather than trusting this entry point.
 
 **Tab bar chrome fixed, partially (#12).** React Navigation's stock cool-gray tab bar sat directly
 beneath this app's warm Gait Plate tokens — invisible with one tab, glaring once a second tab made
