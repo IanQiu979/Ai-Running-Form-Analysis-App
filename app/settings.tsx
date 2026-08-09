@@ -89,7 +89,7 @@ import {
 } from '@/lib/delete-account';
 import { useSession } from '@/lib/session-provider';
 import { signOut, type SignOutResult } from '@/lib/sign-out';
-import { supabase } from '@/lib/supabase';
+import { getQuotaStatus } from '@/lib/subscription';
 import { useAnnounce } from '@/lib/use-announce';
 
 type SubscriptionTier = 'free' | 'pro' | 'elite';
@@ -179,26 +179,12 @@ export default function SettingsScreen() {
     if (!userId) return;
     setPlan({ status: 'loading' });
 
-    try {
-      // Same read as Home's: a subscriptions row only counts while `status = 'active'` (a canceled
-      // one means free, same as no row). Read, never computed — the server is the authority.
-      const { data, error } = await supabase
-        .from('subscriptions')
-        .select('tier')
-        .eq('user_id', userId)
-        .eq('status', 'active')
-        .maybeSingle();
-
-      if (!isMountedRef.current) return;
-      if (error) {
-        setPlan({ status: 'error' });
-        return;
-      }
-      setPlan({ status: 'ready', tier: data?.tier ?? 'free' });
-    } catch {
-      if (!isMountedRef.current) return;
-      setPlan({ status: 'error' });
-    }
+    // Read the same server-authoritative status Home and Paywall use. This matters beyond simple
+    // consistency: temporary entitlement overrides (including ALL_USERS_UNLIMITED_ACCESS) live on
+    // the edge-function/RPC boundary and are intentionally NOT written into subscriptions.
+    const result = await getQuotaStatus();
+    if (!isMountedRef.current) return;
+    setPlan(result.ok ? { status: 'ready', tier: result.data.tier } : { status: 'error' });
   }, [userId]);
 
   const fetchConsent = useCallback(async () => {

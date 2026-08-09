@@ -131,6 +131,7 @@ function quotaResult(tier: QuotaStatus['tier'], frameCap: number): QuotaStatusRe
       limit: tier === 'free' ? 1 : 10,
       remaining: tier === 'free' ? 1 : 10,
       frameCap,
+      unlimited: false,
       isLifetime: tier === 'free',
       periodStart: tier === 'free' ? null : '2026-07-01T00:00:00.000Z',
       periodEnd: tier === 'free' ? null : '2026-08-01T00:00:00.000Z',

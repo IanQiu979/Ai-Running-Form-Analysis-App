@@ -206,6 +206,9 @@ export const Copy = {
       // --- issues #54/#15 additions end ---
     },
     quota: {
+      // Temporary all-users test mode. The server is the authority for `unlimited: true`; this
+      // string contains no quota number that could drift when the flag is later removed.
+      unlimited: 'Elite access · Unlimited analyses',
       free: {
         available: 'Sample preview available',
       },
@@ -557,6 +560,13 @@ export const Copy = {
     error: {
       loadFailed: "Couldn't load your past analyses.",
       retry: 'Retry',
+    },
+    // The Compare screen existed but History exposed no route to it, leaving the feature
+    // unreachable through normal app navigation. Compare independently enforces Elite, so this
+    // entry point never re-derives tier client-side; it appears once there are two rows to pick.
+    compare: {
+      cta: 'Compare two analyses',
+      a11yHint: 'Opens the comparison picker.',
     },
     // --- issue #55 NEW keys end ---
   },

@@ -5,6 +5,29 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-07 (comprehensive audit: temporary unlimited Elite access + correctness fixes)
+
+- Added the strict, server-only `ALL_USERS_UNLIMITED_ACCESS` override for the captain's complete
+  test pass. When enabled, additive service-role wrapper RPCs make every authenticated account run
+  the real Elite analysis path with the Elite 8-frame cap and unlimited analysis-count quota;
+  disabling the flag immediately restores the original hardened entitlement/quota RPCs. Purchase
+  flows, immutable analysis history, soft-delete exploit protection, auth, consent, request limits,
+  idempotency/locking, and AI spend guardrails are unchanged.
+- Extended the quota-status contract with explicit `unlimited: true` plus null `limit`/`remaining`,
+  and wired Home, video extraction, Paywall, and Settings to represent that state without a fake
+  numeric ceiling. Settings now reads the same server-authoritative endpoint as the other plan UI
+  instead of querying subscriptions directly and disagreeing with temporary server entitlements.
+- Wired the already-built Compare feature into normal navigation: History now shows “Compare two
+  analyses” when at least two stored results exist. Compare keeps its own fresh server-side Elite
+  entitlement check rather than trusting the entry point.
+- Fixed Paywall offering an Elite user an active “Upgrade to Pro” downgrade. The lower-tier CTA is
+  now absent for Elite while the actual purchase/subscription flow remains unchanged.
+- Added regression coverage for flag parsing, edge-flow RPC selection, unlimited quota parsing/UI,
+  and migration security/invariants. The full Jest gate now runs in-band: several unrelated RNTL
+  suites exceeded their 5-second test timeout only under full parallel worker contention, while
+  passing in isolation, so deterministic serial execution replaces host-load false failures. Full
+  audit receipt: `docs/audit-v2.3-comprehensive-2026-08-07.md`.
+
 ## 2026-08-08 (sign-in: scroll-reveal restructuring with LowPolyField zoom)
 
 - **Restructured `app/(auth)/sign-in.tsx` into a scroll-based reveal**, now that

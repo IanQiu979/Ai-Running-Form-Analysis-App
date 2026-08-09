@@ -104,26 +104,29 @@ export function parseQuotaStatusResponse(body: unknown): QuotaStatus | null {
   if (tier !== 'free' && tier !== 'pro' && tier !== 'elite') return null;
 
   const { used, limit, remaining, frameCap } = record;
+  const unlimited = record.unlimited === true;
   if (
     typeof used !== 'number' ||
-    typeof limit !== 'number' ||
-    typeof remaining !== 'number' ||
-    typeof frameCap !== 'number'
+    typeof frameCap !== 'number' ||
+    (unlimited
+      ? limit !== null || remaining !== null
+      : typeof limit !== 'number' || typeof remaining !== 'number')
   ) {
     return null;
   }
 
-  const blocked = Boolean(record.blocked);
+  const blocked = unlimited ? false : Boolean(record.blocked);
   const blockedReason: BlockedReason | null =
     blocked && record.blockedReason === 'too_many_failed_attempts' ? 'too_many_failed_attempts' : null;
 
   return {
     tier,
     used,
-    limit,
-    remaining,
+    limit: unlimited ? null : (limit as number),
+    remaining: unlimited ? null : (remaining as number),
     frameCap,
-    isLifetime: Boolean(record.isLifetime),
+    unlimited,
+    isLifetime: unlimited ? false : Boolean(record.isLifetime),
     periodStart: nullableString(record.periodStart),
     periodEnd: nullableString(record.periodEnd),
     blocked,
@@ -215,20 +218,26 @@ function formatPeriodEndDate(periodEnd: string | null): string | null {
 }
 
 function describePrimaryCaption(quota: QuotaStatus): string {
+  if (quota.unlimited) return Copy.home.quota.unlimited;
+
   if (quota.tier === 'free') {
-    return quota.remaining > 0 ? Copy.home.quota.free.available : Copy.home.quota.exhausted.free;
+    return (quota.remaining ?? 0) > 0
+      ? Copy.home.quota.free.available
+      : Copy.home.quota.exhausted.free;
   }
 
-  if (quota.remaining > 0) {
+  if ((quota.remaining ?? 0) > 0) {
     return remainingTemplateFor(quota.tier)
-      .replace('{remaining}', String(quota.remaining))
-      .replace('{limit}', String(quota.limit));
+      .replace('{remaining}', String(quota.remaining ?? 0))
+      .replace('{limit}', String(quota.limit ?? 0));
   }
 
   // Defensive fallback only — `periodEnd` is documented non-null for Pro/Elite
   // (`supabase/functions/_shared/quota-status.ts`), so this should never actually render blank.
   const renewsOn = formatPeriodEndDate(quota.periodEnd) ?? '';
-  return exhaustedTemplateFor(quota.tier).replace('{limit}', String(quota.limit)).replace('{date}', renewsOn);
+  return exhaustedTemplateFor(quota.tier)
+    .replace('{limit}', String(quota.limit ?? 0))
+    .replace('{date}', renewsOn);
 }
 
 /**
@@ -243,7 +252,7 @@ export function describeQuota(quota: QuotaStatus): QuotaCaption {
     return { primary, secondary: Copy.home.quota.blocked };
   }
 
-  if (quota.tier !== 'free' && quota.remaining > 0) {
+  if (!quota.unlimited && quota.tier !== 'free' && (quota.remaining ?? 0) > 0) {
     const renewsOn = formatPeriodEndDate(quota.periodEnd);
     return { primary, secondary: renewsOn ? Copy.home.quota.renewsOn.replace('{date}', renewsOn) : null };
   }
@@ -261,7 +270,7 @@ export type PrimaryCtaKind = 'analyze' | 'upgradeToAnalyze' | 'upgradeForMore' |
  * disabled instead of relabeled.
  */
 export function primaryCtaKind(quota: QuotaStatus): PrimaryCtaKind {
-  if (quota.remaining > 0) return 'analyze';
+  if (quota.unlimited || (quota.remaining ?? 0) > 0) return 'analyze';
   if (quota.tier === 'free') return 'upgradeToAnalyze';
   if (quota.tier === 'pro') return 'upgradeForMore';
   return 'analyzeDisabled';

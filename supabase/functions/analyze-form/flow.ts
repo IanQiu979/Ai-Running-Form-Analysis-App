@@ -230,6 +230,9 @@ export interface AnalyzeFormLogEvent {
 }
 
 export interface AnalyzeFormDeps {
+  /** Temporary captain-only test override. When true, selects additive service-role wrapper RPCs
+   * that report Elite and bypass count/anti-farm quota refusal. Normal RPCs remain untouched. */
+  allUsersUnlimitedAccess?: boolean;
   /** Service-role RPC client — `gate_ai_call`, `record_ai_call`, `reserve_analysis`,
    * `settle_analysis`, and `release_analysis` are ALL granted to `service_role` only. Never build
    * this from the caller's JWT: it would simply fail, which is the DB doing its job. */
@@ -391,22 +394,34 @@ interface ReserveResult {
  * propagate to the function's own top-level `catch`, which already turns any unexpected RPC
  * failure into the same `internal_error` 500.
  */
-async function currentTier(rpc: RpcClient, userId: string): Promise<PaceTier> {
-  const { data, error } = await rpc.rpc('pace_current_tier', { p_user_id: userId });
+async function currentTier(
+  rpc: RpcClient,
+  userId: string,
+  allUsersUnlimitedAccess = false
+): Promise<PaceTier> {
+  const fn = allUsersUnlimitedAccess ? 'pace_current_tier_unlimited' : 'pace_current_tier';
+  const { data, error } = await rpc.rpc(fn, { p_user_id: userId });
   if (error) {
-    throw new Error(`pace_current_tier failed: ${error.message}`);
+    throw new Error(`${fn} failed: ${error.message}`);
   }
   if (data !== 'free' && data !== 'pro' && data !== 'elite') {
-    throw new Error(`pace_current_tier returned an unexpected tier: ${JSON.stringify(data)}`);
+    throw new Error(`${fn} returned an unexpected tier: ${JSON.stringify(data)}`);
   }
   return data;
 }
 
 async function reserveAnalysis(
   rpc: RpcClient,
-  args: { userId: string; idempotencyKey: string; mediaType: PaceMediaKind; frameCount: number }
+  args: {
+    userId: string;
+    idempotencyKey: string;
+    mediaType: PaceMediaKind;
+    frameCount: number;
+    allUsersUnlimitedAccess?: boolean;
+  }
 ): Promise<ReserveResult> {
-  const { data, error } = await rpc.rpc('reserve_analysis', {
+  const fn = args.allUsersUnlimitedAccess ? 'reserve_analysis_unlimited' : 'reserve_analysis';
+  const { data, error } = await rpc.rpc(fn, {
     // CONTRACT RULE 1 — `p_user_id` is the JWT-derived id, threaded down from `index.ts`'s
     // `auth.getUser()`. There is no code path by which a request body can influence it.
     p_user_id: args.userId,
@@ -418,7 +433,7 @@ async function reserveAnalysis(
     // call succeeds.
   });
   if (error) {
-    throw new Error(`reserve_analysis failed: ${error.message}`);
+    throw new Error(`${fn} failed: ${error.message}`);
   }
   return data as ReserveResult;
 }
@@ -679,7 +694,7 @@ export async function runAnalyzeForm(
     // fabricated preview, always labeled `isSample: true`. Nothing below this branch ever runs for
     // a free-tier caller, so `openCalls`/`reservation` stay empty/null and the `finally` at the
     // bottom is a no-op by construction, exactly like every other early return above it.
-    tier = await currentTier(deps.rpc, callerUserId);
+    tier = await currentTier(deps.rpc, callerUserId, deps.allUsersUnlimitedAccess);
 
     if (tier === 'free') {
       outcome = 'sample';
@@ -739,6 +754,7 @@ export async function runAnalyzeForm(
       idempotencyKey: request.idempotencyKey,
       mediaType: request.mediaType,
       frameCount: request.frames.length,
+      allUsersUnlimitedAccess: deps.allUsersUnlimitedAccess,
     });
 
     if (!reserve.allowed) {
