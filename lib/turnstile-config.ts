@@ -30,6 +30,13 @@
  * testable without touching `process.env`, and so the one place that DOES read `process.env`
  * (`app/(auth)/sign-in.tsx`) keeps the static dot access the `expo/no-dynamic-env-var` rule
  * requires. See CLAUDE.md § Secrets & env.
+ *
+ * "Dependency-free" includes the global `URL`, which is why the origin is parsed here by hand.
+ * React Native's built-in `URL` neither validates its input nor implements `origin`/`hostname`;
+ * only `react-native-url-polyfill/auto` (side-effect imported by `lib/supabase.ts`) makes those
+ * work, so parsing with `URL` here would silently depend on an unrelated module having been
+ * imported first — and would degrade to "sign-up unavailable" with a perfectly valid key if that
+ * import order ever changed. Jest could never catch it, since Node supplies a compliant `URL`.
  */
 
 export interface TurnstileConfig {
@@ -46,6 +53,27 @@ function trimmedOrNull(value: string | undefined | null): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/** `scheme://authority`, where the authority runs up to the first `/`, `?` or `#`. */
+const ABSOLUTE_URL = /^(https?):\/\/([^/?#]*)/i;
+/** A host (name, IPv4, or bracketed IPv6) with an optional numeric port — deliberately strict,
+ *  so `not a hostname at all` is rejected rather than smuggled through as a hostname. */
+const HOST_AND_PORT = /^(?:[A-Za-z0-9._~-]+|\[[0-9A-Fa-f:.]+\])(?::\d+)?$/;
+
+/**
+ * The single parse in this file: an absolute `http(s)` URL in, its origin with a trailing slash
+ * out, `null` for anything this can't turn into a real hostname. Both callers below go through
+ * here, so there is one place that decides what a usable base URL is.
+ */
+function baseUrlFromAbsoluteUrl(value: string): string | null {
+  const match = ABSOLUTE_URL.exec(value);
+  if (match === null) return null;
+  const authority = match[2];
+  // Strip any `user:pass@` — the credentials are not part of the origin Cloudflare checks.
+  const hostAndPort = authority.slice(authority.lastIndexOf('@') + 1);
+  if (!HOST_AND_PORT.test(hostAndPort)) return null;
+  return `${match[1].toLowerCase()}://${hostAndPort.toLowerCase()}/`;
+}
+
 /**
  * Turns a configured hostname into a base URL. Accepts either a bare hostname
  * (`example.com`) or a full origin (`https://example.com`), because both are things an operator
@@ -55,13 +83,7 @@ function trimmedOrNull(value: string | undefined | null): string | null {
  */
 function baseUrlFromHostname(hostname: string): string | null {
   const withScheme = /^https?:\/\//i.test(hostname) ? hostname : `https://${hostname}`;
-  try {
-    const url = new URL(withScheme);
-    if (!url.hostname) return null;
-    return `${url.origin}/`;
-  } catch {
-    return null;
-  }
+  return baseUrlFromAbsoluteUrl(withScheme);
 }
 
 /**
@@ -85,13 +107,11 @@ export function resolveTurnstileConfig(
     return baseUrl === null ? null : { siteKey: key, baseUrl };
   }
 
+  // The fallback is an env var this project sets itself, so it must already be an absolute URL —
+  // no scheme is inferred for it, and a malformed value resolves to null rather than becoming a
+  // hostname that could only ever fail Cloudflare's check.
   const fallback = trimmedOrNull(supabaseUrl);
   if (fallback === null) return null;
-  try {
-    const url = new URL(fallback);
-    if (!url.hostname) return null;
-    return { siteKey: key, baseUrl: `${url.origin}/` };
-  } catch {
-    return null;
-  }
+  const baseUrl = baseUrlFromAbsoluteUrl(fallback);
+  return baseUrl === null ? null : { siteKey: key, baseUrl };
 }

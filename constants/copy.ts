@@ -877,6 +877,12 @@ export const Copy = {
       error: {
         title: "That didn't work",
         genericBody: "We couldn't confirm it's you. Check your connection and try again.",
+        // The sign-in screen's `auth.error.invalidCredentials` cannot be reused here: it offers
+        // "Continue with Google" as a possibility, which is true at sign-in (any account may be
+        // Google-backed) but known-false in this sheet — it opens only when `getReauthProvider`
+        // says the signed-in account is a password account, and it has no Google button to press.
+        // The email is not in question here either; the user is already signed in.
+        wrongPassword: "That password doesn't match. Try again.",
         // Reached only if the RETRY after a successful reauthentication is ALSO rejected as stale
         // (e.g. clock skew) — distinct from genericBody because the user just did what was asked
         // and it still didn't take, which deserves its own honest explanation rather than looking

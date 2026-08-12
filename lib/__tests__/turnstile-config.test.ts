@@ -87,6 +87,30 @@ describe('resolveTurnstileConfig', () => {
     });
   });
 
+  // Jest runs on Node, whose `URL` is spec-compliant; React Native's built-in one is not (it
+  // neither validates input nor implements `origin`/`hostname`, and only
+  // `react-native-url-polyfill/auto` — imported for its side effect by `lib/supabase.ts`, not by
+  // this module — repairs it). So a resolver that parsed with `URL` would pass every case above
+  // and still resolve to null on a device the moment that unrelated import order changed, turning
+  // a perfectly valid site key back into "sign-up unavailable". This removes Node's `URL` for the
+  // duration of the call to prove the resolution does not reach for it.
+  it('resolves without a spec-compliant global URL, as on a device with no polyfill loaded', () => {
+    const realUrl = globalThis.URL;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).URL = undefined;
+    try {
+      expect(resolveTurnstileConfig('key', undefined, SUPABASE_URL)?.baseUrl).toBe(
+        'https://vputdomdlknvthnzritt.supabase.co/'
+      );
+      expect(resolveTurnstileConfig('key', 'signup.example.com', SUPABASE_URL)?.baseUrl).toBe(
+        'https://signup.example.com/'
+      );
+      expect(resolveTurnstileConfig('key', 'not a hostname at all', undefined)).toBeNull();
+    } finally {
+      globalThis.URL = realUrl;
+    }
+  });
+
   // The load-bearing invariant, stated once as a property over every input combination rather
   // than relying on the individual cases above to stay exhaustive: a site key can never produce
   // a config without a base URL to render it under.
