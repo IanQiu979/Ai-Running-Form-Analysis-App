@@ -5,6 +5,14 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-13
+
+- CI: the `denoland/setup-deno` step in `.github/workflows/ci.yml` now retries once. The Deno
+  release download 503'd through the action's own internal retries on 2026-08-12 and failed the
+  whole `typecheck, lint, test` gate for reasons unrelated to the diff. The first attempt is
+  `continue-on-error`, the retry is not — a sustained install failure still fails CI, and no check
+  was weakened.
+
 ## 2026-08-12 (email sign-up: the Turnstile hostname bug, and why sign-in looked broken too)
 
 - Diagnosed the captain's "email sign-up and sign-in are both broken" report against the live

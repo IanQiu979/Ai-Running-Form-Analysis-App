@@ -58,7 +58,23 @@ jobs:
       # locally per CLAUDE.md ("installed locally at ~/.local/bin/deno") — there is no repo-
       # committed Deno version file to defer to instead. Bump this alongside the local install if
       # it's ever upgraded.
-      - uses: denoland/setup-deno@v2
+      #
+      # Run twice, not once: the action downloads the release tarball from GitHub's release CDN,
+      # and that download 503'd through the action's own internal retries on 2026-08-12, failing
+      # the whole gate for reasons unrelated to the diff under test. The first attempt carries
+      # `continue-on-error` so a transient CDN failure doesn't end the job; the second attempt
+      # runs only if the first actually failed and has no such escape hatch, so a real, sustained
+      # install failure still fails CI. Nothing here weakens a check — Deno is either on PATH for
+      # `typecheck:edge`/`test:edge` afterwards, or the job is red.
+      - id: setup-deno
+        uses: denoland/setup-deno@v2
+        continue-on-error: true
+        with:
+          deno-version: '2.9.2'
+
+      - name: Install Deno (retry)
+        if: steps.setup-deno.outcome == 'failure'
+        uses: denoland/setup-deno@v2
         with:
           deno-version: '2.9.2'
 
