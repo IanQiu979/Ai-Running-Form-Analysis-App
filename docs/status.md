@@ -1046,14 +1046,13 @@ still standing between here and a public/TestFlight release:
 - ~~**Known Issue #12** — CAPTCHA is needed before `analyze-form` can go live publicly~~
   **RESOLVED 2026-08-02/03** — see that entry above for the full story
   (`supabase/functions/signup-with-captcha`, not native `auth.captcha`).
-- **Known Issue #36 — email sign-up: still OPEN, with a narrowed remaining scope.** Both known
-  causes are addressed — the latent `baseUrl` bug is fixed in code on this branch, and the captain
-  has provisioned the site key and allow-listed the hostname (see "What is proven, and what is
-  not" at the end of this entry). What is **not** proven is the final hop: no email/password
-  account has ever been created. A live check of `auth.users` on `vputdomdlknvthnzritt` on
-  2026-08-12 returned exactly **one** row — `200154@ucis.ac.th`, created 2026-08-10, Google
-  provider, no password. Do not record email sign-up as live-verified end to end until a human
-  completes one real sign-up. The diagnosis below is kept as the historical record of what was
+- ~~**Known Issue #36 — email sign-up is broken**~~ **RESOLVED 2026-08-12**, verified live end to
+  end against `vputdomdlknvthnzritt`. Both causes are addressed — the latent `baseUrl` bug is fixed
+  in code on this branch, and the captain provisioned the site key and allow-listed the hostname —
+  and, unlike every prior attempt, the full path was exercised to completion: a real sign-up in the
+  app created a real account, and a real sign-in with it reached the signed-in Home screen. See
+  "Verified live end to end" at the end of this entry for the evidence and for the one follow-up
+  observation it surfaced. The diagnosis below is kept as the historical record of what was
   actually wrong, because the two causes stacked in a way that made each other invisible.
 
   Diagnosed 2026-08-12 (branch `fm/v23-signup-signin-cloudflare-fix-r1`) after the
@@ -1100,11 +1099,31 @@ still standing between here and a public/TestFlight release:
   real key, which pins the regression from both sides. The reworded invalid-credentials copy was
   observed rendering from a genuine production HTTP 400.
 
-  **Not proven — the remaining scope of this issue:** the final hop from a solved-challenge token
-  through `signup-with-captcha` to a new row in `auth.users`. Cloudflare refuses to issue tokens to
-  automated browsers by design, so this cannot be scripted; it needs a human completing one real
-  sign-up on a device or dev build. `auth.users` still holds only the single Google account, so no
-  email sign-up has ever completed.
+  **Verified live end to end, 2026-08-12** — in the app (Expo Go, iOS simulator, pointed at the
+  production project), not by unit test and not by a scripted browser:
+  - **Sign-up.** `pace.e2e.0812c@mailinator.com` was created at 16:36:57 UTC through the real form:
+    Turnstile solved, `signup-with-captcha` accepted the token, and `auth.users` gained a row with
+    `encrypted_password` set, provider `email`, auto-confirmed, with a session issued. That is the
+    **first email/password account this project has ever had** — the hop that had never once
+    completed.
+  - **Sign-in.** Signing in with that account reached the signed-in Home screen (tab bar, "Nothing
+    analyzed yet"), and `last_sign_in_at` moved to 17:02:30 UTC.
+  - **Cleanup.** The test account was deleted afterwards; `auth.users` is back to the single Google
+    account it held before.
+
+  Getting there required disabling iOS Settings → General → AutoFill & Passwords → **Suggest Strong
+  Passwords** in the simulator: the "Use Strong Password?" sheet intercepts the password field after
+  the first character and does not respond to synthetic taps. Worth knowing for any future
+  simulator-driven auth run. Note also that the Turnstile token is short-lived — solve the challenge
+  and submit within a few minutes, or the button silently does nothing because the token was cleared.
+
+  **One open follow-up, not a regression in this change:** on the successful sign-up the app stayed
+  on the sign-up form instead of entering the app, even though the server had issued a session.
+  Sign-in navigates correctly, and `applySignupSession` (`lib/signup-with-captcha.ts`) does call
+  `supabase.auth.setSession` with both tokens, so the wiring reads correct. A duplicate submit
+  returning HTTP 422 fired ~77s after the successful one, which confounds the observation, and it
+  was only seen once. Worth one deliberate sign-up on a real device to settle before onboarding
+  anyone.
 
   **Two things about this that stay true and must not be "tidied up" later.** The real site key
   lives ONLY in the gitignored `.env` and in EAS — never in `eas.json` or any other tracked file,

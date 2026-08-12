@@ -22,11 +22,15 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   simulator (Turnstile returned Success, "Create account" became enabled); the old no-`baseUrl`
   path still fails with the app-visible error under the same real key. The real key is deliberately
   absent from every tracked file, `eas.json` included — its two `*-local` profiles keep
-  Cloudflare's dummy key for local-stack testing. **Known Issue #36 stays OPEN** with one narrowed
-  gap: the hop from a solved-challenge token through `signup-with-captcha` to a new row in
-  `auth.users` is still unverified — `auth.users` holds exactly one account, a Google identity with
-  no password, so no email sign-up has ever completed. Cloudflare refuses tokens to automated
-  browsers by design, so a human must complete one real sign-up on a device or dev build.
+  Cloudflare's dummy key for local-stack testing.
+- **Email sign-up and sign-in both verified live end to end, and Known Issue #36 is RESOLVED.** In
+  the app against the production project: a real sign-up created
+  `pace.e2e.0812c@mailinator.com` at 16:36:57 UTC — the first email/password account this project
+  has ever had — and a real sign-in with it reached the signed-in Home screen
+  (`last_sign_in_at` 17:02:30 UTC). The test account was deleted afterwards. One follow-up
+  observation, seen once and confounded by a duplicate submit: after the successful sign-up the app
+  stayed on the form instead of entering the app, though the server had issued a session and
+  sign-in navigates correctly. Details and reproduction notes in `docs/status.md` Known Issue #36.
 - Fixed the second, latent cause that would have kept sign-up broken even once a key was supplied.
   `components/turnstile-widget.tsx` loaded Cloudflare's challenge with no `baseUrl`, i.e. under
   `about:blank`/a `null` origin. Turnstile widgets are hostname-bound and the check cannot be

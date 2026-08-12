@@ -67,10 +67,10 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
   explains the whole failure mode. The site key is now set in the gitignored `.env` and in all
   three EAS environments, and `vputdomdlknvthnzritt.supabase.co` is allow-listed on the widget, so
   no `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed and the challenge renders and can be
-  solved (observed in the app on an iOS simulator). **A completed email sign-up has still never
-  happened** — `auth.users` holds one account, a Google identity with no password — so the hop from
-  a solved-challenge token through `signup-with-captcha` to a new row remains unverified and Known
-  Issue #36 stays open on exactly that. **Do not "fix" the key's absence from the repo by committing
+  solved. **Email sign-up and sign-in are both verified live end to end as of 2026-08-12** — a real
+  sign-up in the app created the project's first email/password account and a real sign-in with it
+  reached the Home screen; the test account was deleted afterwards, and Known Issue #36 is resolved.
+  **Do not "fix" the key's absence from the repo by committing
   it** — `eas.json` keeps Cloudflare's dummy key in its two `*-local` profiles on purpose. **Those
   dummy test keys ignore hostnames**, so local/dev environments cannot reproduce a production
   hostname failure — never conclude sign-up works from a dummy-key run. `docs/status.md` Known
