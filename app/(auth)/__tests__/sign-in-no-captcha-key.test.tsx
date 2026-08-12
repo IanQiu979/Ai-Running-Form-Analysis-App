@@ -83,6 +83,13 @@ jest.mock('@/hooks/use-reduced-motion', () => ({
 // THE POINT OF THIS FILE: unset before `sign-in.tsx` is first evaluated. A plain ES `import` is
 // hoisted above this line, hence the `require` below — same mechanism `sign-in.test.tsx` uses to
 // set it, inverted.
+//
+// A missing key is only ONE of the ways `resolveTurnstileConfig` (lib/turnstile-config.ts)
+// returns null; a key with no derivable hostname is the other, and reaches this exact screen
+// state by the same branch. That second input is covered in `lib/__tests__/turnstile-config.test.ts`
+// rather than duplicated into a third screen file, since the screen cannot tell the two apart —
+// it sees `null` either way — and each case costs a whole separate module evaluation (see this
+// file's header for why they cannot share one).
 delete process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const SignInScreen = require('../sign-in').default;

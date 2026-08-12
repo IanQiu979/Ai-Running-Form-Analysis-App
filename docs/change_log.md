@@ -5,6 +5,58 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-13
+
+- CI: the `denoland/setup-deno` step in `.github/workflows/ci.yml` now retries once. The Deno
+  release download 503'd through the action's own internal retries on 2026-08-12 and failed the
+  whole `typecheck, lint, test` gate for reasons unrelated to the diff. The first attempt is
+  `continue-on-error`, the retry is not — a sustained install failure still fails CI, and no check
+  was weakened.
+
+## 2026-08-12 (email sign-up: the Turnstile hostname bug, and why sign-in looked broken too)
+
+- Diagnosed the captain's "email sign-up and sign-in are both broken" report against the live
+  project. Sign-in was never broken: `auth.users` held exactly one account, a Google identity with
+  no password, so there was nothing to sign in to with a password and GoTrue's deliberate
+  `invalid_credentials` was correct. Email **sign-up** had never once succeeded, because
+  `EXPO_PUBLIC_TURNSTILE_SITE_KEY` was set nowhere real — the captain had set the server-side
+  `TURNSTILE_SECRET_KEY` (real, working, verified live) but never the client-side half of the
+  pair. Full receipt: `docs/status.md` Known Issue #36.
+- **The Turnstile challenge now renders and can be solved against the production project** —
+  `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is set in the gitignored `.env` and in all three EAS
+  environments, and `vputdomdlknvthnzritt.supabase.co` is on the widget's allowed-domain list in
+  Cloudflare, so the base URL the resolver supplies passes the hostname check and no
+  `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed. Observed succeeding in the app on an iOS
+  simulator (Turnstile returned Success, "Create account" became enabled); the old no-`baseUrl`
+  path still fails with the app-visible error under the same real key. The real key is deliberately
+  absent from every tracked file, `eas.json` included — its two `*-local` profiles keep
+  Cloudflare's dummy key for local-stack testing.
+- **Email sign-up and sign-in both verified live end to end, and Known Issue #36 is RESOLVED.** In
+  the app against the production project: a real sign-up created
+  `pace.e2e.0812c@mailinator.com` at 16:36:57 UTC — the first email/password account this project
+  has ever had — and a real sign-in with it reached the signed-in Home screen
+  (`last_sign_in_at` 17:02:30 UTC). The test account was deleted afterwards. One follow-up
+  observation, seen once and confounded by a duplicate submit: after the successful sign-up the app
+  stayed on the form instead of entering the app, though the server had issued a session and
+  sign-in navigates correctly. Details and reproduction notes in `docs/status.md` Known Issue #36.
+- Fixed the second, latent cause that would have kept sign-up broken even once a key was supplied.
+  `components/turnstile-widget.tsx` loaded Cloudflare's challenge with no `baseUrl`, i.e. under
+  `about:blank`/a `null` origin. Turnstile widgets are hostname-bound and the check cannot be
+  disabled, so any **real** site key would have failed with error 110200. Cloudflare's dummy test
+  keys ignore hostnames, which is why the only environments the widget was ever run in could not
+  reproduce it and #166 shipped green.
+- Added `lib/turnstile-config.ts`: resolves the site key and the base URL together, so a key can
+  never be shipped without a hostname to render it under. The hostname comes from the new optional
+  `EXPO_PUBLIC_TURNSTILE_HOSTNAME`, defaulting to the Supabase project's own origin. An
+  unconfigured or unusable pair returns null and the screen keeps showing the existing honest
+  "creating an account isn't available" notice rather than a challenge that can only fail.
+- Reworded `Copy.auth.error.invalidCredentials` to name "Continue with Google" as a possibility.
+  A Google-created account has no password, so its email in the password form returns the same
+  `invalid_credentials` as a wrong password — deliberately, to avoid disclosing which emails
+  exist. The old copy left the user with "sign-in is broken" as the only readable conclusion,
+  which is exactly what happened in live testing. The string is shown for every credential
+  failure, so it still discloses no account state.
+
 ## 2026-08-07 (comprehensive audit: temporary unlimited Elite access + correctness fixes)
 
 - Added the strict, server-only `ALL_USERS_UNLIMITED_ACCESS` override for the captain's complete

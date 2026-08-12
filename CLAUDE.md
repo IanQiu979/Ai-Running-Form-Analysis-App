@@ -54,9 +54,27 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
 ## Secrets & env — read this before touching any env file
 
 - `.env` (gitignored) holds ONLY `EXPO_PUBLIC_SUPABASE_URL`,
-  `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `EXPO_PUBLIC_TURNSTILE_SITE_KEY` — nothing
-  Google-related belongs there, ever; the browser OAuth flow never reads a client-ID var.
-  `.env.example` is the committed template — copy it, never edit it in place.
+  `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `EXPO_PUBLIC_TURNSTILE_SITE_KEY` and the optional
+  `EXPO_PUBLIC_TURNSTILE_HOSTNAME` — nothing Google-related belongs there, ever; the browser
+  OAuth flow never reads a client-ID var. `.env.example` is the committed template — copy it,
+  never edit it in place.
+- **Turnstile is a PAIR of keys and a hostname; all three are provisioned as of 2026-08-12 and
+  none of them live in a tracked file.** Setting `TURNSTILE_SECRET_KEY` server-side does not enable
+  sign-up on its own — without `EXPO_PUBLIC_TURNSTILE_SITE_KEY` the widget never renders and
+  "Create account" is permanently disabled behind an honest notice. And a real site key only works
+  if the hostname the challenge is rendered under is on that widget's allow list in Cloudflare
+  (there is no way to disable that check); `lib/turnstile-config.ts` resolves both together and
+  explains the whole failure mode. The site key is now set in the gitignored `.env` and in all
+  three EAS environments, and `vputdomdlknvthnzritt.supabase.co` is allow-listed on the widget, so
+  no `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed and the challenge renders and can be
+  solved. **Email sign-up and sign-in are both verified live end to end as of 2026-08-12** — a real
+  sign-up in the app created the project's first email/password account and a real sign-in with it
+  reached the Home screen; the test account was deleted afterwards, and Known Issue #36 is resolved.
+  **Do not "fix" the key's absence from the repo by committing
+  it** — `eas.json` keeps Cloudflare's dummy key in its two `*-local` profiles on purpose. **Those
+  dummy test keys ignore hostnames**, so local/dev environments cannot reproduce a production
+  hostname failure — never conclude sign-up works from a dummy-key run. `docs/status.md` Known
+  Issue #36 has the live evidence and the exact remaining scope.
 - Anything prefixed `EXPO_PUBLIC_` is inlined in **plain text** into the compiled app bundle.
   Treat it as public. Always read it with static dot notation (`process.env.EXPO_PUBLIC_X`) —
   the `expo/no-dynamic-env-var` lint rule enforces this; destructuring or bracket access

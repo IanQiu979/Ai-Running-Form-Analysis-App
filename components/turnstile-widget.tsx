@@ -15,6 +15,14 @@
  * that a managed/non-interactive widget (`appearance: 'always'`, the default) gives users a clear
  * signal that a check ran — kept visible deliberately, matching the "no dark patterns" spirit of
  * this app's other consent-adjacent UI (see `docs/design/copy-deck.md`).
+ *
+ * `baseUrl` IS LOAD-BEARING, NOT COSMETIC. Turnstile widgets are hostname-bound and Cloudflare
+ * offers no way to disable that check, so the HTML below must be loaded under a hostname on the
+ * widget's allow list or `challenges.cloudflare.com` refuses it with error 110200 and the only
+ * thing that reaches this component is `onError`. `source={{ html }}` alone loads under
+ * `about:blank`/a `null` origin — no hostname — which a real production site key can never pass.
+ * `lib/turnstile-config.ts` owns picking the value and explains why this went unnoticed until
+ * production; this component just refuses to render without one.
  */
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -31,6 +39,9 @@ export interface TurnstileWidgetHandle {
 
 interface TurnstileWidgetProps {
   siteKey: string;
+  /** The URL the challenge HTML is loaded under — its hostname must be on the widget's allow
+   * list in Cloudflare. Required; see this file's header for why there is no sane default. */
+  baseUrl: string;
   onToken: (token: string) => void;
   /** Fired on a Cloudflare-reported verification error OR on the WebView itself failing to load
    * the challenge shell (no network, DNS failure, etc.) — the caller can't tell these apart and
@@ -81,7 +92,7 @@ function buildHtml(siteKey: string): string {
 }
 
 export const TurnstileWidget = forwardRef<TurnstileWidgetHandle, TurnstileWidgetProps>(
-  function TurnstileWidget({ siteKey, onToken, onError, onExpire }, ref) {
+  function TurnstileWidget({ siteKey, baseUrl, onToken, onError, onExpire }, ref) {
     const scheme: ColorScheme = useColorScheme() ?? 'light';
     const colors = Colors[scheme];
     const webViewRef = useRef<WebView>(null);
@@ -130,7 +141,11 @@ export const TurnstileWidget = forwardRef<TurnstileWidgetHandle, TurnstileWidget
         ]}>
         <WebView
           ref={webViewRef}
-          source={{ html }}
+          testID="turnstile-webview"
+          // `baseUrl` is what gives this page a hostname for Cloudflare to check — see the
+          // header. Dropping it back to a bare `{ html }` reintroduces the exact 110200 that
+          // made sign-up impossible for every real site key.
+          source={{ html, baseUrl }}
           onMessage={handleMessage}
           onError={onError}
           onHttpError={onError}

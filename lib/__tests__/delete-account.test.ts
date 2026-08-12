@@ -309,7 +309,10 @@ describe('reauthenticateWithPassword', () => {
     });
   });
 
-  it('maps a wrong password through mapAuthError, identically to the sign-in screen', async () => {
+  // Sign-in's own `invalidCredentials` string names "Continue with Google" as a possibility. That
+  // is true on the sign-in screen and false here: this sheet only opens for a password account and
+  // has no Google button, so a mistyped password must not point the user at one.
+  it('reports a wrong password with the reauth-specific copy, not the sign-in string', async () => {
     mockSignInWithPassword.mockResolvedValue({
       data: {},
       error: new Error('Invalid login credentials'),
@@ -319,8 +322,24 @@ describe('reauthenticateWithPassword', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('expected the failure branch');
-    expect(result.error).toBe(Copy.auth.error.invalidCredentials);
+    expect(result.error).toBe(Copy.settings.reauth.error.wrongPassword);
+    expect(result.error).not.toContain('Google');
     expect(result.cancelled).toBeUndefined();
+  });
+
+  // Everything that is NOT sign-in-specific still comes straight from `mapAuthError`, so the two
+  // screens cannot drift on the failures they genuinely share.
+  it('still maps every other failure through mapAuthError', async () => {
+    mockSignInWithPassword.mockResolvedValue({
+      data: {},
+      error: new Error('something else entirely'),
+    } as never);
+
+    const result = await reauthenticateWithPassword('runner@example.com', 'whatever');
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected the failure branch');
+    expect(result.error).toBe(Copy.auth.error.generic);
   });
 });
 

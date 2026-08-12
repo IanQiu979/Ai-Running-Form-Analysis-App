@@ -739,9 +739,10 @@ and in `docs/change_log.md` (2026-07-12), not in the file itself:
 | `production` | — | — | app-bundle, `autoIncrement` | |
 | `submit.production` | — | — | — | Empty placeholder; the App Store Connect app ID and Apple team ID land once Apple exists. |
 
-EAS project-scoped server env vars exist for `EXPO_PUBLIC_SUPABASE_URL` and
-`EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in all three environments (development/preview/
-production), at visibility **`sensitive`, deliberately not `secret`**: `EXPO_PUBLIC_*` is
+EAS project-scoped server env vars exist for `EXPO_PUBLIC_SUPABASE_URL`,
+`EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and (since 2026-08-12) `EXPO_PUBLIC_TURNSTILE_SITE_KEY`
+in all three environments (development/preview/production), at visibility
+**`sensitive`, deliberately not `secret`**: `EXPO_PUBLIC_*` is
 inlined in plain text into the compiled bundle regardless of how EAS stores it, so the key's
 real protection is Supabase RLS, not secrecy — `secret` visibility is write-only (unreadable via
 the dashboard, `env:list`, *and* `env:pull`), which would buy no security while blocking
@@ -2017,7 +2018,17 @@ widening that contract for one caller wasn't worth it.
 
 **Client.** `components/turnstile-widget.tsx` hosts Cloudflare's `turnstile/v0/api.js` inside a
 minimal `react-native-webview` HTML shell (Turnstile has no first-party React Native SDK) and
-bridges its `callback`/`error-callback`/`expired-callback` back to RN via `postMessage`.
+bridges its `callback`/`error-callback`/`expired-callback` back to RN via `postMessage`. It takes a
+**required `baseUrl`** alongside the site key and loads the shell as `source={{ html, baseUrl }}`:
+Turnstile widgets are hostname-bound with no way to disable the check, and a bare `{ html }` loads
+under `about:blank`/a `null` origin, which any real site key fails with error 110200 (fixed
+2026-08-12; Cloudflare's dummy keys ignore hostnames, which is why no pre-production environment
+could reproduce it). `lib/turnstile-config.ts` owns resolving the key and base URL **together** —
+site key from `EXPO_PUBLIC_TURNSTILE_SITE_KEY`, hostname from the optional
+`EXPO_PUBLIC_TURNSTILE_HOSTNAME` and otherwise from the Supabase project's own origin — and returns
+`null` when either half is unusable, which is what makes the screen show its honest "creating an
+account isn't available" notice instead of a challenge that can only fail. That file's header is the
+authoritative explanation of the whole failure mode.
 `app/(auth)/sign-in.tsx` renders it only in sign-up mode, disables the submit button until a token
 arrives, and calls `lib/signup-with-captcha.ts`'s `signUpWithCaptcha` instead of
 `supabase.auth.signUp` directly; on success it hydrates the on-device session via
@@ -2028,23 +2039,26 @@ success or failure.
 
 **Secrets.** `TURNSTILE_SECRET_KEY` (the real key) is set via `supabase secrets set` on the hosted
 project — never committed, never `EXPO_PUBLIC_*`. The site key is safe client-side by Cloudflare's
-own design and is read from `EXPO_PUBLIC_TURNSTILE_SITE_KEY`. Local dev
+own design and is read from `EXPO_PUBLIC_TURNSTILE_SITE_KEY`; it lives only in the gitignored
+`.env` and in the three EAS environments, never in a tracked file. Local dev
 (`supabase/functions/.env`, gitignored) and `eas.json`'s `development-local`/`preview-local`
 profiles use Cloudflare's public, documented "always passes" test key pair instead of the real
-one, so local testing doesn't depend on the real widget's domain restrictions.
+one. Those dummy keys bypass hostname validation entirely, so a green local run proves nothing
+about production's hostname check — see CLAUDE.md § Secrets & env.
 
 **Verified live**: a request with no `captchaToken` gets `400 invalid_body`; a request with a
-garbage token gets `400 captcha_invalid`. The "succeeds with a valid token" path is proven by the
-full Deno + Jest test suite (a fake `CaptchaVerifier` returning `true`, exercising the real
-`signUp` proxy end to end) rather than a live Turnstile solve — no browser-automation tool was
-available in this session to script that, which would be the only way to prove it more strongly;
-same "honest ceiling" reasoning `purchase-tier.deno.test.ts`'s header documents for its own
-untestable-live-Postgres case.
+garbage token gets `400 captcha_invalid`. The full success path is **verified end to end in the app
+against the production project, 2026-08-12**: a real Turnstile solve on the sign-up form created
+this project's first email/password account, and signing in with it reached Home. Before that the
+"succeeds with a valid token" path was only proven by the Deno + Jest suite (a fake
+`CaptchaVerifier` returning `true`, exercising the real `signUp` proxy end to end). Full evidence,
+and the one open follow-up about post-sign-up navigation, is in `docs/status.md` Known Issue #36.
 
 **Files.** `supabase/functions/signup-with-captcha/index.ts` (HTTP/env glue only) ·
 `_shared/signup-with-captcha.ts` (portable validation + shaping, unit-tested) ·
 `_shared/captcha.ts` (Turnstile verification, unit-tested) · `_shared/signup-client.ts`
 (Deno/`npm:` publishable-key `signUp` proxy) · `lib/signup-with-captcha.ts` (client) ·
+`lib/turnstile-config.ts` (site key + base URL resolution, unit-tested) ·
 `components/turnstile-widget.tsx` (client widget).
 
 ## Current — `POST /functions/v1/purchase-tier` (issue #51, 2026-07-13; hardened same day after a security audit on PR #123)

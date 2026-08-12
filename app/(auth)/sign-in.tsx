@@ -52,6 +52,7 @@ import { checkPasswordBreached } from '@/lib/hibp';
 import { useSession } from '@/lib/session-provider';
 import { applySignupSession, signUpWithCaptcha } from '@/lib/signup-with-captcha';
 import { supabase } from '@/lib/supabase';
+import { resolveTurnstileConfig } from '@/lib/turnstile-config';
 import { useAnnounce } from '@/lib/use-announce';
 
 // The "cool zoom" reveal (see the mark section below): `Motion.curve.calm` is this app's
@@ -65,7 +66,17 @@ const markRevealEasing = Easing.bezier(...Motion.curve.calm).factory();
 // The site key is Cloudflare's own public identifier for this Turnstile widget — safe to inline
 // into the client bundle by design (only the SECRET key, used server-side in
 // supabase/functions/signup-with-captcha, verifies anything). See CLAUDE.md's "Secrets & env".
-const TURNSTILE_SITE_KEY = process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY;
+//
+// A key ALONE is not enough: Turnstile widgets are hostname-bound and a real site key rendered
+// under `about:blank` fails with Cloudflare's 110200 no matter how correct the key is, so the
+// base URL the challenge loads under is resolved alongside it and both are gated together.
+// `lib/turnstile-config.ts` owns that resolution and documents the whole failure mode. Read at
+// module scope with static dot access, per the expo/no-dynamic-env-var rule.
+const TURNSTILE_CONFIG = resolveTurnstileConfig(
+  process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY,
+  process.env.EXPO_PUBLIC_TURNSTILE_HOSTNAME,
+  process.env.EXPO_PUBLIC_SUPABASE_URL
+);
 
 type Mode = 'signIn' | 'signUp';
 type PendingAction = 'google' | 'email' | null;
@@ -397,8 +408,8 @@ export default function SignInScreen() {
                     style={styles.inlineLink}
                   />
                 )}
-                {/* Issue #12/Known Issue #12 — sign-up only. `TURNSTILE_SITE_KEY` is only unset in
-                    a misconfigured environment (see .env.example), but "misconfigured" was shipped:
+                {/* Issue #12/Known Issue #12 — sign-up only. `TURNSTILE_CONFIG` is only null in a
+                    misconfigured environment (see .env.example), but "misconfigured" was shipped:
                     the v23-launch-audit-r1 audit found the key empty in every environment it could
                     read, and this branch used to render NOTHING — no widget, therefore no token,
                     therefore a permanently disabled "Create account" button with no explanation.
@@ -410,10 +421,11 @@ export default function SignInScreen() {
                     exclusive by construction and a future edit that drops the else-branch would
                     silently restore the dead end. */}
                 {mode === 'signUp' &&
-                  (TURNSTILE_SITE_KEY ? (
+                  (TURNSTILE_CONFIG ? (
                     <TurnstileWidget
                       ref={turnstileRef}
-                      siteKey={TURNSTILE_SITE_KEY}
+                      siteKey={TURNSTILE_CONFIG.siteKey}
+                      baseUrl={TURNSTILE_CONFIG.baseUrl}
                       onToken={(token) => {
                         setCaptchaToken(token);
                         clearErrors();
@@ -451,7 +463,7 @@ export default function SignInScreen() {
                   // present is the ordinary "solve the challenge" wait, which the visible widget
                   // already explains — hinting there would nag on every render.
                   accessibilityHint={
-                    mode === 'signUp' && !TURNSTILE_SITE_KEY
+                    mode === 'signUp' && !TURNSTILE_CONFIG
                       ? Copy.auth.signUp.unavailable.a11yHint
                       : undefined
                   }

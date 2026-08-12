@@ -45,8 +45,12 @@ export const Copy = {
     signUp: {
       submit: 'Create account',
       link: 'New here? Create an account',
-      // Issue #12/Known Issue #12 — shown INSTEAD of the Turnstile widget when
-      // `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is unset, which is the only way this string appears.
+      // Issue #12/Known Issue #12 — shown INSTEAD of the Turnstile widget on either of the two
+      // ways `lib/turnstile-config.ts` can fail to resolve a usable config: `EXPO_PUBLIC_
+      // TURNSTILE_SITE_KEY` is unset, OR a site key is set but no base URL can be derived from
+      // `EXPO_PUBLIC_TURNSTILE_HOSTNAME`/`EXPO_PUBLIC_SUPABASE_URL` (a widget with no hostname is
+      // a guaranteed Cloudflare 110200). The two are deliberately indistinguishable to the
+      // reader — neither is theirs to fix — and are told apart by a `__DEV__`-only warning there.
       // Sign-up genuinely cannot complete without a captcha token (supabase/functions/
       // signup-with-captcha verifies one server-side), so the submit button stays disabled — this
       // is the *reason* the user was previously never given. Deliberately mirrors
@@ -82,7 +86,17 @@ export const Copy = {
       // points at now exists — app/(auth)/reset-password.tsx, reached from the "Forgot password?"
       // link on sign-in (issue #81). Before that, this clause pointed at nothing and was a dead
       // end dressed up as help.
-      invalidCredentials: "Email or password doesn't match. Try again, or reset your password.",
+      //
+      // The Google clause is the third dead end this string had. An account created through
+      // "Continue with Google" has NO password at all, so typing that same email into this form
+      // returns GoTrue's `invalid_credentials` — byte-identical to a genuine wrong password,
+      // deliberately, because saying "that email is Google-only" would leak which emails exist.
+      // Without this sentence the user's only readable conclusion is "sign-in is broken", which
+      // is exactly what happened during live testing on 2026-08-11. Naming the provider as a
+      // possibility (not a fact about this email) fixes the dead end while leaking nothing —
+      // this string is shown for EVERY credential failure, so it discloses no account state.
+      invalidCredentials:
+        "Email or password doesn't match. Try again, reset your password, or use Continue with Google if that's how you signed up.",
       emailInUse: 'An account already exists with this email. Sign in instead.',
       generic: "Sign-in didn't go through. Try again.",
       passwordBreached:
@@ -867,6 +881,12 @@ export const Copy = {
       error: {
         title: "That didn't work",
         genericBody: "We couldn't confirm it's you. Check your connection and try again.",
+        // The sign-in screen's `auth.error.invalidCredentials` cannot be reused here: it offers
+        // "Continue with Google" as a possibility, which is true at sign-in (any account may be
+        // Google-backed) but known-false in this sheet — it opens only when `getReauthProvider`
+        // says the signed-in account is a password account, and it has no Google button to press.
+        // The email is not in question here either; the user is already signed in.
+        wrongPassword: "That password doesn't match. Try again.",
         // Reached only if the RETRY after a successful reauthentication is ALSO rejected as stale
         // (e.g. clock skew) — distinct from genericBody because the user just did what was asked
         // and it still didn't take, which deserves its own honest explanation rather than looking

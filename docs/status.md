@@ -264,12 +264,12 @@ milestone "done" criteria.
     `supabase secrets set` on the hosted project; the local dev stack and `eas.json`'s
     `*-local` build profiles use Cloudflare's public "always passes" test key pair instead of the
     real one. Deployed to the live project and verified: signup is rejected with `captcha_invalid`
-    given a garbage token, and with `invalid_body` given no token at all. The "succeeds with a
-    valid token" path is proven by the full test suite (fake `CaptchaVerifier` returning `true` →
-    real `signUp` proxy → session returned) — no browser-automation tool was available in this
-    session to solve a live Turnstile challenge end-to-end, which would be the only way to prove
-    stronger than that; same "honest ceiling" caveat `purchase-tier.deno.test.ts`'s header
-    documents for its own untestable-live-Postgres case.
+    given a garbage token, and with `invalid_body` given no token at all. At the time, the
+    "succeeds with a valid token" path was only proven by the full test suite (fake
+    `CaptchaVerifier` returning `true` → real `signUp` proxy → session returned), with no live
+    Turnstile solve. **That ceiling is gone: a real solve created a real account on 2026-08-12 —
+    see Known Issue #36 below for the end-to-end evidence and for the two client-side bugs that
+    had to be fixed first.**
 13. ~~**Session storage is plaintext AsyncStorage today**~~ **RESOLVED 2026-07-12 (issue #38).**
     `lib/supabase.ts` now passes `storage: secureSessionStorage` (`lib/secure-storage.ts`), the
     "LargeSecureStore" pattern: an AES-256 key lives in SecureStore (Keychain/Keystore-backed,
@@ -1046,6 +1046,92 @@ still standing between here and a public/TestFlight release:
 - ~~**Known Issue #12** — CAPTCHA is needed before `analyze-form` can go live publicly~~
   **RESOLVED 2026-08-02/03** — see that entry above for the full story
   (`supabase/functions/signup-with-captcha`, not native `auth.captcha`).
+- ~~**Known Issue #36 — email sign-up is broken**~~ **RESOLVED 2026-08-12**, verified live end to
+  end against `vputdomdlknvthnzritt`. Both causes are addressed — the latent `baseUrl` bug is fixed
+  in code on this branch, and the captain provisioned the site key and allow-listed the hostname —
+  and, unlike every prior attempt, the full path was exercised to completion: a real sign-up in the
+  app created a real account, and a real sign-in with it reached the signed-in Home screen. See
+  "Verified live end to end" at the end of this entry for the evidence and for the one follow-up
+  observation it surfaced. The diagnosis below is kept as the historical record of what was
+  actually wrong, because the two causes stacked in a way that made each other invisible.
+
+  Diagnosed 2026-08-12 (branch `fm/v23-signup-signin-cloudflare-fix-r1`) after the
+  captain reported "email sign-up and sign-in are both broken". Verified live against
+  `vputdomdlknvthnzritt`, in this order:
+  - `TURNSTILE_SECRET_KEY` **is** set on the edge function and works — a bogus token returns
+    `captcha_invalid` (not `signup_unavailable`), and its SHA-256 matches none of Cloudflare's
+    three dummy secrets, so it is a real key. It was last set 2026-08-11 13:34.
+  - `EXPO_PUBLIC_TURNSTILE_SITE_KEY` was set **nowhere**: empty in every `.env`, absent from all
+    three EAS environments. Only `eas.json`'s `development-local`/`preview-local` profiles carried
+    one, and it is Cloudflare's dummy always-passes key. The captain had set the server half of the
+    pair and never the client half. With no key the widget never mounts, no token is issued, and
+    "Create account" is permanently disabled behind the honest unavailable notice.
+  - `auth.users` held exactly **one** account, a **Google** identity with **no password**. So no
+    email/password account has ever existed, which is the whole of "sign-in is broken too": it is
+    a consequence, not a regression. Sign-in itself is healthy — `/auth/v1/token?grant_type=password`
+    was exercised live and issued a session for a password account created for the probe (since
+    deleted). Typing the Google-linked email into the email form returns GoTrue's deliberate
+    `invalid_credentials`, indistinguishable from a wrong password by design.
+  - A second, latent cause sat underneath: `components/turnstile-widget.tsx` loaded its challenge
+    with `source={{ html }}` and no `baseUrl`, i.e. under `about:blank`/a `null` origin. Turnstile
+    widgets are hostname-bound and Cloudflare offers no way to disable that check, so a **real**
+    site key would have failed with error 110200 even once provisioned. Cloudflare's dummy keys
+    ignore hostnames, which is exactly why #166's verification passed on a path production never
+    takes. **Fixed on this branch** (`lib/turnstile-config.ts` + a `baseUrl` prop), with
+    regression locks in `lib/__tests__/turnstile-config.test.ts`,
+    `components/__tests__/turnstile-widget.test.tsx` and `app/(auth)/__tests__/sign-in.test.tsx`.
+
+  **What is proven, and what is not, 2026-08-12.** The captain did the two things only the
+  Cloudflare and EAS dashboards can do:
+  - `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is now set in the real gitignored `.env` **and** created in
+    **all three** EAS environments (`development`, `preview`, `production`), each confirmed
+    present. The client half of the pair finally matches the server half.
+  - `vputdomdlknvthnzritt.supabase.co` — the default base URL `lib/turnstile-config.ts` resolves —
+    was added to that widget's allowed-domain list in Cloudflare, so no
+    `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed. That is what makes the fixed `baseUrl`
+    actually pass Cloudflare's hostname check instead of returning 110200.
+
+  **Proven with that configuration in place:** the challenge is served and solved successfully
+  under the `baseUrl` `lib/turnstile-config.ts` resolves — observed in the app on an iOS simulator,
+  where Turnstile returned Success and enabled the "Create account" button, and independently by
+  loading the widget's exact WebView source in a real browser under the allow-listed Supabase
+  hostname. The **old** no-`baseUrl` path still fails with the app-visible error under the same
+  real key, which pins the regression from both sides. The reworded invalid-credentials copy was
+  observed rendering from a genuine production HTTP 400.
+
+  **Verified live end to end, 2026-08-12** — in the app (Expo Go, iOS simulator, pointed at the
+  production project), not by unit test and not by a scripted browser:
+  - **Sign-up.** `pace.e2e.0812c@mailinator.com` was created at 16:36:57 UTC through the real form:
+    Turnstile solved, `signup-with-captcha` accepted the token, and `auth.users` gained a row with
+    `encrypted_password` set, provider `email`, auto-confirmed, with a session issued. That is the
+    **first email/password account this project has ever had** — the hop that had never once
+    completed.
+  - **Sign-in.** Signing in with that account reached the signed-in Home screen (tab bar, "Nothing
+    analyzed yet"), and `last_sign_in_at` moved to 17:02:30 UTC.
+  - **Cleanup.** The test account was deleted afterwards; `auth.users` is back to the single Google
+    account it held before.
+
+  Getting there required disabling iOS Settings → General → AutoFill & Passwords → **Suggest Strong
+  Passwords** in the simulator: the "Use Strong Password?" sheet intercepts the password field after
+  the first character and does not respond to synthetic taps. Worth knowing for any future
+  simulator-driven auth run. Note also that the Turnstile token is short-lived — solve the challenge
+  and submit within a few minutes, or the button silently does nothing because the token was cleared.
+
+  **One open follow-up, not a regression in this change:** on the successful sign-up the app stayed
+  on the sign-up form instead of entering the app, even though the server had issued a session.
+  Sign-in navigates correctly, and `applySignupSession` (`lib/signup-with-captcha.ts`) does call
+  `supabase.auth.setSession` with both tokens, so the wiring reads correct. A duplicate submit
+  returning HTTP 422 fired ~77s after the successful one, which confounds the observation, and it
+  was only seen once. Worth one deliberate sign-up on a real device to settle before onboarding
+  anyone.
+
+  **Two things about this that stay true and must not be "tidied up" later.** The real site key
+  lives ONLY in the gitignored `.env` and in EAS — never in `eas.json` or any other tracked file,
+  per CLAUDE.md § Secrets & env; a reviewer reading the repo alone therefore cannot see it, and its
+  absence from the diff is correct, not a gap. And `eas.json`'s `development-local`/`preview-local`
+  profiles deliberately keep Cloudflare's dummy `1x00000000000000000000AA` for local-stack testing.
+  The dummy keys ignore hostnames, so a green local run still proves nothing about production —
+  that is the exact blind spot that hid this bug for the whole of #166's life.
 - **Known Issue #17** — a hard spend ceiling in the Anthropic Console is still unset (needs Ian's
   Anthropic Console access).
 - **Known Issue #15** — `docs/privacy-policy.md` publication is on hold pending Ian's answer on

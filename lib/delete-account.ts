@@ -59,6 +59,8 @@
  */
 import type { Session } from '@supabase/supabase-js';
 
+import { Copy } from '@/constants/copy';
+
 import { signInWithGoogle } from './auth';
 import { mapAuthError } from './auth-errors';
 import { invokeFunction } from './functions-client';
@@ -257,10 +259,24 @@ export interface ReauthResult {
 }
 
 /**
+ * Reuses `mapAuthError` (`lib/auth-errors.ts`) for every failure this flow shares with sign-in,
+ * and overrides the single string that is written for sign-in specifically: its
+ * `invalidCredentials` copy offers "Continue with Google" as a possibility, which is honest on a
+ * screen where any account could be Google-backed, and false in this one — the password sheet is
+ * shown only when `getReauthProvider` reports a password account, and offers no Google button.
+ */
+function mapReauthError(err: unknown): string {
+  const message = mapAuthError(err);
+  return message === Copy.auth.error.invalidCredentials
+    ? Copy.settings.reauth.error.wrongPassword
+    : message;
+}
+
+/**
  * Re-presents a password credential for the CURRENTLY signed-in user. Mirrors
- * `app/(auth)/sign-in.tsx`'s own `signInWithPassword` call exactly and reuses the same
- * `mapAuthError` (`lib/auth-errors.ts`), so a wrong password reads identically here as it does at
- * sign-in — no second, drifted copy of "invalid credentials" to keep in sync.
+ * `app/(auth)/sign-in.tsx`'s own `signInWithPassword` call exactly and maps failures through the
+ * same `mapAuthError`, via `mapReauthError` above for the one string sign-in words for its own
+ * screen — no second, drifted copy of the other failures to keep in sync.
  */
 export async function reauthenticateWithPassword(email: string, password: string): Promise<ReauthResult> {
   try {
@@ -268,7 +284,7 @@ export async function reauthenticateWithPassword(email: string, password: string
     if (error) throw error;
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: mapAuthError(err) };
+    return { ok: false, error: mapReauthError(err) };
   }
 }
 
