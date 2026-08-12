@@ -1046,16 +1046,23 @@ still standing between here and a public/TestFlight release:
 - ~~**Known Issue #12** — CAPTCHA is needed before `analyze-form` can go live publicly~~
   **RESOLVED 2026-08-02/03** — see that entry above for the full story
   (`supabase/functions/signup-with-captcha`, not native `auth.captcha`).
-- **Known Issue #36 — email sign-up is still OFF until a Turnstile site key + hostname are
-  provisioned.** Diagnosed 2026-08-12 (branch `fm/v23-signup-signin-cloudflare-fix-r1`) after the
+- ~~**Known Issue #36 — email sign-up is OFF until a Turnstile site key + hostname are
+  provisioned.**~~ **RESOLVED 2026-08-12.** Both halves are done: the latent `baseUrl` bug is fixed
+  in code on this branch, and the captain has since provisioned the key and allow-listed the
+  hostname — see "How it was closed" at the end of this entry. Email sign-up now works end to end
+  against the production project, live-verified by the captain. The diagnosis below is kept as the
+  historical record of what was actually wrong, because the two causes stacked in a way that made
+  each other invisible.
+
+  Diagnosed 2026-08-12 (branch `fm/v23-signup-signin-cloudflare-fix-r1`) after the
   captain reported "email sign-up and sign-in are both broken". Verified live against
   `vputdomdlknvthnzritt`, in this order:
   - `TURNSTILE_SECRET_KEY` **is** set on the edge function and works — a bogus token returns
     `captcha_invalid` (not `signup_unavailable`), and its SHA-256 matches none of Cloudflare's
     three dummy secrets, so it is a real key. It was last set 2026-08-11 13:34.
-  - `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is set **nowhere**: empty in every `.env`, absent from all
-    three EAS environments. Only `eas.json`'s `development-local`/`preview-local` profiles carry
-    one, and it is Cloudflare's dummy always-passes key. The captain set the server half of the
+  - `EXPO_PUBLIC_TURNSTILE_SITE_KEY` was set **nowhere**: empty in every `.env`, absent from all
+    three EAS environments. Only `eas.json`'s `development-local`/`preview-local` profiles carried
+    one, and it is Cloudflare's dummy always-passes key. The captain had set the server half of the
     pair and never the client half. With no key the widget never mounts, no token is issued, and
     "Create account" is permanently disabled behind the honest unavailable notice.
   - `auth.users` held exactly **one** account, a **Google** identity with **no password**. So no
@@ -1073,12 +1080,24 @@ still standing between here and a public/TestFlight release:
     regression locks in `lib/__tests__/turnstile-config.test.ts`,
     `components/__tests__/turnstile-widget.test.tsx` and `app/(auth)/__tests__/sign-in.test.tsx`.
 
-  **What remains, and it is captain-only:** from the Cloudflare dashboard, take the widget's
-  **site key** into `EXPO_PUBLIC_TURNSTILE_SITE_KEY` (`.env` + all three EAS environments), and
-  make sure that widget's hostname list contains the host the challenge is rendered under —
-  `vputdomdlknvthnzritt.supabase.co` by default, or set `EXPO_PUBLIC_TURNSTILE_HOSTNAME` to
-  whichever domain the widget is already registered against. Neither value can be recovered from
-  this repo, the Supabase project, or EAS.
+  **How it was closed, 2026-08-12.** The captain did the three things only the Cloudflare and EAS
+  dashboards can do, and then verified the result rather than assuming it:
+  - `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is now set in the real gitignored `.env` **and** created in
+    **all three** EAS environments (`development`, `preview`, `production`), each confirmed
+    present. The client half of the pair finally matches the server half.
+  - `vputdomdlknvthnzritt.supabase.co` — the default base URL `lib/turnstile-config.ts` resolves —
+    was added to that widget's allowed-domain list in Cloudflare, so no
+    `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed. That is what makes the fixed `baseUrl`
+    actually pass Cloudflare's hostname check instead of returning 110200.
+  - Email sign-up was then run end to end against the production project and succeeded.
+
+  **Two things about this that stay true and must not be "tidied up" later.** The real site key
+  lives ONLY in the gitignored `.env` and in EAS — never in `eas.json` or any other tracked file,
+  per CLAUDE.md § Secrets & env; a reviewer reading the repo alone therefore cannot see it, and its
+  absence from the diff is correct, not a gap. And `eas.json`'s `development-local`/`preview-local`
+  profiles deliberately keep Cloudflare's dummy `1x00000000000000000000AA` for local-stack testing.
+  The dummy keys ignore hostnames, so a green local run still proves nothing about production —
+  that is the exact blind spot that hid this bug for the whole of #166's life.
 - **Known Issue #17** — a hard spend ceiling in the Anthropic Console is still unset (needs Ian's
   Anthropic Console access).
 - **Known Issue #15** — `docs/privacy-policy.md` publication is on hold pending Ian's answer on
