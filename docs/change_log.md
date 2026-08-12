@@ -5,6 +5,33 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-12 (email sign-up: the Turnstile hostname bug, and why sign-in looked broken too)
+
+- Diagnosed the captain's "email sign-up and sign-in are both broken" report against the live
+  project. Sign-in was never broken: `auth.users` held exactly one account, a Google identity with
+  no password, so there was nothing to sign in to with a password and GoTrue's deliberate
+  `invalid_credentials` was correct. Email **sign-up** had never once succeeded, because
+  `EXPO_PUBLIC_TURNSTILE_SITE_KEY` was set nowhere real — the captain had set the server-side
+  `TURNSTILE_SECRET_KEY` (real, working, verified live) but never the client-side half of the
+  pair. Full receipt: `docs/status.md` Known Issue #36.
+- Fixed the second, latent cause that would have kept sign-up broken even once a key was supplied.
+  `components/turnstile-widget.tsx` loaded Cloudflare's challenge with no `baseUrl`, i.e. under
+  `about:blank`/a `null` origin. Turnstile widgets are hostname-bound and the check cannot be
+  disabled, so any **real** site key would have failed with error 110200. Cloudflare's dummy test
+  keys ignore hostnames, which is why the only environments the widget was ever run in could not
+  reproduce it and #166 shipped green.
+- Added `lib/turnstile-config.ts`: resolves the site key and the base URL together, so a key can
+  never be shipped without a hostname to render it under. The hostname comes from the new optional
+  `EXPO_PUBLIC_TURNSTILE_HOSTNAME`, defaulting to the Supabase project's own origin. An
+  unconfigured or unusable pair returns null and the screen keeps showing the existing honest
+  "creating an account isn't available" notice rather than a challenge that can only fail.
+- Reworded `Copy.auth.error.invalidCredentials` to name "Continue with Google" as a possibility.
+  A Google-created account has no password, so its email in the password form returns the same
+  `invalid_credentials` as a wrong password — deliberately, to avoid disclosing which emails
+  exist. The old copy left the user with "sign-in is broken" as the only readable conclusion,
+  which is exactly what happened in live testing. The string is shown for every credential
+  failure, so it still discloses no account state.
+
 ## 2026-08-07 (comprehensive audit: temporary unlimited Elite access + correctness fixes)
 
 - Added the strict, server-only `ALL_USERS_UNLIMITED_ACCESS` override for the captain's complete

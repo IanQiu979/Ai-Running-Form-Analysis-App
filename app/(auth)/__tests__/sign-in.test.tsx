@@ -50,9 +50,17 @@ jest.mock('@/components/turnstile-widget', () => {
   const { Pressable, Text } = require('react-native');
   return {
     TurnstileWidget: forwardRef(function MockTurnstileWidget(
-      props: { onToken: (token: string) => void; onExpire: () => void; onError: () => void },
+      props: {
+        siteKey: string;
+        baseUrl: string;
+        onToken: (token: string) => void;
+        onExpire: () => void;
+        onError: () => void;
+      },
       _ref: unknown
     ) {
+      mockTurnstileProps.siteKey = props.siteKey;
+      mockTurnstileProps.baseUrl = props.baseUrl;
       return (
         <>
           <Pressable testID="mock-turnstile-token" onPress={() => props.onToken('a-token')} />
@@ -65,16 +73,26 @@ jest.mock('@/components/turnstile-widget', () => {
   };
 });
 
+/** Captures what the screen actually hands the widget — the only way to prove it from outside,
+ * since neither prop has any rendered representation. Declared with `var` so it is hoisted
+ * alongside the `jest.mock` factory above, which babel-jest lifts above every `const`. */
+// eslint-disable-next-line no-var
+var mockTurnstileProps: { siteKey?: string; baseUrl?: string } = {};
+
 const mockUseReducedMotion = jest.fn(() => false);
 jest.mock('@/hooks/use-reduced-motion', () => ({
   useReducedMotion: () => mockUseReducedMotion(),
 }));
 
-// `TURNSTILE_SITE_KEY` (app/(auth)/sign-in.tsx) is read from `EXPO_PUBLIC_TURNSTILE_SITE_KEY` at
-// MODULE-EVALUATION time, so it must be set before `sign-in.tsx` is first required — a plain ES
-// `import` is hoisted above this line, which is why this file loads the screen via `require`
-// after setting the env var instead.
+// `TURNSTILE_CONFIG` (app/(auth)/sign-in.tsx) is resolved from these at MODULE-EVALUATION time,
+// so they must be set before `sign-in.tsx` is first required — a plain ES `import` is hoisted
+// above this line, which is why this file loads the screen via `require` after setting them
+// instead. Both are set explicitly rather than relying on whatever `.env` jest-expo happens to
+// load: a checkout without a `.env` would otherwise resolve no config and every test in this
+// file would fail on a missing widget for a reason that has nothing to do with the widget.
 process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY = 'test-site-key';
+process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://project-ref.supabase.co';
+delete process.env.EXPO_PUBLIC_TURNSTILE_HOSTNAME;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const SignInScreen = require('../sign-in').default;
 
@@ -161,5 +179,33 @@ describe('sign-in screen: scroll-reveal structure', () => {
     expect(screen.getByRole('button', { name: Copy.auth.cta.google })).toBeEnabled();
     expect(screen.getByRole('button', { name: Copy.auth.cta.email })).toBeEnabled();
     expect(screen.getByRole('button', { name: Copy.auth.signUp.link })).toBeEnabled();
+  });
+});
+
+/**
+ * REGRESSION LOCK — v23-signup-signin-cloudflare-fix-r1. Email sign-up was impossible against
+ * the live project for the whole of #166's life. Two stacked causes presented as one symptom:
+ * the site key was never provisioned outside `eas.json`'s two `*-local` profiles (so the widget
+ * never mounted and "Create account" was permanently disabled — verified live on 2026-08-12,
+ * `auth.users` held not one email/password identity), and underneath that, the challenge was
+ * loaded with no base URL, so a real site key could only ever have failed Cloudflare's hostname
+ * check with error 110200.
+ *
+ * `lib/__tests__/turnstile-config.test.ts` proves the resolution in isolation. What only a
+ * screen-level render can prove — and what the second cause actually was — is that this screen
+ * passes the resolved `baseUrl` DOWN to the widget rather than dropping it on the floor. Same
+ * reasoning `app/capture/__tests__/extracting.test.tsx` records for the frame-cap bug: a
+ * mapping test cannot show which arguments a screen really hands downstream.
+ */
+describe('sign-in screen: Turnstile configuration handed to the widget', () => {
+  it('gives the widget both the site key and a base URL with a real hostname', async () => {
+    await render(<SignInScreen />);
+
+    fireEvent.press(screen.getByRole('button', { name: Copy.auth.signUp.link }));
+    await waitFor(() => expect(screen.getByText('mock-turnstile-widget')).toBeTruthy());
+
+    expect(mockTurnstileProps.siteKey).toBe('test-site-key');
+    // Derived from EXPO_PUBLIC_SUPABASE_URL, since no EXPO_PUBLIC_TURNSTILE_HOSTNAME is set.
+    expect(mockTurnstileProps.baseUrl).toBe('https://project-ref.supabase.co/');
   });
 });

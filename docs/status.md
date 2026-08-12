@@ -1046,6 +1046,39 @@ still standing between here and a public/TestFlight release:
 - ~~**Known Issue #12** — CAPTCHA is needed before `analyze-form` can go live publicly~~
   **RESOLVED 2026-08-02/03** — see that entry above for the full story
   (`supabase/functions/signup-with-captcha`, not native `auth.captcha`).
+- **Known Issue #36 — email sign-up is still OFF until a Turnstile site key + hostname are
+  provisioned.** Diagnosed 2026-08-12 (branch `fm/v23-signup-signin-cloudflare-fix-r1`) after the
+  captain reported "email sign-up and sign-in are both broken". Verified live against
+  `vputdomdlknvthnzritt`, in this order:
+  - `TURNSTILE_SECRET_KEY` **is** set on the edge function and works — a bogus token returns
+    `captcha_invalid` (not `signup_unavailable`), and its SHA-256 matches none of Cloudflare's
+    three dummy secrets, so it is a real key. It was last set 2026-08-11 13:34.
+  - `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is set **nowhere**: empty in every `.env`, absent from all
+    three EAS environments. Only `eas.json`'s `development-local`/`preview-local` profiles carry
+    one, and it is Cloudflare's dummy always-passes key. The captain set the server half of the
+    pair and never the client half. With no key the widget never mounts, no token is issued, and
+    "Create account" is permanently disabled behind the honest unavailable notice.
+  - `auth.users` held exactly **one** account, a **Google** identity with **no password**. So no
+    email/password account has ever existed, which is the whole of "sign-in is broken too": it is
+    a consequence, not a regression. Sign-in itself is healthy — `/auth/v1/token?grant_type=password`
+    was exercised live and issued a session for a password account created for the probe (since
+    deleted). Typing the Google-linked email into the email form returns GoTrue's deliberate
+    `invalid_credentials`, indistinguishable from a wrong password by design.
+  - A second, latent cause sat underneath: `components/turnstile-widget.tsx` loaded its challenge
+    with `source={{ html }}` and no `baseUrl`, i.e. under `about:blank`/a `null` origin. Turnstile
+    widgets are hostname-bound and Cloudflare offers no way to disable that check, so a **real**
+    site key would have failed with error 110200 even once provisioned. Cloudflare's dummy keys
+    ignore hostnames, which is exactly why #166's verification passed on a path production never
+    takes. **Fixed on this branch** (`lib/turnstile-config.ts` + a `baseUrl` prop), with
+    regression locks in `lib/__tests__/turnstile-config.test.ts`,
+    `components/__tests__/turnstile-widget.test.tsx` and `app/(auth)/__tests__/sign-in.test.tsx`.
+
+  **What remains, and it is captain-only:** from the Cloudflare dashboard, take the widget's
+  **site key** into `EXPO_PUBLIC_TURNSTILE_SITE_KEY` (`.env` + all three EAS environments), and
+  make sure that widget's hostname list contains the host the challenge is rendered under —
+  `vputdomdlknvthnzritt.supabase.co` by default, or set `EXPO_PUBLIC_TURNSTILE_HOSTNAME` to
+  whichever domain the widget is already registered against. Neither value can be recovered from
+  this repo, the Supabase project, or EAS.
 - **Known Issue #17** — a hard spend ceiling in the Anthropic Console is still unset (needs Ian's
   Anthropic Console access).
 - **Known Issue #15** — `docs/privacy-policy.md` publication is on hold pending Ian's answer on

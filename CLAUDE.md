@@ -54,9 +54,19 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
 ## Secrets & env — read this before touching any env file
 
 - `.env` (gitignored) holds ONLY `EXPO_PUBLIC_SUPABASE_URL`,
-  `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `EXPO_PUBLIC_TURNSTILE_SITE_KEY` — nothing
-  Google-related belongs there, ever; the browser OAuth flow never reads a client-ID var.
-  `.env.example` is the committed template — copy it, never edit it in place.
+  `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `EXPO_PUBLIC_TURNSTILE_SITE_KEY` and the optional
+  `EXPO_PUBLIC_TURNSTILE_HOSTNAME` — nothing Google-related belongs there, ever; the browser
+  OAuth flow never reads a client-ID var. `.env.example` is the committed template — copy it,
+  never edit it in place.
+- **Turnstile is a PAIR of keys and a hostname; two of the three are captain-only.** Setting
+  `TURNSTILE_SECRET_KEY` server-side does not enable sign-up — without
+  `EXPO_PUBLIC_TURNSTILE_SITE_KEY` the widget never renders and "Create account" is permanently
+  disabled behind an honest notice. And a real site key only works if the hostname the challenge
+  is rendered under is on that widget's allow list in Cloudflare (there is no way to disable that
+  check); `lib/turnstile-config.ts` resolves both together and explains the whole failure mode.
+  **Cloudflare's dummy test keys ignore hostnames**, so local/dev environments cannot reproduce a
+  production hostname failure — never conclude sign-up works from a dummy-key run. `docs/status.md`
+  Known Issue #36 has the live evidence and what is still outstanding.
 - Anything prefixed `EXPO_PUBLIC_` is inlined in **plain text** into the compiled app bundle.
   Treat it as public. Always read it with static dot notation (`process.env.EXPO_PUBLIC_X`) —
   the `expo/no-dynamic-env-var` lint rule enforces this; destructuring or bracket access

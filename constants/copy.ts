@@ -82,7 +82,17 @@ export const Copy = {
       // points at now exists — app/(auth)/reset-password.tsx, reached from the "Forgot password?"
       // link on sign-in (issue #81). Before that, this clause pointed at nothing and was a dead
       // end dressed up as help.
-      invalidCredentials: "Email or password doesn't match. Try again, or reset your password.",
+      //
+      // The Google clause is the third dead end this string had. An account created through
+      // "Continue with Google" has NO password at all, so typing that same email into this form
+      // returns GoTrue's `invalid_credentials` — byte-identical to a genuine wrong password,
+      // deliberately, because saying "that email is Google-only" would leak which emails exist.
+      // Without this sentence the user's only readable conclusion is "sign-in is broken", which
+      // is exactly what happened during live testing on 2026-08-11. Naming the provider as a
+      // possibility (not a fact about this email) fixes the dead end while leaking nothing —
+      // this string is shown for EVERY credential failure, so it discloses no account state.
+      invalidCredentials:
+        "Email or password doesn't match. Try again, reset your password, or use Continue with Google if that's how you signed up.",
       emailInUse: 'An account already exists with this email. Sign in instead.',
       generic: "Sign-in didn't go through. Try again.",
       passwordBreached:

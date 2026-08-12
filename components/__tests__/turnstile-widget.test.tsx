@@ -51,7 +51,7 @@ describe('TurnstileWidget', () => {
   it('calls onToken when the shell posts a token message', async () => {
     const onToken = jest.fn();
     await render(
-      <TurnstileWidget siteKey="site-key" onToken={onToken} onError={jest.fn()} onExpire={jest.fn()} />
+      <TurnstileWidget siteKey="site-key" baseUrl="https://example.test/" onToken={onToken} onError={jest.fn()} onExpire={jest.fn()} />
     );
 
     emitMessage({ type: 'token', token: 'the-token' });
@@ -62,7 +62,7 @@ describe('TurnstileWidget', () => {
   it('calls onExpire when the shell posts an expired message', async () => {
     const onExpire = jest.fn();
     await render(
-      <TurnstileWidget siteKey="site-key" onToken={jest.fn()} onError={jest.fn()} onExpire={onExpire} />
+      <TurnstileWidget siteKey="site-key" baseUrl="https://example.test/" onToken={jest.fn()} onError={jest.fn()} onExpire={onExpire} />
     );
 
     emitMessage({ type: 'expired' });
@@ -73,7 +73,7 @@ describe('TurnstileWidget', () => {
   it('calls onError when the shell posts an error message', async () => {
     const onError = jest.fn();
     await render(
-      <TurnstileWidget siteKey="site-key" onToken={jest.fn()} onError={onError} onExpire={jest.fn()} />
+      <TurnstileWidget siteKey="site-key" baseUrl="https://example.test/" onToken={jest.fn()} onError={onError} onExpire={jest.fn()} />
     );
 
     emitMessage({ type: 'error' });
@@ -84,7 +84,7 @@ describe('TurnstileWidget', () => {
   it('calls onError on an unparseable message rather than dropping it silently', async () => {
     const onError = jest.fn();
     await render(
-      <TurnstileWidget siteKey="site-key" onToken={jest.fn()} onError={onError} onExpire={jest.fn()} />
+      <TurnstileWidget siteKey="site-key" baseUrl="https://example.test/" onToken={jest.fn()} onError={onError} onExpire={jest.fn()} />
     );
 
     const handler = latestProps?.onMessage as (event: { nativeEvent: { data: string } }) => void;
@@ -96,7 +96,7 @@ describe('TurnstileWidget', () => {
   it('calls onError on an unrecognized message shape', async () => {
     const onError = jest.fn();
     await render(
-      <TurnstileWidget siteKey="site-key" onToken={jest.fn()} onError={onError} onExpire={jest.fn()} />
+      <TurnstileWidget siteKey="site-key" baseUrl="https://example.test/" onToken={jest.fn()} onError={onError} onExpire={jest.fn()} />
     );
 
     emitMessage({ type: 'something-else' });
@@ -107,7 +107,7 @@ describe('TurnstileWidget', () => {
   it('calls onError when the WebView itself fails to load', async () => {
     const onError = jest.fn();
     await render(
-      <TurnstileWidget siteKey="site-key" onToken={jest.fn()} onError={onError} onExpire={jest.fn()} />
+      <TurnstileWidget siteKey="site-key" baseUrl="https://example.test/" onToken={jest.fn()} onError={onError} onExpire={jest.fn()} />
     );
 
     const handler = latestProps?.onError as () => void;
@@ -119,7 +119,7 @@ describe('TurnstileWidget', () => {
   it('injects a turnstile.reset() call when reset() is invoked via the ref', async () => {
     const ref = createRef<TurnstileWidgetHandle>();
     await render(
-      <TurnstileWidget ref={ref} siteKey="site-key" onToken={jest.fn()} onError={jest.fn()} onExpire={jest.fn()} />
+      <TurnstileWidget ref={ref} siteKey="site-key" baseUrl="https://example.test/" onToken={jest.fn()} onError={jest.fn()} onExpire={jest.fn()} />
     );
 
     ref.current?.reset();
@@ -129,10 +129,35 @@ describe('TurnstileWidget', () => {
 
   it('bakes the given site key into the HTML shell', async () => {
     await render(
-      <TurnstileWidget siteKey="my-unique-site-key" onToken={jest.fn()} onError={jest.fn()} onExpire={jest.fn()} />
+      <TurnstileWidget siteKey="my-unique-site-key" baseUrl="https://example.test/" onToken={jest.fn()} onError={jest.fn()} onExpire={jest.fn()} />
     );
 
     const source = latestProps?.source as { html: string };
     expect(source.html).toContain('my-unique-site-key');
+  });
+
+  // REGRESSION LOCK — v23-signup-signin-cloudflare-fix-r1. This component used to pass
+  // `source={{ html }}` with no `baseUrl`, which loads the challenge under `about:blank` (iOS) /
+  // a `null` origin (Android): no hostname. Turnstile widgets are hostname-bound and Cloudflare
+  // provides no way to disable that check, so every REAL site key failed with error 110200 and
+  // the only thing that ever reached this component was `onError`. Cloudflare's dummy test keys
+  // ignore hostnames entirely, so the two `*-local` EAS profiles — the only environments the
+  // widget was ever exercised in — could not reproduce it, and #166 shipped green.
+  //
+  // The assertion is on the WebView `source` prop rather than on rendered output because that
+  // prop IS the whole contract: nothing downstream of it is observable without a real WebView.
+  it('loads the shell under the given baseUrl, so Cloudflare has a hostname to validate', async () => {
+    await render(
+      <TurnstileWidget
+        siteKey="site-key"
+        baseUrl="https://forms.example.test/"
+        onToken={jest.fn()}
+        onError={jest.fn()}
+        onExpire={jest.fn()}
+      />
+    );
+
+    const source = latestProps?.source as { html: string; baseUrl?: string };
+    expect(source.baseUrl).toBe('https://forms.example.test/');
   });
 });
