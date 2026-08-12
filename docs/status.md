@@ -1046,13 +1046,15 @@ still standing between here and a public/TestFlight release:
 - ~~**Known Issue #12** — CAPTCHA is needed before `analyze-form` can go live publicly~~
   **RESOLVED 2026-08-02/03** — see that entry above for the full story
   (`supabase/functions/signup-with-captcha`, not native `auth.captcha`).
-- ~~**Known Issue #36 — email sign-up is OFF until a Turnstile site key + hostname are
-  provisioned.**~~ **RESOLVED 2026-08-12.** Both halves are done: the latent `baseUrl` bug is fixed
-  in code on this branch, and the captain has since provisioned the key and allow-listed the
-  hostname — see "How it was closed" at the end of this entry. Email sign-up now works end to end
-  against the production project, live-verified by the captain. The diagnosis below is kept as the
-  historical record of what was actually wrong, because the two causes stacked in a way that made
-  each other invisible.
+- **Known Issue #36 — email sign-up: still OPEN, with a narrowed remaining scope.** Both known
+  causes are addressed — the latent `baseUrl` bug is fixed in code on this branch, and the captain
+  has provisioned the site key and allow-listed the hostname (see "What is proven, and what is
+  not" at the end of this entry). What is **not** proven is the final hop: no email/password
+  account has ever been created. A live check of `auth.users` on `vputdomdlknvthnzritt` on
+  2026-08-12 returned exactly **one** row — `200154@ucis.ac.th`, created 2026-08-10, Google
+  provider, no password. Do not record email sign-up as live-verified end to end until a human
+  completes one real sign-up. The diagnosis below is kept as the historical record of what was
+  actually wrong, because the two causes stacked in a way that made each other invisible.
 
   Diagnosed 2026-08-12 (branch `fm/v23-signup-signin-cloudflare-fix-r1`) after the
   captain reported "email sign-up and sign-in are both broken". Verified live against
@@ -1080,8 +1082,8 @@ still standing between here and a public/TestFlight release:
     regression locks in `lib/__tests__/turnstile-config.test.ts`,
     `components/__tests__/turnstile-widget.test.tsx` and `app/(auth)/__tests__/sign-in.test.tsx`.
 
-  **How it was closed, 2026-08-12.** The captain did the three things only the Cloudflare and EAS
-  dashboards can do, and then verified the result rather than assuming it:
+  **What is proven, and what is not, 2026-08-12.** The captain did the two things only the
+  Cloudflare and EAS dashboards can do:
   - `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is now set in the real gitignored `.env` **and** created in
     **all three** EAS environments (`development`, `preview`, `production`), each confirmed
     present. The client half of the pair finally matches the server half.
@@ -1089,7 +1091,20 @@ still standing between here and a public/TestFlight release:
     was added to that widget's allowed-domain list in Cloudflare, so no
     `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed. That is what makes the fixed `baseUrl`
     actually pass Cloudflare's hostname check instead of returning 110200.
-  - Email sign-up was then run end to end against the production project and succeeded.
+
+  **Proven with that configuration in place:** the challenge is served and solved successfully
+  under the `baseUrl` `lib/turnstile-config.ts` resolves — observed in the app on an iOS simulator,
+  where Turnstile returned Success and enabled the "Create account" button, and independently by
+  loading the widget's exact WebView source in a real browser under the allow-listed Supabase
+  hostname. The **old** no-`baseUrl` path still fails with the app-visible error under the same
+  real key, which pins the regression from both sides. The reworded invalid-credentials copy was
+  observed rendering from a genuine production HTTP 400.
+
+  **Not proven — the remaining scope of this issue:** the final hop from a solved-challenge token
+  through `signup-with-captcha` to a new row in `auth.users`. Cloudflare refuses to issue tokens to
+  automated browsers by design, so this cannot be scripted; it needs a human completing one real
+  sign-up on a device or dev build. `auth.users` still holds only the single Google account, so no
+  email sign-up has ever completed.
 
   **Two things about this that stay true and must not be "tidied up" later.** The real site key
   lives ONLY in the gitignored `.env` and in EAS — never in `eas.json` or any other tracked file,

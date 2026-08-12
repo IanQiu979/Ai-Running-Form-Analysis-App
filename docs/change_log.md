@@ -14,14 +14,19 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   `EXPO_PUBLIC_TURNSTILE_SITE_KEY` was set nowhere real — the captain had set the server-side
   `TURNSTILE_SECRET_KEY` (real, working, verified live) but never the client-side half of the
   pair. Full receipt: `docs/status.md` Known Issue #36.
-- **Email sign-up now works end to end against the production project, live-verified by the
-  captain.** Closing it needed both halves: the `baseUrl` fix below, and the configuration the
-  captain has since supplied — `EXPO_PUBLIC_TURNSTILE_SITE_KEY` set in the gitignored `.env` and in
-  all three EAS environments, plus `vputdomdlknvthnzritt.supabase.co` added to the widget's
-  allowed-domain list in Cloudflare (so the default base URL resolves to an allow-listed host and
-  no `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed). The real key is deliberately absent from
-  every tracked file, `eas.json` included — its two `*-local` profiles keep Cloudflare's dummy key
-  for local-stack testing. Known Issue #36 is now RESOLVED.
+- **The Turnstile challenge now renders and can be solved against the production project** —
+  `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is set in the gitignored `.env` and in all three EAS
+  environments, and `vputdomdlknvthnzritt.supabase.co` is on the widget's allowed-domain list in
+  Cloudflare, so the base URL the resolver supplies passes the hostname check and no
+  `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed. Observed succeeding in the app on an iOS
+  simulator (Turnstile returned Success, "Create account" became enabled); the old no-`baseUrl`
+  path still fails with the app-visible error under the same real key. The real key is deliberately
+  absent from every tracked file, `eas.json` included — its two `*-local` profiles keep
+  Cloudflare's dummy key for local-stack testing. **Known Issue #36 stays OPEN** with one narrowed
+  gap: the hop from a solved-challenge token through `signup-with-captcha` to a new row in
+  `auth.users` is still unverified — `auth.users` holds exactly one account, a Google identity with
+  no password, so no email sign-up has ever completed. Cloudflare refuses tokens to automated
+  browsers by design, so a human must complete one real sign-up on a device or dev build.
 - Fixed the second, latent cause that would have kept sign-up broken even once a key was supplied.
   `components/turnstile-widget.tsx` loaded Cloudflare's challenge with no `baseUrl`, i.e. under
   `about:blank`/a `null` origin. Turnstile widgets are hostname-bound and the check cannot be

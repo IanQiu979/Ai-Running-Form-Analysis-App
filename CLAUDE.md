@@ -66,12 +66,15 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
   (there is no way to disable that check); `lib/turnstile-config.ts` resolves both together and
   explains the whole failure mode. The site key is now set in the gitignored `.env` and in all
   three EAS environments, and `vputdomdlknvthnzritt.supabase.co` is allow-listed on the widget, so
-  no `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed and email sign-up is live-verified working
-  end to end. **Do not "fix" its absence from the repo by committing it** — `eas.json` keeps
-  Cloudflare's dummy key in its two `*-local` profiles on purpose. **Those dummy test keys ignore
-  hostnames**, so local/dev environments cannot reproduce a production hostname failure — never
-  conclude sign-up works from a dummy-key run. `docs/status.md` Known Issue #36 has the live
-  evidence and how it was closed.
+  no `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed and the challenge renders and can be
+  solved (observed in the app on an iOS simulator). **A completed email sign-up has still never
+  happened** — `auth.users` holds one account, a Google identity with no password — so the hop from
+  a solved-challenge token through `signup-with-captcha` to a new row remains unverified and Known
+  Issue #36 stays open on exactly that. **Do not "fix" the key's absence from the repo by committing
+  it** — `eas.json` keeps Cloudflare's dummy key in its two `*-local` profiles on purpose. **Those
+  dummy test keys ignore hostnames**, so local/dev environments cannot reproduce a production
+  hostname failure — never conclude sign-up works from a dummy-key run. `docs/status.md` Known
+  Issue #36 has the live evidence and the exact remaining scope.
 - Anything prefixed `EXPO_PUBLIC_` is inlined in **plain text** into the compiled app bundle.
   Treat it as public. Always read it with static dot notation (`process.env.EXPO_PUBLIC_X`) —
   the `expo/no-dynamic-env-var` lint rule enforces this; destructuring or bracket access
