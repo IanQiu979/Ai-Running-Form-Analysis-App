@@ -87,11 +87,30 @@ function baseUrlFromHostname(hostname: string): string | null {
 }
 
 /**
+ * The two ways this resolver can return `null` produce the SAME user-facing notice
+ * (`copy.auth.signUp.unavailable`), which is correct for the reader and useless for whoever has
+ * to fix it: a build shipped with no key at all and a build whose key is fine but whose hostname
+ * was mistyped are indistinguishable on screen. That invisibility is the same class of failure
+ * that hid the 110200 bug for the whole of #166, so each branch leaves a dev-only trail naming
+ * which one it was.
+ *
+ * `__DEV__`-guarded because this is a diagnostic for the operator, not telemetry: a release
+ * build stays silent. The site key value is NEVER logged — it is public by design, but a log
+ * line is not where an operator should be reading it back from — only the *rejected hostname or
+ * URL* is echoed, because that value is the thing being debugged.
+ */
+function warnUnusable(reason: string): void {
+  if (!__DEV__) return;
+  console.warn(`[turnstile] sign-up disabled: ${reason}`);
+}
+
+/**
  * Returns the config to render the widget with, or `null` when Turnstile is not usably
  * configured — which the caller must surface as an honest "sign-up unavailable" state rather
  * than a widget that can only ever fail. `null` is returned when the site key is missing (the
  * ordinary unconfigured build) AND when a site key is present but no hostname can be derived at
- * all, because a widget rendered with no base URL is a guaranteed 110200, not a maybe.
+ * all, because a widget rendered with no base URL is a guaranteed 110200, not a maybe. Both
+ * branches warn in dev only; the return contract is `null` either way.
  */
 export function resolveTurnstileConfig(
   siteKey: string | undefined,
@@ -99,11 +118,19 @@ export function resolveTurnstileConfig(
   supabaseUrl: string | undefined
 ): TurnstileConfig | null {
   const key = trimmedOrNull(siteKey);
-  if (key === null) return null;
+  if (key === null) {
+    warnUnusable('EXPO_PUBLIC_TURNSTILE_SITE_KEY is not set in this build.');
+    return null;
+  }
 
   const configuredHostname = trimmedOrNull(hostname);
   if (configuredHostname !== null) {
     const baseUrl = baseUrlFromHostname(configuredHostname);
+    if (baseUrl === null) {
+      warnUnusable(
+        `a site key is set, but EXPO_PUBLIC_TURNSTILE_HOSTNAME is not a hostname or absolute https URL: ${JSON.stringify(configuredHostname)}. Cloudflare wildcards ("*.example.com") are not accepted here — use the exact host the challenge is rendered under.`
+      );
+    }
     return baseUrl === null ? null : { siteKey: key, baseUrl };
   }
 
@@ -111,7 +138,17 @@ export function resolveTurnstileConfig(
   // no scheme is inferred for it, and a malformed value resolves to null rather than becoming a
   // hostname that could only ever fail Cloudflare's check.
   const fallback = trimmedOrNull(supabaseUrl);
-  if (fallback === null) return null;
+  if (fallback === null) {
+    warnUnusable(
+      'a site key is set, but neither EXPO_PUBLIC_TURNSTILE_HOSTNAME nor EXPO_PUBLIC_SUPABASE_URL is set, so the challenge has no base URL to load under.'
+    );
+    return null;
+  }
   const baseUrl = baseUrlFromAbsoluteUrl(fallback);
+  if (baseUrl === null) {
+    warnUnusable(
+      `a site key is set, but no EXPO_PUBLIC_TURNSTILE_HOSTNAME was given and EXPO_PUBLIC_SUPABASE_URL is not an absolute http(s) URL: ${JSON.stringify(fallback)}.`
+    );
+  }
   return baseUrl === null ? null : { siteKey: key, baseUrl };
 }

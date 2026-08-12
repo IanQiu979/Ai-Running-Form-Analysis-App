@@ -45,8 +45,12 @@ export const Copy = {
     signUp: {
       submit: 'Create account',
       link: 'New here? Create an account',
-      // Issue #12/Known Issue #12 — shown INSTEAD of the Turnstile widget when
-      // `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is unset, which is the only way this string appears.
+      // Issue #12/Known Issue #12 — shown INSTEAD of the Turnstile widget on either of the two
+      // ways `lib/turnstile-config.ts` can fail to resolve a usable config: `EXPO_PUBLIC_
+      // TURNSTILE_SITE_KEY` is unset, OR a site key is set but no base URL can be derived from
+      // `EXPO_PUBLIC_TURNSTILE_HOSTNAME`/`EXPO_PUBLIC_SUPABASE_URL` (a widget with no hostname is
+      // a guaranteed Cloudflare 110200). The two are deliberately indistinguishable to the
+      // reader — neither is theirs to fix — and are told apart by a `__DEV__`-only warning there.
       // Sign-up genuinely cannot complete without a captcha token (supabase/functions/
       // signup-with-captcha verifies one server-side), so the submit button stays disabled — this
       // is the *reason* the user was previously never given. Deliberately mirrors
