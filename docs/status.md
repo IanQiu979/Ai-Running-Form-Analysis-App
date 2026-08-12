@@ -264,12 +264,12 @@ milestone "done" criteria.
     `supabase secrets set` on the hosted project; the local dev stack and `eas.json`'s
     `*-local` build profiles use Cloudflare's public "always passes" test key pair instead of the
     real one. Deployed to the live project and verified: signup is rejected with `captcha_invalid`
-    given a garbage token, and with `invalid_body` given no token at all. The "succeeds with a
-    valid token" path is proven by the full test suite (fake `CaptchaVerifier` returning `true` →
-    real `signUp` proxy → session returned) — no browser-automation tool was available in this
-    session to solve a live Turnstile challenge end-to-end, which would be the only way to prove
-    stronger than that; same "honest ceiling" caveat `purchase-tier.deno.test.ts`'s header
-    documents for its own untestable-live-Postgres case.
+    given a garbage token, and with `invalid_body` given no token at all. At the time, the
+    "succeeds with a valid token" path was only proven by the full test suite (fake
+    `CaptchaVerifier` returning `true` → real `signUp` proxy → session returned), with no live
+    Turnstile solve. **That ceiling is gone: a real solve created a real account on 2026-08-12 —
+    see Known Issue #36 below for the end-to-end evidence and for the two client-side bugs that
+    had to be fixed first.**
 13. ~~**Session storage is plaintext AsyncStorage today**~~ **RESOLVED 2026-07-12 (issue #38).**
     `lib/supabase.ts` now passes `storage: secureSessionStorage` (`lib/secure-storage.ts`), the
     "LargeSecureStore" pattern: an AES-256 key lives in SecureStore (Keychain/Keystore-backed,

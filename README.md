@@ -16,9 +16,11 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx eas-cli@latest env:pull --environment development --path .env
    ```
 
-   Populates `.env` (`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) from the
-   EAS project's `development` environment — see `CLAUDE.md` § Secrets & env for what belongs in
-   `.env` and what never does.
+   Populates `.env` (`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
+   `EXPO_PUBLIC_TURNSTILE_SITE_KEY`) from the EAS project's `development` environment — see
+   `CLAUDE.md` § Secrets & env for what belongs in `.env` and what never does. Without the
+   Turnstile site key, email sign-up is disabled behind an in-app notice rather than failing
+   loudly, so don't skip this step.
 
    `--path .env` is not optional: `env:pull` defaults to writing `.env.local`, and Expo's loader
    gives `.env.local` precedence over `.env`. Leaving the default would silently shadow the `.env`
