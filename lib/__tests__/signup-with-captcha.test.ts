@@ -144,6 +144,17 @@ describe('signUpWithCaptcha', () => {
     expect(result).toEqual({ ok: false, code: 'session_malformed' });
   });
 
+  // `supabase.functions.invoke` hands back `data: null` for a 200 whose body was empty or
+  // unparseable. That must resolve like any other unusable 200, not throw out of a function
+  // documented as never throwing.
+  it('reports session_malformed for a 200 with no body at all', async () => {
+    mockInvoke.mockResolvedValue({ data: null, error: null } as never);
+
+    const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123');
+
+    expect(result).toEqual({ ok: false, code: 'session_malformed' });
+  });
+
   it('resolves { ok: false, code: "unknown" } for a 200 body with no session', async () => {
     mockInvoke.mockResolvedValue({
       data: { session: null, user: { id: 'user-1', email: null } },

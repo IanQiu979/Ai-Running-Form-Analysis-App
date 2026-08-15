@@ -80,11 +80,20 @@ export type SignupWithCaptchaResult =
   | { ok: true; session: SignupWithCaptchaSession }
   | { ok: false; code: SignupWithCaptchaErrorCode };
 
-/** Mirrors `supabase/functions/_shared/signup-with-captcha.ts`'s `SignupResult['body']['code']`
- * union — a hand-maintained copy, not an import, since this file cannot reach across the
- * `supabase/functions/` boundary (same convention `lib/delete-account.ts`'s
- * `isServerDeleteAccountErrorCode` documents). An unrecognized code folds to `'unknown'` rather
- * than crashing, so server-side drift degrades gracefully. */
+/** Mirrors the `code` strings `supabase/functions/_shared/signup-with-captcha.ts`'s
+ * `handleSignupWithCaptcha` emits on its 400/500 arms. This one IS hand-maintained — unlike the
+ * 200 body above, which is imported — and the reason is NOT the `supabase/functions/` boundary
+ * (this file crosses it at the top via `@shared/*`). It is that there is nothing over there to
+ * import: `SignupResult` types these as a bare `string`, the codes exist only as inline literals
+ * inside the handler's `switch`, and its `'error'` arm forwards `result.code` straight from GoTrue,
+ * so the emitted set is open-ended by design and cannot be closed into a union without changing the
+ * deployed function's behavior.
+ *
+ * THE DRIFT RISK THAT LEAVES, stated plainly: if the server renames one of these (say
+ * `weak_password_pwned`), nothing fails to compile — the code silently folds to `'unknown'` and the
+ * user gets the generic message instead of the actionable one. That is a copy regression, not a
+ * broken session, which is why it is tolerated here where the 200-body equivalent was not.
+ * Renaming a code server-side means updating this list in the same commit. */
 function isKnownErrorCode(
   code: string
 ): code is Exclude<SignupWithCaptchaErrorCode, 'network' | 'session_malformed' | 'unknown'> {
@@ -137,14 +146,13 @@ function readSessionPayload(session: unknown): SignupWithCaptchaSession | null {
  * field names present on the object, which is the thing being debugged. Without this, the only
  * signal a wire-contract break gives is a generic error message on screen.
  */
-function warnMalformedSession(session: unknown): void {
+function warnMalformedSession(value: unknown): void {
   if (!__DEV__) return;
-  const fields =
-    session !== null && typeof session === 'object' ? Object.keys(session).join(', ') : String(session);
+  const fields = value !== null && typeof value === 'object' ? Object.keys(value).join(', ') : String(value);
   console.warn(
-    `[signup-with-captcha] the 200 response carried a session object without usable ` +
-      `accessToken/refreshToken strings. Fields present: ${fields}. The deployed edge function's ` +
-      `response shape and @shared/signup-with-captcha's SessionPayload have diverged.`
+    `[signup-with-captcha] the 200 response did not carry usable accessToken/refreshToken ` +
+      `strings. Fields present: ${fields}. The deployed edge function's response shape and ` +
+      `@shared/signup-with-captcha's SessionPayload have diverged.`
   );
 }
 
@@ -169,6 +177,14 @@ export async function signUpWithCaptcha(
     }
     const { code } = result.error;
     return { ok: false, code: isKnownErrorCode(code) ? code : 'unknown' };
+  }
+
+  if (result.data === null || typeof result.data !== 'object') {
+    // `supabase.functions.invoke` yields `data: null` for a 200 whose body was empty or
+    // unparseable, so this cannot be destructured blind — doing so would throw a TypeError out of a
+    // function whose contract above says it never throws, skipping the named code entirely.
+    warnMalformedSession(result.data);
+    return { ok: false, code: 'session_malformed' };
   }
 
   const { session } = result.data;
