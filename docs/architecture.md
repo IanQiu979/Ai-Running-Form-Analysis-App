@@ -2047,12 +2047,15 @@ one. Those dummy keys bypass hostname validation entirely, so a green local run 
 about production's hostname check — see CLAUDE.md § Secrets & env.
 
 **Verified live**: a request with no `captchaToken` gets `400 invalid_body`; a request with a
-garbage token gets `400 captcha_invalid`. The full success path is **verified end to end in the app
-against the production project, 2026-08-12**: a real Turnstile solve on the sign-up form created
-this project's first email/password account, and signing in with it reached Home. Before that the
-"succeeds with a valid token" path was only proven by the Deno + Jest suite (a fake
-`CaptchaVerifier` returning `true`, exercising the real `signUp` proxy end to end). Full evidence,
-and the one open follow-up about post-sign-up navigation, is in `docs/status.md` Known Issue #36.
+garbage token gets `400 captcha_invalid`. The server's success path is **verified against the
+production project, 2026-08-12**: a real Turnstile solve on the sign-up form created this project's
+first email/password account. Before that the "succeeds with a valid token" path was only proven by
+the Deno + Jest suite (a fake `CaptchaVerifier` returning `true`, exercising the real `signUp` proxy
+end to end). The **client** half did not complete until 2026-08-15: `lib/signup-with-captcha.ts`
+read the 200 body's session in snake_case while this function has only ever emitted
+`SessionPayload`'s camelCase, so every sign-up created the account and then stranded the user on the
+form. That client fix is verified at the network layer, not yet in-app on a simulator. Full evidence
+is in `docs/status.md` Known Issue #36 (server/Turnstile) and Known Issue #38 (the client parse).
 
 **Files.** `supabase/functions/signup-with-captcha/index.ts` (HTTP/env glue only) ·
 `_shared/signup-with-captcha.ts` (portable validation + shaping, unit-tested) ·

@@ -243,6 +243,13 @@ describe('mapSignupWithCaptchaError', () => {
     'signup_unavailable',
     'no_session',
     'network',
+    // Client-side only (2026-08-15) — a 200 whose session object had no usable tokens. Shares the
+    // generic copy deliberately: it is a build/deploy fault the reader can do nothing about, and
+    // the operator-facing signal is `lib/signup-with-captcha.ts`'s dev-only warning instead. This
+    // case being listed here is also what keeps `mapSignupWithCaptchaError` exhaustive — the
+    // function's `default` arm assigns to `never`, so a code added to the union without a branch
+    // is a compile error, and a branch that stops returning a string is caught right here.
+    'session_malformed',
     'unknown',
   ] as const)('%s falls back to the generic message', (code) => {
     expect(mapSignupWithCaptchaError(code)).toBe(Copy.auth.error.generic);

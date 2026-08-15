@@ -67,9 +67,12 @@ Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project
   explains the whole failure mode. The site key is now set in the gitignored `.env` and in all
   three EAS environments, and `vputdomdlknvthnzritt.supabase.co` is allow-listed on the widget, so
   no `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed and the challenge renders and can be
-  solved. **Email sign-up and sign-in are both verified live end to end as of 2026-08-12** — a real
-  sign-up in the app created the project's first email/password account and a real sign-in with it
-  reached the Home screen; the test account was deleted afterwards, and Known Issue #36 is resolved.
+  solved. **Email SIGN-IN was verified live end to end on 2026-08-12** — a real sign-in reached the
+  Home screen. **Email SIGN-UP on that date created the account but never completed into the app**:
+  it left the user on the form, so a retry came back `email_in_use` and the record wrongly read as
+  "sign-up is failing" when it was in fact succeeding and having its session discarded. That was not
+  fixed until 2026-08-15 (`docs/status.md` Known Issue #38). **The 2026-08-15 fix is verified at the
+  NETWORK LAYER against the live project, and is NOT yet verified in-app on a simulator.**
   **Do not "fix" the key's absence from the repo by committing
   it** — `eas.json` keeps Cloudflare's dummy key in its two `*-local` profiles on purpose. **Those
   dummy test keys ignore hostnames**, so local/dev environments cannot reproduce a production
@@ -164,6 +167,16 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
   `lib/pace.ts` by issue #90, since only that location ships in the `supabase functions deploy`
   bundle) — and are imported by both the app (via the `@shared/*` tsconfig alias) and the edge
   functions.
+- **A `lib/` edge-function client NEVER restates the response shape by hand — it imports the type
+  from `@shared/*`, and its tests build the success fixture from the server module.** Edge
+  functions return **camelCase**. Restating a body as snake_case is how sign-up broke in
+  production for three days while the suite stayed green: `lib/signup-with-captcha.ts` declared
+  `{ access_token, refresh_token }`, the server had only ever sent `{ accessToken, refreshToken }`,
+  and the test hand-wrote the same wrong fixture the client read — so fixture and client agreed
+  with each other and neither agreed with the server (`docs/status.md` Known Issue #38).
+  `lib/quota.ts` and `lib/signup-with-captcha.ts` are the two patterns to copy. A type-only import
+  is erased at runtime and cannot prove what the DEPLOYED function sent, so parse defensively too
+  and fail with a named code rather than passing `undefined` down into supabase-js.
 
 ## Testing
 
