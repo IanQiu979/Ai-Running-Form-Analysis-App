@@ -196,6 +196,13 @@ export function mapSignupWithCaptchaError(code: SignupWithCaptchaErrorCode): str
     case 'signup_unavailable':
     case 'no_session':
     case 'network':
+    // `session_malformed` is a build/deploy fault, not anything the user did or can fix, so it
+    // deliberately shares the generic copy — inventing a new user-facing string for "our two
+    // sides disagree about a field name" would explain nothing to a reader. The signal an
+    // operator needs is emitted separately and in dev only, by `lib/signup-with-captcha.ts`'s
+    // `warnMalformedSession`; the same split `lib/turnstile-config.ts` uses for its own
+    // misconfiguration branches (one honest on-screen notice, one dev-only diagnostic).
+    case 'session_malformed':
     case 'unknown':
       return Copy.auth.error.generic;
     default: {

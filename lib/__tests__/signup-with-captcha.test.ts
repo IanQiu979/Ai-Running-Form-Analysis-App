@@ -2,16 +2,35 @@
  * `lib/signup-with-captcha.ts` (issue #12/Known Issue #12) — the `signup-with-captcha` client
  * `app/(auth)/sign-in.tsx` calls in sign-up mode instead of `supabase.auth.signUp()` directly.
  *
- * WHAT THIS SUITE PROVES, AND WHAT IT CANNOT: it proves `signUpWithCaptcha` reads the documented
- * `{ session, user }` response shape correctly, never reports success without a session, folds
- * an unrecognized server `code` to `'unknown'` rather than crashing, and that `applySignupSession`
- * hydrates the on-device session via `supabase.auth.setSession`. It does NOT prove the edge
- * function itself behaves correctly (that's `supabase/functions/_shared/__tests__/
- * signup-with-captcha.deno.test.ts`) and does NOT prove the two projects agree on the contract —
- * same drift-risk caveat `lib/delete-account.ts`'s header documents for its own hand-mirrored
- * error codes.
+ * ⚠️ READ THIS BEFORE ADDING A 200-RESPONSE FIXTURE. This suite used to open with a caveat that
+ * it "does NOT prove the two projects agree on the contract." That caveat was not a limitation to
+ * live with — it was the bug, sitting in the file, described in its own words. The happy-path test
+ * below handed `signUpWithCaptcha` a fixture the test author wrote by hand
+ * (`{ access_token, refresh_token }`), the client read exactly those snake_case fields, the two
+ * agreed with each other, and the suite went green — while the edge function had only ever emitted
+ * `{ accessToken, refreshToken }` and sign-up was broken in production for every real user. See
+ * `lib/signup-with-captcha.ts`'s header for the live evidence and the full failure mode.
+ *
+ * SO THE 200 FIXTURE IS NO LONGER WRITTEN BY HAND. `serverSuccessBody()` below builds it by
+ * calling the edge function's OWN `handleSignupWithCaptcha` (`@shared/signup-with-captcha`, the
+ * exact module `supabase/functions/signup-with-captcha/index.ts` serves its response from) with
+ * stubbed dependencies, and feeds that real body to the mocked `invoke`. A field renamed on either
+ * side now fails here instead of in the app. Keep it that way: a hand-written success body in this
+ * file is a fixture agreeing with itself, which is precisely what proved nothing last time.
+ *
+ * WHAT THIS STILL CANNOT PROVE: that the version of the function actually DEPLOYED matches the
+ * checked-out `_shared/` module. Nothing in a unit test can. That residual gap is what
+ * `lib/signup-with-captcha.ts`'s runtime `readSessionPayload` guard and its `session_malformed`
+ * code exist to make loud — and the `'rejects the pre-2026-08-15 snake_case shape'` case below is
+ * the regression lock on it.
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
+
+import {
+  handleSignupWithCaptcha,
+  type SessionPayload,
+  type SignUpClient,
+} from '@shared/signup-with-captcha';
 
 import { supabase } from '../supabase';
 
@@ -40,15 +59,45 @@ function fakeJsonResponse(body: unknown) {
   return { json: async () => body } as Response;
 }
 
+/** The session the stubbed `SignUpClient` hands back. Typed as the SERVER's `SessionPayload`, so
+ *  renaming a field in `@shared/signup-with-captcha.ts` breaks this line at compile time — that
+ *  type annotation is load-bearing, not decoration. */
+const SERVER_SESSION: SessionPayload = {
+  accessToken: 'access-tok',
+  refreshToken: 'refresh-tok',
+  expiresIn: 3600,
+  expiresAt: 1_800_000_000,
+  tokenType: 'bearer',
+};
+
+/**
+ * The real 200 body, produced by the edge function's own response-shaping code rather than
+ * transcribed here — see this file's header for why that distinction is the entire point of this
+ * suite. Only the two injected dependencies are stubbed (there is no Cloudflare and no GoTrue in
+ * a unit test); every field name on the way out is the server's.
+ */
+async function serverSuccessBody(email = 'runner@example.com') {
+  const signUpClient: SignUpClient = {
+    async signUp(signUpEmail) {
+      return { outcome: 'created', session: SERVER_SESSION, user: { id: 'user-1', email: signUpEmail } };
+    },
+  };
+
+  const result = await handleSignupWithCaptcha(
+    { captchaVerifier: { verify: async () => true }, signUpClient },
+    { email, password: 'aRealStrongPassw0rd!9x', captchaToken: 'tok-123' },
+    null
+  );
+
+  if (result.status !== 200) {
+    throw new Error(`expected the stubbed server to return 200, got ${result.status}`);
+  }
+  return result.body;
+}
+
 describe('signUpWithCaptcha', () => {
-  it('resolves { ok: true, session } on a 200 with a session', async () => {
-    mockInvoke.mockResolvedValue({
-      data: {
-        session: { access_token: 'access-tok', refresh_token: 'refresh-tok' },
-        user: { id: 'user-1', email: 'runner@example.com' },
-      },
-      error: null,
-    } as never);
+  it('resolves { ok: true, session } on a real 200 body built by the edge function itself', async () => {
+    mockInvoke.mockResolvedValue({ data: await serverSuccessBody(), error: null } as never);
 
     const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123');
 
@@ -60,6 +109,39 @@ describe('signUpWithCaptcha', () => {
       method: 'POST',
       body: { email: 'runner@example.com', password: 'aRealStrongPassw0rd!9x', captchaToken: 'tok-123' },
     });
+  });
+
+  // THE REGRESSION LOCK. This exact body is what the old test asserted success on, and what the
+  // old client happily "read" — producing `{ accessToken: undefined, refreshToken: undefined }`
+  // and, one `setSession` call later, an `AuthSessionMissingError` raised before any request went
+  // out. It must now be refused by name, never silently carried forward as a usable session.
+  it('rejects the pre-2026-08-15 snake_case shape as session_malformed instead of passing undefined tokens on', async () => {
+    mockInvoke.mockResolvedValue({
+      data: {
+        session: { access_token: 'access-tok', refresh_token: 'refresh-tok' },
+        user: { id: 'user-1', email: 'runner@example.com' },
+      },
+      error: null,
+    } as never);
+
+    const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123');
+
+    expect(result).toEqual({ ok: false, code: 'session_malformed' });
+  });
+
+  it.each([
+    ['a blank access token', { accessToken: '', refreshToken: 'refresh-tok' }],
+    ['a blank refresh token', { accessToken: 'access-tok', refreshToken: '' }],
+    ['a non-string token', { accessToken: 42, refreshToken: 'refresh-tok' }],
+  ])('reports session_malformed for a 200 carrying %s', async (_label, session) => {
+    mockInvoke.mockResolvedValue({
+      data: { session, user: { id: 'user-1', email: 'runner@example.com' } },
+      error: null,
+    } as never);
+
+    const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123');
+
+    expect(result).toEqual({ ok: false, code: 'session_malformed' });
   });
 
   it('resolves { ok: false, code: "unknown" } for a 200 body with no session', async () => {

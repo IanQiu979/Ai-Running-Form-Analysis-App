@@ -164,6 +164,16 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
   `lib/pace.ts` by issue #90, since only that location ships in the `supabase functions deploy`
   bundle) — and are imported by both the app (via the `@shared/*` tsconfig alias) and the edge
   functions.
+- **A `lib/` edge-function client NEVER restates the response shape by hand — it imports the type
+  from `@shared/*`, and its tests build the success fixture from the server module.** Edge
+  functions return **camelCase**. Restating a body as snake_case is how sign-up broke in
+  production for three days while the suite stayed green: `lib/signup-with-captcha.ts` declared
+  `{ access_token, refresh_token }`, the server had only ever sent `{ accessToken, refreshToken }`,
+  and the test hand-wrote the same wrong fixture the client read — so fixture and client agreed
+  with each other and neither agreed with the server (`docs/status.md` Known Issue #37).
+  `lib/quota.ts` and `lib/signup-with-captcha.ts` are the two patterns to copy. A type-only import
+  is erased at runtime and cannot prove what the DEPLOYED function sent, so parse defensively too
+  and fail with a named code rather than passing `undefined` down into supabase-js.
 
 ## Testing
 

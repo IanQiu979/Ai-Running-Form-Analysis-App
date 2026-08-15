@@ -5,6 +5,40 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-15 (sign-up created the account and left the user on the form: a camelCase/snake_case wire mismatch)
+
+- **Fixed the bug behind the captain's "signing up and signing in with emails doesn't work".**
+  Sign-up was creating the account every time and then reporting failure. `lib/signup-with-captcha.ts`
+  read the 200 body's session as `{ access_token, refresh_token }`; `signup-with-captcha` has only
+  ever emitted `_shared/signup-with-captcha.ts`'s `SessionPayload`, which is `{ accessToken,
+  refreshToken, ... }`. Both reads were `undefined`, so `applySignupSession` handed
+  `supabase.auth.setSession` two undefined tokens and it threw `AuthSessionMissingError` **before
+  any network call** — no `SIGNED_IN` event, so `app/_layout.tsx`'s `Stack.Protected` guard never
+  flipped and the user sat on the form behind the generic error. A retry then said `email_in_use`,
+  which read as a second bug. This is `docs/status.md` Known Issue #36's "one open follow-up",
+  which was written off as a possible race; it was deterministic. Full receipt and the live
+  evidence: `docs/status.md` Known Issue #37.
+- **Sign-in was never broken.** It does not go through this function. The captain's failed sign-in
+  at 13:15:19Z was against an account he had deleted from the Supabase dashboard at 13:07:50Z, so
+  `invalid_credentials` was the correct answer — the same misattribution 2026-08-12 recorded, for a
+  different reason. Turnstile is also fine: his sign-up's Turnstile token verified server-side and
+  returned 200, so the site key and the allow-listed hostname are working as configured.
+- The client now imports its wire types from `@shared/signup-with-captcha` — the same `@shared/*`
+  alias `lib/quota.ts` already uses so the two sides cannot drift on field names — **and**
+  validates both tokens are non-empty strings before `setSession`, degrading to a named
+  `session_malformed` code plus a `__DEV__`-only diagnostic rather than a generic error thrown from
+  inside supabase-js. A type-only import is erased at runtime and proves nothing about what the
+  deployed function actually sent, so the runtime guard is not redundant with it.
+- **Test coverage that would have caught it.** `lib/__tests__/signup-with-captcha.test.ts` no
+  longer writes its own 200 fixture — it builds one by calling the edge function's own
+  `handleSignupWithCaptcha`, so a rename on either side fails there instead of in production. That
+  file's happy-path fixture had been hand-written in snake_case and agreed with the equally wrong
+  client, which is why the suite was green throughout; its header even carried the caveat "does NOT
+  prove the two projects agree on the contract". New: a regression lock on the old snake_case body,
+  `app/(auth)/__tests__/sign-up-submit.test.tsx` (the screen passes the parsed session onward), and
+  `lib/__tests__/session-provider.test.tsx` (a `SIGNED_IN` event flips the routing guard's value).
+  All of them fail against the pre-fix client.
+
 ## 2026-08-13
 
 - CI: the `denoland/setup-deno` step in `.github/workflows/ci.yml` now retries once. The Deno
