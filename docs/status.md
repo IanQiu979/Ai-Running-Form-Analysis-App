@@ -1049,10 +1049,12 @@ still standing between here and a public/TestFlight release:
 - ~~**Known Issue #36 — email sign-up is broken**~~ **RESOLVED 2026-08-12**, verified live end to
   end against `vputdomdlknvthnzritt`. Both causes are addressed — the latent `baseUrl` bug is fixed
   in code on this branch, and the captain provisioned the site key and allow-listed the hostname —
-  and, unlike every prior attempt, the full path was exercised to completion: a real sign-up in the
-  app created a real account, and a real sign-in with it reached the signed-in Home screen. See
-  "Verified live end to end" at the end of this entry for the evidence and for the one follow-up
-  observation it surfaced. The diagnosis below is kept as the historical record of what was
+  and, unlike every prior attempt, a real sign-up in the app created a real account and a real
+  sign-in reached the signed-in Home screen. See "Verified live end to end" at the end of this entry
+  for the evidence. **What this entry originally claimed and got wrong:** the sign-up half did *not*
+  complete into the app — it created the account and left the user on the form, which this entry
+  filed as "one open follow-up" and guessed was a race. It was deterministic, and it is Known Issue
+  #37 below, resolved 2026-08-15. The diagnosis below is kept as the historical record of what was
   actually wrong, because the two causes stacked in a way that made each other invisible.
 
   Diagnosed 2026-08-12 (branch `fm/v23-signup-signin-cloudflare-fix-r1`) after the
