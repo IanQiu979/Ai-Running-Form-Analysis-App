@@ -2055,7 +2055,7 @@ end to end). The **client** half did not complete until 2026-08-15: `lib/signup-
 read the 200 body's session in snake_case while this function has only ever emitted
 `SessionPayload`'s camelCase, so every sign-up created the account and then stranded the user on the
 form. That client fix is verified at the network layer, not yet in-app on a simulator. Full evidence
-is in `docs/status.md` Known Issue #36 (server/Turnstile) and Known Issue #37 (the client parse).
+is in `docs/status.md` Known Issue #36 (server/Turnstile) and Known Issue #38 (the client parse).
 
 **Files.** `supabase/functions/signup-with-captcha/index.ts` (HTTP/env glue only) ·
 `_shared/signup-with-captcha.ts` (portable validation + shaping, unit-tested) ·

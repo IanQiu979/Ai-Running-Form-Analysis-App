@@ -1121,7 +1121,7 @@ still standing between here and a public/TestFlight release:
 
   ~~**One open follow-up, not a regression in this change:** on the successful sign-up the app
   stayed on the sign-up form instead of entering the app, even though the server had issued a
-  session.~~ **RESOLVED 2026-08-15 — see Known Issue #37 below.** It was not a race and not a
+  session.~~ **RESOLVED 2026-08-15 — see Known Issue #38 below.** It was not a race and not a
   duplicate-submit artifact: it happened on every sign-up, and the reason the wiring "read correct"
   is that the defect was one layer above it, in how the 200 body's session was parsed. Reading this
   entry's confounding-duplicate-422 theory as the likely explanation is what let it sit for three
@@ -1135,7 +1135,7 @@ still standing between here and a public/TestFlight release:
   profiles deliberately keep Cloudflare's dummy `1x00000000000000000000AA` for local-stack testing.
   The dummy keys ignore hostnames, so a green local run still proves nothing about production —
   that is the exact blind spot that hid this bug for the whole of #166's life.
-- ~~**Known Issue #37 — sign-up creates the account but the app stays on the form**~~
+- ~~**Known Issue #38 — sign-up creates the account but the app stays on the form**~~
   **RESOLVED 2026-08-15**, root-caused and proven live against `vputdomdlknvthnzritt`. This is
   #36's "one open follow-up" above, promoted to its own entry now that it turned out to be a
   deterministic bug rather than the suspected race.

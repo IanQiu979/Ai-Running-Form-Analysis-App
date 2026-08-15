@@ -17,7 +17,7 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   flipped and the user sat on the form behind the generic error. A retry then said `email_in_use`,
   which read as a second bug. This is `docs/status.md` Known Issue #36's "one open follow-up",
   which was written off as a possible race; it was deterministic. Full receipt and the live
-  evidence: `docs/status.md` Known Issue #37.
+  evidence: `docs/status.md` Known Issue #38.
 - **Sign-in was never broken.** It does not go through this function. The captain's failed sign-in
   at 13:15:19Z was against an account he had deleted from the Supabase dashboard at 13:07:50Z, so
   `invalid_credentials` was the correct answer — the same misattribution 2026-08-12 recorded, for a
