@@ -1029,6 +1029,154 @@ milestone "done" criteria.
     before trusting any "deployed" annotation in these docs** — `supabase migration list` and the
     functions' `updated_at` are the authorities, not a merge commit.
 
+38. ~~**Email sign-up is broken**~~ **RESOLVED 2026-08-12**, verified live end to
+    end against `vputdomdlknvthnzritt`. Both causes are addressed — the latent `baseUrl` bug is fixed
+    in code on this branch, and the captain provisioned the site key and allow-listed the hostname —
+    and, unlike every prior attempt, a real sign-up in the app created a real account and a real
+    sign-in reached the signed-in Home screen. See "Verified live end to end" at the end of this entry
+    for the evidence. **What this entry originally claimed and got wrong:** the sign-up half did *not*
+    complete into the app — it created the account and left the user on the form, which this entry
+    filed as "one open follow-up" and guessed was a race. It was deterministic, and it is Known Issue
+    #39 below, resolved 2026-08-15. The diagnosis below is kept as the historical record of what was
+    actually wrong, because the two causes stacked in a way that made each other invisible.
+
+    Diagnosed 2026-08-12 (branch `fm/v23-signup-signin-cloudflare-fix-r1`) after the
+    captain reported "email sign-up and sign-in are both broken". Verified live against
+    `vputdomdlknvthnzritt`, in this order:
+    - `TURNSTILE_SECRET_KEY` **is** set on the edge function and works — a bogus token returns
+      `captcha_invalid` (not `signup_unavailable`), and its SHA-256 matches none of Cloudflare's
+      three dummy secrets, so it is a real key. It was last set 2026-08-11 13:34.
+    - `EXPO_PUBLIC_TURNSTILE_SITE_KEY` was set **nowhere**: empty in every `.env`, absent from all
+      three EAS environments. Only `eas.json`'s `development-local`/`preview-local` profiles carried
+      one, and it is Cloudflare's dummy always-passes key. The captain had set the server half of the
+      pair and never the client half. With no key the widget never mounts, no token is issued, and
+      "Create account" is permanently disabled behind the honest unavailable notice.
+    - `auth.users` held exactly **one** account, a **Google** identity with **no password**. So no
+      email/password account has ever existed, which is the whole of "sign-in is broken too": it is
+      a consequence, not a regression. Sign-in itself is healthy — `/auth/v1/token?grant_type=password`
+      was exercised live and issued a session for a password account created for the probe (since
+      deleted). Typing the Google-linked email into the email form returns GoTrue's deliberate
+      `invalid_credentials`, indistinguishable from a wrong password by design.
+    - A second, latent cause sat underneath: `components/turnstile-widget.tsx` loaded its challenge
+      with `source={{ html }}` and no `baseUrl`, i.e. under `about:blank`/a `null` origin. Turnstile
+      widgets are hostname-bound and Cloudflare offers no way to disable that check, so a **real**
+      site key would have failed with error 110200 even once provisioned. Cloudflare's dummy keys
+      ignore hostnames, which is exactly why #166's verification passed on a path production never
+      takes. **Fixed on this branch** (`lib/turnstile-config.ts` + a `baseUrl` prop), with
+      regression locks in `lib/__tests__/turnstile-config.test.ts`,
+      `components/__tests__/turnstile-widget.test.tsx` and `app/(auth)/__tests__/sign-in.test.tsx`.
+
+    **What is proven, and what is not, 2026-08-12.** The captain did the two things only the
+    Cloudflare and EAS dashboards can do:
+    - `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is now set in the real gitignored `.env` **and** created in
+      **all three** EAS environments (`development`, `preview`, `production`), each confirmed
+      present. The client half of the pair finally matches the server half.
+    - `vputdomdlknvthnzritt.supabase.co` — the default base URL `lib/turnstile-config.ts` resolves —
+      was added to that widget's allowed-domain list in Cloudflare, so no
+      `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed. That is what makes the fixed `baseUrl`
+      actually pass Cloudflare's hostname check instead of returning 110200.
+
+    **Proven with that configuration in place:** the challenge is served and solved successfully
+    under the `baseUrl` `lib/turnstile-config.ts` resolves — observed in the app on an iOS simulator,
+    where Turnstile returned Success and enabled the "Create account" button, and independently by
+    loading the widget's exact WebView source in a real browser under the allow-listed Supabase
+    hostname. The **old** no-`baseUrl` path still fails with the app-visible error under the same
+    real key, which pins the regression from both sides. The reworded invalid-credentials copy was
+    observed rendering from a genuine production HTTP 400.
+
+    **Verified live end to end, 2026-08-12** — in the app (Expo Go, iOS simulator, pointed at the
+    production project), not by unit test and not by a scripted browser:
+    - **Sign-up.** `pace.e2e.0812c@mailinator.com` was created at 16:36:57 UTC through the real form:
+      Turnstile solved, `signup-with-captcha` accepted the token, and `auth.users` gained a row with
+      `encrypted_password` set, provider `email`, auto-confirmed, with a session issued. That is the
+      **first email/password account this project has ever had** — the hop that had never once
+      completed.
+    - **Sign-in.** Signing in with that account reached the signed-in Home screen (tab bar, "Nothing
+      analyzed yet"), and `last_sign_in_at` moved to 17:02:30 UTC.
+    - **Cleanup.** The test account was deleted afterwards; `auth.users` is back to the single Google
+      account it held before.
+
+    Getting there required disabling iOS Settings → General → AutoFill & Passwords → **Suggest Strong
+    Passwords** in the simulator: the "Use Strong Password?" sheet intercepts the password field after
+    the first character and does not respond to synthetic taps. Worth knowing for any future
+    simulator-driven auth run. Note also that the Turnstile token is short-lived — solve the challenge
+    and submit within a few minutes, or the button silently does nothing because the token was cleared.
+
+    ~~**One open follow-up, not a regression in this change:** on the successful sign-up the app
+    stayed on the sign-up form instead of entering the app, even though the server had issued a
+    session.~~ **RESOLVED 2026-08-15 — see Known Issue #39 below.** It was not a race and not a
+    duplicate-submit artifact: it happened on every sign-up, and the reason the wiring "read correct"
+    is that the defect was one layer above it, in how the 200 body's session was parsed. Reading this
+    entry's confounding-duplicate-422 theory as the likely explanation is what let it sit for three
+    days; the lesson recorded here is that "seen once, probably a race" deserved one deterministic
+    check, not a deferral.
+
+    **Two things about this that stay true and must not be "tidied up" later.** The real site key
+    lives ONLY in the gitignored `.env` and in EAS — never in `eas.json` or any other tracked file,
+    per CLAUDE.md § Secrets & env; a reviewer reading the repo alone therefore cannot see it, and its
+    absence from the diff is correct, not a gap. And `eas.json`'s `development-local`/`preview-local`
+    profiles deliberately keep Cloudflare's dummy `1x00000000000000000000AA` for local-stack testing.
+    The dummy keys ignore hostnames, so a green local run still proves nothing about production —
+    that is the exact blind spot that hid this bug for the whole of #166's life.
+39. ~~**Sign-up creates the account but the app stays on the form**~~
+    **RESOLVED 2026-08-15**, root-caused and proven live against `vputdomdlknvthnzritt`. This is
+    #38's "one open follow-up" above, promoted to its own entry now that it turned out to be a
+    deterministic bug rather than the suspected race.
+
+    **Symptom.** The captain reported "signing up and signing in with emails doesn't work". Sign-up
+    appeared to fail behind `Copy.auth.error.generic` ("Sign-in didn't go through. Try again.") —
+    while the account was in fact created every time. A retry with the same address then returned
+    `email_in_use`, which reads as a second, unrelated bug.
+
+    **Root cause — a wire-contract mismatch, snake_case vs camelCase.** `lib/signup-with-captcha.ts`
+    declared the 200 body by hand as `session: { access_token, refresh_token }` and read those two
+    fields. `signup-with-captcha` has only ever emitted `_shared/signup-with-captcha.ts`'s
+    `SessionPayload` — `{ accessToken, refreshToken, expiresIn, expiresAt, tokenType }`. Both reads
+    resolved to `undefined`, so `applySignupSession` called
+    `supabase.auth.setSession({ access_token: undefined, refresh_token: undefined })`, which throws
+    `AuthSessionMissingError` **before making any network call**. No `SIGNED_IN` event, so
+    `app/_layout.tsx`'s `Stack.Protected guard={!!session}` never flipped and the user stayed on the
+    form. Sign-in was never broken: it does not go through this function at all.
+
+    **Why the test suite was green.** `lib/__tests__/signup-with-captcha.test.ts` built its own 200
+    fixture by hand, in snake_case, and the client read snake_case — the fixture agreed with the
+    client and neither agreed with the server. The suite's header even carried the caveat "does NOT
+    prove the two projects agree on the contract". That caveat was the bug, written down.
+
+    **Live evidence (project `vputdomdlknvthnzritt`).**
+    - The captain's own attempt: `POST /functions/v1/signup-with-captcha` → **200** at
+      2026-08-15T13:15:41Z, `auth.users` row created, session issued — and then **zero** further
+      requests from the device. `setSession` throwing before the wire is exactly that signature.
+      (His `/token` 400 twelve seconds earlier was a sign-in attempt against an account he had
+      deleted from the dashboard at 13:07:50 — correct behavior, not a second bug.)
+    - Direct run of the deployed `_shared/signup-client.ts` under Deno against the live project:
+      real signup → session field names `accessToken, refreshToken, expiresIn, expiresAt, tokenType`;
+      the pre-fix read yielded `undefined/undefined` and `setSession` returned
+      `AuthSessionMissingError: Auth session missing!`; the fixed read hydrated a real session, and
+      `quota-status` (Home's first call) then returned 200. `signInWithPassword` with the same
+      credentials also returned 200 and reached `quota-status`. Test account deleted afterwards.
+
+    **The fix, and why it is two things.** `lib/signup-with-captcha.ts` now imports the wire types
+    from `@shared/signup-with-captcha` (the same `@shared/*` alias `lib/quota.ts` already uses for
+    this exact reason), so a rename on either side is a compile error; and it validates the two
+    tokens are non-empty strings before `setSession`, degrading to a named `session_malformed` code
+    plus a `__DEV__`-only warning instead of a generic error from inside supabase-js. A type-only
+    import is erased at runtime and cannot prove what the DEPLOYED function sent, which is why the
+    runtime guard is not redundant with it.
+
+    **Coverage added** (all of it fails against the pre-fix client — verified by reverting):
+    `lib/__tests__/signup-with-captcha.test.ts` now builds its 200 fixture by calling the edge
+    function's own `handleSignupWithCaptcha`, and locks the old snake_case body as
+    `session_malformed`; `app/(auth)/__tests__/sign-up-submit.test.tsx` proves the screen hands the
+    parsed session to `applySignupSession`; `lib/__tests__/session-provider.test.tsx` proves a
+    `SIGNED_IN` event flips the value the routing guard reads.
+
+    **Not verified in-app on a simulator.** A headless run got the app up in Expo Go, but Maestro
+    could not drive it: with `Simulator.app` closed XCUITest sees only SpringBoard's app switcher,
+    and with it open Maestro attached to a concurrent E2E run from another worktree
+    (`workout-v2.2`) regardless of `--device`. The live proof above covers the same path at the
+    network layer; a UI-level pass is worth one run when no other lane is driving a simulator.
+
 ## Next action
 
 **RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the
@@ -1046,153 +1194,6 @@ still standing between here and a public/TestFlight release:
 - ~~**Known Issue #12** — CAPTCHA is needed before `analyze-form` can go live publicly~~
   **RESOLVED 2026-08-02/03** — see that entry above for the full story
   (`supabase/functions/signup-with-captcha`, not native `auth.captcha`).
-38. ~~**Email sign-up is broken**~~ **RESOLVED 2026-08-12**, verified live end to
-  end against `vputdomdlknvthnzritt`. Both causes are addressed — the latent `baseUrl` bug is fixed
-  in code on this branch, and the captain provisioned the site key and allow-listed the hostname —
-  and, unlike every prior attempt, a real sign-up in the app created a real account and a real
-  sign-in reached the signed-in Home screen. See "Verified live end to end" at the end of this entry
-  for the evidence. **What this entry originally claimed and got wrong:** the sign-up half did *not*
-  complete into the app — it created the account and left the user on the form, which this entry
-  filed as "one open follow-up" and guessed was a race. It was deterministic, and it is Known Issue
-  #37 below, resolved 2026-08-15. The diagnosis below is kept as the historical record of what was
-  actually wrong, because the two causes stacked in a way that made each other invisible.
-
-  Diagnosed 2026-08-12 (branch `fm/v23-signup-signin-cloudflare-fix-r1`) after the
-  captain reported "email sign-up and sign-in are both broken". Verified live against
-  `vputdomdlknvthnzritt`, in this order:
-  - `TURNSTILE_SECRET_KEY` **is** set on the edge function and works — a bogus token returns
-    `captcha_invalid` (not `signup_unavailable`), and its SHA-256 matches none of Cloudflare's
-    three dummy secrets, so it is a real key. It was last set 2026-08-11 13:34.
-  - `EXPO_PUBLIC_TURNSTILE_SITE_KEY` was set **nowhere**: empty in every `.env`, absent from all
-    three EAS environments. Only `eas.json`'s `development-local`/`preview-local` profiles carried
-    one, and it is Cloudflare's dummy always-passes key. The captain had set the server half of the
-    pair and never the client half. With no key the widget never mounts, no token is issued, and
-    "Create account" is permanently disabled behind the honest unavailable notice.
-  - `auth.users` held exactly **one** account, a **Google** identity with **no password**. So no
-    email/password account has ever existed, which is the whole of "sign-in is broken too": it is
-    a consequence, not a regression. Sign-in itself is healthy — `/auth/v1/token?grant_type=password`
-    was exercised live and issued a session for a password account created for the probe (since
-    deleted). Typing the Google-linked email into the email form returns GoTrue's deliberate
-    `invalid_credentials`, indistinguishable from a wrong password by design.
-  - A second, latent cause sat underneath: `components/turnstile-widget.tsx` loaded its challenge
-    with `source={{ html }}` and no `baseUrl`, i.e. under `about:blank`/a `null` origin. Turnstile
-    widgets are hostname-bound and Cloudflare offers no way to disable that check, so a **real**
-    site key would have failed with error 110200 even once provisioned. Cloudflare's dummy keys
-    ignore hostnames, which is exactly why #166's verification passed on a path production never
-    takes. **Fixed on this branch** (`lib/turnstile-config.ts` + a `baseUrl` prop), with
-    regression locks in `lib/__tests__/turnstile-config.test.ts`,
-    `components/__tests__/turnstile-widget.test.tsx` and `app/(auth)/__tests__/sign-in.test.tsx`.
-
-  **What is proven, and what is not, 2026-08-12.** The captain did the two things only the
-  Cloudflare and EAS dashboards can do:
-  - `EXPO_PUBLIC_TURNSTILE_SITE_KEY` is now set in the real gitignored `.env` **and** created in
-    **all three** EAS environments (`development`, `preview`, `production`), each confirmed
-    present. The client half of the pair finally matches the server half.
-  - `vputdomdlknvthnzritt.supabase.co` — the default base URL `lib/turnstile-config.ts` resolves —
-    was added to that widget's allowed-domain list in Cloudflare, so no
-    `EXPO_PUBLIC_TURNSTILE_HOSTNAME` override is needed. That is what makes the fixed `baseUrl`
-    actually pass Cloudflare's hostname check instead of returning 110200.
-
-  **Proven with that configuration in place:** the challenge is served and solved successfully
-  under the `baseUrl` `lib/turnstile-config.ts` resolves — observed in the app on an iOS simulator,
-  where Turnstile returned Success and enabled the "Create account" button, and independently by
-  loading the widget's exact WebView source in a real browser under the allow-listed Supabase
-  hostname. The **old** no-`baseUrl` path still fails with the app-visible error under the same
-  real key, which pins the regression from both sides. The reworded invalid-credentials copy was
-  observed rendering from a genuine production HTTP 400.
-
-  **Verified live end to end, 2026-08-12** — in the app (Expo Go, iOS simulator, pointed at the
-  production project), not by unit test and not by a scripted browser:
-  - **Sign-up.** `pace.e2e.0812c@mailinator.com` was created at 16:36:57 UTC through the real form:
-    Turnstile solved, `signup-with-captcha` accepted the token, and `auth.users` gained a row with
-    `encrypted_password` set, provider `email`, auto-confirmed, with a session issued. That is the
-    **first email/password account this project has ever had** — the hop that had never once
-    completed.
-  - **Sign-in.** Signing in with that account reached the signed-in Home screen (tab bar, "Nothing
-    analyzed yet"), and `last_sign_in_at` moved to 17:02:30 UTC.
-  - **Cleanup.** The test account was deleted afterwards; `auth.users` is back to the single Google
-    account it held before.
-
-  Getting there required disabling iOS Settings → General → AutoFill & Passwords → **Suggest Strong
-  Passwords** in the simulator: the "Use Strong Password?" sheet intercepts the password field after
-  the first character and does not respond to synthetic taps. Worth knowing for any future
-  simulator-driven auth run. Note also that the Turnstile token is short-lived — solve the challenge
-  and submit within a few minutes, or the button silently does nothing because the token was cleared.
-
-  ~~**One open follow-up, not a regression in this change:** on the successful sign-up the app
-  stayed on the sign-up form instead of entering the app, even though the server had issued a
-  session.~~ **RESOLVED 2026-08-15 — see Known Issue #39 below.** It was not a race and not a
-  duplicate-submit artifact: it happened on every sign-up, and the reason the wiring "read correct"
-  is that the defect was one layer above it, in how the 200 body's session was parsed. Reading this
-  entry's confounding-duplicate-422 theory as the likely explanation is what let it sit for three
-  days; the lesson recorded here is that "seen once, probably a race" deserved one deterministic
-  check, not a deferral.
-
-  **Two things about this that stay true and must not be "tidied up" later.** The real site key
-  lives ONLY in the gitignored `.env` and in EAS — never in `eas.json` or any other tracked file,
-  per CLAUDE.md § Secrets & env; a reviewer reading the repo alone therefore cannot see it, and its
-  absence from the diff is correct, not a gap. And `eas.json`'s `development-local`/`preview-local`
-  profiles deliberately keep Cloudflare's dummy `1x00000000000000000000AA` for local-stack testing.
-  The dummy keys ignore hostnames, so a green local run still proves nothing about production —
-  that is the exact blind spot that hid this bug for the whole of #166's life.
-39. ~~**Sign-up creates the account but the app stays on the form**~~
-  **RESOLVED 2026-08-15**, root-caused and proven live against `vputdomdlknvthnzritt`. This is
-  #38's "one open follow-up" above, promoted to its own entry now that it turned out to be a
-  deterministic bug rather than the suspected race.
-
-  **Symptom.** The captain reported "signing up and signing in with emails doesn't work". Sign-up
-  appeared to fail behind `Copy.auth.error.generic` ("Sign-in didn't go through. Try again.") —
-  while the account was in fact created every time. A retry with the same address then returned
-  `email_in_use`, which reads as a second, unrelated bug.
-
-  **Root cause — a wire-contract mismatch, snake_case vs camelCase.** `lib/signup-with-captcha.ts`
-  declared the 200 body by hand as `session: { access_token, refresh_token }` and read those two
-  fields. `signup-with-captcha` has only ever emitted `_shared/signup-with-captcha.ts`'s
-  `SessionPayload` — `{ accessToken, refreshToken, expiresIn, expiresAt, tokenType }`. Both reads
-  resolved to `undefined`, so `applySignupSession` called
-  `supabase.auth.setSession({ access_token: undefined, refresh_token: undefined })`, which throws
-  `AuthSessionMissingError` **before making any network call**. No `SIGNED_IN` event, so
-  `app/_layout.tsx`'s `Stack.Protected guard={!!session}` never flipped and the user stayed on the
-  form. Sign-in was never broken: it does not go through this function at all.
-
-  **Why the test suite was green.** `lib/__tests__/signup-with-captcha.test.ts` built its own 200
-  fixture by hand, in snake_case, and the client read snake_case — the fixture agreed with the
-  client and neither agreed with the server. The suite's header even carried the caveat "does NOT
-  prove the two projects agree on the contract". That caveat was the bug, written down.
-
-  **Live evidence (project `vputdomdlknvthnzritt`).**
-  - The captain's own attempt: `POST /functions/v1/signup-with-captcha` → **200** at
-    2026-08-15T13:15:41Z, `auth.users` row created, session issued — and then **zero** further
-    requests from the device. `setSession` throwing before the wire is exactly that signature.
-    (His `/token` 400 twelve seconds earlier was a sign-in attempt against an account he had
-    deleted from the dashboard at 13:07:50 — correct behavior, not a second bug.)
-  - Direct run of the deployed `_shared/signup-client.ts` under Deno against the live project:
-    real signup → session field names `accessToken, refreshToken, expiresIn, expiresAt, tokenType`;
-    the pre-fix read yielded `undefined/undefined` and `setSession` returned
-    `AuthSessionMissingError: Auth session missing!`; the fixed read hydrated a real session, and
-    `quota-status` (Home's first call) then returned 200. `signInWithPassword` with the same
-    credentials also returned 200 and reached `quota-status`. Test account deleted afterwards.
-
-  **The fix, and why it is two things.** `lib/signup-with-captcha.ts` now imports the wire types
-  from `@shared/signup-with-captcha` (the same `@shared/*` alias `lib/quota.ts` already uses for
-  this exact reason), so a rename on either side is a compile error; and it validates the two
-  tokens are non-empty strings before `setSession`, degrading to a named `session_malformed` code
-  plus a `__DEV__`-only warning instead of a generic error from inside supabase-js. A type-only
-  import is erased at runtime and cannot prove what the DEPLOYED function sent, which is why the
-  runtime guard is not redundant with it.
-
-  **Coverage added** (all of it fails against the pre-fix client — verified by reverting):
-  `lib/__tests__/signup-with-captcha.test.ts` now builds its 200 fixture by calling the edge
-  function's own `handleSignupWithCaptcha`, and locks the old snake_case body as
-  `session_malformed`; `app/(auth)/__tests__/sign-up-submit.test.tsx` proves the screen hands the
-  parsed session to `applySignupSession`; `lib/__tests__/session-provider.test.tsx` proves a
-  `SIGNED_IN` event flips the value the routing guard reads.
-
-  **Not verified in-app on a simulator.** A headless run got the app up in Expo Go, but Maestro
-  could not drive it: with `Simulator.app` closed XCUITest sees only SpringBoard's app switcher,
-  and with it open Maestro attached to a concurrent E2E run from another worktree
-  (`workout-v2.2`) regardless of `--device`. The live proof above covers the same path at the
-  network layer; a UI-level pass is worth one run when no other lane is driving a simulator.
 - **Known Issue #17** — a hard spend ceiling in the Anthropic Console is still unset (needs Ian's
   Anthropic Console access).
 - **Known Issue #15** — `docs/privacy-policy.md` publication is on hold pending Ian's answer on
