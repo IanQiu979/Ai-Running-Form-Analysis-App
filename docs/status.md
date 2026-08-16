@@ -268,7 +268,7 @@ milestone "done" criteria.
     "succeeds with a valid token" path was only proven by the full test suite (fake
     `CaptchaVerifier` returning `true` → real `signUp` proxy → session returned), with no live
     Turnstile solve. **That ceiling is gone: a real solve created a real account on 2026-08-12 —
-    see Known Issue #36 below for the end-to-end evidence and for the two client-side bugs that
+    see Known Issue #38 below for the end-to-end evidence and for the two client-side bugs that
     had to be fixed first.**
 13. ~~**Session storage is plaintext AsyncStorage today**~~ **RESOLVED 2026-07-12 (issue #38).**
     `lib/supabase.ts` now passes `storage: secureSessionStorage` (`lib/secure-storage.ts`), the
@@ -1046,7 +1046,7 @@ still standing between here and a public/TestFlight release:
 - ~~**Known Issue #12** — CAPTCHA is needed before `analyze-form` can go live publicly~~
   **RESOLVED 2026-08-02/03** — see that entry above for the full story
   (`supabase/functions/signup-with-captcha`, not native `auth.captcha`).
-- ~~**Known Issue #36 — email sign-up is broken**~~ **RESOLVED 2026-08-12**, verified live end to
+38. ~~**Email sign-up is broken**~~ **RESOLVED 2026-08-12**, verified live end to
   end against `vputdomdlknvthnzritt`. Both causes are addressed — the latent `baseUrl` bug is fixed
   in code on this branch, and the captain provisioned the site key and allow-listed the hostname —
   and, unlike every prior attempt, a real sign-up in the app created a real account and a real
@@ -1121,7 +1121,7 @@ still standing between here and a public/TestFlight release:
 
   ~~**One open follow-up, not a regression in this change:** on the successful sign-up the app
   stayed on the sign-up form instead of entering the app, even though the server had issued a
-  session.~~ **RESOLVED 2026-08-15 — see Known Issue #38 below.** It was not a race and not a
+  session.~~ **RESOLVED 2026-08-15 — see Known Issue #39 below.** It was not a race and not a
   duplicate-submit artifact: it happened on every sign-up, and the reason the wiring "read correct"
   is that the defect was one layer above it, in how the 200 body's session was parsed. Reading this
   entry's confounding-duplicate-422 theory as the likely explanation is what let it sit for three
@@ -1135,9 +1135,9 @@ still standing between here and a public/TestFlight release:
   profiles deliberately keep Cloudflare's dummy `1x00000000000000000000AA` for local-stack testing.
   The dummy keys ignore hostnames, so a green local run still proves nothing about production —
   that is the exact blind spot that hid this bug for the whole of #166's life.
-- ~~**Known Issue #38 — sign-up creates the account but the app stays on the form**~~
+39. ~~**Sign-up creates the account but the app stays on the form**~~
   **RESOLVED 2026-08-15**, root-caused and proven live against `vputdomdlknvthnzritt`. This is
-  #36's "one open follow-up" above, promoted to its own entry now that it turned out to be a
+  #38's "one open follow-up" above, promoted to its own entry now that it turned out to be a
   deterministic bug rather than the suspected race.
 
   **Symptom.** The captain reported "signing up and signing in with emails doesn't work". Sign-up
