@@ -311,7 +311,7 @@ verbatim from `constants/copy.ts`, a draft until certified (`docs/status.md` Kno
 | `history.item.a11yLabel` | "Analysis from {date}, overall {score} out of 100, {band}." | VoiceOver label for each list row. |
 | `history.item.a11yLabelNotAssessed` | "Analysis from {date}, not assessed." | NEW key (issue #55), CERTIFIED by Ian 2026-07-13. An analysis whose overall is honestly null (every pillar not assessed) still needs a real VoiceOver sentence — mirrors `result.pillar.notAssessed.generic`'s "never stringify null as a score" rule. |
 | `history.item.deleteCta` | "Delete" | NEW key (issue #55), CERTIFIED by Ian 2026-07-13. This deck specs the confirmation dialog (`history.delete.confirm.*` below) but not a label for the row's own delete trigger — the built screen's affordance is a persistent tappable control per row (design brief §8 offers swipe/long-press as alternatives; a persistent tap target reads correctly to VoiceOver with no gesture to discover). |
-| `history.delete.confirm.title` | "Delete this analysis?" | Swipe/long-press → delete. |
+| `history.delete.confirm.title` | "Delete this analysis?" | Shown after the row's own Delete control (see `history.item.deleteCta` above). |
 | `history.delete.confirm.body` | "This removes the result and its saved frames. This can't be undone." | States both halves of the purge (row + frames), matching Ruling 6. |
 | `history.delete.confirm.cta.primary` | "Delete analysis" | Names the destruction (rule 3), not "OK." |
 | `history.delete.confirm.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel`. |

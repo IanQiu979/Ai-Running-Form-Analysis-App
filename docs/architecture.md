@@ -350,7 +350,7 @@ lib/
   so a signed-out user's navigator has no `(tabs)` route to go to at all (and vice versa).
   `onAuthStateChange` flipping `session` in `SessionProvider` is what moves the user between
   them; no screen calls `router.replace()` after sign-in or sign-out.
-- **Session storage is SecureStore-backed (issue #38, closes `docs/status.md` Known Issue #13).**
+- **Session storage is SecureStore-backed (GitHub issue #38, closes `docs/status.md` Known Issue #13).**
   `lib/secure-storage.ts`'s `LargeSecureStore` implements the "LargeSecureStore" pattern:
   SecureStore holds a random AES-256 key (64 hex chars, constant size — proven under the
   2048-byte SecureStore value limit regardless of session size), AsyncStorage holds the
@@ -481,7 +481,7 @@ pure/client split as `ai-guard.ts`. 28 Deno tests.
   160–170 SPM — approximate, estimated from frames whose timing is not exact"). The runner sees
   only `score`, `band`, and `feedback`; a hedge the model keeps to itself is not a hedge.
 - **The note-conditional certified guidance is neutralised at the prompt layer**, not by editing
-  certified text (that needs Ian's review — #39/#40). No note field ships (Known Issue #10), so the
+  certified text (that needs Ian's review — GitHub issues #39/#40). No note field ships (Known Issue #10), so the
   prompt states plainly that there is no runner's note, no history, no reported symptoms, and that
   every note-conditional clause in the certified files is therefore inactive — otherwise a model
   trying to satisfy them can invent what the runner "reported".
@@ -2055,7 +2055,7 @@ end to end). The **client** half did not complete until 2026-08-15: `lib/signup-
 read the 200 body's session in snake_case while this function has only ever emitted
 `SessionPayload`'s camelCase, so every sign-up created the account and then stranded the user on the
 form. That client fix is verified at the network layer, not yet in-app on a simulator. Full evidence
-is in `docs/status.md` Known Issue #36 (server/Turnstile) and Known Issue #38 (the client parse).
+is in `docs/status.md` Known Issue #38 (server/Turnstile) and Known Issue #39 (the client parse).
 
 **Files.** `supabase/functions/signup-with-captcha/index.ts` (HTTP/env glue only) ·
 `_shared/signup-with-captcha.ts` (portable validation + shaping, unit-tested) ·

@@ -7,10 +7,9 @@
 > runner's note — dropped for MVP, see the last section — is ever revived).
 
 This table exists so filling out the privacy questionnaire at submission time is a lookup,
-not a re-derivation of the data inventory from scratch. It describes the **designed** data
-flows (what the app will do once M2–M6 are built), not what exists in the repo today — see
-`docs/status.md` for build status. Do not submit these answers for a build that doesn't yet
-collect the data they describe.
+not a re-derivation of the data inventory from scratch. M2–M6 are built and their backend
+functions are deployed as of 2026-07-26; this table describes what the app collects today.
+See `docs/status.md` for current build and deployment detail.
 
 ---
 
@@ -71,7 +70,7 @@ Additional declarations required by the Play form:
 - **"Is data encrypted in transit?"** — Yes.
 - **"Do you provide a way for users to request that data be deleted?"** — Yes; in-app
   account deletion (Settings → Delete account) removes every analysis and stored frame,
-  and per-analysis deletion is also available (Past Analyses → swipe/long-press delete).
+  and per-analysis deletion is also available (Past Analyses → Delete on each row).
 - **"Is data collection required or optional?"** — account email and the frames needed to
   run an analysis are required (the app cannot function without them); nothing else is
   collected.
