@@ -1,5 +1,11 @@
 # V2.3 — Design Brief (MVP)
 
+> **Design-intent record, not current state.** This brief records the design intent at the time of
+> writing (2026-07). The shipped behaviour differs in places — notably the Past Analyses deletion
+> interaction (§4, screen 8, "Swipe/long-press → delete"): the shipped screen uses a persistent
+> per-row Delete button. The authoritative current-design document is `docs/design/copy-deck.md`
+> (Screen 8 — Past Analyses). Kept unrewritten so the record of why the design changed survives.
+
 > **Scope: basic MVP, one document.** Unlike V2.2's two-doc design layer, V2.3 keeps the whole
 > design system in this single brief — enough for a builder to execute, no more. It covers tokens,
 > the score-readout system, screen-by-screen, states, motion, and the accessibility floor.

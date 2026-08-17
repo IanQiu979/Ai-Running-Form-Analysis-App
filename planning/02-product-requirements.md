@@ -1,5 +1,11 @@
 # V2.3 — Product Requirements (Part A: What & Why)
 
+> **Design-intent record, not current state.** This document records what was intended at the time
+> of writing (2026-07). The shipped behaviour differs in places — notably the Past Analyses
+> deletion interaction (the "User flow (v1)" chart's "swipe/tap to delete"): the shipped screen
+> uses a persistent per-row Delete button. The authoritative current-design document is `docs/design/copy-deck.md`
+> (Screen 8 — Past Analyses). Kept unrewritten so the record of why the design changed survives.
+
 > Status: draft from brainstorm (2026-07-07), reconciled 2026-07-11 against
 > `docs/mvp-build-prompt.md`'s rulings + decision gate. App name decided: **Pace Analysis AI**
 > (PACE family; repo/codename stays "V2.3"). Real-launch goal.
