@@ -213,7 +213,7 @@ Work that landed on `main` on 2026-07-12, in the same pass that produced this fi
 
 Listed so this file is not mistaken for the complete blocked list:
 
-- **#39** — needs **Ian's certification** of the drafted Elasticity content and the pillar refinements. It ships into every analysis prompt under his name.
+- **GitHub issue #39** — needs **Ian's certification** of the drafted Elasticity content and the pillar refinements. It ships into every analysis prompt under his name.
 - **#74** — **partially resolved 2026-07-12.** The endpoint-side half is now covered by a daily
   live-API canary (`.github/workflows/hibp-canary.yml`) that needs no observability stack and
   collects no user data. Only the device-side residue (captive portals, Cloudflare challenging

@@ -350,7 +350,7 @@ lib/
   so a signed-out user's navigator has no `(tabs)` route to go to at all (and vice versa).
   `onAuthStateChange` flipping `session` in `SessionProvider` is what moves the user between
   them; no screen calls `router.replace()` after sign-in or sign-out.
-- **Session storage is SecureStore-backed (issue #38, closes `docs/status.md` Known Issue #13).**
+- **Session storage is SecureStore-backed (GitHub issue #38, closes `docs/status.md` Known Issue #13).**
   `lib/secure-storage.ts`'s `LargeSecureStore` implements the "LargeSecureStore" pattern:
   SecureStore holds a random AES-256 key (64 hex chars, constant size — proven under the
   2048-byte SecureStore value limit regardless of session size), AsyncStorage holds the
@@ -481,7 +481,7 @@ pure/client split as `ai-guard.ts`. 28 Deno tests.
   160–170 SPM — approximate, estimated from frames whose timing is not exact"). The runner sees
   only `score`, `band`, and `feedback`; a hedge the model keeps to itself is not a hedge.
 - **The note-conditional certified guidance is neutralised at the prompt layer**, not by editing
-  certified text (that needs Ian's review — #39/#40). No note field ships (Known Issue #10), so the
+  certified text (that needs Ian's review — GitHub issues #39/#40). No note field ships (Known Issue #10), so the
   prompt states plainly that there is no runner's note, no history, no reported symptoms, and that
   every note-conditional clause in the certified files is therefore inactive — otherwise a model
   trying to satisfy them can invent what the runner "reported".
