@@ -5,6 +5,26 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-17 (the two spec documents are kept unrewritten, and now say so)
+
+- **Recorded the 2026-08-16 ruling: `planning/02-product-requirements.md` and
+  `docs/design/frontend-design-brief.md` are NOT to be rewritten to match shipped behaviour.** They
+  are the record of what was specified and why it changed; rewriting them destroys that. A drift
+  pass that finds a mismatch in either file should leave the text alone and add a dated note, not
+  edit the spec into agreement with the code. Both files now carry a header saying this.
+- **The specific known mismatch is the Past Analyses deletion interaction.** Both documents specify
+  a swipe/long-press-to-delete affordance; the shipped `app/(tabs)/history.tsx` uses a persistent
+  per-row Delete button. `docs/design/copy-deck.md` (Screen 8 — Past Analyses) is the current
+  record for that affordance — it is a copy deck, so it governs copy and this interaction only, not
+  tokens, motion, or layout.
+- **The two headers are deliberately different, because the two documents are.** The design brief
+  has been amended in place repeatedly (§2's palette swapped 2026-08-02 and quoting live
+  `constants/theme.ts` values; §2 type/radius and §6 motion amended 2026-07-26), so its header
+  scopes the "superseded" label to §4's screen-by-screen detail and says the rest is current — a
+  blanket "not current state" would have pushed a future reader to distrust and re-derive the token
+  and motion sections that are authoritative. The PRD carries no in-place amendment notes, so a
+  spec-time-record framing fits the whole document.
+
 ## 2026-08-15 (sign-up created the account and left the user on the form: a camelCase/snake_case wire mismatch)
 
 - **Fixed the bug behind the captain's "signing up and signing in with emails doesn't work".**

@@ -1,10 +1,13 @@
 # V2.3 — Product Requirements (Part A: What & Why)
 
-> **Design-intent record, not current state.** This document records what was intended at the time
-> of writing (2026-07). The shipped behaviour differs in places — notably the Past Analyses
-> deletion interaction (the "User flow (v1)" chart's "swipe/tap to delete"): the shipped screen
-> uses a persistent per-row Delete button. The authoritative current-design document is `docs/design/copy-deck.md`
-> (Screen 8 — Past Analyses). Kept unrewritten so the record of why the design changed survives.
+> **Spec-time record, not current state.** Unlike the design brief, this document has not been
+> amended in place since it was written in 2026-07 — it carries no dated amendment notes, so read
+> the whole of it as what was intended at spec time rather than as a description of the shipped
+> app. The known difference is the Past Analyses deletion interaction (the "User flow (v1)"
+> chart's "swipe/tap to delete"): the shipped screen uses a persistent per-row Delete button, per
+> `docs/design/copy-deck.md` (Screen 8 — Past Analyses). Kept unrewritten so the record of what was
+> specified, and why it changed, survives; `docs/status.md` and `docs/architecture.md` carry
+> current state.
 
 > Status: draft from brainstorm (2026-07-07), reconciled 2026-07-11 against
 > `docs/mvp-build-prompt.md`'s rulings + decision gate. App name decided: **Pace Analysis AI**

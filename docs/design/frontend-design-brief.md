@@ -1,10 +1,17 @@
 # V2.3 — Design Brief (MVP)
 
-> **Design-intent record, not current state.** This brief records the design intent at the time of
-> writing (2026-07). The shipped behaviour differs in places — notably the Past Analyses deletion
-> interaction (§4, screen 8, "Swipe/long-press → delete"): the shipped screen uses a persistent
-> per-row Delete button. The authoritative current-design document is `docs/design/copy-deck.md`
-> (Screen 8 — Past Analyses). Kept unrewritten so the record of why the design changed survives.
+> **Read this before citing §4.** This brief records the design intent at the time of writing
+> (2026-07), and **most of it has since been amended in place and is current** — §2's tokens were
+> swapped wholesale on 2026-08-02 and quote exactly what `constants/theme.ts` exports, and §2's
+> type/radius rules and §6's motion budget carry their own dated amendment notes. Treat those
+> sections as authoritative.
+>
+> What is **superseded** is the screen-by-screen interaction detail in §4, specifically screen 8's
+> Past Analyses deletion affordance ("Swipe/long-press → delete"): the shipped screen uses a
+> persistent per-row Delete button. For that interaction, `docs/design/copy-deck.md` (Screen 8 —
+> Past Analyses) is the current-design record. It is a copy deck, so it governs copy and the
+> deletion affordance only — not tokens, motion, or layout, which stay with this brief. The
+> superseded text is kept unrewritten so the record of why the design changed survives.
 
 > **Scope: basic MVP, one document.** Unlike V2.2's two-doc design layer, V2.3 keeps the whole
 > design system in this single brief — enough for a builder to execute, no more. It covers tokens,
