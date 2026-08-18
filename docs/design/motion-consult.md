@@ -31,6 +31,10 @@
    and interruptible by construction. Gesture-driven 1:1 direct manipulation is exempt from
    reduced-motion policy (same category as scrolling); no separate fallback needed — stated
    here so the silence isn't read as an omission.
+   **Superseded 2026-08-18, and therefore NOT binding: no swipe gesture was built.** The shipped
+   Past Analyses row uses a persistent per-row Delete button (`app/(tabs)/history.tsx`); see the
+   design brief §4 screen 8's note and `docs/design/copy-deck.md` (Screen 8 — Past Analyses), the
+   current record for that affordance. Kept unrewritten for the record of what was specified.
 
 ## The wait state — V2.2's honesty mechanic, restated (the rule §6 references but omits)
 
@@ -60,7 +64,7 @@ of work).
 | Wait-state step list (ring→dot, dwell line) | **Keep as-is** — low-amplitude, single-shot, opacity/color-only functional state signaling (V2.2 precedent: reduced motion targets vestibular triggers, not state indicators) |
 | Real-progress bars (upload %, frame n/N) | **Keep as-is**, same reasoning |
 | Compare screen (two stored results) | The "re-open from history renders instantly" rule applies here too — no reveal animation |
-| Swipe-to-delete | Exempt (gesture-driven 1:1 tracking) |
+| Swipe-to-delete | Exempt (gesture-driven 1:1 tracking) — superseded, never built; see item 6 |
 
 ## Handoffs
 

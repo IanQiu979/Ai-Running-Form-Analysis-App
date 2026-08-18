@@ -5,6 +5,16 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-18 (the third copy of the swipe-to-delete spec, in a file that is binding)
+
+- **`docs/design/motion-consult.md` item 6 (and its reduced-motion table row) now carry the same
+  supersede note.** The 2026-08-17 pass marked the PRD and the design brief, but this file states
+  in its own header that `frontend-builder` treats it as **binding** — so a builder reading item 6
+  today would have implemented a swipe gesture that no shipped screen has. The text is kept
+  unrewritten (its reduced-motion exemption reasoning is still the record of why gesture-driven
+  direct manipulation needs no fallback); only the "not binding, never built" note is added, with
+  the pointer to `docs/design/copy-deck.md` (Screen 8 — Past Analyses) as the current record.
+
 ## 2026-08-17 (the two spec documents are kept unrewritten, and now say so)
 
 - **Recorded the 2026-08-16 ruling: `planning/02-product-requirements.md` and
