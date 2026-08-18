@@ -6,7 +6,8 @@
 > type/radius rules and §6's motion budget carry their own dated amendment notes. Treat those
 > sections as authoritative.
 >
-> What is **superseded** is the screen-by-screen interaction detail in §4, specifically screen 8's
+> What is **superseded** is the screen-by-screen interaction detail in §4 — one known divergence,
+> not an exhaustive list — specifically screen 8's
 > Past Analyses deletion affordance ("Swipe/long-press → delete"): the shipped screen uses a
 > persistent per-row Delete button. For that interaction, `docs/design/copy-deck.md` (Screen 8 —
 > Past Analyses) is the current-design record. It is a copy deck, so it governs copy and the
@@ -247,6 +248,7 @@ Route tree already in `docs/architecture.md`. Basic, but every screen names its 
    Tap → the stored result. Swipe/long-press → delete (with confirm; delete purges the row **and**
    its frames — see build prompt Ruling 6). Empty state: the annotated-figure outline + "Your
    analyses will live here."
+   **Deletion affordance superseded 2026-08-18 — the shipped screen uses a persistent per-row Delete button; `docs/design/copy-deck.md` (Screen 8 — Past Analyses) is the current record.**
 9. **Compare (Elite, minimal)** — pick two past results; show the two PACE readouts **side by side**
    with the per-pillar deltas (+6 Posture, −3 Cadence…). Pure client-side view of two stored
    results — no new AI call, no extra storage.
