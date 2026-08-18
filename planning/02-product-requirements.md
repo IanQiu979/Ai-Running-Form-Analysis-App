@@ -1,5 +1,22 @@
 # V2.3 — Product Requirements (Part A: What & Why)
 
+> **Spec-time record, not current state.** Unlike the design brief, this document has not been
+> substantively amended since it was written in 2026-07 (only a cosmetic 2026-08-06 wordmark
+> rename) — it carries no dated amendment notes, so read the whole of it as what was intended at
+> spec time rather than as a description of the shipped app.
+>
+> The shipped behaviour differs in places. Two known divergences, not an exhaustive list:
+> the Past Analyses deletion interaction (the "User flow (v1)" chart's "swipe/tap to delete") —
+> the shipped screen uses a persistent per-row Delete button, per `docs/design/copy-deck.md`
+> (Screen 8 — Past Analyses); and the "Submit media" consent notice below, which says "your
+> photo/video is stored privately until you delete it" — false under Ruling 1's frames-only
+> contract (the full-resolution video never leaves the device), corrected in the shipped copy on
+> 2026-07-12 and logged at `docs/design/copy-deck.md`'s consent/privacy entry. This document's
+> own "no video is stored, only the frames Claude actually analyzed" line is the accurate one.
+>
+> Kept unrewritten so the record of what was specified, and why it changed, survives;
+> `docs/status.md` and `docs/architecture.md` carry current state.
+
 > Status: draft from brainstorm (2026-07-07), reconciled 2026-07-11 against
 > `docs/mvp-build-prompt.md`'s rulings + decision gate. App name decided: **Pace Analysis AI**
 > (PACE family; repo/codename stays "V2.3"). Real-launch goal.
