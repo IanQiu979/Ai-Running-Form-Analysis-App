@@ -145,10 +145,24 @@ export type AttemptFailure =
   /** The call itself never produced a response body (HTTP error, network error, abort). */
   | 'call_failed';
 
-/** The four `release_reason` strings `analyses_release_reason_known_values` permits. A value
- * outside this set is rejected by the DB's CHECK constraint — so this type is not a convention,
- * it is the schema. */
-export type ReleaseReason = 'model_error' | 'provider_timeout' | 'internal_error' | 'validation_failed';
+/** The `release_reason` strings `analyses_release_reason_known_values` permits. A value outside
+ * this set is rejected by the DB's CHECK constraint — so this type is not a convention, it is the
+ * schema.
+ *
+ * `'zero_pillars_assessed'` (audit-v23-r1-decision-zero-pillar-charge-policy, added by
+ * `20260819120000_zero_pillar_release_reason.sql`) is set only by `flow.ts`, not by anything in
+ * this file: it covers a response that VALIDATED in full — `decideOutcome` never even sees it,
+ * because it returns `kind: 'valid'` — but in which every pillar was honestly reported not
+ * assessed. Nothing useful was delivered, so the captain's decision is to refund the quota slot
+ * rather than charge it, while still handing the (empty) result back to the caller. It is
+ * deliberately excluded from `pace_is_farming_signal` (20260712220000): an honest "I could not
+ * assess anything in this clip" is not a farming signal, and must never tick the 3-strike cap. */
+export type ReleaseReason =
+  | 'model_error'
+  | 'provider_timeout'
+  | 'internal_error'
+  | 'validation_failed'
+  | 'zero_pillars_assessed';
 
 // -------------------------------------------------------------------------------------------
 // Score bands — the ONE piece of arithmetic this module does, and why it is not fabrication
