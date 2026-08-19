@@ -51,6 +51,30 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   here re-opens them; what the Calm redesign (#163–#189) did was add new surface that never adopted
   their patterns.
 
+## 2026-08-19 (the result reveal's mode selection is now proven, not just documented)
+
+- **`components/pace-readout.tsx`'s three-way reveal-mode choice (`instant` / `animate` /
+  `crossfade`) had no test at all.** That choice IS issue #61's reduced-motion deliverable, and
+  every way it breaks is silent: drop the `reduceMotion` branch and a user who asked the OS for
+  less motion gets the full staggered fill and count-up; drop the `firstReveal` branch and every
+  re-open from Past Analyses re-animates (the V2.2 mistake motion-consult item 3 exists to
+  prevent); drop the crossfade and the readout stays mounted at `opacity: 0` with nothing left to
+  raise it. Nothing throws in any of the three, and nothing looked wrong on a developer's machine.
+- **Two new suites lock it.** `components/__tests__/pace-readout-reveal.test.tsx` proves which
+  node tree each mode actually mounts (12 tests across the three modes plus the
+  `revealReady` gate); `components/__tests__/pace-reveal.test.tsx` proves the two primitives keep
+  the properties `docs/design/motion-consult.md` picked them for — the bar's `width` is its final
+  width from the first frame so the fill can only grow by transform (item 1, "scaleX, never
+  width"), and the count-up numeral's `defaultValue` already carries the true score so a UI-thread
+  `text` patch that never lands shows the real number rather than a stuck 0 (item 2). Both were
+  mutation-checked: removing either branch, the `transformOrigin`, or the truthful `defaultValue`
+  turns them red.
+- **One production line changed:** the readout's container gained `testID="pace-readout"`, which
+  is what makes the live mode observable from the mounted tree. No behavior change — verified by
+  the pre-existing suites still passing unchanged.
+- **Scope note:** issue #61's motion itself was already implemented and closed (`a4e88f7`,
+  2026-07-13); this pass adds only the regression coverage that half of it never got.
+
 ## 2026-08-18 (the third copy of the swipe-to-delete spec, in a file that is binding)
 
 - **`docs/design/motion-consult.md` item 6 (and its reduced-motion table row) now carry the same

@@ -194,6 +194,12 @@ default — copy an existing test rather than writing one from memory:
   found by `getByTestId`. Decorative nodes are correctly hidden from the a11y tree, and RNTL
   excludes hidden elements from queries by default — so the testID that "doesn't exist" usually
   does.
+- **Reanimated animations do not advance under Jest here.** A `withTiming`/`withSpring` shared
+  value stays at its start value no matter how far you wind fake timers, and installing fake
+  timers *before* `await render(...)` makes the render produce an empty tree instead. So a motion
+  test asserts the FIRST FRAME and the structural invariants — which node tree a mode mounts, that
+  a fill's `width` never moves so only its transform can — never that an animation finished.
+  `components/__tests__/pace-readout-reveal.test.tsx` is the pattern to copy.
 
 **Screens ARE unit-tested when the bug class needs it** (this line used to say they were not, which
 went stale). Two precedents, both regression locks for bugs that shipped:

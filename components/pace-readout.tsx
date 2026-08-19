@@ -32,6 +32,13 @@
  * Either reveal mode waits for `onLayout` before starting (motion-consult.md item 4: "first-
  * visible, not on-mount" — the same trigger indirection a future scroll-linked reveal would need,
  * so swapping this for real viewability later is additive, not a container change).
+ *
+ * That three-way choice is the whole of #61's reduced-motion scope and every way it can break is
+ * SILENT — a lost `reduceMotion` branch animates at a user who asked the OS not to, a lost
+ * `firstReveal` branch re-animates history, and a lost crossfade leaves the block at `opacity: 0`
+ * with nothing to raise it. So the container carries `testID="pace-readout"` purely so
+ * `components/__tests__/pace-readout-reveal.test.tsx` can prove which mode is live from the tree
+ * that actually mounted; the primitives' own invariants are locked in `pace-reveal.test.tsx`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -125,6 +132,7 @@ export function PaceReadout({ result, firstReveal = false, revealReady = true }:
 
   return (
     <Animated.View
+      testID="pace-readout"
       style={[styles.container, revealMode === 'crossfade' && crossfadeStyle]}
       onLayout={revealMode !== 'instant' ? handleFirstLayout : undefined}>
       {/* `accessibilityRole="header"`, not just `accessible`: `app/result/[id].tsx` states in its
