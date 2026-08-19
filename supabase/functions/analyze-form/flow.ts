@@ -113,6 +113,7 @@ import { errorClassOf, hashUserId, logEvent, newRequestId } from '../_shared/log
 import {
   PACE_FRAME_CAP,
   PACE_MAX_REQUEST_BODY_BYTES,
+  PACE_PILLARS,
   isPaceResult,
   type PaceResult,
   type PaceTier,
@@ -915,6 +916,33 @@ export async function runAnalyzeForm(
     }
 
     isFallback = decision.kind === 'partial';
+
+    // ── 9.5. Captain decision (audit-v23-r1-decision-zero-pillar-charge-policy). ────────────
+    //
+    // A response can reach here fully structurally VALID (`decideOutcome` returned `kind:
+    // 'valid'`, never even touching the >= 1-assessed-pillar bar that gates the 'partial' branch
+    // above) and yet assess NOTHING — every pillar honestly `score: null`, e.g. a clip that never
+    // actually shows the runner. That is a real, well-formed result the user got zero usable
+    // information from, and charging their quota for it is exactly the harm this decision exists
+    // to close. `release_analysis`, not `settle_analysis`: the row hands its quota slot back
+    // (same mechanism `'validation_failed'`/`'model_error'` failures already use), while the
+    // computed `decision.result` — never persisted — is still returned to the caller below, so
+    // the request is NOT failed outright. `'zero_pillars_assessed'` is excluded from
+    // `pace_is_farming_signal` (20260712220000), so this never ticks the 3-strike anti-farm cap:
+    // an honest "nothing to see here" is not an attack.
+    const deliveredResult = decision.result;
+    const assessedPillarCount = PACE_PILLARS.filter(
+      (id) => deliveredResult.pillars[id].score !== null
+    ).length;
+
+    if (assessedPillarCount === 0) {
+      releaseReason = 'zero_pillars_assessed';
+      outcome = 'zero_pillars_assessed';
+      return (response = {
+        status: 200,
+        body: { result: decision.result, analysisId, isFallback },
+      });
+    }
 
     if (isFallback) {
       // Issue #85 — the honest-partial fallback IS #45's promise: some pillars scored, others

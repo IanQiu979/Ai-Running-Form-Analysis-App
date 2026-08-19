@@ -199,6 +199,35 @@ function partial(parsed: string[]): ModelCallResult {
   return ok({ pillars });
 }
 
+/** A pillar the model honestly reports as not assessed — `score`/`band` null together, per
+ * `pace.ts`'s `isValidScoreBandPair`. Structurally VALID (unlike `{ garbage: true }` above). */
+function notAssessedPillar(reason: 'angle' | 'needsVideo') {
+  return {
+    score: null,
+    band: null,
+    feedback: null,
+    notAssessedReason: reason,
+    flags: [],
+    drills: [],
+  };
+}
+
+/** A FULLY VALID response (every pillar structurally present, `overall` a valid null pair) in
+ * which the model honestly assessed NOTHING — e.g. a clip that never shows the runner. This is
+ * NOT a `partial()`/salvage case: it validates on the first attempt, so `decideOutcome` never
+ * sees it and it would otherwise settle exactly like a normal success. */
+function allNotAssessed(): ModelCallResult {
+  return ok({
+    pillars: {
+      posture: notAssessedPillar('angle'),
+      armSwing: notAssessedPillar('angle'),
+      cadence: notAssessedPillar('needsVideo'),
+      elasticity: notAssessedPillar('needsVideo'),
+    },
+    overall: { score: null, band: null },
+  });
+}
+
 const VIDEO_BODY = {
   mediaType: 'video',
   frames: ['AAAA', 'BBBB'],
@@ -603,6 +632,63 @@ Deno.test('rule 3: the anti-farming refusal is a 429, not a paywall 402', async 
 
   assertEquals(res.status, 429);
   assertEquals(res.body.code, 'too_many_failed_attempts');
+});
+
+// ===========================================================================
+// CAPTAIN DECISION (audit-v23-r1-decision-zero-pillar-charge-policy) — a structurally VALID
+// result in which every pillar is honestly not-assessed carries no information the user paid
+// for. It must not charge the quota slot — but the request must still deliver the (empty)
+// result, not fail outright.
+// ===========================================================================
+
+Deno.test('zero-pillar policy: a fully valid result with ZERO assessed pillars RELEASES, not settles', async () => {
+  const h = harness([allNotAssessed()]);
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200, 'the (empty) result is still delivered, not failed outright');
+  assertEquals((res.body.result as { pillars: unknown }).pillars, {
+    posture: notAssessedPillar('angle'),
+    armSwing: notAssessedPillar('angle'),
+    cadence: notAssessedPillar('needsVideo'),
+    elasticity: notAssessedPillar('needsVideo'),
+  });
+
+  assertEquals(h.rpc.to('settle_analysis').length, 0, 'nothing useful was delivered — never settle it');
+  const release = h.rpc.to('release_analysis');
+  assertEquals(release.length, 1, 'the quota slot must be handed back, not charged');
+  assertEquals(release[0].args.p_reason, 'zero_pillars_assessed');
+});
+
+Deno.test('zero-pillar policy: a released zero-pillar row does NOT count as a farming signal', async () => {
+  // pace_is_farming_signal only treats 'validation_failed' as abuse (20260712220000). Prove the
+  // reason this suite releases with is never that string, so reserve_analysis's 3-strike cap is
+  // never ticked by an honest zero-pillar read.
+  const h = harness([allNotAssessed()]);
+
+  await run(h);
+
+  const release = h.rpc.to('release_analysis');
+  assertNotEquals(release[0].args.p_reason, 'validation_failed');
+});
+
+Deno.test('zero-pillar policy: at least one real score still settles normally, even if others are not assessed', async () => {
+  const input = {
+    pillars: {
+      posture: scoredPillar(80, 'good'),
+      armSwing: notAssessedPillar('angle'),
+      cadence: notAssessedPillar('needsVideo'),
+      elasticity: notAssessedPillar('needsVideo'),
+    },
+    overall: { score: 80, band: 'good' },
+  };
+  const h = harness([ok(input)]);
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(h.rpc.to('settle_analysis').length, 1, 'one real score is a real, chargeable analysis');
+  assertEquals(h.rpc.to('release_analysis').length, 0);
 });
 
 // ===========================================================================
