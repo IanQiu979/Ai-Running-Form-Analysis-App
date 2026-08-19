@@ -75,6 +75,74 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 - **Scope note:** issue #61's motion itself was already implemented and closed (`a4e88f7`,
   2026-07-13); this pass adds only the regression coverage that half of it never got.
 
+## 2026-08-19 (M7 responsive pass — the tablet/safe-area half of issue #63)
+
+- **The floating tab bar no longer stretches the full width of a tablet.** Its horizontal offsets
+  (`start`/`end` — see the bullet two below for why not `left`/`right`) now come from
+  `TabBar.sideInset(windowWidth)`, which caps the bar at the same
+  `ContentWidth.readable` column every screen's content already caps at and centres it. It was the
+  one piece of chrome the 2026-07-25 readable-column pass never reached, so on an iPad it drew a
+  ~980pt bar around two ~80pt tab items while the content beside it sat in a 560pt column. Read
+  from `useWindowDimensions()`, so it follows an iPad rotation or a Split View resize rather than
+  latching the width it first mounted at. `tabBarLabelPosition` is now
+  pinned to `'below-icon'` in the same file for the same reason: React Navigation's own heuristic
+  keys off the WINDOW width, not the bar's, so at >=768pt it would still have laid the two items
+  out icon-beside-label inside the newly phone-width bar. A phone already resolves to that value on
+  its own, so pinning it changes nothing there.
+- **This is where we found that the floating tab bar's horizontal inset had NEVER worked — on any
+  device, since the redesign.** `app/(tabs)/_layout.tsx` set `left`/`right` in `tabBarStyle`, and
+  `@react-navigation/bottom-tabs`'s own base style for a bottom bar sets `start: 0, end: 0`. Yoga
+  resolves the writing-direction properties at higher precedence than the physical ones, so ours
+  were silently discarded and the bar drew full-bleed to both screen edges. The redesign's whole
+  premise for that bar is that it FLOATS, inset from the edges; only its rounded corners and shadow
+  were surviving. Setting `start`/`end` fixes it. **This one IS visible on a phone** — the bar now
+  sits `TabBar.inset` (24pt) in from each edge, which is what was specified all along, rather than
+  spanning the full width. Verified on an iPad Pro 11" simulator: with `left`/`right` the bar
+  measured full-viewport; with `start`/`end` it measures the 560pt readable column, centred. Locked
+  by the new `lib/__tests__/tab-bar-style-contract.test.ts`, a static source check in the same shape
+  as `scrollview-style-contract.test.ts` — typecheck cannot see this class of bug and no unit test
+  renders a navigator.
+- **The floating tab bar was being drawn behind Android's system navigation bar, and now clears
+  it.** `constants/theme.ts`'s `TabBar` block claimed `<Tabs>` still paid the bottom safe-area
+  inset for the bar. That was false, and the correction is now recorded at the token with its
+  evidence: `@react-navigation/bottom-tabs`'s `BottomTabBar` builds the bar's style as an array
+  ending in our `tabBarStyle`, so our `paddingBottom` overrode the library's `insets.bottom`, and
+  `getTabBarHeight` returns a numeric `height` from that style verbatim, discarding the inset a
+  second time. With `edgeToEdgeEnabled: true` and Android 3-button navigation (`insets.bottom` ~48)
+  the bar's lowest 24pt — part of its label row — sat underneath the system bar. `TabBar.bottomOffset`
+  now raises the bar on Android only, and `TabBar.clearanceFor` moves the two tab screens' content
+  padding with it. **iOS is unchanged by construction** — the floating bar overlapping the 34pt
+  home-indicator strip is the shipped, signed-off composition. Android gesture navigation is also
+  unchanged (its inset is already smaller than the bar's offset).
+- **The offline banner no longer double-insets every screen below it.** `<OfflineBanner>` pads
+  itself by the top inset to clear the notch / Dynamic Island, and then every screen's own
+  `<SafeAreaView>` under `<Stack>` applied that same inset again — ~50-60pt of dead space on a
+  notched device, on every screen, whenever the device was offline. `app/_layout.tsx` now nests a
+  real `<SafeAreaProvider initialMetrics={initialWindowMetrics}>` around the Stack. Worth knowing
+  for next time: a JS-side `SafeAreaInsetsContext.Provider` override does **not** fix this, because
+  `SafeAreaView` is a native view that reads its nearest ancestor *provider's* insets and never
+  reads that context — only `useSafeAreaInsets()` consumers do.
+- **The result screen's hero no longer eats a tablet viewport.** `<DuotoneFrame>` is `width: '100%'`
+  at a fixed 3:4 aspect, so its height is the viewport width x1.33: the designed ~60% of an iPhone
+  screen becomes ~93% of an 11" iPad's, pushing the PACE readout — the whole product — below the
+  fold. `app/result/[id].tsx` caps the hero to the readable column above that width and rounds its
+  top corners there, since an inset card with two square corners reads as unfinished rather than as
+  bleed. Not solved with a height crop: `components/duotone-frame.tsx` positions its annotation
+  hairlines in percentages, so cropping would slide the wireframe off the anatomy it annotates.
+- **Four content columns that the 2026-07-25 pass missed are now capped**: `app/paywall.tsx` and
+  `app/settings.tsx` (both of which post-date that pass), `app/settings.tsx`'s full-screen re-auth
+  modal, and `components/first-run-intro.tsx`'s figure. `app/compare.tsx` gained one too — it never
+  had one; the cap sits on its `SafeAreaView` rather than an inner container because that screen has
+  five sibling blocks and no single content node, so capping per-block is five chances to miss the
+  sixth.
+- **Orientation is confirmed, and the confirmation reverses the assumption in issue #63.**
+  `app.json`'s `"orientation": "portrait"` does **not** pin an iPad — verified from the generated
+  `Info.plist` (`UISupportedInterfaceOrientations~ipad` lists all four) and then live: the app
+  rotates to landscape on an iPad Pro 11" simulator today. See `docs/architecture.md`'s "Current —
+  orientation, tablet support and safe areas" section for the decision and what is still open.
+- **New**: `constants/__tests__/responsive-tokens.test.ts` locks all of the above arithmetic,
+  including the no-op-on-phones property that is the whole safety argument for these changes.
+
 ## 2026-08-18 (the third copy of the swipe-to-delete spec, in a file that is binding)
 
 - **`docs/design/motion-consult.md` item 6 (and its reduced-motion table row) now carry the same

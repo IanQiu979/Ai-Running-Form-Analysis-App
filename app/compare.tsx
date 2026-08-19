@@ -54,6 +54,7 @@ import {
   Accent,
   CheckboxSize,
   Colors,
+  ContentWidth,
   FontFamily,
   FontSize,
   LineHeight,
@@ -383,6 +384,22 @@ function createStyles(colors: ThemeColors) {
       flex: 1,
       // Transparent — `<ScreenGradient>` behind it owns the fill.
       backgroundColor: 'transparent',
+      // The tablet readable-column cap (issue #63). Compare HAD this cap from the first #63 pass
+      // and lost it in the Calm redesign (#164), which rebuilt this screen's body wholesale.
+      //
+      // Applied to the SafeAreaView itself rather than to an inner scroll container, which is the
+      // shape every other capped screen uses. The reason is structural, not stylistic: this screen
+      // has no single inner content node to cap. Five siblings hang off the SafeAreaView directly
+      // (headerRow, centerBlock, pickerContainer's FlatList, its sticky CTA, and CompareView's own
+      // ScrollView), and capping each one separately is five chances for the next edit to add a
+      // sixth and miss it. Capping here caps all of them at once, and stays correct for whatever
+      // the next state adds. The wash still fills the whole viewport — `<ScreenGradient>` is the
+      // parent and owns the fill; this node is transparent.
+      //
+      // A no-op below the cap, as everywhere else: on a phone `100%` is already under 560pt.
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
     },
     headerRow: {
       flexDirection: 'row',

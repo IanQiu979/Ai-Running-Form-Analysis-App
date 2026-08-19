@@ -23,6 +23,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
 import { FirstRunIntro } from '@/components/first-run-intro';
 import { LaunchIntro } from '@/components/launch-intro';
@@ -142,6 +143,36 @@ function RootLayoutNav() {
             default and lets UIKit's own cross-fade preference govern it, rather than this
             screen re-deciding that from a different OS setting (Reduce Motion) than the one iOS
             actually uses for it. No new motion is introduced here either way. */}
+        {/* NESTED SafeAreaProvider — issue #63 (M7 safe-area pass), and it is load-bearing.
+            `<OfflineBanner>` above pads itself by the device's top inset to clear the notch /
+            Dynamic Island, so while it is visible it has ALREADY consumed that inset for
+            everything below it. But `<SafeAreaView>` is a NATIVE view: it reads
+            `_providerView.safeAreaInsets` from the nearest ancestor provider
+            (`ios/RNCSafeAreaView.m`'s `findNearestProvider` + `invalidateSafeAreaInsets`), and the
+            root provider is the whole window. So every screen's own SafeAreaView under `<Stack>`
+            applied the FULL top inset a SECOND time, opening ~50-60pt of dead space between the
+            banner and the screen's first row — on every screen, whenever the device is offline.
+
+            A JS-side `SafeAreaInsetsContext.Provider` override does NOT fix this, which is the
+            trap worth writing down: `SafeAreaView` never reads that context (see the package's own
+            `src/SafeAreaView.tsx` — it forwards straight to the native component). Only
+            `useSafeAreaInsets()` consumers do.
+
+            Nesting a real provider here does fix it, and self-corrects with no "is the banner up?"
+            flag to keep in sync: `RNCSafeAreaProvider` reports `self.safeAreaInsets`, which UIKit
+            computes against that view's OWN frame. Below the banner that frame already starts
+            under the notch, so `top` resolves to 0; with the banner hidden the frame is the
+            window's and every inset passes through unchanged.
+
+            `initialMetrics` seeds the first frame. It is NOT load-bearing the way it would be on a
+            root provider: a NESTED provider already falls back to the parent's insets and frame
+            (`src/SafeAreaContext.tsx` — `initialMetrics?.insets ?? initialSafeAreaInsets ??
+            parentInsets ?? null`), and expo-router mounts a root `SafeAreaProvider` above us, so
+            this renders its children immediately either way. Passing it is still right — it seeds
+            the frame too — with one honest caveat: on a cold start that begins OFFLINE, the seed is
+            the WINDOW's insets, so the double-inset above is briefly visible until the first native
+            inset event lands. Self-correcting, and one frame. */}
+        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <Stack
           screenOptions={{
             animation: Platform.OS === 'android' && reduceMotion ? 'fade' : 'default',
@@ -206,6 +237,7 @@ function RootLayoutNav() {
             <Stack.Screen name="(auth)" options={{ headerShown: false }} />
           </Stack.Protected>
         </Stack>
+        </SafeAreaProvider>
         {/* Moments 1 and 2 sit visually above the Stack (and above the session/auth guard it
             already applies), which has already mounted underneath — neither delays isReady's own
             fonts/session gate or the Stack's own routing, they only overlay on top of it once
