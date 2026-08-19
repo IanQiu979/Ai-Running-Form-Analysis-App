@@ -45,6 +45,13 @@ whole gate; nothing extra to remember. `typecheck:edge`/`test:edge` need Deno on
 locally at `~/.local/bin/deno`) — see `docs/architecture.md`'s "Current — Deno build/test
 contract..." section for why the Deno/Jest split is where it is.
 
+To actually SEE a change in the running app you need a native build (`expo run:ios --device
+<udid>`), and two things bite before it works: an agent worktree usually has no `node_modules`, so
+`npx expo` silently fetches the newest Expo CLI instead of this project's SDK 54 — run
+`npm install` and call `./node_modules/.bin/expo` — and **`expo run:ios` rewrites `package.json`**,
+flipping the `ios`/`android` scripts from `expo start --*` to `expo run:*`. That is a tracked file
+and contradicts the table above: `git checkout -- package.json` after any native build.
+
 `expo-dev-client` is a dependency, so plain `expo start` defaults to a development build and its
 QR code is an `exp+…://expo-development-client/` deep link that **Expo Go cannot open**. Use
 `npm run start:go` (or press `s` in the running dev server) to get an Expo Go `exp://` URL.

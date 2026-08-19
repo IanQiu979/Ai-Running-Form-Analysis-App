@@ -2,7 +2,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router, useFocusEffect, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KineticText } from '@/components/kinetic-text';
 import { LowPolyField } from '@/components/low-poly-field';
@@ -89,6 +89,15 @@ export default function HomeScreen() {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors), [colors]);
+  // Issue #63: the floating tab bar moves up to clear Android's system navigation bar, so the
+  // content's own clearance has to move with it or the ticker sits under the bar again. A no-op
+  // on iOS and on Android gesture navigation — see `TabBar.bottomOffset` in constants/theme.ts.
+  const insets = useSafeAreaInsets();
+  const tabBarClearance = TabBar.clearanceFor(insets.bottom);
+  const contentStyle = useMemo(
+    () => [styles.content, { paddingBottom: tabBarClearance }],
+    [styles.content, tabBarClearance],
+  );
   const { session } = useSession();
   const userId = session?.user.id;
   const [quota, setQuota] = useState<QuotaState>({ status: 'loading' });
@@ -227,7 +236,9 @@ export default function HomeScreen() {
         {/* Same ScrollView + flexGrow:1 pattern as app/(auth)/sign-in.tsx: the content still
           centers when there is room, but at the largest Dynamic Type sizes it scrolls instead
           of clipping (design brief §7: layouts reflow, never clip). */}
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={contentStyle}>
         {/* The top bar: a tracked-out wordmark and one circular glass control — replacing the old
             "big heading + underlined text link" row. `Copy.home.title` is unchanged and still
             carries `accessibilityRole="header"`; only its type role moved, from a 24pt display
@@ -426,7 +437,10 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: Spacing.xl,
       paddingTop: Spacing.lg,
       // The tab bar floats now and reserves no layout space — see `TabBar` in constants/theme.ts.
-      // Without this the ticker would sit under the bar.
+      // Without this the ticker would sit under the bar. The phone-default value here is the
+      // floor; the render site overlays `TabBar.clearanceFor(insets.bottom)` on top of it, which
+      // is larger only where the bar itself had to move up to clear Android's system navigation
+      // bar (issue #63). Identical on iOS.
       paddingBottom: TabBar.clearance,
       gap: Spacing.xxl,
     },

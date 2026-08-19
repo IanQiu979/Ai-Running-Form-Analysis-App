@@ -28,7 +28,7 @@ import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KineticText } from '@/components/kinetic-text';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
@@ -85,6 +85,15 @@ export default function HistoryScreen() {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors), [colors]);
+  // Issue #63: mirrors app/(tabs)/index.tsx — the floating tab bar moves up to clear Android's
+  // system navigation bar, so the list's bottom padding has to move with it or the last row
+  // scrolls under the bar and stops there. A no-op on iOS; see `TabBar.bottomOffset`.
+  const insets = useSafeAreaInsets();
+  const tabBarClearance = TabBar.clearanceFor(insets.bottom);
+  const listContentStyle = useMemo(
+    () => [styles.listContent, { paddingBottom: tabBarClearance }],
+    [styles.listContent, tabBarClearance],
+  );
 
   const [state, setState] = useState<ScreenState>({ status: 'loading' });
   // Keyed by analysis id -> resolved frame-strip URLs. Separate from `state` so a thumbnail
@@ -296,7 +305,7 @@ export default function HistoryScreen() {
           data={state.items}
           keyExtractor={(item) => item.id}
           style={styles.list}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={listContentStyle}
           ListHeaderComponent={
             state.items.length >= 2 ? (
               <PillButton
@@ -484,7 +493,8 @@ function createStyles(colors: ThemeColors) {
       alignSelf: 'center',
       paddingHorizontal: Spacing.xl,
       // The tab bar floats and reserves no layout space — see `TabBar` in constants/theme.ts.
-      // Without this the last row scrolls under the bar and stops there.
+      // Without this the last row scrolls under the bar and stops there. The phone default here
+      // is the floor; the render site overlays `TabBar.clearanceFor(insets.bottom)` (issue #63).
       paddingBottom: TabBar.clearance,
       gap: Spacing.md,
     },

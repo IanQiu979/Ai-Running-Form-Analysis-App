@@ -720,6 +720,22 @@ export const ContentWidth = {
   /** The single, app-wide readable-column cap for a screen's outer content — see block comment
    *  above. One value, not a per-screen guess, so every screen caps at the same width. */
   readable: 560,
+  /**
+   * Is this viewport wide enough that the cap is actually doing something — i.e. is the content
+   * column now an INSET column with the wash visible either side of it, rather than the full
+   * width of the screen?
+   *
+   * Almost every screen can ignore this: `width: '100%'` + `maxWidth` is self-resolving, and the
+   * result looks right either way. It matters only where a style encodes the assumption that the
+   * column touches the device's edges. `app/result/[id].tsx`'s hero frame is that case — it rounds
+   * its bottom corners ONLY, because at phone width it bleeds off the top and both sides and reads
+   * as a window the page hangs from. Once capped it is a floating card with two square top
+   * corners, which reads as unfinished rather than as bleed. Screens use this to switch that
+   * treatment, never to change what content exists.
+   */
+  isCapped(windowWidth: number): boolean {
+    return windowWidth > this.readable;
+  },
 } as const;
 
 // -------------------------------------------------------------------------------------------
@@ -739,12 +755,72 @@ export const TabBar = {
   height: 64,
   /** Inset from the screen's left/right/bottom edges. */
   inset: Spacing.xl,
-  /** What a tab screen must add to its content's bottom padding. Deliberately does NOT include the
-   *  device's bottom safe-area inset: `<Tabs>` still applies that to the bar itself, so adding it
-   *  again here would open exactly the double-inset gap `app/(tabs)/index.tsx`'s SafeAreaView
-   *  comment warns about. */
+  /**
+   * The bar's offset from the bottom of the viewport, given the device's live bottom safe-area
+   * inset. Android only: on iOS this returns the plain `inset` whatever the inset is, so the
+   * signed-off iPhone composition (a floating bar overlapping the 34pt home-indicator strip, which
+   * is conventional) is byte-identical to what shipped. The Android branch is where the defect is.
+   *
+   * CORRECTION, issue #63 (M7 safe-area pass). This token used to say that `<Tabs>` "still applies
+   * [the bottom safe-area inset] to the bar itself", and that is NOT true — it stopped being true
+   * the moment `app/(tabs)/_layout.tsx` gave `tabBarStyle` an explicit `height` and
+   * `paddingBottom`. Both were verified against the installed
+   * `@react-navigation/bottom-tabs` source:
+   *
+   *   - `views/BottomTabBar.js` builds the bar's style as an ARRAY ending in `tabBarStyle`, so our
+   *     `paddingBottom: Spacing.sm` overrides the library's own `paddingBottom: insets.bottom`.
+   *   - `getTabBarHeight` returns a numeric `height` from the passed style VERBATIM, short-
+   *     circuiting the `TABBAR_HEIGHT_UIKIT + inset` branch below it.
+   *
+   * So nothing was paying the bottom inset. With Android `edgeToEdgeEnabled: true` and 3-button
+   * navigation (`insets.bottom ~= 48`), a bar sitting at `bottom: 24` with `height: 64` had its
+   * lowest 24pt — including part of its label row — drawn behind the system navigation bar.
+   * Gesture navigation (~16-24pt) was already fine, which is why this survived.
+   */
+  bottomOffset(bottomInset: number): number {
+    return Platform.OS === 'android' ? Math.max(this.inset, bottomInset) : this.inset;
+  },
+  /** What a tab screen must add to its content's bottom padding, for a bar sitting at
+   *  `bottomOffset(bottomInset)`. One `inset` of breathing room above the bar's top edge. */
+  clearanceFor(bottomInset: number): number {
+    return this.bottomOffset(bottomInset) + this.height + this.inset;
+  },
+  /** The phone default — `clearanceFor(0)`, i.e. the bar at its plain `inset`. Unchanged at 112pt,
+   *  and still the right value anywhere a live inset is not available. */
   get clearance() {
     return this.height + this.inset * 2;
+  },
+  /**
+   * The bar's left/right offset for a viewport `windowWidth` points wide — issue #63's tablet
+   * pass.
+   *
+   * The bar is `position: 'absolute'` with `left`/`right` both set, so its width is whatever those
+   * two offsets leave behind. A flat `inset` on both sides therefore stretches it to the FULL
+   * viewport width, which on an iPad (~1024pt, and wider still in landscape) draws a ~980pt bar
+   * holding two ~80pt tab items marooned in the middle of it — while every screen's content
+   * column beside it is capped at `ContentWidth.readable`. The bar was the one piece of chrome the
+   * readable-column cap never reached, so it was also the one that still announced "this is a
+   * phone layout stretched sideways".
+   *
+   * Capping the bar to the same column and centring it is what makes the two agree. Below the cap
+   * — every real phone, and an iPad's narrowest Split View pane — `(windowWidth - readable) / 2`
+   * is zero or negative, so `Math.max` returns the plain `inset` and the RESULT of this function is
+   * unchanged from the flat token.
+   *
+   * A PHONE IS STILL AFFECTED, though, and not by this arithmetic. Applying this exposed that the
+   * bar's horizontal inset had never worked at all: `app/(tabs)/_layout.tsx` was setting `left`/
+   * `right`, and `@react-navigation/bottom-tabs`'s own base style sets `start: 0, end: 0`, which
+   * Yoga resolves at higher precedence. The bar has been drawing full-bleed to both screen edges
+   * since the redesign, on every device. That file now sets `start`/`end`, so the bar finally sits
+   * where the redesign always specified — which IS a visible change on a phone. See its comment.
+   *
+   * Takes the width as an argument rather than reading it: `constants/theme.ts` is a plain module
+   * and cannot call `useWindowDimensions()`. The caller supplies the live value, which is also
+   * what makes this react to an iPad rotation or a Split View resize rather than latching the
+   * width it first mounted at.
+   */
+  sideInset(windowWidth: number): number {
+    return Math.max(this.inset, (windowWidth - ContentWidth.readable) / 2);
   },
 } as const;
 

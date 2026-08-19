@@ -1,7 +1,8 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { GlassFrost } from '@/components/ui/glass-frost';
@@ -37,6 +38,18 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 export default function TabLayout() {
   const scheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
+  // Issue #63 (M7 tablet pass): the floating bar's left/right offsets are derived from the LIVE
+  // viewport width, not from a flat token, so on an iPad the bar caps at the same
+  // `ContentWidth.readable` column every screen's content already caps at instead of stretching
+  // the full ~1024pt. Reading the width through the hook (rather than `Dimensions.get` once) is
+  // what makes it follow an iPad rotation or a Split View resize. See `TabBar.sideInset`.
+  const { width: windowWidth } = useWindowDimensions();
+  const barSideInset = TabBar.sideInset(windowWidth);
+  // Issue #63: the bar's BOTTOM offset has to clear Android's system navigation bar. React
+  // Navigation does not pay that inset for us here — this file's own `tabBarStyle` overrides it,
+  // twice over. `TabBar.bottomOffset` carries the evidence and the iOS/Android split.
+  const insets = useSafeAreaInsets();
+  const barBottom = TabBar.bottomOffset(insets.bottom);
 
   return (
     <Tabs
@@ -89,6 +102,14 @@ export default function TabLayout() {
         // `tabBarStyle` would clip the bar's own `Elevation.floating` shadow too (iOS compiles it
         // to `masksToBounds`, which masks the layer's shadow as well as its children — the same
         // trap `components/ui/surface-card.tsx` documents and splits two nodes to avoid).
+        // Issue #63: pin the icon-over-label composition instead of letting React Navigation pick.
+        // Its `shouldUseHorizontalLabels` heuristic (`views/BottomTabBar.js`) keys off the WINDOW
+        // width, not the bar's: at >=768pt it switches to icon-BESIDE-label if the tabs fit. So on
+        // an iPad the bar we just capped to a phone-width column would still have laid its two
+        // items out the tablet way — a composition nobody drew, and now an inconsistent one. An
+        // explicit value short-circuits the heuristic entirely. Exactly what a phone already
+        // resolves to on its own (portrait, <768pt), so this changes nothing there.
+        tabBarLabelPosition: 'below-icon',
         tabBarBackground: () => <GlassFrost tone="chrome" radius={Radius.sheet} testID="tab-bar-frost" />,
         tabBarStyle: {
           backgroundColor: 'transparent',
@@ -96,13 +117,22 @@ export default function TabLayout() {
           borderRadius: Radius.sheet,
           borderWidth: StyleSheet.hairlineWidth * 2,
           borderColor: colors.hairline,
-          bottom: TabBar.inset,
+          bottom: barBottom,
           height: TabBar.height,
-          left: TabBar.inset,
+          // `start`/`end`, NOT `left`/`right` — and this is load-bearing, not a style preference.
+          // `@react-navigation/bottom-tabs`'s own base style for a bottom bar
+          // (`views/BottomTabBar.js`, `styles.bottom`) sets `start: 0, end: 0`, and Yoga resolves
+          // the writing-direction properties with HIGHER precedence than physical `left`/`right`.
+          // Our `left`/`right` were therefore silently discarded, which is why the bar has been
+          // drawing full-bleed to both screen edges rather than as the inset floating bar the
+          // redesign specified — on every device, since the redesign. Setting the same logical
+          // properties the library used is what actually moves it. Verified on an iPad simulator,
+          // and locked by lib/__tests__/tab-bar-style-contract.test.ts.
+          start: barSideInset,
+          end: barSideInset,
           paddingBottom: Spacing.sm,
           paddingTop: Spacing.sm,
           position: 'absolute',
-          right: TabBar.inset,
           ...Elevation.floating,
         },
         // Issue #12: the tab label otherwise inherits the nav theme's system font — the one

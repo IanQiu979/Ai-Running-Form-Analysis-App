@@ -18,7 +18,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { AnnotationLines, type AnnotationLine } from '@/components/annotation-lines';
 import { FramingGuide } from '@/components/framing-guide';
-import { Colors } from '@/constants/theme';
+import { Colors, ContentWidth } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { markFirstRunSeen } from '@/lib/first-run';
@@ -92,6 +92,11 @@ const styles = StyleSheet.create({
   },
   figureBlock: {
     width: '70%',
+    // Issue #63 (M7 tablet pass): `70%` of an 11" iPad's 834pt viewport is 584pt wide, which at a
+    // 3:4 aspect draws a 778pt-tall figure — the same overlay that is a modest 275pt-wide sketch
+    // on a phone. Capping at the app-wide readable column restores the phone proportion on a
+    // tablet. A no-op below the cap: 70% of any phone width is far under 560.
+    maxWidth: ContentWidth.readable,
     aspectRatio: 3 / 4,
   },
 });

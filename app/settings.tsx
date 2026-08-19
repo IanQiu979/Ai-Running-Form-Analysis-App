@@ -62,6 +62,7 @@ import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { Copy } from '@/constants/copy';
 import {
   Colors,
+  ContentWidth,
   ControlHeight,
   FontFamily,
   FontSize,
@@ -866,10 +867,18 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       // Transparent — `<ScreenGradient>` behind it owns the fill.
       backgroundColor: 'transparent',
     },
+    // width/maxWidth/alignSelf: the tablet readable-column cap (issue #63) this screen was
+    // missing — settings did not exist when the first #63 pass swept the other twelve screens. A
+    // no-op on any phone; see ContentWidth's own comment in constants/theme.ts. The centring is
+    // `alignSelf` on the contentContainerStyle, never `alignItems` on the ScrollView's own
+    // `style` — see lib/__tests__/scrollview-style-contract.test.ts for why that is a crash.
     content: {
       // flexGrow, not flex — the same Dynamic Type rule every other screen here follows: reflow
       // and scroll at the largest text sizes, never clip (design brief §7).
       flexGrow: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
       padding: Spacing.xl,
       gap: Spacing.xl,
     },
@@ -1008,8 +1017,13 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       flex: 1,
       backgroundColor: colors.background,
     },
+    // Capped too (issue #63): this modal is full-screen, so on an iPad its password field would
+    // otherwise stretch the whole ~1024pt width while the screen behind it sits in a 560pt column.
     reauthContent: {
       flexGrow: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
       justifyContent: 'center',
       padding: Spacing.xl,
       gap: Spacing.lg,

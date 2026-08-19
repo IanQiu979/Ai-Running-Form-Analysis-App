@@ -58,7 +58,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { useAnimatedRef } from 'react-native-reanimated';
 
@@ -137,6 +137,10 @@ export default function ResultScreen() {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors), [colors]);
+  // Issue #63 — see `heroInset` below. The hero is the one node on this screen that has to know
+  // whether the readable-column cap is actually engaged.
+  const { width: windowWidth } = useWindowDimensions();
+  const heroIsInset = ContentWidth.isCapped(windowWidth);
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string | string[]; justAnalyzed?: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -326,7 +330,7 @@ export default function ResultScreen() {
               re-open from Past Analyses is not a first reveal, so it gets the still, already-open
               aperture and the vignette alone. */}
           {heroUri ? (
-            <View style={styles.heroBleed}>
+            <View style={[styles.heroBleed, heroIsInset && styles.heroInset]}>
               <Aperture testID="result-hero-aperture" open={justAnalyzed}>
                 <DuotoneFrame
                   testID="result-hero-image"
@@ -440,6 +444,30 @@ function createStyles(colors: ThemeColors) {
       borderBottomLeftRadius: Radius.hero,
       borderBottomRightRadius: Radius.hero,
       overflow: 'hidden',
+    },
+    // Applied ON TOP of heroBleed only on a viewport wider than the readable column (issue #63).
+    //
+    // `<DuotoneFrame>` is `width: '100%'` at a fixed 3:4 aspect, so its HEIGHT is the viewport
+    // width times 1.33. On a phone that is the designed proportion — 524pt of an iPhone 15 Pro's
+    // 852pt viewport, about 60%. On an 11" iPad in portrait it is 834 -> 1112pt of a 1194pt
+    // viewport, about 93%: the PACE readout — the entire product — is pushed clean below the fold
+    // and the first screenful is one enormous photo. This is the one place in the app where a wide
+    // viewport is made worse by the ABSENCE of the cap rather than by the cap itself.
+    //
+    // Capping restores the phone proportion (560 x 747) and lines the hero up with the column
+    // below it, so the screen reads as one deliberate column instead of a photo with a caption.
+    // The top corners round here too: at phone width the square top edge IS the bleed, but an
+    // inset card with two square corners just looks unfinished.
+    //
+    // NOT solved with a `maxHeight` crop instead: `components/duotone-frame.tsx` positions its
+    // three annotation hairlines in PERCENTAGES of the frame, so cropping the frame would slide
+    // the wireframe off the anatomy it is annotating.
+    heroInset: {
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
+      borderTopLeftRadius: Radius.hero,
+      borderTopRightRadius: Radius.hero,
     },
   });
 }

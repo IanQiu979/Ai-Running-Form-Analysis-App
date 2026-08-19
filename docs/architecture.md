@@ -638,6 +638,87 @@ typecheck`. `.github/workflows/ci.yml` (issue #82, below) deliberately does not 
 step — it relies on `npm run typecheck` to generate its own routes, so there is only one place to
 change the mechanism.
 
+## Current — orientation, tablet support and safe areas (issue #63, M7 responsive pass, 2026-08-19)
+
+**Orientation: the app is portrait on iPhone and freely rotatable on iPad, and the second half of
+that was NOT intended.** `app.json` sets `"orientation": "portrait"`, which reads as an app-wide
+portrait pin and is what issue #63 asked us to confirm. It is not one. Expo's prebuild expands it
+into two separate `Info.plist` keys:
+
+| Key | Value |
+|---|---|
+| `UISupportedInterfaceOrientations` (iPhone) | portrait, portrait-upside-down |
+| `UISupportedInterfaceOrientations~ipad` | portrait, portrait-upside-down, landscape-left, landscape-right |
+
+Verified two ways: read out of the generated `ios/PaceAnalysisAI/Info.plist`, and then observed
+live — the app rotates into landscape on an iPad Pro 11" simulator today. `ios.supportsTablet: true`
+is what puts it there.
+
+**`ios.requireFullScreen` is not the fix, and must not be added.** It maps to `UIRequiresFullScreen`,
+which Apple has deprecated; iPadOS 26 warns that it will be ignored and that support for all
+orientations will be required (Apple TN3192, "Migrating your iPad app from the deprecated
+UIRequiresFullScreen key"). Apps can no longer opt out of iPad multitasking and dynamic resizing, so
+adding the key today buys nothing and encodes a value scheduled to stop being read. Note the
+consequence: even a portrait-locked iPad app is handed arbitrary window widths in Split View and
+Stage Manager, so **width-agnostic layout is a requirement regardless of the orientation setting.**
+
+**A tab-bar trap found while doing this, worth knowing before touching `tabBarStyle`:**
+`@react-navigation/bottom-tabs` sets `start: 0, end: 0` on its own base style for a bottom bar
+(`views/BottomTabBar.js`, `styles.bottom`). Yoga resolves those writing-direction properties at
+higher precedence than physical `left`/`right`, so a `left`/`right` in our `tabBarStyle` is silently
+discarded — which is exactly what had been happening since the redesign, leaving the "floating,
+inset" bar drawing full-bleed to both screen edges on every device. `app/(tabs)/_layout.tsx` now
+sets `start`/`end`. Note the library's `tabBarStyle` also comes LAST in its style array, so our
+`height` and `paddingBottom` DO win — which is the separate reason it stopped paying the bottom
+safe-area inset (see `TabBar.bottomOffset`).
+
+**What we did about it.** Treated "must survive landscape and arbitrary widths on iPad" as a
+standing layout constraint and made the layouts hold: `ContentWidth.readable` now caps every content
+column (including the four the 2026-07-25 pass missed), the floating tab bar caps and centres with
+`TabBar.sideInset`, and `app/result/[id].tsx`'s hero caps instead of growing to 93% of the viewport.
+
+**Still open, and it is a product call, not an engineering one:** whether iPad is a target at all.
+Keeping `supportsTablet: true` means accepting a freely resizable iPad app forever. Setting it to
+`false` ships iPhone-only, runs on iPad in scaled compatibility mode, and makes the readable-column
+work dead weight. The layout work above makes either choice safe; nothing is blocked on deciding.
+
+**Safe-area `edges`: the defaults in this repo are already correct — do not bulk-add explicit
+`edges` props.** This was checked screen by screen so the next agent does not re-derive it. There is
+**no React Navigation header anywhere in the app** — every `Stack.Screen` in `app/_layout.tsx` and
+every `screenOptions` in `app/(tabs)/`, `app/capture/` and `app/(auth)/` sets `headerShown: false` —
+so an unspecified top edge can never double with a header inset. The floating tab bar overlaps only
+`(tabs)/index.tsx` and `(tabs)/history.tsx`, and both already exclude `'bottom'` and pay for it with
+`TabBar.clearanceFor`. `result/[id].tsx` and `result/sample.tsx` exclude `'top'` on purpose so the
+hero bleeds — on their LOADED branch; their loading and error branches take all four edges, which is
+also right, since neither renders a hero. Everything else correctly takes all four edges. Writing out ~14 redundant props would
+change nothing at runtime.
+
+**The one real double-inset was elsewhere**, and is fixed: `<OfflineBanner>` sits in normal flow
+above `<Stack>` and pads itself by the top inset, and every screen's `<SafeAreaView>` then applied
+that same inset again. `app/_layout.tsx` now nests a `<SafeAreaProvider initialMetrics={...}>`
+around the Stack. The trap worth remembering: **`SafeAreaView` is a native view and ignores
+`SafeAreaInsetsContext`** — it reads its nearest ancestor *provider's* insets — so a JS-side context
+override fixes `useSafeAreaInsets()` consumers and nothing else.
+
+**Not verifiable on a simulator — carry these to the #84 dev build:**
+
+1. **Android 3-button navigation.** The `TabBar.bottomOffset` fix targets an `insets.bottom` of ~48
+   that no iOS simulator produces, and gesture navigation is too small to reproduce it.
+2. **`SafeAreaView` inside a `Modal`.** `app/settings.tsx`'s re-auth modal and
+   `components/pillar-detail-modal.tsx` each mount a `SafeAreaView` inside an RN `Modal`, which
+   renders in its own view controller (iOS) / window (Android), so the provider walk cannot reach
+   any provider in the app tree. Both platforms then fall back to measuring the node ITSELF —
+   iOS Fabric's `findNearestProvider` returns `self`, Android's `findProvider()` returns `this` —
+   so this should be correct rather than broken. **Do not go in expecting a bug**; the reason it is
+   on this list is that "measures itself" resolves differently per platform under Android
+   edge-to-edge, and no simulator settles it. Open both sheets and look at the top gap.
+3. **Camera preview aspect on a tablet sensor.** `app/capture/record.tsx` renders `CameraView` at
+   `StyleSheet.absoluteFill`; whether it letterboxes, crops or stretches at an iPad aspect — and
+   whether `FramingGuide` still lines up with what is actually in frame — needs real hardware. This
+   one affects analysis quality, not just looks.
+4. **The offline banner's double-inset in its natural state.** Reproducible on a simulator in
+   principle, but it only appears offline, so toggle airplane mode on a real notched device.
+
 ## Current — design layer (Phase 0.5, done 2026-07-11)
 
 - [`docs/design/frontend-design-brief.md`](design/frontend-design-brief.md) — the single

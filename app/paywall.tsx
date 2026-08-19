@@ -40,6 +40,7 @@ import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
   Colors,
+  ContentWidth,
   FontFamily,
   FontSize,
   HitTarget,
@@ -368,8 +369,16 @@ function createStyles(colors: ThemeColors) {
       // Transparent — `<ScreenGradient>` behind it owns the fill.
       backgroundColor: 'transparent',
     },
+    // width/maxWidth/alignSelf: the tablet readable-column cap (issue #63) this screen was
+    // missing — paywall did not exist when the first #63 pass swept the other twelve screens. A
+    // no-op on any phone; see ContentWidth's own comment in constants/theme.ts. The centring is
+    // `alignSelf` on the contentContainerStyle, never `alignItems` on the ScrollView's own
+    // `style` — see lib/__tests__/scrollview-style-contract.test.ts for why that is a crash.
     content: {
       flexGrow: 1,
+      width: '100%',
+      maxWidth: ContentWidth.readable,
+      alignSelf: 'center',
       padding: Spacing.xl,
       gap: Spacing.xl,
     },
