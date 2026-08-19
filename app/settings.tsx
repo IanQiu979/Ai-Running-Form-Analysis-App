@@ -817,6 +817,16 @@ export default function SettingsScreen() {
                 secureTextEntry
                 autoCapitalize="none"
                 textContentType="password"
+                // Same pair issue #28 established on sign-in: `textContentType` covers iOS only,
+                // so `autoComplete` is what lets an Android password manager fill this step-up
+                // prompt. `returnKeyType="go"` + `onSubmitEditing` submits from the keyboard —
+                // this field is `autoFocus`ed, so the keyboard is already up and the button is
+                // the only thing standing between a filled password and the reauth.
+                autoComplete="current-password"
+                returnKeyType="go"
+                onSubmitEditing={() => {
+                  void handlePasswordReauthSubmit();
+                }}
                 editable={!isReauthenticating}
                 autoFocus
               />

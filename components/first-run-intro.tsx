@@ -61,7 +61,13 @@ export function FirstRunIntro({ onDone }: FirstRunIntroProps) {
   return (
     <View
       style={[styles.overlay, { backgroundColor: Colors[scheme].background }]}
+      // `accessibilityElementsHidden` is the iOS half of this pair and was missing: on iOS
+      // `accessible={false}` only declines to MERGE the subtree into one node, it does not hide
+      // it, and `importantForAccessibility` is Android-only. Every other decorative component
+      // here (`framing-guide`, `marquee`, `aperture`, `low-poly-field`, `screen-gradient`) sets
+      // all of it together — the same iOS/Android parity trap as issue #11's live regions.
       accessible={false}
+      accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants">
       <View style={styles.figureBlock}>
         <FramingGuide />

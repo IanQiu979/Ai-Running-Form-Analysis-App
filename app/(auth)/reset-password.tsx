@@ -158,6 +158,15 @@ export default function ResetPasswordScreen() {
               autoCorrect={false}
               keyboardType="email-address"
               textContentType="emailAddress"
+              // `autoComplete` alongside `textContentType`, and a submitting return key: the same
+              // pair issue #28 established on sign-in. `textContentType` alone is the iOS half —
+              // Android's autofill service reads `autoComplete`, so without it a saved email is
+              // never offered here. `returnKeyType="go"` + `onSubmitEditing` means the single
+              // field on this screen can be submitted from the keyboard rather than forcing a
+              // reach back to the button, which is the whole point of a one-field form.
+              autoComplete="email"
+              returnKeyType="go"
+              onSubmitEditing={handleSubmit}
               editable={!isBusy}
             />
             <PillButton

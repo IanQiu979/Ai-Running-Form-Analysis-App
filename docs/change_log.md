@@ -5,6 +5,52 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-08-19 (#62 M7 accessibility RE-sweep — the redesigned surface against the same floor)
+
+- **The result screens had no headings at all, and now do.** `app/result/[id].tsx` and
+  `app/result/sample.tsx` were the **only two screens in the app with zero
+  `accessibilityRole="header"` nodes** — every other screen has one. `result/[id].tsx`'s own body
+  comment already declares that `<PaceReadout>`'s "Overall" block *is* that screen's heading (the
+  copy deck defines no `result.title`, so there is deliberately no title element to mark) — but a
+  comment is not a role, so VoiceOver's rotor offered no way to jump to the score and a
+  screen-reader user had to swipe past a full-bleed hero and a banner to reach it. The role now
+  rides on the block's existing single accessible node in `components/pace-readout.tsx`; the
+  spoken label is unchanged and no copy was invented. `<SampleResultBanner>` and
+  `<PartialResultBanner>` titles are marked as headings too, so the rotor has an entry into the
+  disclosure that sits above the readout. This is the same defect class the 2026-07-25 pass fixed
+  (its finding #4), reintroduced on the two screens #181 rebuilt.
+- **Three text fields never picked up issue #28's autofill contract.**
+  `app/(auth)/reset-password.tsx`, `app/(auth)/update-password.tsx`, and `app/settings.tsx`'s
+  step-up reauth field each carried `textContentType` with **no `autoComplete`** and no submitting
+  return key. `textContentType` is the **iOS half only** — Android's autofill service reads
+  `autoComplete` — so a saved email was never offered on the reset screen and no password manager
+  offered to generate or save the password `update-password.tsx` exists to set. Exactly the
+  iOS/Android parity trap issue #11 documented for live regions, in a different prop. All three
+  now match sign-in verbatim: `autoComplete` alongside `textContentType`, plus
+  `returnKeyType="go"` + `onSubmitEditing`. The settings field is `autoFocus`ed, so its keyboard
+  was already up and its return key did nothing at all.
+- **`components/first-run-intro.tsx` was missing the iOS half of decorative hiding.** It set
+  `accessible={false}` + `importantForAccessibility="no-hide-descendants"` (Android-only) but not
+  `accessibilityElementsHidden`; on iOS `accessible={false}` only declines to *merge* a subtree,
+  it does not hide it. Low impact — both its children already hide themselves — but it was the one
+  decorative component not matching the pattern the other seven use.
+- **Regression locks, both proven to fail without the fix.**
+  `app/result/__tests__/sample.test.tsx` now asserts at the SCREEN level that the composed screen
+  exposes headings (the defect was that the *screen* had none, which is not observable from
+  `<PaceReadout>` in isolation), and a new
+  `app/(auth)/__tests__/password-reset-autofill.test.tsx` asserts the rendered fields' props
+  rather than the source text — a deleted prop is what actually breaks autofill.
+- **Audited clean, no changes needed:** hit targets (all 24 `Pressable` sites; `ControlHeight.circle`
+  is exactly 44 and `HitTarget.min` is always paired as `minHeight` *and* `minWidth`), contrast (the
+  61-assertion token test), Dynamic Type (every `numberOfLines` is a documented
+  `adjustsFontSizeToFit`/wrap guard, no fixed heights on text containers), reduced motion (every
+  animating component gates on `useReducedMotion()`), and live regions (every
+  `accessibilityLiveRegion` site also calls `useAnnounce`). Full detail in `docs/a11y-audit-62.md`'s
+  "Re-sweep — 2026-08-19" section.
+- **Issues #11, #28 and #62 are all closed and all three fixes verified still present.** Nothing
+  here re-opens them; what the Calm redesign (#163–#189) did was add new surface that never adopted
+  their patterns.
+
 ## 2026-08-18 (the third copy of the swipe-to-delete spec, in a file that is binding)
 
 - **`docs/design/motion-consult.md` item 6 (and its reduced-motion table row) now carry the same
