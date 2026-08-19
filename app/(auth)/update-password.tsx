@@ -285,6 +285,13 @@ export default function UpdatePasswordScreen() {
               secureTextEntry
               autoCapitalize="none"
               textContentType="newPassword"
+              // Same pair issue #28 established on sign-in, and the same reason: `textContentType`
+              // is the iOS half only, so without `autoComplete` Android's autofill never offers to
+              // generate or save the new password this screen exists to set. One field, so the
+              // return key submits rather than chaining.
+              autoComplete="new-password"
+              returnKeyType="go"
+              onSubmitEditing={handleSubmit}
               editable={!isBusy}
             />
             {/* Same proactive rule as sign-up (issue #9) — this is a candidate password too. */}

@@ -73,6 +73,33 @@ describe('SampleResultScreen', () => {
     expect(screen.getByText(Copy.result.sample.banner.body)).toBeTruthy();
   });
 
+  // M7 a11y re-sweep (#62). This screen and `/result/[id]` were the only two in the app with ZERO
+  // `accessibilityRole="header"` nodes — every other screen had one — so VoiceOver's rotor offered
+  // no way to jump to the score and a user had to swipe past the hero and the banner to reach it.
+  // The screen deliberately has no title element (the copy deck defines no `result.title`), so the
+  // heading is the readout's own "Overall" block, which `app/result/[id].tsx` already names as this
+  // screen's heading in its body comment but never actually marked as one. Asserted at the SCREEN
+  // level, not on the component: the defect was that the composed screen exposed no heading, which
+  // is not observable from `<PaceReadout>` in isolation.
+  it('exposes at least one heading for VoiceOver rotor navigation', async () => {
+    mockTakePendingSampleResult.mockReturnValue(samplePayload);
+
+    await render(<SampleResultScreen />);
+
+    expect(screen.getAllByRole('header').length).toBeGreaterThan(0);
+  });
+
+  it('the banner title and the readout overall block are both headings', async () => {
+    mockTakePendingSampleResult.mockReturnValue(samplePayload);
+
+    await render(<SampleResultScreen />);
+
+    expect(screen.getByTestId('sample-banner-title').props.accessibilityRole).toBe('header');
+    // The overall block carries no testID — it is found by the label it already speaks.
+    const headers = screen.getAllByRole('header');
+    expect(headers.length).toBeGreaterThanOrEqual(2);
+  });
+
   it('renders the PACE readout for the staged sample result', async () => {
     mockTakePendingSampleResult.mockReturnValue(samplePayload);
 

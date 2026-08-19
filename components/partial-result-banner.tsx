@@ -48,7 +48,12 @@ export function PartialResultBanner({ assessedCount, mediaType }: Props) {
 
   return (
     <View testID="partial-result-banner" style={styles.container}>
-      <Text testID="partial-banner-title" style={styles.title}>
+      {/* A section heading, and marked as one: this banner is the first thing above the
+          readout on its screen, so the rotor needs it as the entry point INTO that
+          disclosure rather than only as prose a user reaches by swiping. Matches how
+          `app/capture/extracting.tsx` and `app/settings.tsx` mark their own section
+          titles. */}
+      <Text testID="partial-banner-title" accessibilityRole="header" style={styles.title}>
         {Copy.result.partial.banner.title}
       </Text>
       <Text testID="partial-banner-body" style={styles.body}>

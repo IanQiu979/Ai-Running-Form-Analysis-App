@@ -39,3 +39,50 @@ not re-litigated here. Findings below were then handed to `accessibility-impleme
   from the a11y tree.
 - **Hit targets elsewhere** — every other pressable audited against the `HitTarget.min`
   / `hitSlop` convention already established by issues #13/#22 was compliant.
+
+---
+
+# Re-sweep — 2026-08-19
+
+The pass above was done on 2026-07-25. Every screen in `app/` and every shared component in
+`components/` has been rewritten or added since (the Calm redesign, #163–#189: `<Aperture>`,
+`<KineticText>`, `<LowPolyField>`, `<Marquee>`, `<PillarDetailModal>`, `<FirstRunIntro>`,
+`<SampleResultBanner>`, the scroll-reveal sign-in, the restructured result screen). This is a
+second sweep of that new surface against the same §7 floor.
+
+**Issues #11, #28 and #62 are all closed, and all three fixes verified as still present** —
+`lib/use-announce.ts` exists and is called from 13 screens paired with `accessibilityLiveRegion`
+for Android; sign-in's autofill + focus chaining is intact. Nothing below is a re-open of those.
+What the redesign did was add new surface that never picked their patterns up.
+
+## Defects found → fixed
+
+| # | Severity | File | Floor rule | Defect | Fix |
+|---|---|---|---|---|---|
+| 1 | Medium | `components/pace-readout.tsx` (`overallBlock`), surfacing on `app/result/[id].tsx` + `app/result/sample.tsx` | #5 labelling | **The two result screens were the only screens in the app with ZERO `accessibilityRole="header"` nodes.** `app/result/[id].tsx`'s own body comment states the readout's "Overall" block *is* this screen's heading (the copy deck defines no `result.title`, so there is deliberately no title element) — but saying so in a comment never put it in VoiceOver's rotor. A screen-reader user had no way to jump to the score and had to swipe through the full-bleed hero and both banners to reach it. Same defect class as the 2026-07-25 pass's finding #4, on the two screens the #181 restructure rebuilt. | `accessibilityRole="header"` on the existing single accessible node. Spoken label unchanged; no invented copy. |
+| 2 | Medium | `app/(auth)/reset-password.tsx` | #5 labelling | Email field carried `textContentType="emailAddress"` with **no `autoComplete`**, and no submitting return key. `textContentType` is the **iOS half only** — Android's autofill service reads `autoComplete` — so a saved email was never offered on Android. Same iOS/Android parity trap as #11's live regions. This screen shipped after #28 closed and never picked its pattern up. | `autoComplete="email"`, `returnKeyType="go"`, `onSubmitEditing={handleSubmit}` — #28's contract, verbatim. |
+| 3 | Medium | `app/(auth)/update-password.tsx` | #5 labelling | Same defect: `textContentType="newPassword"` with no `autoComplete`, no return-key submit — so no password manager offered to generate or save the password this screen exists to set. | `autoComplete="new-password"` + return-key submit. |
+| 4 | Medium | `app/settings.tsx` (step-up reauth modal) | #5 labelling | Same defect on the reauth password field, which is `autoFocus`ed — the keyboard is already up, and the return key did nothing. | `autoComplete="current-password"` + return-key submit. |
+| 5 | Low | `components/first-run-intro.tsx` | #5 decorative hiding | The once-ever decorative overlay set `accessible={false}` + `importantForAccessibility` (**Android-only**) but omitted **`accessibilityElementsHidden`**, the iOS half. `accessible={false}` on iOS only declines to *merge* a subtree into one node — it does not hide it. Impact is limited because its two children (`<FramingGuide>`, `<AnnotationLines>`) already hide themselves, so this is a consistency/defence-in-depth fix, not a live silence. | Added `accessibilityElementsHidden`, matching every other decorative component here. |
+
+## Verified clean (no findings)
+
+- **Hit targets (#1)** — all 24 `Pressable` sites plus `<PillButton>`/`<CircleIconButton>`
+  audited. `ControlHeight.circle` is exactly 44; `HitTarget.min` is paired as both `minHeight`
+  **and** `minWidth` everywhere it appears. The three files with a bare `Pressable` and no
+  `HitTarget`/`hitSlop` token (`app/capture/index.tsx`, `app/compare.tsx`,
+  `components/launch-intro.tsx`) are a large padded card, a full-width row, and a full-screen
+  overlay respectively — all far above the floor by geometry.
+- **Contrast (#2)** — the 61-assertion token test remains the source of truth and stays green.
+- **Dynamic Type (#3)** — the only `numberOfLines` uses are deliberate, documented guards:
+  `<PillButton>` wraps to 2 lines and the pill grows; the overall numeral and `<KineticText>`
+  words use `adjustsFontSizeToFit` + `minimumFontScale` rather than clipping; `<Marquee>`'s is
+  decorative and hidden. No fixed `height` on a text container — CTAs use `minHeight`.
+- **Reduced motion (#4)** — every animating component consumes `useReducedMotion()`.
+  `app/result/[id].tsx` appears in an `Animated.*` grep but animates nothing: its
+  `Animated.ScrollView` + `useAnimatedRef` are the deliberate no-op scaffold its header documents.
+- **Live regions on iOS (#6)** — every file carrying `accessibilityLiveRegion` also calls
+  `useAnnounce`. No screen relies on the Android-only prop alone.
+- **`<PillarDetailModal>`** — the newest component and the cleanest: real close label, heading
+  role on the pillar name, and a deliberate, documented decision NOT to hide its not-assessed
+  copy (unlike `<PillarRow>`, it has no duplicate announcement standing in for it).
