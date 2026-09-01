@@ -27,15 +27,36 @@ describe('type scale', () => {
 });
 
 describe('prose type role', () => {
+  // Locked THROUGH the 2026-09-01 Cadence Arcs redesign, which re-cut the other three families.
+  // The prose role surviving a wholesale type swap is the point: it is not a stylistic leftover,
+  // it is the one family that marks the coach's own writing (see its token comment).
   it('exposes a serif family distinct from the UI family', () => {
     expect(FontFamily.prose.regular).toBe('Newsreader_400Regular');
     expect(FontFamily.prose.italic).toBe('Newsreader_400Regular_Italic');
   });
+});
 
-  it('does not disturb the existing three roles', () => {
-    expect(FontFamily.body.regular).toBe('Inter_400Regular');
-    expect(FontFamily.display.regular).toBe('Archivo_400Regular');
-    expect(FontFamily.mono.regular).toBe('IBMPlexMono_400Regular');
+describe('Cadence Arcs type families (2026-09-01)', () => {
+  it('sets display / body / mono to the redesign’s three families', () => {
+    expect(FontFamily.display.regular).toBe('BricolageGrotesque_400Regular');
+    expect(FontFamily.body.regular).toBe('Manrope_400Regular');
+    expect(FontFamily.mono.regular).toBe('SpaceMono_400Regular');
+  });
+
+  // Space Mono has no 500/600. This asserts the token does NOT invent one — see the `mono` token's
+  // own comment; an aliased `medium` would be a token that lies about what it renders.
+  it('exposes only the two weights Space Mono actually ships', () => {
+    expect(Object.keys(FontFamily.mono).sort()).toEqual(['bold', 'regular']);
+  });
+
+  // Every family the app loads must be one of the four roles, and every role must resolve to a
+  // family name `app/_layout.tsx` actually passes to `useFonts` — the failure this catches is a
+  // role left pointing at a retired family, which renders as a silent system-font fallback.
+  it('leaves no reference to a retired family', () => {
+    const all = Object.values(FontFamily).flatMap((role) => Object.values(role));
+    for (const retired of ['Archivo', 'Inter', 'IBMPlexMono']) {
+      expect(all.some((name) => name.startsWith(retired))).toBe(false);
+    }
   });
 });
 

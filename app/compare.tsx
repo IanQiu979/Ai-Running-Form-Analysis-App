@@ -534,7 +534,7 @@ function createStyles(colors: ThemeColors) {
       paddingVertical: Spacing.xs,
     },
     scoreNumeral: {
-      fontFamily: FontFamily.mono.medium,
+      fontFamily: FontFamily.mono.bold,
       fontSize: FontSize.sm,
       color: colors.text.primary,
     },

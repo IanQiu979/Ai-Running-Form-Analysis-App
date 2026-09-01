@@ -250,6 +250,6 @@ describe('coaching feedback typography', () => {
       ? Object.assign({}, ...score.props.style)
       : score.props.style;
 
-    expect(style.fontFamily).toBe(FontFamily.mono.medium);
+    expect(style.fontFamily).toBe(FontFamily.mono.bold);
   });
 });

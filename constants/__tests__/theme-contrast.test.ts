@@ -42,6 +42,7 @@
 import { AA_NON_TEXT, AA_TEXT, contrastRatio, type Hex } from '../contrast';
 import {
   Accent,
+  Arc,
   Colors,
   type ColorScheme,
   Glass,
@@ -74,10 +75,34 @@ const semanticErrorTextPairs: Pair[] = [];
 const controlBorderPairs: Pair[] = [];
 const hairlineBelowControlFloorPairs: Pair[] = [];
 const gradientTextPairs: Pair[] = [];
+// Cadence Arcs (2026-09-01) — the motif's two roles. `ornament` takes the same >=3:1 non-text
+// obligation a score fill does, and `track` takes `hairline`'s mirror obligation (stay UNDER 3:1);
+// see the `Arc` token in theme.ts for why an ornament is held to a floor WCAG would not impose.
+const arcOrnamentPairs: Pair[] = [];
+const arcTrackBelowFloorPairs: Pair[] = [];
 
 for (const scheme of SCHEMES) {
   const c = Colors[scheme];
   const surfaces = surfacesFor(scheme);
+
+  // Everything an arc can be drawn on: the three surfaces plus every page-wash stop. Taken from
+  // the exports, so a stop added to `Gradient.page` is proven for the motif the moment it ships.
+  const arcBackdrops: [string, string][] = [
+    ...surfaces,
+    ...Gradient.page[scheme].map((stop, i) => [`gradient.page[${i}]`, stop] as [string, string]),
+  ];
+  for (const [backdropName, backdropHex] of arcBackdrops) {
+    arcOrnamentPairs.push({
+      label: `${scheme} arc.ornament on ${backdropName}`,
+      fg: Arc[scheme].ornament,
+      bg: backdropHex,
+    });
+    arcTrackBelowFloorPairs.push({
+      label: `${scheme} arc.track on ${backdropName} (must stay quieter than the fill drawn over it)`,
+      fg: Arc[scheme].track,
+      bg: backdropHex,
+    });
+  }
 
   for (const [surfaceName, surfaceHex] of surfaces) {
     textPairs.push({ label: `${scheme} text.primary on ${surfaceName}`, fg: c.text.primary, bg: surfaceHex });
@@ -362,6 +387,28 @@ describe('theme contrast — non-text pairs clear AA (>=3:1)', () => {
 
   test.each(controlRingOnGlassPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  // The arc motif (2026-09-01). Held to the non-text floor even though a decorative ornament is
+  // formally exempt, because the same token draws the ring a score's fill sits inside — a reader
+  // who cannot see the ring cannot see where the fill starts.
+  test.each(arcOrnamentPairs)('$label', ({ fg, bg }) => {
+    expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+});
+
+describe('the arc track stays a track — 2026-09-01', () => {
+  // The mirror of the `hairline` guard below: `Arc.*.track` is the UNFILLED remainder of a score
+  // ring, and its whole job is to be quieter than the `Score.*.fill` arc drawn over it. If this
+  // starts failing, the track has been strengthened into something that competes with the score
+  // it is supposed to be the backdrop for — at which point a ring's fill length stops reading.
+  test.each(arcTrackBelowFloorPairs)('$label', ({ fg, bg }) => {
+    expect(contrastRatio(fg, bg)).toBeLessThan(AA_NON_TEXT);
+  });
+
+  // The ornament and the track are two roles, not one value at two opacities.
+  test.each(SCHEMES)('%s: arc.ornament !== arc.track', (scheme) => {
+    expect(Arc[scheme].ornament).not.toBe(Arc[scheme].track);
   });
 });
 

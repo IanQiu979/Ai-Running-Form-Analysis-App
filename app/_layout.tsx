@@ -1,15 +1,16 @@
 import {
-  Archivo_400Regular,
-  Archivo_500Medium,
-  Archivo_600SemiBold,
-  Archivo_700Bold,
-} from '@expo-google-fonts/archivo';
+  BricolageGrotesque_400Regular,
+  BricolageGrotesque_500Medium,
+  BricolageGrotesque_600SemiBold,
+  BricolageGrotesque_700Bold,
+} from '@expo-google-fonts/bricolage-grotesque';
 import {
-  IBMPlexMono_400Regular,
-  IBMPlexMono_500Medium,
-  IBMPlexMono_600SemiBold,
-} from '@expo-google-fonts/ibm-plex-mono';
-import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+} from '@expo-google-fonts/manrope';
+import { SpaceMono_400Regular, SpaceMono_700Bold } from '@expo-google-fonts/space-mono';
 import {
   Newsreader_400Regular,
   Newsreader_400Regular_Italic,
@@ -34,8 +35,8 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { hasSeenFirstRun } from '@/lib/first-run';
 import { SessionProvider, useSession } from '@/lib/session-provider';
 
-// Held until both the design-system fonts (brief §2: Archivo/Inter/IBM Plex Mono, plus the
-// Newsreader prose role added by spec 2026-07-26 §3.2) and the
+// Held until both the design-system fonts (Cadence Arcs, 2026-09-01: Bricolage Grotesque /
+// Manrope / Space Mono, plus the Newsreader prose role kept from spec 2026-07-26 §3.2) and the
 // initial auth check (SessionProvider's getSession()) are ready — see RootLayoutNav below —
 // so the very first frame the user sees is never a system-font flash or a route flicker
 // between the auth and tabs groups.
@@ -57,17 +58,16 @@ function RootLayoutNav() {
   const reduceMotion = useReducedMotion();
   const { session, isLoading: isSessionLoading, isPasswordRecovery } = useSession();
   const [fontsLoaded, fontError] = useFonts({
-    Archivo_400Regular,
-    Archivo_500Medium,
-    Archivo_600SemiBold,
-    Archivo_700Bold,
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    IBMPlexMono_400Regular,
-    IBMPlexMono_500Medium,
-    IBMPlexMono_600SemiBold,
+    BricolageGrotesque_400Regular,
+    BricolageGrotesque_500Medium,
+    BricolageGrotesque_600SemiBold,
+    BricolageGrotesque_700Bold,
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+    SpaceMono_400Regular,
+    SpaceMono_700Bold,
     Newsreader_400Regular,
     Newsreader_400Regular_Italic,
     Newsreader_600SemiBold,
