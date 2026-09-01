@@ -472,9 +472,18 @@ export default function AnalyzingScreen() {
     <ScreenGradient>
       <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <Eyebrow tone="primary" accessibilityRole="header">
-          {Copy.analyzing.title}
-        </Eyebrow>
+        {/* The screen title belongs to the WAIT, and only to it. Every non-waiting phase below
+            renders an `<ErrorPanel>` whose own `<KineticText>` title already carries
+            `accessibilityRole="header"` — so leaving this mounted put two headers in VoiceOver's
+            rotor, and the first of them said "ANALYZING" directly above a panel that says the
+            analysis stopped, timed out, or was never sent. The eyebrow is not the thing that has to
+            survive there; the panel's title is. Nothing about the wait phase's own composition
+            changes. */}
+        {state.phase === 'waiting' && (
+          <Eyebrow tone="primary" accessibilityRole="header">
+            {Copy.analyzing.title}
+          </Eyebrow>
+        )}
 
         {state.phase === 'waiting' && (
           <ScreenCenter styles={styles}>
@@ -498,7 +507,11 @@ export default function AnalyzingScreen() {
                 trusted to remember it: see its header — it draws no arc that fills toward a
                 completion, and is dead still under reduced motion, exactly as the field is. */}
             <View style={styles.waitMark}>
-              <ArcLoader size={WAIT_MARK_SIZE * 1.35} style={styles.waitRings} testID="analyzing-rings" />
+              <ArcLoader
+                size={WAIT_MARK_SIZE * WAIT_RINGS_SCALE}
+                style={styles.waitRings}
+                testID="analyzing-rings"
+              />
               <LowPolyField
                 color={colors.text.primary}
                 size={WAIT_MARK_SIZE}
@@ -687,6 +700,12 @@ type Styles = ReturnType<typeof createStyles>;
 
 /** The waiting field's drawn size — the screen's subject while nothing else is on it. */
 const WAIT_MARK_SIZE = 240;
+
+/** How far the ripple rings extend past the figure they radiate from. Composition, not a token
+ *  (the same rule `<ArcRing>`'s header states for ring sizes) — but named rather than inlined,
+ *  because an unexplained `* 1.35` at the call site reads as a nudge someone tried once, and this
+ *  is the one number that decides whether the rings frame the runner or crowd them. */
+const WAIT_RINGS_SCALE = 1.35;
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({

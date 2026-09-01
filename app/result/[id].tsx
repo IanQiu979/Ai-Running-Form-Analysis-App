@@ -100,6 +100,18 @@ const HERO_SIGNED_URL_TTL_SECONDS = 60 * 60;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** `<DuotoneFrame>`'s own fixed aspect — the hero placeholder below reserves the identical box, so
+ *  the real frame arrives into space already held for it and nothing under it moves. Mirrored from
+ *  `components/duotone-frame.tsx`'s `FRAME_ASPECT_RATIO` rather than imported: that constant is
+ *  private to the component, and the placeholder's job is to match what the frame RENDERS as, not
+ *  to couple this screen to its internals. */
+const HERO_ASPECT_RATIO = 3 / 4;
+
+/** The wait mark inside that placeholder. Composition, not a token (same rule `<ArcRing>`'s own
+ *  header states for ring sizes): it is sized to read as a mark inside a hero-sized box, larger
+ *  than the 88pt cold-load mark on the bare screen, and no other screen wants this size. */
+const HERO_PENDING_MARK_SIZE = 120;
+
 type ScreenState =
   | { status: 'loading' }
   | { status: 'loadFailed' }
@@ -306,11 +318,18 @@ export default function ResultScreen() {
   const revealReady = annotationsDone || (!heroPending && !heroUri);
 
   return (
-    // The one screen that opts its corner ripple OUT (Cadence Arcs, 2026-09-01): the hero image
-    // bleeds to the top-right corner the ornament would occupy, and an arc drawn over photographic
-    // media is neither proven for contrast nor legible. The motif is not absent from this screen —
-    // it is the readout's rings, which is where it means something here.
-    <ScreenGradient ornament="none">
+    // The corner ripple is opted OUT only while something is actually occupying that corner
+    // (Cadence Arcs, 2026-09-01): the hero — or, below, its pending placeholder — bleeds to the
+    // top-right the ornament would sit in, and an arc drawn over photographic media is neither
+    // proven for contrast nor legible.
+    //
+    // It is opted back IN when this result has no hero at all (`heroPath` was absent, or its
+    // signed URL resolved to nothing). That case used to inherit the blanket `"none"` and left the
+    // motif missing from the screen entirely — the ornament was being suppressed for a hero that
+    // was never there. `heroPending` counts as "occupied" because the placeholder holds the corner
+    // for the image that is on its way in; flipping the ornament on and back off again as the URL
+    // resolves would be motion no event caused.
+    <ScreenGradient ornament={heroUri || heroPending ? 'none' : 'topRight'}>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
         <Animated.ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           {/* THE HERO, and the biggest composition change on this screen. It is now the first
@@ -338,6 +357,22 @@ export default function ResultScreen() {
               `open` follows `justAnalyzed` for exactly the same reason `playAnnotation` does — a
               re-open from Past Analyses is not a first reveal, so it gets the still, already-open
               aperture and the vignette alone. */}
+          {/* THE HERO'S OWN PENDING STATE (Cadence Arcs, 2026-09-01). `heroPending` was already
+              tracked — for the reveal gate — but nothing rendered for it, so a stored result
+              opened cold laid the readout out against the top of the screen and then, one signed
+              URL later, shoved the whole page down by the hero's full height. That is a layout
+              jump, not a reveal.
+
+              The placeholder reserves the EXACT box the frame will occupy (the same
+              `width: 100%` at `DuotoneFrame`'s own 3:4 aspect, inside the same bleed/inset
+              wrapper), so the image arrives into space already held for it and nothing below it
+              moves. Inside it, the motif's own wait mark — the same `<ArcLoader>` this screen's
+              cold-load state uses, at the same indeterminate contract: it says the frame is
+              coming, never how far along it is.
+
+              Decorative, and hidden from the a11y tree: a screen reader has nothing to gain from
+              "an image is loading" here — the result itself is already rendered and readable
+              below, which is the whole reason this is a placeholder and not a blocking state. */}
           {heroUri ? (
             <View style={[styles.heroBleed, heroIsInset && styles.heroInset]}>
               <Aperture testID="result-hero-aperture" open={justAnalyzed}>
@@ -351,6 +386,14 @@ export default function ResultScreen() {
                   onAnnotationComplete={() => setAnnotationsDone(true)}
                 />
               </Aperture>
+            </View>
+          ) : heroPending ? (
+            <View
+              testID="result-hero-pending"
+              style={[styles.heroBleed, styles.heroPlaceholder, heroIsInset && styles.heroInset]}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants">
+              <ArcLoader size={HERO_PENDING_MARK_SIZE} />
             </View>
           ) : null}
 
@@ -443,6 +486,17 @@ function createStyles(colors: ThemeColors) {
     errorAction: {
       marginTop: Spacing.sm,
       maxWidth: ContentWidth.readable,
+      width: '100%',
+    },
+    // Applied WITH `heroBleed` (and `heroInset` where the cap engages), so the placeholder and the
+    // real frame share one set of corners and one set of bounds. `surface.base`, not the wash: this
+    // is an opaque panel standing in for opaque media, and a translucent one would let the gradient
+    // read through the box the image is about to fill.
+    heroPlaceholder: {
+      alignItems: 'center',
+      aspectRatio: HERO_ASPECT_RATIO,
+      backgroundColor: colors.surface.base,
+      justifyContent: 'center',
       width: '100%',
     },
     heroBleed: {
