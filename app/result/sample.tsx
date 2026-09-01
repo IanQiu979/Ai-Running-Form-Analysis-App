@@ -67,7 +67,10 @@ export default function SampleResultScreen() {
   }
 
   return (
-    <ScreenGradient>
+    // Ornament off, for the same reason `/result/[id]` turns it off: this screen has the identical
+    // bleeding-hero layout, and the two result screens must not differ in a way the user can see
+    // but not explain. The motif is present here as the readout's rings.
+    <ScreenGradient ornament="none">
       <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
         <ScrollView contentContainerStyle={styles.content}>
           {pending.heroDataUri ? (
