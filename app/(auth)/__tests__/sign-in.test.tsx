@@ -140,42 +140,28 @@ describe('sign-in screen: Turnstile expiry', () => {
 });
 
 /**
- * Regression lock for the scroll-reveal restructuring (fm/v23-onboard-scroll): the header,
- * `LowPolyField` mark, and action buttons/toggle now live in their own scroll-order sections
- * instead of one static screenful, with the mark's own opacity/scale responding to scroll
- * position. Two things must stay true regardless of that restructuring, and neither can be seen
- * from `render()` alone actually scrolling (RNTL renders the full component tree without a real
- * layout pass, so "reachable" here means "present in the tree", exactly what a screen reader
- * needs too — see CLAUDE.md's screen-testing note):
- *
- *  1. The mark, the sign-in buttons, and the sign-up/sign-in toggle are all mounted on first
- *     render — none of them is gated behind a scroll event firing first. A control that only
- *     entered the tree after a real scroll would be unreachable by VoiceOver/TalkBack until the
- *     user physically scrolled to reveal it, and untestable without simulating layout RNTL can't
- *     produce.
- *  2. With reduced motion on, the same is true, and additionally proves the reduced-motion path
- *     doesn't crash — `useScrollViewOffset`/`useAnimatedStyle` still run every render either way,
- *     only the `markAnimatedStyle` worklet takes the "no transform" branch (see sign-in.tsx).
+ * Regression lock for the sign-in screen's control reachability. The low-poly mark section was
+ * removed (captain's call, 2026-09-01 — "remove that shapes created running figure") along with
+ * its scroll-reveal wiring; every control must still mount up front, not gated behind a scroll
+ * event, both with and without reduced motion.
  */
-describe('sign-in screen: scroll-reveal structure', () => {
+describe('sign-in screen: control reachability', () => {
   beforeEach(() => {
     mockUseReducedMotion.mockReturnValue(false);
   });
 
-  it('mounts the mark and every control up front, not gated behind a scroll event', async () => {
+  it('mounts every control up front, not gated behind a scroll event', async () => {
     await render(<SignInScreen />);
 
-    expect(screen.getByTestId('sign-in-mark', { includeHiddenElements: true })).toBeTruthy();
     expect(screen.getByRole('button', { name: Copy.auth.cta.google })).toBeTruthy();
     expect(screen.getByRole('button', { name: Copy.auth.cta.email })).toBeTruthy();
     expect(screen.getByRole('button', { name: Copy.auth.signUp.link })).toBeTruthy();
   });
 
-  it('keeps the mark and every control reachable with reduced motion on', async () => {
+  it('keeps every control reachable with reduced motion on', async () => {
     mockUseReducedMotion.mockReturnValue(true);
     await render(<SignInScreen />);
 
-    expect(screen.getByTestId('sign-in-mark', { includeHiddenElements: true })).toBeTruthy();
     expect(screen.getByRole('button', { name: Copy.auth.cta.google })).toBeEnabled();
     expect(screen.getByRole('button', { name: Copy.auth.cta.email })).toBeEnabled();
     expect(screen.getByRole('button', { name: Copy.auth.signUp.link })).toBeEnabled();

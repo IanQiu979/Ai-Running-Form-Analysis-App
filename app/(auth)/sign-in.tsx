@@ -8,22 +8,14 @@ import {
   TextInput,
   View,
   useWindowDimensions,
-  type LayoutChangeEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, {
-  Easing,
-  Extrapolation,
-  interpolate,
   useAnimatedRef,
-  useAnimatedStyle,
-  useScrollViewOffset,
-  useSharedValue,
 } from 'react-native-reanimated';
 
 import { ArcBurst } from '@/components/arc-burst';
 import { KineticText } from '@/components/kinetic-text';
-import { LowPolyField } from '@/components/low-poly-field';
 import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/turnstile-widget';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
@@ -46,7 +38,6 @@ import {
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { signInWithGoogle } from '@/lib/auth';
 import { mapAuthError, mapSignupWithCaptchaError, validateSignInForm } from '@/lib/auth-errors';
 import { checkPasswordBreached } from '@/lib/hibp';
@@ -56,13 +47,6 @@ import { supabase } from '@/lib/supabase';
 import { resolveTurnstileConfig } from '@/lib/turnstile-config';
 import { useAnnounce } from '@/lib/use-announce';
 
-// The "cool zoom" reveal (see the mark section below): `Motion.curve.calm` is this app's
-// expressive-arrival curve ("used for kinetic text, hero reveals, aperture opens" — its own
-// doc comment in constants/theme.ts), the correct register for a section resolving into view
-// rather than `curve.morph` (a shape transforming in place) or `curve.linear` (a loop). Built
-// once at module scope, same as `constants/theme.ts`'s own curves, since `Easing.bezier`'s
-// returned function is itself a worklet callable from the UI-thread style below.
-const markRevealEasing = Easing.bezier(...Motion.curve.calm).factory();
 
 // The site key is Cloudflare's own public identifier for this Turnstile widget — safe to inline
 // into the client bundle by design (only the SECRET key, used server-side in
@@ -87,38 +71,8 @@ export default function SignInScreen() {
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors, scheme), [colors, scheme]);
 
-  const reduceMotion = useReducedMotion();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
-  const scrollY = useScrollViewOffset(scrollRef);
-  // Set from the mark section's own `onLayout` (below) — its content-relative y offset, so the
-  // reveal threshold tracks wherever the section actually lands regardless of device/font size,
-  // rather than a guessed pixel constant.
-  const markOffsetY = useSharedValue(0);
-
-  const markAnimatedStyle = useAnimatedStyle(() => {
-    if (reduceMotion) {
-      // Reduced-motion contract: no scroll-triggered transform, the mark just sits at rest in
-      // its own section — same "still, not hidden" reading `LowPolyField` itself documents.
-      return { opacity: 1, transform: [{ scale: 1 }] };
-    }
-    // The zoom completes over the scroll distance between the section's top entering the bottom
-    // of the viewport (progress 0) and it having travelled ~60% of the way up the screen
-    // (progress 1) — a natural "approaching, then resolving" window tied to scroll position,
-    // not a fixed timer.
-    const revealStart = markOffsetY.value - windowHeight;
-    const revealEnd = markOffsetY.value - windowHeight * 0.4;
-    const progress = interpolate(scrollY.value, [revealStart, revealEnd], [0, 1], Extrapolation.CLAMP);
-    const eased = markRevealEasing(progress);
-    return {
-      opacity: eased,
-      transform: [{ scale: interpolate(eased, [0, 1], [MARK_REVEAL_START_SCALE, 1]) }],
-    };
-  });
-
-  function handleMarkSectionLayout(event: LayoutChangeEvent) {
-    markOffsetY.value = event.nativeEvent.layout.y;
-  }
 
   const [mode, setMode] = useState<Mode>('signIn');
   const [showEmailForm, setShowEmailForm] = useState(false);
@@ -322,25 +276,6 @@ export default function SignInScreen() {
             <Text style={styles.valueProp}>{Copy.auth.valueProp}</Text>
           </View>
 
-          {/* THE ZOOM REVEAL. `LowPolyField` is mounted unconditionally here — never gated behind
-              a scroll threshold or unmounted when scrolled past — so its own internal shatter/gait
-              loop (started once, in its own `useEffect`) keeps running regardless of scroll
-              position, exactly the "never stops" contract this section needs. Only the wrapping
-              `Animated.View`'s opacity/scale respond to scroll, via `markAnimatedStyle` above,
-              which is what makes this read as a reveal rather than the mark simply always being
-              there. Decorative and inert either way — `LowPolyField` itself hides its facets from
-              the accessibility tree, so this section carries no accessibility role of its own. */}
-          <Animated.View
-            style={[styles.markSection, { minHeight: windowHeight * 0.55 }, markAnimatedStyle]}
-            onLayout={handleMarkSectionLayout}
-            pointerEvents="none">
-            <LowPolyField
-              color={colors.text.primary}
-              size={MARK_SIZE}
-              testID="sign-in-mark"
-            />
-          </Animated.View>
-
           <View style={styles.actions}>
             {/* Issue #20: the primary CTA, per Ian's decision — Google is the lowest-friction
                 path and the one most likely to succeed, so it's the one control on first paint
@@ -510,16 +445,6 @@ export default function SignInScreen() {
   );
 }
 
-/** The mark's drawn size, now that it fills its own section rather than sitting small and
- * translucent behind the wordmark — bumped up from the old 160 (H2, v23-ux-audit-r1) since it no
- * longer has to leave room for the wordmark/value-prop sharing its box. */
-const MARK_SIZE = 220;
-
-/** The zoom's starting scale — how "far away" the mark reads before the reveal resolves it to
- * its resting size. Chosen by feel, the same way `kinetic-text.tsx`'s `RISE` is: small enough to
- * read as a genuine zoom, not so small the shape is illegible mid-reveal. */
-const MARK_REVEAL_START_SCALE = 0.62;
-
 function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
     safeArea: {
@@ -562,13 +487,6 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     // must not depend on how big the decoration behind it happens to be.
     burst: {
       position: 'absolute',
-    },
-    // The zoom-reveal section (see `markAnimatedStyle` at the render site). Also given a
-    // `minHeight` inline so it reads as its own screenful rather than a cramped strip between the
-    // header and the actions.
-    markSection: {
-      alignItems: 'center',
-      justifyContent: 'center',
     },
     wordmarkRow: {
       justifyContent: 'center',
