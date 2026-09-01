@@ -58,10 +58,11 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ActivityIndicator, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { useAnimatedRef } from 'react-native-reanimated';
 
+import { ArcLoader } from '@/components/arc-loader';
 import { Aperture } from '@/components/aperture';
 import { DuotoneFrame } from '@/components/duotone-frame';
 import { PartialResultBanner } from '@/components/partial-result-banner';
@@ -260,7 +261,11 @@ export default function ResultScreen() {
       <ScreenGradient>
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.centerBlock}>
-            <ActivityIndicator color={colors.text.primary} />
+            {/* Cadence Arcs (2026-09-01): the motif's own wait state, replacing the stock
+                spinner. Indeterminate by construction — `<ArcLoader>` draws nothing that
+                could be read as progress, and the live-region caption beside it is what
+                actually says what is happening. */}
+            <ArcLoader size={88} testID="result-loading" />
             {/* `text.primary`, not secondary: this sits directly on the page wash, which
                 `Gradient`'s contract (constants/theme.ts) proves for the primary tone only. */}
             <Text style={styles.onWashCaption} accessibilityLiveRegion="polite">
@@ -301,7 +306,11 @@ export default function ResultScreen() {
   const revealReady = annotationsDone || (!heroPending && !heroUri);
 
   return (
-    <ScreenGradient>
+    // The one screen that opts its corner ripple OUT (Cadence Arcs, 2026-09-01): the hero image
+    // bleeds to the top-right corner the ornament would occupy, and an arc drawn over photographic
+    // media is neither proven for contrast nor legible. The motif is not absent from this screen —
+    // it is the readout's rings, which is where it means something here.
+    <ScreenGradient ornament="none">
       <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
         <Animated.ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           {/* THE HERO, and the biggest composition change on this screen. It is now the first

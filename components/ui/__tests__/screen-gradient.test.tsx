@@ -75,4 +75,38 @@ describe('ScreenGradient', () => {
     expect(screen.getByText('Analyze my form')).toBeTruthy();
     expect(screen.getByTestId('bg-wash', { includeHiddenElements: true })).toBeTruthy();
   });
+
+  // Cadence Arcs (2026-09-01). The ornament lives here rather than on twelve screens so that "on
+  // every screen" is structural; these lock the two halves of that decision — it is on by
+  // default, and it is genuinely suppressible for the one screen whose top corner is occupied.
+  describe('the corner ornament', () => {
+    it('draws the arc ripple by default, without being asked for', async () => {
+      await render(<ScreenGradient testID="bg" />);
+
+      expect(screen.getByTestId('bg-ornament', { includeHiddenElements: true })).toBeTruthy();
+    });
+
+    it('can be suppressed entirely — the result screen’s hero owns its top corner', async () => {
+      await render(<ScreenGradient testID="bg" ornament="none" />);
+
+      expect(screen.queryByTestId('bg-ornament', { includeHiddenElements: true })).toBeNull();
+    });
+
+    it('keeps the ornament behind the screen’s own content', async () => {
+      await render(
+        <ScreenGradient testID="bg">
+          <Text>Analyze my form</Text>
+        </ScreenGradient>
+      );
+
+      // Paint order is child order in React Native: the ornament must be mounted BEFORE the
+      // children, or the ripple draws on top of the screen's controls.
+      const root = screen.getByTestId('bg', { includeHiddenElements: true });
+      const ornamentIndex = root.children.findIndex(
+        (child) => typeof child !== 'string' && child.props?.testID === 'bg-ornament'
+      );
+      expect(ornamentIndex).toBeGreaterThanOrEqual(0);
+      expect(ornamentIndex).toBeLessThan(root.children.length - 1);
+    });
+  });
 });

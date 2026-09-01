@@ -113,6 +113,21 @@ describe('<ArcRing> — the first painted frame', () => {
     );
   });
 
+  // The regression this guards is silent and was real: a static ring seeded its swept value once
+  // at mount, so the frame-extraction ring — whose fraction moves while the screen is open — would
+  // have sat frozen at its first value while the count beside it climbed.
+  it('follows a fraction that changes after mount', async () => {
+    const circumference = circumferenceFor(120, 8);
+    const { rerender } = await render(
+      <ArcRing testID="ring" size={120} strokeWidth={8} fraction={0.25} color={Score.good.dark.fill} />
+    );
+    expect(screen.getByTestId('ring-fill', HIDDEN).props.strokeDashoffset).toBeCloseTo(circumference * 0.75, 5);
+
+    await rerender(<ArcRing testID="ring" size={120} strokeWidth={8} fraction={0.9} color={Score.good.dark.fill} />);
+
+    expect(screen.getByTestId('ring-fill', HIDDEN).props.strokeDashoffset).toBeCloseTo(circumference * 0.1, 5);
+  });
+
   it('insets the radius by half the stroke so the ring’s outer edge lands on `size`', async () => {
     await render(<ArcRing testID="ring" size={200} strokeWidth={20} fraction={1} color={Score.good.dark.fill} />);
 

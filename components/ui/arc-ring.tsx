@@ -115,6 +115,31 @@ export function ArcRing({
     strokeDashoffset: circumference * (1 - swept.value),
   }));
 
+  // The offset a STATIC ring draws at. Recomputed on every render, which is what lets a ring whose
+  // fraction moves after mount — the frame-extraction ring, whose `done/total` climbs while the
+  // screen is open — actually follow it. A shared value seeded once at mount would leave that ring
+  // frozen at its first value while the count beside it advanced: a silent failure that looks like
+  // a stalled extraction, not like a broken component.
+  const staticOffset = circumference * (1 - target);
+
+  /** Everything the fill arc's two branches must agree on. One dash the length of the whole
+   *  circle, offset back by however much is unswept — the standard way to draw a partial arc
+   *  without re-serialising a path string every frame. The -90° rotation starts the sweep at
+   *  12 o'clock instead of 3. */
+  const fillGeometry = {
+    cx: size / 2,
+    cy: size / 2,
+    r: radius,
+    stroke: color,
+    strokeWidth,
+    strokeLinecap: 'round',
+    strokeDasharray: [circumference, circumference],
+    fill: 'none',
+    originX: size / 2,
+    originY: size / 2,
+    rotation: -90,
+  } as const;
+
   return (
     <View style={[styles.root, { width: size, height: size }, style]} testID={testID}>
       <Svg
@@ -136,26 +161,24 @@ export function ArcRing({
           strokeDasharray={assessed ? undefined : [...NOT_ASSESSED_DASH]}
           fill="none"
         />
+        {/* Two branches, and the split is deliberate rather than incidental: a static ring mounts a
+            PLAIN `Circle` with no Reanimated node behind it at all, which is what makes "nothing is
+            scheduled on a re-open" structurally true instead of merely intended — and is also what
+            lets a live, changing fraction re-render normally. The animated branch is the one-shot
+            reveal, where the offset is owned by the UI thread for the length of the spring.
+            Shared props are spread from one object so the two branches cannot drift apart in
+            geometry, which is the failure a reader would never spot. */}
         {assessed ? (
-          <AnimatedCircle
-            testID={testID ? `${testID}-fill` : undefined}
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            stroke={color}
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-            // One dash the length of the whole circle, offset back by however much is unswept —
-            // the standard way to draw a partial arc without re-serialising a path string. The
-            // -90° rotation starts the sweep at 12 o'clock instead of 3.
-            strokeDasharray={[circumference, circumference]}
-            strokeDashoffset={circumference * (1 - (animate ? 0 : target))}
-            fill="none"
-            originX={size / 2}
-            originY={size / 2}
-            rotation={-90}
-            animatedProps={fillProps}
-          />
+          animate ? (
+            <AnimatedCircle
+              testID={testID ? `${testID}-fill` : undefined}
+              {...fillGeometry}
+              strokeDashoffset={circumference}
+              animatedProps={fillProps}
+            />
+          ) : (
+            <Circle testID={testID ? `${testID}-fill` : undefined} {...fillGeometry} strokeDashoffset={staticOffset} />
+          )
         ) : null}
       </Svg>
       {children ? <View style={styles.center}>{children}</View> : null}

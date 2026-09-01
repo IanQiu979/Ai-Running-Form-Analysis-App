@@ -41,9 +41,10 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ArcLoader } from '@/components/arc-loader';
 import { KineticText } from '@/components/kinetic-text';
 import { PaceReadout } from '@/components/pace-readout';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
@@ -204,7 +205,11 @@ export default function CompareScreen() {
 
       {state.status === 'loading' && (
         <View style={styles.centerBlock}>
-          <ActivityIndicator color={colors.text.primary} />
+          {/* Cadence Arcs (2026-09-01): the motif's own wait state, replacing the stock
+              spinner. Indeterminate by construction — `<ArcLoader>` draws nothing that
+              could be read as progress, and the live-region caption beside it is what
+              actually says what is happening. */}
+          <ArcLoader size={88} testID="compare-loading" />
           <Text style={styles.caption} accessibilityLiveRegion="polite">
             {Copy.compare.loading}
           </Text>

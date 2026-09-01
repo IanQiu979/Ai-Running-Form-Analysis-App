@@ -41,7 +41,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ArcLoader } from '@/components/arc-loader';
 import { LowPolyField } from '@/components/low-poly-field';
+import { ArcRing } from '@/components/ui/arc-ring';
 import { Eyebrow } from '@/components/ui/eyebrow';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
@@ -53,7 +55,6 @@ import {
   FontFamily,
   FontSize,
   LineHeight,
-  Radius,
   Spacing,
   Tracking,
   type ColorScheme,
@@ -269,11 +270,17 @@ export default function ExtractingScreen() {
             {/* The same ambient low-poly mark the Analyzing wait uses, for the same reason and
                 under the same rule: it signals "alive", never progress. The progress BAR below
                 is different — that one is real, driven by a known frame count. */}
-            <LowPolyField
-              color={colors.text.primary}
-              size={WAIT_MARK_SIZE}
-              testID="extracting-mark"
-            />
+            {/* The INDETERMINATE sibling of the extracting ring below: the frame total is not
+                known yet, so this state gets `<ArcLoader>`'s turning rings — which can never be
+                read as progress — rather than a ring at some invented fraction. */}
+            <View style={styles.waitMark}>
+              <ArcLoader size={WAIT_MARK_SIZE * 1.35} style={styles.waitRings} testID="extracting-rings" />
+              <LowPolyField
+                color={colors.text.primary}
+                size={WAIT_MARK_SIZE}
+                testID="extracting-mark"
+              />
+            </View>
             {/* L1 (v23-ux-audit-r1): neither wait state offered an escape — bounded by
                 QUOTA_WAIT_TIMEOUT_MS so it can't hang forever, but a long extraction otherwise
                 trapped the user on this screen with nothing to press. */}
@@ -283,18 +290,28 @@ export default function ExtractingScreen() {
 
         {state.status === 'extracting' && (
           <View style={styles.centered}>
-            <LowPolyField color={colors.text.primary} size={WAIT_MARK_SIZE} />
+            {/* Cadence Arcs (2026-09-01): the horizontal progress bar became a ring drawn AROUND
+                the mark, so the extraction reads as one object filling rather than as a figure
+                with a bar underneath it. This ring is genuinely DETERMINATE — unlike the wait
+                states' `<ArcLoader>`, it is driven by a real, known frame count, which is exactly
+                the distinction the old bar's own comment drew and this keeps. `animate={false}`
+                is deliberate: springing between progress values would make a determinate readout
+                feel approximate, and `<ArcRing>` re-renders a static ring on every fraction
+                change (see its `staticOffset`). */}
+            <View style={styles.waitMark}>
+              <ArcRing
+                testID="extracting-progress-ring"
+                size={WAIT_MARK_SIZE * 1.35}
+                strokeWidth={Spacing.md}
+                fraction={state.total > 0 ? state.done / state.total : 0}
+                color={Accent.value}
+                style={styles.waitRings}
+              />
+              <LowPolyField color={colors.text.primary} size={WAIT_MARK_SIZE} />
+            </View>
             <Text style={styles.caption} accessibilityLiveRegion="polite">
               {Copy.upload.step.extracting(state.done, state.total)}
             </Text>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  { width: `${state.total > 0 ? Math.round((state.done / state.total) * 100) : 0}%` },
-                ]}
-              />
-            </View>
             <PillButton variant="ghost" label="Cancel" onPress={goToSourcePicker} />
           </View>
         )}
@@ -395,19 +412,16 @@ function createStyles(colors: ThemeColors) {
       color: colors.text.primary,
       textAlign: 'center',
     },
-    progressTrack: {
-      width: '80%',
-      // Thickened to match the readout's own bar (components/pace-readout.tsx) — this is the app's
-      // other real progress indicator and the two should read as the same object.
-      height: Spacing.md,
-      borderRadius: Radius.pill,
-      backgroundColor: colors.hairline,
-      overflow: 'hidden',
+    // The mark and its ring share one centre. The ring is absolute, so adding it did not move the
+    // figure by a point. Replaces `progressTrack`/`progressFill`: the readout this screen's bar
+    // was matched to is a ring now (components/pace-readout.tsx), and the two should still read as
+    // the same object.
+    waitMark: {
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    progressFill: {
-      height: '100%',
-      borderRadius: Radius.pill,
-      backgroundColor: Accent.value,
+    waitRings: {
+      position: 'absolute',
     },
     cta: {
       alignSelf: 'stretch',

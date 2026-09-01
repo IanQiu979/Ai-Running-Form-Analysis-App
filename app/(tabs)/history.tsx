@@ -27,9 +27,10 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ArcLoader } from '@/components/arc-loader';
 import { KineticText } from '@/components/kinetic-text';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
 import { PillButton } from '@/components/ui/pill-button';
@@ -267,7 +268,11 @@ export default function HistoryScreen() {
 
       {state.status === 'loading' && (
         <View style={styles.centerBlock}>
-          <ActivityIndicator color={colors.text.primary} />
+          {/* Cadence Arcs (2026-09-01): the motif's own wait state, replacing the stock
+              spinner. Indeterminate by construction — `<ArcLoader>` draws nothing that
+              could be read as progress, and the live-region caption beside it is what
+              actually says what is happening. */}
+          <ArcLoader size={88} testID="history-loading" />
           <Text style={styles.caption} accessibilityLiveRegion="polite">
             {Copy.history.loading}
           </Text>

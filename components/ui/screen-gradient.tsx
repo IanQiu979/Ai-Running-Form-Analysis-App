@@ -25,6 +25,20 @@
  * CONTRAST CONTRACT: unchanged from `Gradient`'s own token comment — this surface carries
  * `text.primary` only. Secondary text, score text, score fills and coaching prose belong on an
  * opaque `surface.*` or inside a `<GlassCard>`. Nothing here relaxes that.
+ *
+ * THE CORNER ORNAMENT (Cadence Arcs, 2026-09-01). The redesign puts the arc ripple on EVERY
+ * screen, and it lives here rather than being pasted into each of the twelve screens for one
+ * reason: twelve copies of a decoration is twelve chances for its radius, corner, opacity or
+ * colour to drift, and the thing that makes a motif read as a system is that it is identical
+ * everywhere. Every screen already sits on this component, so putting it here makes "on every
+ * screen" structurally true instead of a convention someone has to remember.
+ *
+ * It is opt-OUT (`ornament="none"`), not opt-in, for the same reason. The one screen that opts to
+ * a different corner is the result screen, whose hero image occupies the top of the viewport.
+ *
+ * The ornament's radius scales with the viewport rather than being a fixed number: a 240pt ripple
+ * that reads as a generous gesture on a phone reads as a smudge in an iPad corner. It is capped so
+ * it cannot grow to swallow a tablet's whole corner.
  */
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, type ReactNode } from 'react';
@@ -38,6 +52,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { CornerArcs, type ArcCorner } from '@/components/ui/corner-arcs';
 import { Colors, Gradient, Motion } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
@@ -48,15 +63,32 @@ const OVERDRAW = 1.2;
  *  be perceptible as movement, only as the surface not being dead. */
 const DRIFT_FRACTION = 0.35;
 
+/** The corner ripple's radius, as a fraction of the viewport width, and its ceiling. See the
+ *  ornament note in this file's header for why it scales rather than being a fixed size. */
+const ORNAMENT_WIDTH_FRACTION = 0.72;
+const ORNAMENT_MAX_RADIUS = 320;
+
 type ScreenGradientProps = {
   children?: ReactNode;
   /** Ambient drift. Default true; always fully disabled under reduced motion regardless. */
   drift?: boolean;
+  /**
+   * Which corner the arc ripple radiates from, or `'none'` to suppress it. Defaults to the
+   * top-right — the corner no screen in this app puts a control or a headline in, so the ornament
+   * never has to compete with content for it.
+   */
+  ornament?: ArcCorner | 'none';
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
-export function ScreenGradient({ children, drift = true, style, testID }: ScreenGradientProps) {
+export function ScreenGradient({
+  children,
+  drift = true,
+  ornament = 'topRight',
+  style,
+  testID,
+}: ScreenGradientProps) {
   const scheme = useColorScheme() ?? 'light';
   const reduceMotion = useReducedMotion();
   const animate = drift && !reduceMotion;
@@ -122,6 +154,16 @@ export function ScreenGradient({ children, drift = true, style, testID }: Screen
           style={StyleSheet.absoluteFill}
         />
       </Animated.View>
+      {/* Drawn OVER the wash and UNDER the screen's content, which is the only stacking order that
+          works: over the wash so the ripple is visible at all, under the content so it can never
+          sit on top of a control or dim a headline. It takes no layout and no touches. */}
+      {ornament !== 'none' ? (
+        <CornerArcs
+          testID={testID ? `${testID}-ornament` : undefined}
+          corner={ornament}
+          radius={Math.min(width * ORNAMENT_WIDTH_FRACTION, ORNAMENT_MAX_RADIUS)}
+        />
+      ) : null}
       {children}
     </View>
   );

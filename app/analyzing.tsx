@@ -48,6 +48,7 @@ import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from
 import { Alert, Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ArcLoader } from '@/components/arc-loader';
 import { KineticText } from '@/components/kinetic-text';
 import { LowPolyField } from '@/components/low-poly-field';
 import { Eyebrow } from '@/components/ui/eyebrow';
@@ -489,11 +490,21 @@ export default function AnalyzingScreen() {
                 renders as a still mark — the composition survives, the movement goes; this
                 screen's header already documents why its wait-state signaling is exempt from
                 blanket motion suppression, and a static mark is the honest middle. */}
-            <LowPolyField
-              color={colors.text.primary}
-              size={WAIT_MARK_SIZE}
-              testID="analyzing-mark"
-            />
+            {/* Cadence Arcs (2026-09-01): the wait mark now runs INSIDE the motif's rings —
+                ripples radiating from the figure, which is the same idea the result screen's score
+                rings carry, at the moment the score is being computed. The rings are drawn behind
+                the runner and take no layout, so the mark's own size and position are unchanged.
+                `<ArcLoader>` inherits this screen's honesty rule verbatim rather than being
+                trusted to remember it: see its header — it draws no arc that fills toward a
+                completion, and is dead still under reduced motion, exactly as the field is. */}
+            <View style={styles.waitMark}>
+              <ArcLoader size={WAIT_MARK_SIZE * 1.35} style={styles.waitRings} testID="analyzing-rings" />
+              <LowPolyField
+                color={colors.text.primary}
+                size={WAIT_MARK_SIZE}
+                testID="analyzing-mark"
+              />
+            </View>
             {captionPhase.kind === 'step' ? (
               <Text style={styles.caption} accessibilityLiveRegion="polite">
                 {Copy.analyzing.step[captionPhase.stepKey]}
@@ -706,6 +717,15 @@ function createStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: Spacing.xl,
+    },
+    // The runner and the rings share one centre. The mark keeps its own intrinsic size and the
+    // rings are absolute, so adding them cannot have moved the figure by a point.
+    waitMark: {
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    waitRings: {
+      position: 'absolute',
     },
     caption: {
       fontFamily: FontFamily.mono.regular,
