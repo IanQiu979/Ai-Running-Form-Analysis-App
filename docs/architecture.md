@@ -811,10 +811,11 @@ future screen will be written against. Full narrative: `docs/change_log.md`'s 20
   `scripts/generate-app-assets.js` rasterizes from them, plus `app.json`'s splash and Android
   adaptive-icon background colours (`#F7F1EB` light / `#17120E` dark). Same pipeline as the
   2026-07-12 assets section below; only the artwork and colours changed.
-- **One captain override rides along.** `app/result/sample.tsx` gains a blurred "locked pillars"
-  treatment, which deliberately overrides part of the 2026-07-26 free-tier ruling recorded in the
-  `analyze-form` flow section below. `<SampleResultBanner>` is unchanged and still the control of
-  record — see `docs/change_log.md`'s 2026-09-01 override entry before touching either.
+- **A blurred "locked pillars" treatment for `app/result/sample.tsx` was proposed and rejected**
+  after direct captain confirmation — it would have overridden the 2026-07-26 free-tier ruling
+  recorded in the `analyze-form` flow section below. `result/sample.tsx` ships with no blur;
+  `<SampleResultBanner>` remains unchanged and is the control of record — see
+  `docs/change_log.md`'s 2026-09-01 entry.
 
 ## Current — app icon & splash assets (done 2026-07-12, closes GitHub issue #26)
 
