@@ -755,6 +755,67 @@ override fixes `useSafeAreaInsets()` consumers and nothing else.
 UI work builds from these rather than re-deriving the direction. Still open from Phase 0.5:
 Ian's certification review of the drafted Elasticity content (`knowledge/pace_framework.md`).
 
+### UNMERGED — the "Cadence Arcs" redesign (branch `redesign/cadence-arcs-2026-09-01`, 2026-09-01)
+
+**Not on `main`, not in any build.** Everything in this sub-section exists only on that branch;
+until it merges, the design layer described above (Calm, 2026-08-02) is what the app ships. It is
+recorded here rather than left in commit messages because it changes the token contracts every
+future screen will be written against. Full narrative: `docs/change_log.md`'s 2026-09-01 entries.
+
+- **Token layer re-cut, geometry deliberately untouched.** `constants/theme.ts` moves to a warm
+  espresso/clay palette (`#17120E` ink, `#C05416` accent) and to Bricolage Grotesque (display) /
+  Manrope (body/UI) / Space Mono (numerals), pulling in three new `@expo-google-fonts/*` packages.
+  `Radius`, `Spacing`, `FontSize`, `Tracking`, `LineHeight`, `Elevation`, `ControlHeight`,
+  `ContentWidth`, `TabBar`, `HitTarget`, `CheckboxSize`, `Opacity` and `Motion` are byte-identical —
+  the redesign is colour, type and motif, not a re-spacing. The score ramp rotated off the accent
+  (low 352° / mid 52° / strong 152° / good 195°) because an orange accent sat 8° from the old coral
+  "Needs work" band.
+- **`Arc` — a new token with two roles and two opposite proof obligations.** `ornament` (corner
+  ripples, loading rings, the score-ring geometry) is proven **≥3:1** against every surface and
+  every `Gradient.page` stop — a stronger floor than a decoration owes, because the same token draws
+  the ring a score sits inside. `track` (a ring's unfilled remainder) is proven to stay **under**
+  3:1, so it can never out-shout the score drawn over it. Both are asserted in
+  `constants/__tests__/theme-contrast.test.ts`, which grew rather than being relaxed.
+- **Three new primitives, one of them load-bearing.**
+  - `components/ui/arc-ring.tsx` — the only place that knows how to draw a ring. A `fraction` of
+    `null` renders a dashed, empty track and mounts **no fill arc at all**; there is no code path
+    that turns `null` into a 0% sweep. This is the direct successor of the old pillar bar's dashed
+    not-assessed track, and the component enforces it independently of its callers. Only
+    `strokeDashoffset` animates (UI thread, no layout pass); `animate={false}` — every re-open from
+    Past Analyses — schedules nothing.
+  - `components/ui/corner-arcs.tsx` — the decorative quarter-clipped ripple. Inert three ways
+    (`pointerEvents="none"`, `accessibilityElementsHidden`, no text or state).
+  - `components/arc-loader.tsx` — the indeterminate wait indicator. Three counter-rotating arcs,
+    `transform: rotate` only, dead still under reduced motion, and **never** an arc that fills
+    toward a completion: honest-progress discipline carried over verbatim from
+    `components/low-poly-field.tsx` and `app/analyzing.tsx`'s step list.
+- **The result readout is rings, and the API contract did not move.** `components/pace-readout.tsx`
+  reads the same `PaceResult` shape and converts `score/100` to a sweep at the point of render — one
+  large ring with the overall numeral inside it, one ring per pillar (Posture, Arm swing, Cadence,
+  Elasticity). `AnimatedPillarBarFill` is retired: a ring has no width, so motion-consult item 1's
+  "scaleX, never width" invariant is replaced by "the ring's layout box is fixed at mount and only
+  the stroke offset moves", proven in `components/__tests__/arc-ring.test.tsx`.
+- **The motif is structural, not pasted.** `<ScreenGradient>` draws the corner ornament itself —
+  opt-**out** via `ornament="none"`, over the wash and under the screen's content, with a radius
+  that scales with viewport width and is capped so it cannot swallow a tablet corner. Both result
+  screens (`app/result/[id].tsx`, `app/result/sample.tsx`) opt out; their heroes occupy that corner.
+  `<ArcLoader>` replaces the full-screen spinners on result, history and compare and rings the mark
+  on Analyzing; `app/capture/extracting.tsx`'s horizontal progress bar became a genuinely
+  determinate ring driven by the real frame count, with the indeterminate loader covering the
+  "preparing" state where no total is known yet. In-button spinners were left alone.
+- **Sign-in is the one deliberate exception.** `components/arc-burst.tsx` draws oversized
+  counter-rotating arcs behind the wordmark. Kept separate from `<ArcLoader>` on purpose: rotating
+  rings mean "wait" there and "this is the brand" here, and a shared primitive would be a shared
+  meaning.
+- **Launch assets were re-cut to match** — the `assets/source/*.svg` marks and the PNGs
+  `scripts/generate-app-assets.js` rasterizes from them, plus `app.json`'s splash and Android
+  adaptive-icon background colours (`#F7F1EB` light / `#17120E` dark). Same pipeline as the
+  2026-07-12 assets section below; only the artwork and colours changed.
+- **One captain override rides along.** `app/result/sample.tsx` gains a blurred "locked pillars"
+  treatment, which deliberately overrides part of the 2026-07-26 free-tier ruling recorded in the
+  `analyze-form` flow section below. `<SampleResultBanner>` is unchanged and still the control of
+  record — see `docs/change_log.md`'s 2026-09-01 override entry before touching either.
+
 ## Current — app icon & splash assets (done 2026-07-12, closes GitHub issue #26)
 
 Real app icon + splash art, replacing the Expo template defaults. Design is "The Gait Plate"

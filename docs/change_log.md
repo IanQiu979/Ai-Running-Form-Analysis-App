@@ -5,7 +5,34 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-01 (captain override — the sample result screen gets blurred "locked" pillars)
+
+- **The pre-signup preview (`app/result/sample.tsx`) gains a blurred "locked pillars" treatment,
+  and that deliberately overrides a standing ruling.** The captain was asked directly on 2026-09-01,
+  with the conflict stated, and chose the blur anyway. Recording it here so it is never read
+  later as an oversight or quietly "fixed" back by an agent who finds the older ruling first.
+- **What it overrides: the 2026-07-26 free-tier ruling** (this file's 2026-08-04 entry;
+  `docs/architecture.md`'s `analyze-form` flow section). That ruling established
+  `<SampleResultBanner>` *specifically* as the control that stops the sample reading as a real
+  personalized analysis — an App Store policy risk and a refund-dispute risk per the captain's
+  brief — and a blur over pillar content is the visual idiom for "your real data is behind a
+  paywall", which is the exact implication the banner exists to prevent. Nothing on this screen
+  is the user's data: the payload is a hand-authored, never-persisted sample
+  (`supabase/functions/_shared/analyze-form-sample.ts`), there is no model call, no `analyses`
+  row, and nothing blurred is being withheld — there is nothing underneath it to withhold.
+- **What is NOT overridden, and must stay.** `<SampleResultBanner>` still renders ABOVE the
+  readout with the upgrade CTA inside it, still stating plainly that this is an example of Pro's
+  output rather than a read of the user's photo. The override is narrowly about adding the blur
+  on top of that labeling, not about relaxing or moving the labeling itself. If the two ever
+  have to be re-weighed, the banner wins by default; it is the control of record.
+- The blur treatment itself ships with the Cadence Arcs branch below — this entry records the
+  decision and its blast radius, not the styling.
+
 ## 2026-09-01 (Cadence Arcs — the full visual redesign)
+
+**UNRELEASED.** All of this lives on `redesign/cadence-arcs-2026-09-01` and has **not been merged
+to `main`**. Nothing described in this entry is on `main` or in any build; `docs/status.md`'s
+"Next action" carries the merge as an open item.
 
 - **A new design system replaces Calm, on the branch `redesign/cadence-arcs-2026-09-01`.** Warm
   espresso/clay (`#17120E` ink, clay accent) instead of blue/violet, Bricolage Grotesque / Manrope
