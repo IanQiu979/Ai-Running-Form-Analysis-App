@@ -41,7 +41,6 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -55,10 +54,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ArcLoader } from '@/components/arc-loader';
 import { KineticText } from '@/components/kinetic-text';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
+import { CornerArcs } from '@/components/ui/corner-arcs';
+import { Eyebrow } from '@/components/ui/eyebrow';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
   Colors,
@@ -109,6 +112,16 @@ type ConsentState =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'ready'; granted: boolean };
+
+/** The inline wait ring, sized to sit on one line beside its caption. Composition, not a token —
+ *  the same reasoning `components/pace-readout.tsx` gives for keeping its own ring sizes local. */
+const INLINE_LOADER_SIZE = 24;
+
+/** The Plan card's ripple: card-scale (the screen's own ornament scales with the viewport, and that
+ *  radius inside a card would fill it) and quieter than a screen ornament, because it is drawn on
+ *  an opaque surface directly behind reading matter. */
+const PLAN_ORNAMENT_RADIUS = 116;
+const PLAN_ORNAMENT_OPACITY = 0.28;
 
 const TIER_LABEL: Record<SubscriptionTier, string> = {
   free: Copy.tier.free,
@@ -597,25 +610,43 @@ export default function SettingsScreen() {
         </View>
 
         {/* --- Account ------------------------------------------------------------------- */}
+        {/* Section headings are now `<Eyebrow>`, the app-wide micro-label register, rather than a
+            local restatement of it. `tone="primary"` because these sit on the wash, which
+            `Gradient`'s contract proves for primary text only; `accessibilityRole="header"` moves
+            with the text, so the rotor is unchanged. */}
         <View style={styles.section}>
-          <Text style={styles.sectionHeading} accessibilityRole="header">
+          <Eyebrow tone="primary" accessibilityRole="header">
             {Copy.settings.section.account}
-          </Text>
-          <View style={styles.card}>
-            <Text style={styles.rowLabel}>{Copy.settings.account.email.label}</Text>
-            <Text style={styles.rowValue}>{email ?? Copy.settings.account.email.unknown}</Text>
-          </View>
+          </Eyebrow>
+          <SurfaceCard>
+            <View style={styles.cardBody}>
+              <Text style={styles.rowLabel}>{Copy.settings.account.email.label}</Text>
+              <Text style={styles.rowValue}>{email ?? Copy.settings.account.email.unknown}</Text>
+            </View>
+          </SurfaceCard>
         </View>
 
         {/* --- Plan (display-only; the server is the authority) -------------------------- */}
         <View style={styles.section}>
-          <Text style={styles.sectionHeading} accessibilityRole="header">
+          <Eyebrow tone="primary" accessibilityRole="header">
             {Copy.settings.section.plan}
-          </Text>
-          <View style={styles.card}>
+          </Eyebrow>
+          {/* THE ONE ORNAMENTED CARD ON THIS SCREEN. Settings is chrome, not a result — the arc
+              motif is spent here, on the single card that says something about the account itself,
+              and nowhere else on the screen. `padding={0}` + an inner padded node is what lets the
+              ripple radiate from the card's actual corner (an absolutely-positioned child resolves
+              against its parent's PADDING box). */}
+          <SurfaceCard padding={0}>
+            <CornerArcs
+              testID="settings-plan-ornament"
+              corner="topRight"
+              radius={PLAN_ORNAMENT_RADIUS}
+              opacity={PLAN_ORNAMENT_OPACITY}
+            />
+            <View style={styles.cardBody}>
             {plan.status === 'loading' && (
               <View style={styles.inlineRow}>
-                <ActivityIndicator color={colors.text.secondary} />
+                <ArcLoader size={INLINE_LOADER_SIZE} testID="settings-plan-loading" />
                 <Text style={styles.rowValueMuted} accessibilityLiveRegion="polite">
                   {Copy.settings.plan.loading}
                 </Text>
@@ -658,15 +689,17 @@ export default function SettingsScreen() {
                 </Pressable>
               </View>
             )}
-          </View>
+            </View>
+          </SurfaceCard>
         </View>
 
         {/* --- Privacy (the #68 restatement + withdrawal + the policy) -------------------- */}
         <View style={styles.section}>
-          <Text style={styles.sectionHeading} accessibilityRole="header">
+          <Eyebrow tone="primary" accessibilityRole="header">
             {Copy.settings.section.privacy}
-          </Text>
-          <View style={styles.card}>
+          </Eyebrow>
+          <SurfaceCard>
+            <View style={styles.cardBody}>
             <Text style={styles.bodyText}>{Copy.settings.privacy.body}</Text>
             <Text style={styles.bodyTextMuted}>{Copy.settings.privacy.deleteNote}</Text>
 
@@ -674,7 +707,7 @@ export default function SettingsScreen() {
 
             {consent.status === 'loading' && (
               <View style={styles.inlineRow}>
-                <ActivityIndicator color={colors.text.secondary} />
+                <ArcLoader size={INLINE_LOADER_SIZE} testID="settings-consent-loading" />
                 <Text style={styles.rowValueMuted} accessibilityLiveRegion="polite">
                   {Copy.settings.consent.status.loading}
                 </Text>
@@ -720,7 +753,7 @@ export default function SettingsScreen() {
                       pressed && !isBusy && styles.pressed,
                     ]}>
                     {isWithdrawing ? (
-                      <ActivityIndicator color={colors.text.primary} />
+                      <ArcLoader size={INLINE_LOADER_SIZE} testID="settings-withdraw-busy" />
                     ) : (
                       <Text style={styles.textActionLabel}>
                         {Copy.settings.consent.withdraw.cta}
@@ -741,7 +774,8 @@ export default function SettingsScreen() {
                 the summary directly above. */}
             <Text style={styles.rowLabel}>{Copy.settings.privacyPolicy.label}</Text>
             <Text style={styles.bodyTextMuted}>{Copy.settings.privacyPolicy.pending}</Text>
-          </View>
+            </View>
+          </SurfaceCard>
         </View>
 
         {/* --- Account actions ----------------------------------------------------------- */}
@@ -758,7 +792,7 @@ export default function SettingsScreen() {
               pressed && !isBusy && styles.pressed,
             ]}>
             {isSigningOut ? (
-              <ActivityIndicator color={colors.text.primary} />
+              <ArcLoader size={INLINE_LOADER_SIZE} testID="settings-sign-out-busy" />
             ) : (
               <Text style={styles.actionRowLabel}>{Copy.settings.signOut.cta}</Text>
             )}
@@ -777,7 +811,14 @@ export default function SettingsScreen() {
             ]}>
             {isDeleting ? (
               <View style={styles.inlineRow}>
-                <ActivityIndicator color={Semantic.error[scheme]} />
+                {/* The one loader on this screen that is NOT clay: a destructive action in flight
+                    keeps the `Semantic.error` role its label already carries, so the row reads as
+                    one thing rather than as a warning beside a brand ornament. */}
+                <ArcLoader
+                  size={INLINE_LOADER_SIZE}
+                  color={Semantic.error[scheme]}
+                  testID="settings-delete-busy"
+                />
                 <Text style={styles.destructiveLabel} accessibilityLiveRegion="polite">
                   {Copy.settings.deleteAccountState.pending}
                 </Text>
@@ -902,26 +943,16 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     section: {
       gap: Spacing.md,
     },
-    // Now the app-wide eyebrow register (tracked, not just uppercased) — this style predates
-    // `<Eyebrow>` and is what that component was extracted from. Kept as a style rather than
-    // swapped for the component because it carries `accessibilityRole="header"` per section and
-    // the two are equivalent here; the tracking is the part that was missing.
-    sectionHeading: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.xs,
-      letterSpacing: Tracking.eyebrow,
-      // On the wash — `text.primary` only, at full opacity (`Gradient`'s contract,
-      // constants/theme.ts; H3, v23-ux-audit-r1: opacity here dropped this below WCAG AA).
-      // Quietness comes from the xs eyebrow size/tracking alone, not from a dimmed color.
-      color: colors.text.primary,
-      textTransform: 'uppercase',
-    },
-    card: {
-      backgroundColor: colors.surface.base,
-      borderColor: colors.hairline,
-      borderRadius: Radius.card,
-      borderWidth: StyleSheet.hairlineWidth * 2,
-      padding: Spacing.xl,
+    // `sectionHeading` is gone: it was a local restatement of the eyebrow register (written before
+    // `<Eyebrow>` existed, and missing its tracking until a later pass added it by hand). The
+    // headings now mount that component, which carries `accessibilityRole="header"` through, so the
+    // a11y tree is unchanged.
+    //
+    // `card` is gone the same way — it was a hand-rolled `<SurfaceCard>` (same fill, same hairline,
+    // same `Radius.card`, same padding). The interior stack it used to own is `cardBody` below,
+    // because `<SurfaceCard>` renders TWO nodes and its `style` prop lands on the outer one, whose
+    // only child is the clip node — a `gap` there would space nothing.
+    cardBody: {
       gap: Spacing.md,
     },
     rowLabel: {

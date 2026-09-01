@@ -41,10 +41,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ArcLoader } from '@/components/arc-loader';
 import { LowPolyField } from '@/components/low-poly-field';
+import { ArcRing } from '@/components/ui/arc-ring';
 import { Eyebrow } from '@/components/ui/eyebrow';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
   Accent,
@@ -53,7 +56,7 @@ import {
   FontFamily,
   FontSize,
   LineHeight,
-  Radius,
+  Semantic,
   Spacing,
   Tracking,
   type ColorScheme,
@@ -109,7 +112,7 @@ export default function ExtractingScreen() {
   }>();
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
-  const styles = createStyles(colors);
+  const styles = createStyles(colors, scheme);
 
   // Issue #147: `params` (expo-router's useLocalSearchParams()) is a NEW object reference every
   // render, so a useMemo keyed on `params` itself recomputes every render, which fed a fresh
@@ -269,11 +272,17 @@ export default function ExtractingScreen() {
             {/* The same ambient low-poly mark the Analyzing wait uses, for the same reason and
                 under the same rule: it signals "alive", never progress. The progress BAR below
                 is different — that one is real, driven by a known frame count. */}
-            <LowPolyField
-              color={colors.text.primary}
-              size={WAIT_MARK_SIZE}
-              testID="extracting-mark"
-            />
+            {/* The INDETERMINATE sibling of the extracting ring below: the frame total is not
+                known yet, so this state gets `<ArcLoader>`'s turning rings — which can never be
+                read as progress — rather than a ring at some invented fraction. */}
+            <View style={styles.waitMark}>
+              <ArcLoader size={WAIT_MARK_SIZE * 1.35} style={styles.waitRings} testID="extracting-rings" />
+              <LowPolyField
+                color={colors.text.primary}
+                size={WAIT_MARK_SIZE}
+                testID="extracting-mark"
+              />
+            </View>
             {/* L1 (v23-ux-audit-r1): neither wait state offered an escape — bounded by
                 QUOTA_WAIT_TIMEOUT_MS so it can't hang forever, but a long extraction otherwise
                 trapped the user on this screen with nothing to press. */}
@@ -283,42 +292,76 @@ export default function ExtractingScreen() {
 
         {state.status === 'extracting' && (
           <View style={styles.centered}>
-            <LowPolyField color={colors.text.primary} size={WAIT_MARK_SIZE} />
+            {/* Cadence Arcs (2026-09-01): the horizontal progress bar became a ring drawn AROUND
+                the mark, so the extraction reads as one object filling rather than as a figure
+                with a bar underneath it. This ring is genuinely DETERMINATE — unlike the wait
+                states' `<ArcLoader>`, it is driven by a real, known frame count, which is exactly
+                the distinction the old bar's own comment drew and this keeps. `animate={false}`
+                is deliberate: springing between progress values would make a determinate readout
+                feel approximate, and `<ArcRing>` re-renders a static ring on every fraction
+                change (see its `staticOffset`). */}
+            <View style={styles.waitMark}>
+              <ArcRing
+                testID="extracting-progress-ring"
+                size={WAIT_MARK_SIZE * 1.35}
+                strokeWidth={Spacing.md}
+                fraction={state.total > 0 ? state.done / state.total : 0}
+                color={Accent.value}
+                style={styles.waitRings}
+              />
+              <LowPolyField color={colors.text.primary} size={WAIT_MARK_SIZE} />
+            </View>
             <Text style={styles.caption} accessibilityLiveRegion="polite">
               {Copy.upload.step.extracting(state.done, state.total)}
             </Text>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  { width: `${state.total > 0 ? Math.round((state.done / state.total) * 100) : 0}%` },
-                ]}
-              />
-            </View>
             <PillButton variant="ghost" label="Cancel" onPress={goToSourcePicker} />
           </View>
         )}
 
         {state.status === 'ready' && (
           <View style={styles.centered}>
-            <Text style={styles.resultTitle} accessibilityLiveRegion="polite">
-              {Copy.upload.ready.title}
-            </Text>
-            <Text style={styles.caption}>{Copy.upload.ready.body(state.frameSet.frames.length)}</Text>
-            <PillButton label={Copy.upload.ready.cta} onPress={goToAnalyzing} style={styles.cta} />
+            {/* The SAME ring and the SAME field as the extracting state above, at a full sweep —
+                so preparing -> extracting -> ready reads as one object completing rather than as
+                three unrelated pictures. `fraction={1}` is a statement of fact here (every frame
+                the extraction promised is in memory), not a decoration. */}
+            <View style={styles.waitMark}>
+              <ArcRing
+                size={WAIT_MARK_SIZE * 1.35}
+                strokeWidth={Spacing.md}
+                fraction={1}
+                color={Accent.value}
+                style={styles.waitRings}
+              />
+              <LowPolyField color={colors.text.primary} size={WAIT_MARK_SIZE} />
+            </View>
+            {/* On a `<SurfaceCard>`, matching the panel idiom the other two capture screens use —
+                and, unlike the wash, an opaque surface this screen's body copy is proven against. */}
+            <SurfaceCard style={styles.panel}>
+              <View style={styles.panelStack}>
+                <Text style={styles.resultTitle} accessibilityLiveRegion="polite">
+                  {Copy.upload.ready.title}
+                </Text>
+                <Text style={styles.caption}>{Copy.upload.ready.body(state.frameSet.frames.length)}</Text>
+                <PillButton label={Copy.upload.ready.cta} onPress={goToAnalyzing} style={styles.cta} />
+              </View>
+            </SurfaceCard>
           </View>
         )}
 
         {state.status === 'error' && (
           <View style={styles.centered}>
-            <Text style={styles.errorTitle} accessibilityRole="header" accessibilityLiveRegion="polite">
-              {errorCopy(state).title}
-            </Text>
-            <Text style={styles.caption}>{errorCopy(state).body}</Text>
-            {state.kind === 'extractionFailed' && (
-              <PillButton label="Retry" onPress={() => setAttempt((n) => n + 1)} style={styles.cta} />
-            )}
-            <PillButton variant="ghost" label="Back" onPress={goToSourcePicker} />
+            <SurfaceCard style={styles.panel}>
+              <View style={styles.panelStack}>
+                <Text style={styles.errorTitle} accessibilityRole="header" accessibilityLiveRegion="polite">
+                  {errorCopy(state).title}
+                </Text>
+                <Text style={styles.caption}>{errorCopy(state).body}</Text>
+                {state.kind === 'extractionFailed' && (
+                  <PillButton label="Retry" onPress={() => setAttempt((n) => n + 1)} style={styles.cta} />
+                )}
+                <PillButton variant="ghost" label="Back" onPress={goToSourcePicker} />
+              </View>
+            </SurfaceCard>
           </View>
         )}
       </ScrollView>
@@ -337,7 +380,7 @@ function errorCopy(state: Extract<ExtractState, { status: 'error' }>): { title: 
  *  split across two screens and should not look like different products. */
 const WAIT_MARK_SIZE = 200;
 
-function createStyles(colors: ThemeColors) {
+function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
@@ -371,9 +414,22 @@ function createStyles(colors: ThemeColors) {
       fontFamily: FontFamily.mono.regular,
       fontSize: FontSize.sm,
       lineHeight: FontSize.sm * LineHeight.body,
-      // On the wash — `text.primary` only (`Gradient`'s contract, constants/theme.ts).
+      // `text.primary`, because this same style is also used by the extracting caption, which sits
+      // directly on the wash — and the wash carries `text.primary` ONLY (`Gradient`'s contract,
+      // constants/theme.ts). Legal on the ready/error cards too; a surface is proven for both roles.
       color: colors.text.primary,
       textAlign: 'center',
+    },
+    // The ready/error panels. `alignSelf: 'stretch'` so the card fills the readable column rather
+    // than shrink-wrapping its longest line.
+    panel: {
+      alignSelf: 'stretch',
+    },
+    // Spacing only — fill, corner, edge and interior padding come from `<SurfaceCard>`. A `gap` on
+    // the card's own `style` would land on its outer shadow node, whose single child is the clip
+    // view, and silently do nothing.
+    panelStack: {
+      gap: Spacing.md,
     },
     resultTitle: {
       fontFamily: FontFamily.display.bold,
@@ -384,30 +440,28 @@ function createStyles(colors: ThemeColors) {
       textAlign: 'center',
     },
     // `Semantic.error` is proven against the opaque surfaces, NOT against the page gradient
-    // (`Gradient`'s contract). This title sits on the wash, so it takes `text.primary` and the
-    // error is carried by the copy — which names the failure explicitly — rather than by a hue
-    // whose contrast this backdrop cannot guarantee. Flagged as a judgement call.
+    // (`Gradient`'s contract) — which is why this title used to take `text.primary` and let the
+    // copy carry the failure. Now that the error block sits on a `<SurfaceCard>`, the hue is on a
+    // backdrop it IS proven against, so the state reads as a failure at a glance as well as in
+    // words. Same treatment as `app/capture/index.tsx`'s `panelTitleError`.
     errorTitle: {
       fontFamily: FontFamily.display.bold,
       fontSize: FontSize.xxl,
       letterSpacing: Tracking.display,
       lineHeight: FontSize.xxl * LineHeight.display,
-      color: colors.text.primary,
+      color: Semantic.error[scheme],
       textAlign: 'center',
     },
-    progressTrack: {
-      width: '80%',
-      // Thickened to match the readout's own bar (components/pace-readout.tsx) — this is the app's
-      // other real progress indicator and the two should read as the same object.
-      height: Spacing.md,
-      borderRadius: Radius.pill,
-      backgroundColor: colors.hairline,
-      overflow: 'hidden',
+    // The mark and its ring share one centre. The ring is absolute, so adding it did not move the
+    // figure by a point. Replaces `progressTrack`/`progressFill`: the readout this screen's bar
+    // was matched to is a ring now (components/pace-readout.tsx), and the two should still read as
+    // the same object.
+    waitMark: {
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    progressFill: {
-      height: '100%',
-      borderRadius: Radius.pill,
-      backgroundColor: Accent.value,
+    waitRings: {
+      position: 'absolute',
     },
     cta: {
       alignSelf: 'stretch',

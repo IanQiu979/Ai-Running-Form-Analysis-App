@@ -200,7 +200,7 @@ function createStyles(colors: ThemeColors) {
     },
     scoreNumeral: {
       color: colors.text.primary,
-      fontFamily: FontFamily.mono.medium,
+      fontFamily: FontFamily.mono.bold,
       fontSize: FontSize.xxl,
     },
     bandWord: {

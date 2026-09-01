@@ -21,23 +21,26 @@ import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ArcLoader } from '@/components/arc-loader';
 import { ConsentGate } from '@/components/consent-gate';
+import { ArcRing } from '@/components/ui/arc-ring';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
 import { Eyebrow } from '@/components/ui/eyebrow';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
+  Arc,
   Colors,
   ContentWidth,
   FontFamily,
   FontSize,
   LineHeight,
   Opacity,
-  Radius,
   Semantic,
   Spacing,
   Tracking,
@@ -49,6 +52,15 @@ import { readFileSizeBytes } from '@/lib/media-file-size';
 import { checkMediaCaps } from '@/lib/media-caps';
 import { classifyPermission, permissionRecoveryAction } from '@/lib/permission-state';
 import { useAnnounce } from '@/lib/use-announce';
+
+// The card badge's geometry and the busy loader's diameter — a drawn mark's size is composition,
+// not a spacing step between elements, so these are local constants rather than invented
+// `constants/theme.ts` tokens (same category as `app/capture/record.tsx`'s record-button size and
+// `components/framing-guide.tsx`'s figure geometry; `<ArcRing>` documents `size` as the caller's
+// own call for exactly this reason).
+const CARD_BADGE_SIZE = 56;
+const CARD_BADGE_ICON_SIZE = 24;
+const LOADING_MARK_SIZE = 32;
 
 type PendingAction = 'record' | 'upload' | null;
 type LibraryFlow = 'idle' | 'softAsk';
@@ -217,16 +229,16 @@ export default function SourcePickerScreen() {
           </Eyebrow>
         </View>
 
-        <Pressable
+        <SourceCard
+          colors={colors}
+          scheme={scheme}
           testID="source-card-upload"
-          accessibilityRole="button"
-          accessibilityLabel={`${Copy.sourcePicker.card.upload.title}. ${Copy.sourcePicker.card.upload.subtitle}`}
+          icon="photo-library"
+          title={Copy.sourcePicker.card.upload.title}
+          subtitle={Copy.sourcePicker.card.upload.subtitle}
           disabled={cardsDisabled}
           onPress={() => handleCardPress('upload')}
-          style={({ pressed }) => [styles.card, (pressed || cardsDisabled) && styles.pressed]}>
-          <Text style={styles.cardTitle}>{Copy.sourcePicker.card.upload.title}</Text>
-          <Text style={styles.cardSubtitle}>{Copy.sourcePicker.card.upload.subtitle}</Text>
-        </Pressable>
+        />
 
         {libraryState === 'denied' && libraryFlow === 'idle' && (
           <InlinePanel
@@ -258,24 +270,133 @@ export default function SourcePickerScreen() {
           <InlinePanel colors={colors} scheme={scheme} title={uploadError.title} body={uploadError.body} error />
         )}
 
-        <Pressable
+        <SourceCard
+          colors={colors}
+          scheme={scheme}
           testID="source-card-record"
-          accessibilityRole="button"
-          accessibilityLabel={`${Copy.sourcePicker.card.record.title}. ${Copy.sourcePicker.card.record.subtitle}`}
+          icon="videocam"
+          title={Copy.sourcePicker.card.record.title}
+          subtitle={Copy.sourcePicker.card.record.subtitle}
           disabled={cardsDisabled}
           onPress={() => handleCardPress('record')}
-          style={({ pressed }) => [styles.card, (pressed || cardsDisabled) && styles.pressed]}>
-          <Text style={styles.cardTitle}>{Copy.sourcePicker.card.record.title}</Text>
-          <Text style={styles.cardSubtitle}>{Copy.sourcePicker.card.record.subtitle}</Text>
-        </Pressable>
+        />
 
         <Text style={styles.framingTip}>{Copy.sourcePicker.framingTip}</Text>
 
-        {cardsDisabled && <ActivityIndicator color={colors.text.primary} accessibilityLabel="Loading" />}
+        {/* The motif's own wait state replaces the platform spinner. `<ArcLoader>` is decorative and
+            hidden from the a11y tree by design, so the "Loading" label a screen reader needs moves
+            onto this wrapper — same label, same announcement, just carried by the node that is
+            actually visible to the a11y tree now. */}
+        {cardsDisabled && (
+          <View accessible accessibilityLabel="Loading" style={styles.loading}>
+            <ArcLoader size={LOADING_MARK_SIZE} />
+          </View>
+        )}
       </ScrollView>
       </SafeAreaView>
     </ScreenGradient>
   );
+}
+
+/**
+ * One of the two source cards. Extracted local to this screen (same idiom as `InlinePanel` below)
+ * once the card grew a badge + text column: two hand-copied twenty-line blocks is how the pair
+ * drifts apart.
+ *
+ * Cadence Arcs (2026-09-01): a `<SurfaceCard>` — the redesign's one opaque panel shape, so the
+ * card's fill, corner and edge come from that component rather than being restated here — wrapping
+ * the SAME `Pressable` as before, with its `testID`, role, composed label, disabled state and
+ * `Opacity.pressed` untouched. The card carries `padding={0}` and the Pressable owns the interior
+ * padding, so the whole card area stays tappable rather than only the text inside it.
+ *
+ * The badge is a FULL `<ArcRing>` (`fraction={1}`) in the ornament role, not a score: it holds a
+ * glyph naming the source, and a complete sweep is the only fraction that can never be misread as
+ * a progress value on a screen where nothing is in progress.
+ */
+function SourceCard({
+  colors,
+  scheme,
+  testID,
+  icon,
+  title,
+  subtitle,
+  disabled,
+  onPress,
+}: {
+  colors: ThemeColors;
+  scheme: ColorScheme;
+  testID: string;
+  icon: React.ComponentProps<typeof MaterialIcons>['name'];
+  title: string;
+  subtitle: string;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const styles = createCardStyles(colors);
+  return (
+    <SurfaceCard padding={0}>
+      <Pressable
+        testID={testID}
+        accessibilityRole="button"
+        accessibilityLabel={`${title}. ${subtitle}`}
+        disabled={disabled}
+        onPress={onPress}
+        style={({ pressed }) => [styles.card, (pressed || disabled) && styles.pressed]}>
+        <ArcRing
+          size={CARD_BADGE_SIZE}
+          strokeWidth={Spacing.xs}
+          fraction={1}
+          color={Arc[scheme].ornament}>
+          <MaterialIcons name={icon} size={CARD_BADGE_ICON_SIZE} color={colors.text.primary} />
+        </ArcRing>
+        <View style={styles.cardText}>
+          <Text style={styles.cardTitle}>{title}</Text>
+          <Text style={styles.cardSubtitle}>{subtitle}</Text>
+        </View>
+      </Pressable>
+    </SurfaceCard>
+  );
+}
+
+function createCardStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    // "Large cards" (brief §4.3) — generous padding rather than a fixed minHeight, so size comes
+    // from Spacing tokens + content instead of an invented pixel number. Fill/corner/edge now come
+    // from the `<SurfaceCard>` around this Pressable, so only layout is left here.
+    card: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.lg,
+      paddingHorizontal: Spacing.xl,
+      paddingVertical: Spacing.xl,
+    },
+    // Flexes so a long subtitle wraps inside the column instead of pushing the badge off the card,
+    // and so Dynamic Type grows the block downward rather than sideways.
+    cardText: {
+      flex: 1,
+      gap: Spacing.xs,
+    },
+    cardTitle: {
+      fontFamily: FontFamily.display.semiBold,
+      // These two cards are the only decision on the screen; they should read as headlines, not as
+      // list rows.
+      fontSize: FontSize.xl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xl * LineHeight.heading,
+      color: colors.text.primary,
+    },
+    cardSubtitle: {
+      fontFamily: FontFamily.body.regular,
+      fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
+      // Secondary text is legal here and only here on this screen: it sits on an opaque
+      // `surface.base` inside the card, not on the page wash (`Gradient`'s contract).
+      color: colors.text.secondary,
+    },
+    pressed: {
+      opacity: Opacity.pressed,
+    },
+  });
 }
 
 /** One reusable inline panel for every non-error and error state this screen shows below the
@@ -312,25 +433,31 @@ function InlinePanel({
   useAnnounce(`${title} ${body}`);
 
   return (
-    <View style={styles.panel} accessibilityLiveRegion="polite">
-      <Text style={[styles.panelTitle, error && styles.panelTitleError]}>{title}</Text>
-      <Text style={styles.panelBody}>{body}</Text>
-      {primaryCta && onPrimary && (
-        <PillButton label={primaryCta} onPress={onPrimary} disabled={busy} style={styles.panelPrimaryCta} />
-      )}
-      {secondaryCta && onSecondary && (
-        <PillButton variant="ghost" label={secondaryCta} onPress={onSecondary} block />
-      )}
-    </View>
+    // Cadence Arcs (2026-09-01): the hand-rolled `View` this docblock's own note described became
+    // the `<SurfaceCard>` it was always describing — `accessibilityLiveRegion` is forwarded because
+    // that component exists partly to keep exactly this Android announcement when a banner becomes
+    // a card (see its prop docs).
+    <SurfaceCard accessibilityLiveRegion="polite">
+      <View style={styles.panel}>
+        <Text style={[styles.panelTitle, error && styles.panelTitleError]}>{title}</Text>
+        <Text style={styles.panelBody}>{body}</Text>
+        {primaryCta && onPrimary && (
+          <PillButton label={primaryCta} onPress={onPrimary} disabled={busy} style={styles.panelPrimaryCta} />
+        )}
+        {secondaryCta && onSecondary && (
+          <PillButton variant="ghost" label={secondaryCta} onPress={onSecondary} block />
+        )}
+      </View>
+    </SurfaceCard>
   );
 }
 
 function createPanelStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
+    // Fill, corner, edge and padding all come from `<SurfaceCard>` now; this inner stack exists
+    // only to space the panel's children — `<SurfaceCard>`'s `style` lands on its outer shadow
+    // node, whose single child is the clip view, so a `gap` set there would silently do nothing.
     panel: {
-      backgroundColor: colors.surface.base,
-      borderRadius: Radius.sheet,
-      padding: Spacing.lg,
       gap: Spacing.sm,
     },
     panelTitle: {
@@ -391,36 +518,6 @@ function createStyles(colors: ThemeColors) {
     header: {
       flex: 1,
     },
-    // "Large cards" (brief §4.3) — generous padding rather than a fixed minHeight, so size comes
-    // from Spacing tokens + content instead of an invented pixel number.
-    // "Large cards" (brief §4.3) — generous padding rather than a fixed minHeight, so size comes
-    // from Spacing tokens + content instead of an invented pixel number. These are the screen's
-    // subject, so the redesign gives them the full `Radius.card` corner and a display-scale title.
-    card: {
-      borderRadius: Radius.card,
-      borderWidth: StyleSheet.hairlineWidth * 2,
-      borderColor: colors.hairline,
-      backgroundColor: colors.surface.base,
-      paddingHorizontal: Spacing.xl,
-      paddingVertical: Spacing.xxl,
-      justifyContent: 'center',
-      gap: Spacing.xs,
-    },
-    cardTitle: {
-      fontFamily: FontFamily.display.semiBold,
-      // lg -> xl. These two cards are the only decision on the screen; they should read as
-      // headlines, not as list rows.
-      fontSize: FontSize.xl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xl * LineHeight.heading,
-      color: colors.text.primary,
-    },
-    cardSubtitle: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-      color: colors.text.secondary,
-    },
     framingTip: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
@@ -431,8 +528,8 @@ function createStyles(colors: ThemeColors) {
       color: colors.text.primary,
       textAlign: 'center',
     },
-    pressed: {
-      opacity: Opacity.pressed,
+    loading: {
+      alignItems: 'center',
     },
   });
 }

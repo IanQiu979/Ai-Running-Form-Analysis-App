@@ -1,11 +1,11 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router, useFocusEffect, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { KineticText } from '@/components/kinetic-text';
-import { LowPolyField } from '@/components/low-poly-field';
+import { ArcLoader } from '@/components/arc-loader';
+import { RecentAnalysis, type RecentAnalysisState } from '@/components/home/recent-analysis';
 import { Marquee } from '@/components/marquee';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
 import { Eyebrow } from '@/components/ui/eyebrow';
@@ -28,6 +28,7 @@ import {
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { fetchHistoryList, type HistoryListItem } from '@/lib/history';
 import { pillarLabel } from '@/lib/pace-readout';
 import { checkPendingAnalysis } from '@/lib/pending-analysis';
 import {
@@ -112,6 +113,19 @@ export default function HomeScreen() {
   // as a normal in-session success.
   const [pendingReleased, setPendingReleased] = useState<{ analysisId: string } | null>(null);
 
+  // Cadence Arcs (2026-09-01): Home's hero is now the user's most recent analysis, and this is
+  // the read behind it. Design brief §4.2 always asked for it ("once there's history, the most
+  // recent gait-plate thumbnail") — Home shipped without any route back to a finished result, so
+  // the only way to reopen one was the History tab.
+  //
+  // It reuses `lib/history.ts`'s `fetchHistoryList` and takes the first row rather than adding a
+  // limit-1 query: that function already orders `created_at desc` and already applies the "which
+  // rows are honestly showable" rules (delivered, not soft-deleted, structurally valid), and
+  // re-deriving any of that here — in a screen — is exactly the duplication `lib/` exists to
+  // prevent. It is a plain RLS-guarded read of the caller's own rows, the same one the History
+  // tab makes; no tier, quota or ownership decision is taken here.
+  const [recent, setRecent] = useState<RecentAnalysisState>({ status: 'loading' });
+
   // Runs exactly once per cold start (the ref guard, not the effect's dependency array, is what
   // enforces "once" — Home stays mounted for the tab navigator's whole lifetime, so a plain
   // `useEffect(() => {...}, [])` alone would still only ever run once per process anyway; the
@@ -171,6 +185,27 @@ export default function HomeScreen() {
     setQuota({ status: 'ready', ...result.data });
   }, [userId]);
 
+  // Threaded through the SAME ActiveFlag the quota fetch uses (see its type doc above), so a stale
+  // focus's read can never overwrite a newer one. `fetchHistoryList` throws on any query failure
+  // (it fails closed on purpose — see its own doc comment), which is why the catch lands on
+  // `unavailable` rather than on `empty`: an outage must never be rendered as "you have no
+  // analyses". Never blocks or delays the quota fetch; the two are independent.
+  const fetchRecent = useCallback(async (active: ActiveFlag) => {
+    if (!userId) return;
+
+    let items: HistoryListItem[];
+    try {
+      items = await fetchHistoryList();
+    } catch {
+      if (active.active) setRecent({ status: 'unavailable' });
+      return;
+    }
+
+    if (!active.active) return;
+    const newest = items[0];
+    setRecent(newest ? { status: 'ready', item: newest } : { status: 'empty' });
+  }, [userId]);
+
   // Home is the screen that's focused the instant it exists (Stack.Protected only renders
   // (tabs) once signed in), so this both loads the quota on first mount and refetches on every
   // later focus — a transient fetch failure self-heals just by revisiting the tab instead of
@@ -186,10 +221,13 @@ export default function HomeScreen() {
       const active: ActiveFlag = { active: true };
       activeFlagRef.current = active;
       fetchQuota(active);
+      // Refetched on every focus for the same reason quota is: returning from a just-finished
+      // analysis must show it as the most recent one without an app restart.
+      fetchRecent(active);
       return () => {
         active.active = false;
       };
-    }, [fetchQuota])
+    }, [fetchQuota, fetchRecent])
   );
 
   // The primary CTA's label/enabled/hint, all derived from `quota` — never computed twice with
@@ -285,29 +323,26 @@ export default function HomeScreen() {
         )}
 
         <View style={styles.centerBlock}>
-          {/* The hero. A large, ambient low-poly mark sits behind the empty-state line, so a
-              user with nothing analyzed yet still lands on a composed screen rather than on a
-              caption and a button floating in space. It is decorative and hidden from the a11y
-              tree (see LowPolyField), and it renders — statically — under reduced motion too:
-              the composition is the point, the movement is the enhancement. */}
-          <View style={styles.heroBlock}>
-            <LowPolyField
-              color={colors.text.primary}
-              size={HERO_MARK_SIZE}
-              style={styles.heroMark}
-              testID="home-hero-mark"
-            />
-            {/* The screen's ONE oversized element (spec 2026-07-26 §3.1's "at most one
-                display-or-larger element per screen", still honoured). Assembles word by word on
-                arrival — the app's signature type behaviour. */}
-            <KineticText
-              style={styles.heroLine}
-              containerStyle={styles.heroLineRow}
-              staggerMs={90}
-              testID="home-hero-line">
-              {Copy.home.empty.caption}
-            </KineticText>
-          </View>
+          {/* THE HERO — Cadence Arcs (2026-09-01). Was an ambient low-poly figure behind a
+              standing empty-state line: a composition that looked identical whether the user had
+              analyzed nothing or a hundred things, and that spoke the PREVIOUS design language
+              (the low-poly mark is the Calm/Gait-Plate motif, not the arc one).
+
+              It is now the user's most recent analysis, drawn as an arc ring — the same object the
+              result screen ends on, one size down — and tapping it reopens that result. With no
+              history it degrades to the motif's own "nothing to report" picture: a dashed, empty
+              ring under the same kinetic line that used to stand alone. See
+              `components/home/recent-analysis.tsx` for the four states and why a failed read is a
+              separate one from "empty".
+
+              `<LowPolyField>` is not deleted — it is still the mark on sign-in, analyzing and
+              extracting. It is simply no longer Home's hero. */}
+          <RecentAnalysis
+            state={recent}
+            onOpen={(item) => {
+              router.push({ pathname: '/result/[id]', params: { id: item.id } });
+            }}
+          />
 
           {/* Quota lives on an OPAQUE card, never directly on the wash: these captions are
               `text.secondary`, and `Gradient`'s own contract (constants/theme.ts) proves the wash
@@ -316,7 +351,11 @@ export default function HomeScreen() {
           <SurfaceCard style={styles.quotaCard} testID="home-quota-card">
             {quota.status === 'loading' && (
               <View style={styles.quotaBlock}>
-                <ActivityIndicator color={colors.text.secondary} />
+                {/* Cadence Arcs: the last stock `<ActivityIndicator>` on this screen, replaced by
+                    the motif's own wait state at caption scale. Deliberately much smaller than the
+                    hero's loader above it — two arc loaders at two scales read as one system
+                    waiting, where two identical spinners would read as two unrelated stalls. */}
+                <ArcLoader size={QUOTA_LOADER_SIZE} strokeWidth={1.5} testID="home-quota-loading" />
                 <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
                   {Copy.home.quota.loading}
                 </Text>
@@ -406,10 +445,9 @@ export default function HomeScreen() {
   );
 }
 
-/** The ambient hero mark's drawn size. Fixed points rather than a percentage: it must stay the
- *  same optical weight on a small phone and a tablet, where the readable column is capped anyway
- *  (`ContentWidth.readable`), and a percentage-sized decorative mark would balloon on the latter. */
-const HERO_MARK_SIZE = 220;
+/** The quota caption's inline wait indicator. Sized to sit on the caption's own line rather than
+ *  to be looked at — the hero's loader is the one that carries the screen while it waits. */
+const QUOTA_LOADER_SIZE = 24;
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
@@ -484,30 +522,6 @@ function createStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: Spacing.xl,
-    },
-    heroBlock: {
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    heroMark: {
-      // Behind the line, not above it — the mark is atmosphere. Absolute so it never adds height
-      // and can therefore never push the CTA below the fold on a small device.
-      position: 'absolute',
-      opacity: Opacity.disabled,
-    },
-    heroLineRow: {
-      justifyContent: 'center',
-      // Room for the mark to breathe around the words it sits behind.
-      paddingHorizontal: Spacing.xl,
-      paddingVertical: Spacing.xxxl,
-    },
-    heroLine: {
-      color: colors.text.primary,
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xxl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xxl * LineHeight.display,
-      textAlign: 'center',
     },
     quotaCard: {
       alignSelf: 'stretch',

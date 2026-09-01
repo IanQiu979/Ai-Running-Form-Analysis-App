@@ -14,8 +14,8 @@
  * "primitive shapes, theme tokens for color" approach `components/consent-gate.tsx`'s checkbox
  * already uses. The figure's own proportions (limb lengths, angles) are art geometry, not
  * layout — same category as `assets/source/mark-*.svg`'s fixed anatomy — so they're named local
- * constants below rather than `constants/theme.ts` spacing tokens; color and opacity DO come
- * from theme tokens (`hairline`, `Opacity.disabled`), same as everywhere else in the app. This
+ * constants below rather than `constants/theme.ts` spacing tokens; color DOES come from theme
+ * tokens, same as everywhere else in the app. This
  * file's original justification also cited `react-native-svg` not being installed; it IS installed
  * as of 2026-08-02 (see `components/annotation-lines.tsx`'s header for the record), and that half
  * of the reasoning is struck rather than left standing as a false claim. Plain views remain the
@@ -24,11 +24,28 @@
  * Purely decorative: hidden from the accessibility tree (brief §7: "Decorative annotations are
  * hidden from the a11y tree"). The guidance a screen reader user needs is the sibling
  * `capture.overlay.tip` text, rendered separately by `app/capture/record.tsx`.
+ *
+ * LEGIBILITY, fixed 2026-09-01. This guide used to be drawn in `colors.hairline` at
+ * `Opacity.disabled` — i.e. in the one colour role `constants/theme.ts` deliberately holds UNDER
+ * 3:1 against app surfaces (there is a guard in `theme-contrast.test.ts` keeping it there), dimmed
+ * to 40%, composited over LIVE CAMERA VIDEO, which no contrast proof in this repo covers at all.
+ * Over a bright or busy scene the figure was effectively invisible, and an invisible framing guide
+ * is worse than none: it is the only thing standing between a runner and a badly framed clip, whose
+ * downstream cost is "not assessed" pillars and a useless result (see the top of this docblock).
+ *
+ * The fix has two halves, and both are needed. Every stroke is now drawn in `text.primary` — the
+ * one foreground role with a real contrast obligation — at FULL opacity, because dimming text-scale
+ * marks with `opacity` is the exact failure mode H3 (v23-ux-audit-r1) closed elsewhere in this app.
+ * And each part of the guide sits on its own `Glass.*.scrim` plate: the token whose documented role
+ * is "legibility scrim laid over photographic media before text sits on it", which is what turns an
+ * unknown backdrop into a known one. The plates are deliberately shaped to the guide (a rounded
+ * plate behind the figure, a pill behind the ground rule) rather than a full-screen wash — the
+ * viewfinder is what the user is framing with, and it must stay readable.
  */
 import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { Colors, Opacity, type ColorScheme, type ThemeColors } from '@/constants/theme';
+import { Colors, Glass, Radius, Spacing, type ColorScheme, type ThemeColors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 // Figure geometry — art proportions, not layout spacing (see file header).
@@ -42,7 +59,7 @@ const LIMB_LENGTH = 62;
 export function FramingGuide() {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createStyles(colors, scheme), [colors, scheme]);
 
   return (
     <View
@@ -51,45 +68,62 @@ export function FramingGuide() {
       importantForAccessibility="no-hide-descendants"
       accessibilityElementsHidden
       accessible={false}>
-      {/* The level/ground reference line — ties to "level camera" in capture.overlay.tip. */}
-      <View style={styles.groundLine} />
+      {/* The level/ground reference line — ties to "level camera" in capture.overlay.tip. The rule
+          rides its own scrim pill so it stays a readable line over whatever is behind it. */}
+      <View style={styles.groundPlate}>
+        <View style={styles.groundLine} />
+      </View>
 
-      <View style={styles.figure}>
-        <View style={styles.head} />
-        <View style={styles.torso} />
-        {/* Trailing arm, swung back — mid-stride, side-on running form. */}
-        <View style={[styles.limb, styles.armBack]} />
-        {/* Leading arm, swung forward. */}
-        <View style={[styles.limb, styles.armForward]} />
-        {/* Trailing leg, pushing off behind. */}
-        <View style={[styles.limb, styles.legBack]} />
-        {/* Leading leg, driving forward. */}
-        <View style={[styles.limb, styles.legForward]} />
+      {/* The figure's scrim plate doubles as a target region: it shows WHERE in frame the runner
+          should be, not just what pose to look for. */}
+      <View style={styles.figurePlate}>
+        <View style={styles.figure}>
+          <View style={styles.head} />
+          <View style={styles.torso} />
+          {/* Trailing arm, swung back — mid-stride, side-on running form. */}
+          <View style={[styles.limb, styles.armBack]} />
+          {/* Leading arm, swung forward. */}
+          <View style={[styles.limb, styles.armForward]} />
+          {/* Trailing leg, pushing off behind. */}
+          <View style={[styles.limb, styles.legBack]} />
+          {/* Leading leg, driving forward. */}
+          <View style={[styles.limb, styles.legForward]} />
+        </View>
       </View>
     </View>
   );
 }
 
-function createStyles(colors: ThemeColors) {
+function createStyles(colors: ThemeColors, scheme: ColorScheme) {
+  const glass = Glass[scheme];
   return StyleSheet.create({
     container: {
       ...StyleSheet.absoluteFillObject,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    groundLine: {
+    groundPlate: {
       position: 'absolute',
       bottom: '18%',
       left: '10%',
       right: '10%',
+      justifyContent: 'center',
+      paddingVertical: Spacing.xs,
+      borderRadius: Radius.pill,
+      backgroundColor: glass.scrim,
+    },
+    groundLine: {
       height: StyleSheet.hairlineWidth * 3,
-      backgroundColor: colors.hairline,
-      opacity: Opacity.disabled,
+      backgroundColor: colors.text.primary,
+    },
+    figurePlate: {
+      padding: Spacing.lg,
+      borderRadius: Radius.card,
+      backgroundColor: glass.scrim,
     },
     figure: {
       width: FIGURE_WIDTH,
       height: FIGURE_HEIGHT,
-      opacity: Opacity.disabled,
     },
     head: {
       position: 'absolute',
@@ -99,7 +133,7 @@ function createStyles(colors: ThemeColors) {
       height: HEAD_SIZE,
       borderRadius: HEAD_SIZE / 2,
       borderWidth: STROKE_WIDTH,
-      borderColor: colors.hairline,
+      borderColor: colors.text.primary,
     },
     torso: {
       position: 'absolute',
@@ -107,13 +141,13 @@ function createStyles(colors: ThemeColors) {
       left: (FIGURE_WIDTH - STROKE_WIDTH) / 2,
       width: STROKE_WIDTH,
       height: TORSO_HEIGHT,
-      backgroundColor: colors.hairline,
+      backgroundColor: colors.text.primary,
     },
     limb: {
       position: 'absolute',
       width: STROKE_WIDTH,
       height: LIMB_LENGTH,
-      backgroundColor: colors.hairline,
+      backgroundColor: colors.text.primary,
       borderRadius: STROKE_WIDTH / 2,
     },
     armBack: {

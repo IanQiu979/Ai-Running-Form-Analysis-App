@@ -13,6 +13,13 @@
 > Past Analyses) is the current-design record. It is a copy deck, so it governs copy and the
 > deletion affordance only — not tokens, motion, or layout, which stay with this brief. The
 > superseded text is kept unrewritten so the record of why the design changed survives.
+>
+> **Pending, not yet in force (2026-09-01):** the "Cadence Arcs" redesign on the unmerged branch
+> `redesign/cadence-arcs-2026-09-01` replaces §2's colour and type layer again (espresso/clay,
+> Bricolage Grotesque / Manrope / Space Mono) and replaces §3's horizontal pillar bars with radial
+> rings. **Nothing on `main` reflects that yet**, so §2 below still quotes what `constants/theme.ts`
+> actually exports today. When that branch merges, amend §2 and §3 in place the way 2026-08-02 did.
+> See `docs/architecture.md`'s "UNMERGED — the Cadence Arcs redesign" sub-section.
 
 > **Scope: basic MVP, one document.** Unlike V2.2's two-doc design layer, V2.3 keeps the whole
 > design system in this single brief — enough for a builder to execute, no more. It covers tokens,

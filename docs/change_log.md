@@ -5,6 +5,89 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-01 (result/sample stays honest — blurred "locked pillars" considered and rejected)
+
+- **A blurred "locked pillars" treatment for the pre-signup preview (`app/result/sample.tsx`) was
+  proposed tonight, and rejected after direct captain confirmation — no override happened.** An
+  earlier version of this entry recorded the opposite (an approval relayed secondhand). The
+  build agent assigned to implement it declined to act on a relayed approval for a decision this
+  consequential and surfaced the conflict directly instead; the captain was then asked again,
+  explicitly, with the full risk stated, and confirmed: skip the blur.
+- **Why it was rejected:** it would have overridden the 2026-07-26 free-tier ruling (this file's
+  2026-08-04 entry; `docs/architecture.md`'s `analyze-form` flow section), which established
+  `<SampleResultBanner>` specifically to stop the sample reading as a real personalized analysis —
+  an App Store policy risk and a refund-dispute risk per the captain's own brief. A blur over
+  pillar content is the visual idiom for "your real data is behind a paywall", which is exactly
+  the implication the banner exists to prevent, and nothing on this screen is real user data: the
+  payload is a hand-authored, never-persisted sample (`supabase/functions/_shared/analyze-form-sample.ts`),
+  no model call, no `analyses` row. It also would have contradicted shipped, certified copy
+  (`Copy.result.sample.banner.body`), which states the sample shows the full 4-pillar read.
+- **Result: `result/sample.tsx` ships with no blur.** `<SampleResultBanner>` remains the control
+  of record, unchanged, stating plainly that this is an example of Pro's output.
+
+## 2026-09-01 (Cadence Arcs — the full visual redesign)
+
+**UNRELEASED.** All of this lives on `redesign/cadence-arcs-2026-09-01` and has **not been merged
+to `main`**. Nothing described in this entry is on `main` or in any build; `docs/status.md`'s
+"Next action" carries the merge as an open item.
+
+- **A new design system replaces Calm, on the branch `redesign/cadence-arcs-2026-09-01`.** Warm
+  espresso/clay (`#17120E` ink, clay accent) instead of blue/violet, Bricolage Grotesque / Manrope
+  / Space Mono instead of Archivo / Inter / IBM Plex Mono, and one signature motif — concentric
+  arcs radiating from a point, like ripples from a footstrike — carried by every screen. What did
+  NOT change is as deliberate as what did: `Radius`, `Spacing`, `FontSize`, `Tracking`,
+  `LineHeight`, `Elevation`, `ControlHeight`, `ContentWidth`, `TabBar`, `HitTarget`,
+  `CheckboxSize`, `Opacity` and `Motion` are byte-identical. The geometry and pacing were not the
+  problem, and re-cutting them would have been churn dressed as a redesign.
+- **Every colour was re-solved, not eyeballed.** Same method the file has always used — hold hue
+  and saturation, move only lightness, solve each role to a common per-role target — and all 229
+  token/contrast proofs in `constants/__tests__/theme-contrast.test.ts` pass on the new palette,
+  including the two guards that must FAIL by design (`hairline` staying under the control-boundary
+  floor, and `text.secondary` genuinely falling short on white-tinted glass over the wash).
+- **The score ramp rotated off the accent, and that cost something worth recording.** An orange
+  accent puts the old coral "Needs work" band 8° from the primary action colour, so the ramp moved
+  to low 352° / mid 52° / strong 152° / good 195°. The tightest hue pair anywhere in the palette
+  is now 30°, down from the Calm palette's 38°. That is the honest price of a clay accent; it is
+  stated at the `Score` token rather than left in a diff.
+- **The accent ships darker than the design's literal clay.** White on `#E8703B` is 3.08:1 — a CTA
+  label cannot live there — so the accent is `#C05416` and the literal clay ships as
+  `Arc.dark.ornament`, the decorative motif colour, where nothing is text.
+- **`Arc` is a new token with two roles**, `ornament` and `track`, each with its own proof
+  obligation: the ornament clears 3:1 against every surface and wash stop (a stronger floor than a
+  decorative mark owes, because the same token draws the ring a score sits in), and the track is
+  proven to stay UNDER 3:1 so it can never out-shout the score drawn over it.
+- **THE RESULT READOUT IS RINGS NOW, and the honesty contract survived the move intact.** The
+  overall score is one large arc ring with the numeral inside it; each pillar carries its own.
+  This reads the same `PaceResult` shape, converts `score/100` to a sweep at the point of render,
+  and changes nothing about the API contract. A `null` pillar still mounts no fill and now draws a
+  DASHED, empty ring — the direct successor of the old bar's dashed empty track (M1) — and
+  `<ArcRing>` enforces that independently of the readout, so there are two barriers between `null`
+  and a visible "0" where there used to be one. The overall numeral steps `hero` -> `display`: the
+  ring carries the scale now, and a 96pt numeral inside a 208pt circle leaves no ring to read.
+- **`AnimatedPillarBarFill` is retired.** A ring has no width to animate, so motion-consult item
+  1's "scaleX, never width" has no subject. Its successor invariant — the ring's layout box is
+  fixed at mount and only the stroke offset moves — is proven in the new ring tests. A static ring
+  now mounts no Reanimated node at all, which makes "nothing is scheduled on a re-open"
+  structural rather than merely intended.
+- **The corner ornament lives in `<ScreenGradient>`, not on twelve screens.** Opt-out, not opt-in.
+  Twelve pasted copies of a decoration is twelve chances for its radius, corner or colour to
+  drift, and identical-everywhere is the only thing that makes a motif read as a system. Both
+  result screens opt out: their heroes bleed into the corner the ornament would occupy.
+- **Wait states carry the motif and keep their honesty rule.** `<ArcLoader>` (indeterminate — no
+  arc that fills toward a completion, dead still under reduced motion) replaces the full-screen
+  spinners on result, history and compare, and rings the runner mark on Analyzing. Extracting's
+  horizontal progress bar became a genuinely DETERMINATE ring driven by the real frame count,
+  while its "preparing" state — where the total is not yet known — gets the indeterminate loader.
+  In-button spinners were left alone; a three-ring set inside a 56pt pill is the wrong shape.
+- **Sign-in is the one deliberate exception.** A new `<ArcBurst>` draws five oversized
+  counter-rotating arcs behind the wordmark, wider than the device so they run off every edge.
+  Kept as a separate component from `<ArcLoader>` on purpose: rotating rings mean "wait" there and
+  "this is the brand" here, and a shared primitive would be a shared meaning.
+- **A real bug was found and fixed while wiring the extraction ring.** A static `<ArcRing>` seeded
+  its swept value once at mount, so a ring whose fraction changes after mount would have sat
+  frozen while the count beside it climbed — a silent failure that looks like a stalled
+  extraction, not a broken component. Locked by a test.
+
 ## 2026-08-19 (#62 M7 accessibility RE-sweep — the redesigned surface against the same floor)
 
 - **The result screens had no headings at all, and now do.** `app/result/[id].tsx` and

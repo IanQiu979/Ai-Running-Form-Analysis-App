@@ -32,9 +32,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FramingGuide } from '@/components/framing-guide';
 import { KineticText } from '@/components/kinetic-text';
+import { ArcRing } from '@/components/ui/arc-ring';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
   Accent,
@@ -42,6 +44,7 @@ import {
   ContentWidth,
   FontFamily,
   FontSize,
+  Glass,
   LineHeight,
   Motion,
   Opacity,
@@ -65,12 +68,17 @@ const RECORD_BUTTON_SIZE = 72;
 const RECORD_BUTTON_BORDER_WIDTH = 4;
 const RECORD_BUTTON_START_ICON_SIZE = 28;
 const RECORD_BUTTON_STOP_ICON_SIZE = 24;
+// The elapsed-time ring drawn around the button while a clip is in flight. Outer diameter leaves a
+// clear gap between the ring and the button's own rim, so the two read as separate objects rather
+// than as one thick border.
+const RECORD_RING_SIZE = RECORD_BUTTON_SIZE + Spacing.xl;
+const RECORD_RING_STROKE = Spacing.xs;
 
 export default function RecordScreen() {
   const router = useRouter();
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
-  const styles = createStyles(colors);
+  const styles = createStyles(colors, scheme);
 
   const [permission, requestPermission] = useCameraPermissions();
   const permissionState = classifyPermission(permission);
@@ -176,21 +184,28 @@ export default function RecordScreen() {
             reflow-not-clip pattern as app/(tabs)/index.tsx: this panel's title/body/two buttons
             could otherwise overflow a small phone at the largest accessibility text sizes with
             no way to reach the second button. */}
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.permissionPanel}>
-          <KineticText
-            accessibilityRole="header"
-            staggerMs={Motion.stagger.line}
-            style={styles.permissionTitle}>
-            {Copy.capture.permission.camera.title}
-          </KineticText>
-          <Text style={styles.permissionBody}>{Copy.capture.permission.camera.body}</Text>
-          <PillButton
-            label={Copy.capture.permission.camera.cta}
-            disabled={busy}
-            onPress={handleSoftAskAllow}
-            style={styles.permissionCta}
-          />
-          <PillButton variant="ghost" label="Back" onPress={() => router.back()} block />
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.permissionScroll}>
+          {/* On a `<SurfaceCard>` since Cadence Arcs, matching the source picker's own permission
+              panels: an opaque surface is the only place this panel's secondary body copy is
+              proven, and the two screens' permission moments should not read as two products. */}
+          <SurfaceCard>
+            <View style={styles.permissionPanel}>
+              <KineticText
+                accessibilityRole="header"
+                staggerMs={Motion.stagger.line}
+                style={styles.permissionTitle}>
+                {Copy.capture.permission.camera.title}
+              </KineticText>
+              <Text style={styles.permissionBody}>{Copy.capture.permission.camera.body}</Text>
+              <PillButton
+                label={Copy.capture.permission.camera.cta}
+                disabled={busy}
+                onPress={handleSoftAskAllow}
+                style={styles.permissionCta}
+              />
+              <PillButton variant="ghost" label="Back" onPress={() => router.back()} block />
+            </View>
+          </SurfaceCard>
         </ScrollView>
         </SafeAreaView>
       </ScreenGradient>
@@ -202,26 +217,30 @@ export default function RecordScreen() {
       <ScreenGradient>
         <SafeAreaView style={styles.safeArea}>
         {/* Same ScrollView + flexGrow reflow fix as the 'undetermined' panel above (issue #63). */}
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.permissionPanel}>
-          <KineticText
-            accessibilityRole="header"
-            staggerMs={Motion.stagger.line}
-            style={styles.permissionTitle}>
-            {Copy.capture.permission.camera.denied.title}
-          </KineticText>
-          <Text style={styles.permissionBody}>{Copy.capture.permission.camera.denied.body}</Text>
-          <PillButton
-            label={Copy.capture.permission.camera.denied.cta}
-            disabled={busy}
-            onPress={handleDeniedCta}
-            style={styles.permissionCta}
-          />
-          <PillButton
-            variant="ghost"
-            label={Copy.capture.permission.camera.denied.secondary}
-            onPress={() => router.back()}
-            block
-          />
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.permissionScroll}>
+          <SurfaceCard>
+            <View style={styles.permissionPanel}>
+              <KineticText
+                accessibilityRole="header"
+                staggerMs={Motion.stagger.line}
+                style={styles.permissionTitle}>
+                {Copy.capture.permission.camera.denied.title}
+              </KineticText>
+              <Text style={styles.permissionBody}>{Copy.capture.permission.camera.denied.body}</Text>
+              <PillButton
+                label={Copy.capture.permission.camera.denied.cta}
+                disabled={busy}
+                onPress={handleDeniedCta}
+                style={styles.permissionCta}
+              />
+              <PillButton
+                variant="ghost"
+                label={Copy.capture.permission.camera.denied.secondary}
+                onPress={() => router.back()}
+                block
+              />
+            </View>
+          </SurfaceCard>
         </ScrollView>
         </SafeAreaView>
       </ScreenGradient>
@@ -242,15 +261,18 @@ export default function RecordScreen() {
 
       <SafeAreaView style={styles.overlaySafeArea} pointerEvents="box-none">
         <View style={styles.topOverlay} pointerEvents="box-none">
-          {/* Hidden while actively recording, same convention as most camera apps — the record
-              button below is the one control while a clip is in flight; this is the "every
-              screen needs an exit" affordance for before/after that. */}
+          {/* Both hidden while actively recording, same convention as most camera apps — the record
+              button below is the one control while a clip is in flight; the back button is the
+              "every screen needs an exit" affordance for before/after that, and the framing tip has
+              nothing left to tell a runner who is already mid-clip. */}
           {!recording && (
-            <CircleIconButton accessibilityLabel="Back" onPress={() => router.back()}>
-              <MaterialIcons name="arrow-back" size={20} color={colors.text.primary} />
-            </CircleIconButton>
+            <>
+              <CircleIconButton accessibilityLabel="Back" onPress={() => router.back()}>
+                <MaterialIcons name="arrow-back" size={20} color={colors.text.primary} />
+              </CircleIconButton>
+              <Text style={styles.overlayTip}>{Copy.capture.overlay.tip}</Text>
+            </>
           )}
-          <Text style={styles.overlayTip}>{Copy.capture.overlay.tip}</Text>
         </View>
 
         <View style={styles.bottomOverlay}>
@@ -258,25 +280,45 @@ export default function RecordScreen() {
           <Text style={styles.recordingCaption} accessibilityLiveRegion="polite">
             {recording ? Copy.capture.recording.timer(Math.floor(elapsedMs / 1000)) : Copy.capture.recording.autoCap}
           </Text>
-          <Pressable
-            testID="record-button"
-            accessibilityRole="button"
-            accessibilityLabel={recording ? 'Stop recording' : 'Start recording'}
-            disabled={!cameraReady}
-            onPress={handleRecordPress}
-            style={({ pressed }) => [
-              styles.recordButton,
-              (pressed || !cameraReady) && styles.pressed,
-            ]}>
-            <View style={recording ? styles.recordButtonStopIcon : styles.recordButtonStartIcon} />
-          </Pressable>
+          {/* The one motif element over the viewfinder, and it is FUNCTIONAL, not ornamental: the
+              ring reports how much of the 15s cap this clip has used, off the very same `elapsedMs`
+              clock the "Ns / 15s" caption above already shows — so the two can never disagree. It
+              is mounted ONLY while recording: `<ArcRing>` draws a `null` fraction as a dashed empty
+              track and a 0 as a filled-at-nothing ring, and an idle camera is neither of those
+              statements, so the honest thing to show before a clip starts is no ring at all.
+              `animate` stays off (its default) for the same reason the extraction ring's does — a
+              spring between values would make a determinate readout feel approximate. */}
+          <View style={styles.recordControl}>
+            {recording && (
+              <ArcRing
+                size={RECORD_RING_SIZE}
+                strokeWidth={RECORD_RING_STROKE}
+                fraction={elapsedMs / MAX_CLIP_DURATION_MS}
+                color={Accent.value}
+                style={styles.recordRing}
+              />
+            )}
+            <Pressable
+              testID="record-button"
+              accessibilityRole="button"
+              accessibilityLabel={recording ? 'Stop recording' : 'Start recording'}
+              disabled={!cameraReady}
+              onPress={handleRecordPress}
+              style={({ pressed }) => [
+                styles.recordButton,
+                (pressed || !cameraReady) && styles.pressed,
+              ]}>
+              <View style={recording ? styles.recordButtonStopIcon : styles.recordButtonStartIcon} />
+            </Pressable>
+          </View>
         </View>
       </SafeAreaView>
     </View>
   );
 }
 
-function createStyles(colors: ThemeColors) {
+function createStyles(colors: ThemeColors, scheme: ColorScheme) {
+  const glass = Glass[scheme];
   return StyleSheet.create({
     safeArea: {
       flex: 1,
@@ -296,13 +338,18 @@ function createStyles(colors: ThemeColors) {
     scroll: {
       flex: 1,
     },
-    permissionPanel: {
+    permissionScroll: {
       flexGrow: 1,
       width: '100%',
       maxWidth: ContentWidth.readable,
       alignSelf: 'center',
       justifyContent: 'center',
       padding: Spacing.xl,
+    },
+    // Spacing only — the panel's fill, corner, edge and interior padding come from the
+    // `<SurfaceCard>` around it. This inner stack exists because `<SurfaceCard>`'s `style` lands on
+    // its outer shadow node, whose single child is the clip view, so a `gap` set there does nothing.
+    permissionPanel: {
       gap: Spacing.md,
     },
     permissionTitle: {
@@ -316,8 +363,10 @@ function createStyles(colors: ThemeColors) {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.md,
       lineHeight: FontSize.md * LineHeight.body,
-      // On the wash — `text.primary` only (`Gradient`'s contract, constants/theme.ts).
-      color: colors.text.primary,
+      // Secondary is legal now that this panel sits on an opaque `surface.base` rather than
+      // directly on the wash, which carries `text.primary` ONLY (`Gradient`'s contract,
+      // constants/theme.ts). Same treatment as the source picker's permission panels.
+      color: colors.text.secondary,
     },
     permissionCta: {
       marginTop: Spacing.md,
@@ -341,26 +390,33 @@ function createStyles(colors: ThemeColors) {
       padding: Spacing.xl,
       gap: Spacing.md,
     },
+    // A compact chip, not a full-width plate: this is guidance laid over a live viewfinder, and the
+    // viewfinder is the thing the user is actually reading. `Glass.*.scrim` is the token for text
+    // over photographic media — the opaque `surface.base` this used to paint on is a PAGE surface
+    // and punched an app-coloured card into the middle of the camera preview.
     overlayTip: {
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
       color: colors.text.primary,
-      backgroundColor: colors.surface.base,
-      borderColor: colors.hairline,
+      backgroundColor: glass.scrim,
+      borderColor: glass.hairline,
       borderRadius: Radius.tile,
       borderWidth: StyleSheet.hairlineWidth * 2,
-      padding: Spacing.lg,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.sm,
     },
     bottomOverlay: {
       alignItems: 'center',
       gap: Spacing.sm,
       padding: Spacing.xl,
     },
+    // Both of these sit over live video too — same scrim, same reasoning as `overlayTip`.
     mutedNote: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.xs,
       color: colors.text.primary,
-      backgroundColor: colors.surface.base,
+      backgroundColor: glass.scrim,
       borderRadius: Radius.pill,
       paddingHorizontal: Spacing.md,
       paddingVertical: Spacing.xs,
@@ -369,10 +425,20 @@ function createStyles(colors: ThemeColors) {
       fontFamily: FontFamily.mono.regular,
       fontSize: FontSize.sm,
       color: colors.text.primary,
-      backgroundColor: colors.surface.base,
+      backgroundColor: glass.scrim,
       borderRadius: Radius.pill,
       paddingHorizontal: Spacing.md,
       paddingVertical: Spacing.xs,
+    },
+    // Holds the button and its elapsed ring on one centre. The ring is absolute, so mounting it at
+    // the start of a clip does not move the button by a point.
+    recordControl: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: Spacing.sm,
+    },
+    recordRing: {
+      position: 'absolute',
     },
     recordButton: {
       width: RECORD_BUTTON_SIZE,
@@ -383,7 +449,6 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: Accent.value,
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: Spacing.sm,
     },
     recordButtonStartIcon: {
       width: RECORD_BUTTON_START_ICON_SIZE,

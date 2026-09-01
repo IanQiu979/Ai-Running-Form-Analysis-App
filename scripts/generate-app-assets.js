@@ -5,7 +5,7 @@
  * `app.json` points at. Run with `npm run assets` after editing any source SVG — the PNGs in
  * `assets/images/` are build outputs, not hand-edited files.
  *
- * Every color here comes from the Gait Plate tokens in `constants/theme.ts`; the SVGs hold the
+ * Every color here comes from the Cadence Arcs tokens in `constants/theme.ts`; the SVGs hold the
  * geometry, this file holds the per-target raster rules (size, alpha, background).
  *
  * The one rule that is not obvious: `icon.png` MUST NOT have an alpha channel. iOS applies its
@@ -25,8 +25,8 @@ const outDir = path.join(root, "assets", "images");
 // Manual mirror of constants/theme.ts -> Colors.light.background / Colors.dark.background.
 // A .js build script cannot import the TS token, so these must be re-synced by hand on any
 // future palette change.
-const LIGHT_BACKGROUND = "#E9EFFA";
-const DARK_BACKGROUND = "#0F1324";
+const LIGHT_BACKGROUND = "#F7F1EB";
+const DARK_BACKGROUND = "#17120E";
 
 // Each source SVG carries two layers: an opaque `#field` rect and the `#mark` annotation group.
 // `keepField: false` drops the rect before rasterizing, leaving a transparent surround — that is

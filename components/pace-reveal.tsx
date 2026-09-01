@@ -1,5 +1,5 @@
 /**
- * Reveal primitives for the PACE readout's "one earned moment" (design brief §6, issue #61).
+ * The reveal primitive for the PACE readout's "one earned moment" (design brief §6, issue #61).
  *
  * `components/pace-readout.tsx` mounts these ONLY when it is rendering a genuine first reveal
  * (its `firstReveal` prop, keyed off the `justAnalyzed` nav param — motion-consult.md item 3).
@@ -8,79 +8,30 @@
  * from history renders finished, instantly — no re-animation" rule and V2.2's repeated-motion
  * lesson it cites.
  *
- * Two primitives, both `docs/design/motion-consult.md`'s "Implementation notes" verbatim:
+ * ONE primitive now, `docs/design/motion-consult.md`'s "Implementation notes" item 2 verbatim:
+ * `AnimatedOverallNumeral` — "useAnimatedProps on a disabled TextInput driven by a shared value +
+ * withTiming — off the JS thread. Never per-frame setState." `text` is a real, directly-settable
+ * native TextInput prop (not part of the public `TextInputProps` TS surface, hence the narrow cast
+ * below) that Reanimated can patch on the UI thread without a React re-render per frame.
  *
- * 1. `AnimatedPillarBarFill` (item 1) — "Pillar bar fill = scaleX, never width." The fill view's
- *    `width` is set ONCE, statically, to the pillar's final score-proportional width (exactly
- *    what the non-animated bar already renders) — it never changes over time, so nothing here
- *    ever triggers a layout pass. Only `transform: scaleX` animates, 0 -> 1, growing from the
- *    left edge (`transformOrigin: 'left'`) via `withDelay(index * 50, withSpring(...))` — the
- *    brief's "~50ms stagger P->A->C->E, one spring settle", using `Motion.spring.reveal`
- *    (constants/theme.ts: dampingRatio 0.8, reserved for exactly this).
- * 2. `AnimatedOverallNumeral` (item 2) — "useAnimatedProps on a disabled TextInput driven by a
- *    shared value + withTiming — off the JS thread. Never per-frame setState." `text` is a real,
- *    directly-settable native TextInput prop (not part of the public `TextInputProps` TS surface,
- *    hence the narrow cast below) that Reanimated can patch on the UI thread without a React
- *    re-render per frame.
+ * ITEM 1'S `AnimatedPillarBarFill` WAS RETIRED by the 2026-09-01 Cadence Arcs redesign. Its rule
+ * — "Pillar bar fill = scaleX, never width", i.e. animate a transform and never a dimension —
+ * outlived the primitive: the pillar bars are now arc rings, and `components/ui/arc-ring.tsx`
+ * keeps the same discipline in the form a ring allows (the layout box is fixed at mount; only the
+ * stroke's dash offset animates, which likewise never triggers a layout pass). Nothing regressed
+ * to a width animation; the shape that had a width stopped existing.
  *
- * Reduced motion never reaches either of these: `components/pace-readout.tsx` uses a single
- * crossfade over the whole readout instead (brief §6 / motion-consult.md's reduced-motion map),
- * so these two components are only ever mounted in the non-reduced-motion, first-reveal case.
+ * Reduced motion never reaches this: `components/pace-readout.tsx` uses a single crossfade over
+ * the whole readout instead (brief §6 / motion-consult.md's reduced-motion map), so this component
+ * is only ever mounted in the non-reduced-motion, first-reveal case.
  */
 import { useEffect } from 'react';
-import { StyleSheet, TextInput, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
-import Animated, {
-  Easing,
-  useAnimatedProps,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
+import { StyleSheet, TextInput, type StyleProp, type TextStyle } from 'react-native';
+import Animated, { Easing, useAnimatedProps, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { Motion } from '@/constants/theme';
 
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
-
-// motion-consult.md item 1: "~50ms stagger P->A->C->E".
-const PILLAR_STAGGER_MS = 50;
-
-type AnimatedPillarBarFillProps = {
-  testID?: string;
-  /** Position in `PACE_PILLARS` (P=0, A=1, C=2, E=3) — the stagger delay's only input. */
-  index: number;
-  /** 0-100. The fill's static target width; never re-assigned once mounted. */
-  score: number;
-  /** Gates the animation start (the "first-visible, not on-mount" trigger, item 4) — false until
-   * the readout's container has laid out at least once. Before that, the fill sits at scaleX 0,
-   * which is also its correct pre-mount-paint state, so there is nothing to jump when it flips. */
-  triggered: boolean;
-  /** `pillarRow`'s existing `barFill` + band-color style — untouched, just extended with the
-   * static width and the animated transform. */
-  style: StyleProp<ViewStyle>;
-};
-
-export function AnimatedPillarBarFill({ testID, index, score, triggered, style }: AnimatedPillarBarFillProps) {
-  const scaleX = useSharedValue(0);
-
-  useEffect(() => {
-    if (!triggered) return;
-    scaleX.value = withDelay(index * PILLAR_STAGGER_MS, withSpring(1, Motion.spring.reveal));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- scaleX is a stable shared value
-  }, [triggered, index]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scaleX: scaleX.value }],
-  }));
-
-  return (
-    <Animated.View
-      testID={testID}
-      style={[style, styles.fillTransformOrigin, { width: `${score}%` }, animatedStyle]}
-    />
-  );
-}
 
 type AnimatedOverallNumeralProps = {
   testID?: string;
@@ -133,9 +84,6 @@ export function AnimatedOverallNumeral({ testID, value, triggered, style }: Anim
 }
 
 const styles = StyleSheet.create({
-  fillTransformOrigin: {
-    transformOrigin: 'left',
-  },
   numeralInputReset: {
     // TextInput carries its own default padding on Android; the Text node it replaces had none.
     padding: 0,

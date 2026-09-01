@@ -29,12 +29,12 @@
 
   TOKENS (constants/theme.ts, light — the web chrome this favicon sits in is effectively always a
   light browser tab bar, so this uses the light mark's palette, not a light/dark pair):
-    field:   Colors.light.background  #F4F1EA
-    lines:   Colors.light.text.primary #1E1B15
-    landing: Score.strong.light.fill   #2E7D5B
+    field:   Colors.light.background  #F7F1EB
+    lines:   Colors.light.text.primary #2B1C12
+    landing: Score.strong.light.fill   #339869
 -->
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <rect id="field" x="0" y="0" width="1024" height="1024" fill="#F4F1EA" />
+  <rect id="field" x="0" y="0" width="1024" height="1024" fill="#F7F1EB" />
   <g id="mark">
     <line
       id="ground-rule"
@@ -42,7 +42,7 @@
       y1="520"
       x2="812"
       y2="520"
-      stroke="#1E1B15"
+      stroke="#2B1C12"
       stroke-width="76"
       stroke-linecap="butt"
     />
@@ -52,10 +52,10 @@
       y1="520"
       x2="644"
       y2="273"
-      stroke="#1E1B15"
+      stroke="#2B1C12"
       stroke-width="76"
       stroke-linecap="round"
     />
-    <circle id="landing-marker" cx="512" cy="520" r="96" fill="#2E7D5B" />
+    <circle id="landing-marker" cx="512" cy="520" r="96" fill="#339869" />
   </g>
 </svg>

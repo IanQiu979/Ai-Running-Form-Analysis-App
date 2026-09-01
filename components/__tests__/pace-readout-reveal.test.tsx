@@ -23,7 +23,7 @@ import { render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { PaceReadout } from '../pace-readout';
-import { proTierVideoResult } from '@/lib/pace-fixtures';
+import { photoResult, proTierVideoResult } from '@/lib/pace-fixtures';
 
 const mockUseReducedMotion = jest.fn(() => false);
 jest.mock('@/hooks/use-reduced-motion', () => ({
@@ -34,12 +34,21 @@ jest.mock('@/hooks/use-reduced-motion', () => ({
  * elements included — its first frame is `opacity: 0`. See CLAUDE.md § Testing. */
 const container = () => screen.getByTestId('pace-readout', { includeHiddenElements: true });
 const containerStyle = () => StyleSheet.flatten(container().props.style);
-const fillStyle = (pillar: string) =>
-  StyleSheet.flatten(screen.getByTestId(`pillar-bar-fill-${pillar}`, { includeHiddenElements: true }).props.style);
 const numeral = () => screen.getByTestId('overall-score', { includeHiddenElements: true });
 
-/** `proTierVideoResult`'s Posture score, i.e. the fill width every mode must render. */
-const POSTURE_SCORE = '78%';
+/** The ring geometry `<PaceReadout>` renders a pillar at, re-derived rather than observed. */
+const PILLAR_CIRCUMFERENCE = 2 * Math.PI * ((64 - 6) / 2);
+/** How far a ring still has to sweep. This — not a width — is what the reveal now moves, so it is
+ *  what every mode below is asserted against. */
+const sweepRemaining = (pillar: string) =>
+  screen.getByTestId(`pillar-ring-${pillar}-fill`, { includeHiddenElements: true }).props
+    .strokeDashoffset as number;
+/** The ring's own layout box. Load-bearing for the "never animates a dimension" invariant below. */
+const ringStyle = (pillar: string) =>
+  StyleSheet.flatten(screen.getByTestId(`pillar-ring-${pillar}`, { includeHiddenElements: true }).props.style);
+
+/** `proTierVideoResult`'s Posture score, as the arc offset a finished ring must render. */
+const POSTURE_SWEEP_REMAINING = PILLAR_CIRCUMFERENCE * 0.22;
 
 beforeEach(() => {
   mockUseReducedMotion.mockReturnValue(false);
@@ -62,12 +71,10 @@ describe('instant — re-opening a stored result from Past Analyses', () => {
     expect(numeral().props.editable).toBeUndefined();
   });
 
-  it('renders each bar at its final width with no transform to resolve', async () => {
+  it('renders each ring already at its final sweep, with nothing left to resolve', async () => {
     await render(<PaceReadout result={proTierVideoResult} />);
 
-    expect(fillStyle('posture').width).toBe(POSTURE_SCORE);
-    expect(fillStyle('posture').transform).toBeUndefined();
-    expect(fillStyle('posture').transformOrigin).toBeUndefined();
+    expect(sweepRemaining('posture')).toBeCloseTo(POSTURE_SWEEP_REMAINING, 4);
   });
 
   it('ignores the OS Reduce Motion setting — a re-open has no motion to reduce', async () => {
@@ -87,15 +94,24 @@ describe('animate — a genuine first reveal, motion allowed', () => {
     expect(typeof container().props.onLayout).toBe('function');
   });
 
-  it('grows each bar with scaleX from a statically-sized fill, never by animating width', async () => {
+  it('sweeps each ring from empty, never by animating a dimension', async () => {
     await render(<PaceReadout result={proTierVideoResult} firstReveal />);
 
-    // motion-consult item 1. The width is the FINAL width from the first frame on — only the
-    // transform moves, so no frame of this reveal ever triggers a layout pass.
-    const style = fillStyle('posture');
-    expect(style.width).toBe(POSTURE_SCORE);
-    expect(style.transformOrigin).toBe('left');
-    expect(style.transform).toEqual([{ scaleX: 0 }]);
+    // The successor of motion-consult item 1's "scaleX, never width". A ring has no width to
+    // animate — the arc's LENGTH is a stroke property — so the invariant is stated two ways:
+    // the first frame is a fully-unswept arc, and the ring's layout box is the same fixed size it
+    // will be when the animation finishes. No frame of this reveal triggers a layout pass.
+    expect(sweepRemaining('posture')).toBeCloseTo(PILLAR_CIRCUMFERENCE, 4);
+    expect(ringStyle('posture').width).toBe(64);
+    expect(ringStyle('posture').height).toBe(64);
+  });
+
+  it('leaves a not-assessed pillar’s ring out of the reveal entirely', async () => {
+    await render(<PaceReadout result={photoResult} firstReveal />);
+
+    // There is no arc to sweep, so there is nothing to animate — and nothing that could land at a
+    // visible zero partway through the reveal.
+    expect(screen.queryByTestId('pillar-ring-cadence-fill', { includeHiddenElements: true })).toBeNull();
   });
 
   it('mounts the count-up numeral seeded with the true score, not a zero', async () => {
@@ -108,7 +124,7 @@ describe('animate — a genuine first reveal, motion allowed', () => {
     expect(numeral().props.defaultValue).toBe(String(proTierVideoResult.overall.score));
   });
 
-  it('does not crossfade the container — the reveal is the bars, not the block', async () => {
+  it('does not crossfade the container — the reveal is the rings, not the block', async () => {
     await render(<PaceReadout result={proTierVideoResult} firstReveal />);
 
     expect(containerStyle().opacity).toBeUndefined();
@@ -136,15 +152,15 @@ describe('crossfade — a first reveal with the OS Reduce Motion setting on', ()
     expect(numeral().props.editable).toBeUndefined();
   });
 
-  it('drops the stagger: every bar is a static fill with no per-bar transform', async () => {
+  it('drops the stagger: every ring is drawn at its final sweep from the first frame', async () => {
     await render(<PaceReadout result={proTierVideoResult} firstReveal />);
 
-    // If this goes red, reduced motion is getting the staggered spring fill it asked not to have.
+    // If this goes red, reduced motion is getting the staggered spring sweep it asked not to have
+    // — each ring would start at a full unswept circumference instead of its finished offset.
     for (const pillar of ['posture', 'armSwing', 'cadence', 'elasticity']) {
-      expect(fillStyle(pillar).transform).toBeUndefined();
-      expect(fillStyle(pillar).transformOrigin).toBeUndefined();
+      expect(sweepRemaining(pillar)).toBeLessThan(PILLAR_CIRCUMFERENCE);
     }
-    expect(fillStyle('posture').width).toBe(POSTURE_SCORE);
+    expect(sweepRemaining('posture')).toBeCloseTo(POSTURE_SWEEP_REMAINING, 4);
   });
 });
 
@@ -152,9 +168,10 @@ describe('the reveal waits for the hero to finish before it starts', () => {
   it('still mounts the whole readout while `revealReady` is false — content is never withheld', async () => {
     await render(<PaceReadout result={proTierVideoResult} firstReveal revealReady={false} />);
 
-    // The gate delays the ANIMATION, never the content: the score and every bar are in the tree
+    // The gate delays the ANIMATION, never the content: the score and every ring are in the tree
     // from the first frame, so a stalled hero can only ever cost the animation, not the result.
     expect(numeral().props.defaultValue).toBe(String(proTierVideoResult.overall.score));
-    expect(fillStyle('posture').width).toBe(POSTURE_SCORE);
+    expect(screen.getByTestId('pillar-ring-posture', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByTestId('pillar-band-posture', { includeHiddenElements: true })).toBeTruthy();
   });
 });

@@ -41,17 +41,23 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ArcLoader } from '@/components/arc-loader';
+import { PaceDeltaPanel } from '@/components/compare/pace-delta-panel';
 import { KineticText } from '@/components/kinetic-text';
 import { PaceReadout } from '@/components/pace-readout';
+import { ArcRing } from '@/components/ui/arc-ring';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
+import { Eyebrow } from '@/components/ui/eyebrow';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
   Accent,
+  Arc,
   CheckboxSize,
   Colors,
   ContentWidth,
@@ -69,14 +75,19 @@ import {
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { computePaceDeltas, formatPillarDelta, orderByCreatedAt, pillarDeltaA11yLabel } from '@/lib/compare';
+import { orderByCreatedAt } from '@/lib/compare';
 import { fetchHistoryList, formatHistoryDate, formatHistoryItemA11yLabel, type HistoryListItem } from '@/lib/history';
-import { pillarLabel, pillarLetter } from '@/lib/pace-readout';
 import { getQuotaStatus } from '@/lib/subscription';
 import { useAnnounce } from '@/lib/use-announce';
-import { PACE_PILLARS } from '@shared/pace';
 
 const MAX_SELECTED = 2;
+
+/** The picker row's overall-score ring. Composition, not a token — the same reasoning
+ *  `components/pace-readout.tsx` gives for keeping its own two ring sizes local: this size says how
+ *  loud a score is in a LIST row, which is a decision about this screen. Smaller than the readout's
+ *  64pt pillar ring, because a picker row is a choice, not a result. */
+const PICKER_RING_SIZE = 48;
+const PICKER_RING_STROKE = 4;
 
 type ListState =
   | { status: 'loading' }
@@ -204,7 +215,11 @@ export default function CompareScreen() {
 
       {state.status === 'loading' && (
         <View style={styles.centerBlock}>
-          <ActivityIndicator color={colors.text.primary} />
+          {/* Cadence Arcs (2026-09-01): the motif's own wait state, replacing the stock
+              spinner. Indeterminate by construction — `<ArcLoader>` draws nothing that
+              could be read as progress, and the live-region caption beside it is what
+              actually says what is happening. */}
+          <ArcLoader size={88} testID="compare-loading" />
           <Text style={styles.caption} accessibilityLiveRegion="polite">
             {Copy.compare.loading}
           </Text>
@@ -307,15 +322,25 @@ function PickerRow({
         {selected ? <Text style={styles.checkboxMark}>✓</Text> : null}
       </View>
 
+      {/* The same ring the readout uses, at picker scale — so an analysis looks like the same
+          object here as it does once it is opened. Decorative on its own (the row's own
+          `accessibilityLabel` carries the spoken version), and a not-assessed overall gets
+          `<ArcRing>`'s dashed empty track rather than a zero-length fill. */}
+      <ArcRing
+        testID={`compare-picker-ring-${item.id}`}
+        size={PICKER_RING_SIZE}
+        strokeWidth={PICKER_RING_STROKE}
+        fraction={overall.score !== null ? overall.score / 100 : null}
+        color={overall.band !== null ? Score[overall.band][scheme].fill : Arc[scheme].ornament}>
+        {overall.score !== null ? <Text style={styles.scoreNumeral}>{overall.score}</Text> : null}
+      </ArcRing>
+
       <View style={styles.rowInfo}>
         <Text style={styles.dateText}>{dateLabel}</Text>
-        {overall.score !== null && overall.band !== null ? (
-          <View style={[styles.scoreChip, { borderColor: colors.hairline }]}>
-            <Text style={styles.scoreNumeral}>{overall.score}</Text>
-            <Text style={[styles.scoreBand, { color: Score[overall.band][scheme].text }]}>
-              {ScoreBandLabel[overall.band]}
-            </Text>
-          </View>
+        {overall.band !== null ? (
+          <Text style={[styles.scoreBand, { color: Score[overall.band][scheme].text }]}>
+            {ScoreBandLabel[overall.band]}
+          </Text>
         ) : (
           <Text style={styles.notAssessedText}>{Copy.result.pillar.notAssessed.generic}</Text>
         )}
@@ -334,45 +359,53 @@ function CompareView({
   styles: Styles;
 }) {
   const [older, newer] = pair;
-  const deltas = useMemo(
-    () => computePaceDeltas(older.outcome.result, newer.outcome.result),
-    [older, newer]
-  );
 
   return (
     <ScrollView contentContainerStyle={styles.compareContent}>
       <ComparePane item={older} colors={colors} />
-      <Text style={styles.vsText}>{Copy.compare.vs}</Text>
+      {/* The two panes are separated by the deck's "vs" in the app-wide eyebrow register rather
+          than by a rule: a divider between two cards that are already cards is one line too many.
+          `tone="primary"` because this sits on the wash, which `Gradient`'s contract proves for
+          primary text only. */}
+      <Eyebrow tone="primary" style={styles.vsText}>
+        {Copy.compare.vs}
+      </Eyebrow>
       <ComparePane item={newer} colors={colors} />
 
-      <View style={styles.deltaList}>
-        {PACE_PILLARS.map((id) => {
-          const label = pillarLabel(id);
-          const delta = deltas[id];
-          return (
-            <View
-              key={id}
-              testID={`compare-delta-row-${id}`}
-              style={styles.deltaRow}
-              accessible
-              accessibilityLabel={pillarDeltaA11yLabel(label, delta)}>
-              <Text style={styles.deltaPillarLetter}>{pillarLetter(id)}</Text>
-              <Text style={styles.deltaText}>{formatPillarDelta(label, delta)}</Text>
-            </View>
-          );
-        })}
-      </View>
+      {/* The deltas, with the motif carried into them — see components/compare/pace-delta-panel.tsx.
+          It computes the diff itself from the two stored results (pure, client-side, no network),
+          so this screen no longer holds a second copy of that arithmetic. */}
+      <PaceDeltaPanel
+        testID="compare-delta-panel"
+        from={older.outcome.result}
+        to={newer.outcome.result}
+      />
     </ScrollView>
   );
 }
 
+/**
+ * One of the two side-by-side readouts.
+ *
+ * ON A CARD, not on the wash. `<PaceReadout>` renders band words, score fills and coaching prose,
+ * none of which `Gradient.page` is proven for (`constants/theme.ts`'s `Gradient` contract) — this
+ * pane used to drop it straight onto the wash, which both `app/result/[id].tsx` and
+ * `app/result/sample.tsx` avoid by wrapping it in exactly this card. The date moves inside the
+ * card with it, in the eyebrow register, so each pane reads as one object.
+ *
+ * `tone="base"` (the default) for BOTH panes, deliberately: `surface.raised` is "the one raised
+ * element per screen" (constants/theme.ts), and this screen shows two co-equal analyses — raising
+ * either one would say one of them matters more.
+ */
 function ComparePane({ item, colors }: { item: HistoryListItem; colors: ThemeColors }) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   return (
-    <View style={styles.pane}>
-      <Text style={styles.paneDate}>{formatHistoryDate(item.createdAt)}</Text>
-      <PaceReadout result={item.outcome.result} />
-    </View>
+    <SurfaceCard>
+      <View style={styles.pane}>
+        <Eyebrow>{formatHistoryDate(item.createdAt)}</Eyebrow>
+        <PaceReadout result={item.outcome.result} />
+      </View>
+    </SurfaceCard>
   );
 }
 
@@ -522,19 +555,8 @@ function createStyles(colors: ThemeColors) {
       fontSize: FontSize.sm,
       color: colors.text.primary,
     },
-    scoreChip: {
-      flexDirection: 'row',
-      alignItems: 'baseline',
-      alignSelf: 'flex-start',
-      gap: Spacing.xs,
-      backgroundColor: colors.surface.raised,
-      borderWidth: 1,
-      borderRadius: Radius.pill,
-      paddingHorizontal: Spacing.sm,
-      paddingVertical: Spacing.xs,
-    },
     scoreNumeral: {
-      fontFamily: FontFamily.mono.medium,
+      fontFamily: FontFamily.mono.bold,
       fontSize: FontSize.sm,
       color: colors.text.primary,
     },
@@ -553,49 +575,13 @@ function createStyles(colors: ThemeColors) {
       paddingBottom: Spacing.xxxl,
       gap: Spacing.xl,
     },
+    /** Inside the pane card, not on it: `<SurfaceCard>` puts its children in a second, padded node,
+     *  so a `gap` on the card's own style would apply to nothing. */
     pane: {
-      gap: Spacing.md,
-    },
-    paneDate: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: colors.text.primary,
+      gap: Spacing.lg,
     },
     vsText: {
       alignSelf: 'center',
-      fontFamily: FontFamily.display.medium,
-      fontSize: FontSize.sm,
-      // On the wash — `text.primary` only, at full opacity (H3, v23-ux-audit-r1: opacity here
-      // dropped this below WCAG AA). Quietness comes from the sm size alone.
-      color: colors.text.primary,
-      textTransform: 'uppercase',
-      letterSpacing: Tracking.eyebrow,
-    },
-    deltaList: {
-      gap: Spacing.sm,
-      backgroundColor: colors.surface.base,
-      borderColor: colors.hairline,
-      borderRadius: Radius.card,
-      borderWidth: StyleSheet.hairlineWidth * 2,
-      padding: Spacing.xl,
-    },
-    deltaRow: {
-      flexDirection: 'row',
-      alignItems: 'baseline',
-      gap: Spacing.sm,
-    },
-    deltaPillarLetter: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.md,
-      color: colors.text.primary,
-      // minWidth, not width — same Dynamic Type clipping fix as
-      // components/pace-readout.tsx's own `pillarLetter` (issue #63).
-      minWidth: Spacing.xl,
-    },
-    deltaText: {
-      fontFamily: FontFamily.mono.regular,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
     },
   });
 }

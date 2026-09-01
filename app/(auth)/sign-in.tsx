@@ -21,6 +21,7 @@ import Animated, {
   useSharedValue,
 } from 'react-native-reanimated';
 
+import { ArcBurst } from '@/components/arc-burst';
 import { KineticText } from '@/components/kinetic-text';
 import { LowPolyField } from '@/components/low-poly-field';
 import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/turnstile-widget';
@@ -87,7 +88,7 @@ export default function SignInScreen() {
   const styles = useMemo(() => createStyles(colors, scheme), [colors, scheme]);
 
   const reduceMotion = useReducedMotion();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const scrollY = useScrollViewOffset(scrollRef);
   // Set from the mark section's own `onLayout` (below) — its content-relative y offset, so the
@@ -302,6 +303,15 @@ export default function SignInScreen() {
               low-poly mark gets its own section below instead of sharing this one as atmosphere,
               since it no longer needs to fit alongside the wordmark on first paint. */}
           <View style={[styles.header, { minHeight: windowHeight * 0.6 }]}>
+            {/* THE ONE LOUD MOMENT (Cadence Arcs, 2026-09-01). This screen is the redesign's
+                single deliberate exception: everywhere else the motif is a small, still corner
+                ripple, and here it is a ring set drawn wider than the device and turning behind
+                the wordmark. It sits UNDER the type in the stack and is pinned absolutely, so it
+                takes no layout and can never push the headline around; `windowWidth * 1.6` is
+                what makes every ring run off both edges, which is the difference between a ripple
+                passing through the screen and a target centred on it. Decorative and inert —
+                see `<ArcBurst>`'s header for what it suppresses under reduced motion. */}
+            <ArcBurst size={windowWidth * 1.6} style={styles.burst} testID="sign-in-burst" />
             <KineticText
               accessibilityRole="header"
               staggerMs={Motion.stagger.line}
@@ -543,6 +553,15 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: Spacing.md,
+      // The burst is drawn wider than this container on purpose and must be allowed to overflow
+      // it — clipping it here would put a hard rectangular edge on a set of arcs whose whole
+      // point is that they run off the screen.
+      overflow: 'visible',
+    },
+    // Absolutely positioned so the burst contributes nothing to layout: the wordmark's position
+    // must not depend on how big the decoration behind it happens to be.
+    burst: {
+      position: 'absolute',
     },
     // The zoom-reveal section (see `markAnimatedStyle` at the render site). Also given a
     // `minHeight` inline so it reads as its own screenful rather than a cramped strip between the

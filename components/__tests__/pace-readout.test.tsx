@@ -1,8 +1,13 @@
 /**
  * Honesty locks for <PaceReadout /> (issue #56). The assertions that matter most: a not-assessed
- * pillar (`score: null`) never mounts a numeral, a band word, or a filled bar — it renders a
- * hollow track and a plain-language reason instead. If a future edit ever coerces `null` into
- * "0", these are the tests that must go red.
+ * pillar (`score: null`) never mounts a numeral, a band word, or a swept arc — it renders a
+ * hollow, dashed ring and a plain-language reason instead. If a future edit ever coerces `null`
+ * into "0", these are the tests that must go red.
+ *
+ * UPDATED 2026-09-01 (Cadence Arcs): the bars became rings, so the assertions that named a bar's
+ * WIDTH now name a ring's SWEPT ARC. Not one of them was relaxed in the move — the same facts are
+ * proven about a different shape, and the score-to-geometry arithmetic is re-derived here from
+ * the fixture rather than copied from an observed render.
  */
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
@@ -19,14 +24,22 @@ import {
 } from '@/lib/pace-fixtures';
 import { pillarDetailA11yLabel, pillarLabel } from '@/lib/pace-readout';
 
+/** The `<ArcRing>` geometry `<PaceReadout>` renders a pillar at, re-derived here rather than
+ *  copied from a render: the sweep must be the score as a fraction of the full circle. */
+const PILLAR_CIRCUMFERENCE = 2 * Math.PI * ((64 - 6) / 2);
+const HIDDEN = { includeHiddenElements: true } as const;
+
 describe('an assessed pillar (proTierVideoResult)', () => {
-  it('renders the numeral, the band word, and a proportional fill bar', async () => {
+  it('renders the numeral, the band word, and an arc swept in proportion to the score', async () => {
     await render(<PaceReadout result={proTierVideoResult} />);
 
     expect(screen.getByTestId('pillar-score-posture').props.children).toBe(78);
     expect(screen.getByTestId('pillar-band-posture').props.children).toBe('Solid');
-    const fillStyle = StyleSheet.flatten(screen.getByTestId('pillar-bar-fill-posture').props.style);
-    expect(fillStyle.width).toBe('78%');
+    // 78/100 of the way round, expressed as the dash offset still to travel.
+    expect(screen.getByTestId('pillar-ring-posture-fill', HIDDEN).props.strokeDashoffset).toBeCloseTo(
+      PILLAR_CIRCUMFERENCE * 0.22,
+      4
+    );
   });
 
   it('renders the overall headline numeral + band', async () => {
@@ -39,12 +52,22 @@ describe('an assessed pillar (proTierVideoResult)', () => {
 });
 
 describe('a not-assessed pillar never reads as a zero (photoResult: Cadence + Elasticity are null)', () => {
-  it('renders no score/band/fill nodes at all for Cadence', async () => {
+  it('renders no score/band/arc nodes at all for Cadence', async () => {
     await render(<PaceReadout result={photoResult} />);
 
     expect(screen.queryByTestId('pillar-score-cadence')).toBeNull();
     expect(screen.queryByTestId('pillar-band-cadence')).toBeNull();
-    expect(screen.queryByTestId('pillar-bar-fill-cadence')).toBeNull();
+    // No fill arc — not a fill arc swept to zero. `<ArcRing>` enforces this independently too.
+    expect(screen.queryByTestId('pillar-ring-cadence-fill', HIDDEN)).toBeNull();
+  });
+
+  it('draws the ring’s track dashed for Cadence and solid for the pillar beside it', async () => {
+    await render(<PaceReadout result={photoResult} />);
+
+    // The successor of the old bar's `barTrackNotAssessed` dashed border (M1, v23-ux-audit-r1):
+    // "could not be scored" must be structurally distinct from "scored zero" at a glance.
+    expect(screen.getByTestId('pillar-ring-cadence-track', HIDDEN).props.strokeDasharray).toEqual([5, 5]);
+    expect(screen.getByTestId('pillar-ring-posture-track', HIDDEN).props.strokeDasharray).toBeUndefined();
   });
 
   it('renders the "needs video" reason, not a numeral, for Cadence and Elasticity', async () => {
@@ -95,6 +118,9 @@ it('renders the overall headline as not-assessed, never a fabricated 0, when eve
 
   expect(screen.queryByTestId('overall-score')).toBeNull();
   expect(screen.getByTestId('overall-not-assessed').props.children).toBe(Copy.result.pillar.notAssessed.generic);
+  // The headline ring gets the same treatment its pillars do: an empty dashed track and no arc.
+  expect(screen.queryByTestId('overall-ring-fill', HIDDEN)).toBeNull();
+  expect(screen.getByTestId('overall-ring-track', HIDDEN).props.strokeDasharray).toEqual([5, 5]);
 });
 
 describe('tier gating via array emptiness only — no client-side tier re-derivation', () => {
@@ -250,6 +276,6 @@ describe('coaching feedback typography', () => {
       ? Object.assign({}, ...score.props.style)
       : score.props.style;
 
-    expect(style.fontFamily).toBe(FontFamily.mono.medium);
+    expect(style.fontFamily).toBe(FontFamily.mono.bold);
   });
 });

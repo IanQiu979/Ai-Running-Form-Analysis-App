@@ -29,10 +29,12 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ArcLoader } from '@/components/arc-loader';
 import { KineticText } from '@/components/kinetic-text';
+import { TierCard, type TierCardCta } from '@/components/paywall/tier-card';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
@@ -43,11 +45,8 @@ import {
   ContentWidth,
   FontFamily,
   FontSize,
-  HitTarget,
   LineHeight,
   Motion,
-  Opacity,
-  Radius,
   Spacing,
   Tracking,
   type ColorScheme,
@@ -65,6 +64,10 @@ import {
 import { useAnnounce } from '@/lib/use-announce';
 
 type PlanState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; data: QuotaStatus };
+
+/** The inline plan-loading ring. Sized to sit on one line beside its caption — composition, not a
+ *  token: it is a decision about this row, and no other screen wants this exact size. */
+const PLAN_LOADER_SIZE = 28;
 
 type PurchaseState = { status: 'idle' } | { status: 'pending'; tier: PurchasableTier };
 
@@ -87,11 +90,6 @@ function gateBannerFor(plan: PlanState): { title: string; body: string } | null 
     body: Copy.paywall.gate.paid.body(limit ?? 0, renewsOn),
   };
 }
-
-type TierCardCta =
-  | { kind: 'none' }
-  | { kind: 'current' }
-  | { kind: 'upgrade'; label: string; busy: boolean; disabled: boolean; onPress: () => void };
 
 function ctaForPurchasableTier(
   tierKey: PurchasableTier,
@@ -252,16 +250,27 @@ export default function PaywallScreen() {
           </View>
         </View>
 
+        {/* The stack lives in a child View, not on the card's own style: `<SurfaceCard>` renders
+            TWO nodes (shadow + clip) and the `style` prop lands on the outer one, whose only child
+            is the clip node — so a `gap` there spaces nothing. Same for the error card below. */}
         {gateBanner && (
-          <SurfaceCard style={styles.gateBanner} padding={Spacing.lg} accessibilityLiveRegion="polite">
-            <Text style={styles.gateTitle}>{gateBanner.title}</Text>
-            <Text style={styles.gateBody}>{gateBanner.body}</Text>
+          <SurfaceCard padding={Spacing.lg} accessibilityLiveRegion="polite">
+            <View style={styles.gateBanner}>
+              {/* A full sentence, so it stays a sentence — deliberately NOT demoted into the
+                  `<Eyebrow>` register, which uppercases and is for two-word micro-labels. */}
+              <Text style={styles.gateTitle}>{gateBanner.title}</Text>
+              <Text style={styles.gateBody}>{gateBanner.body}</Text>
+            </View>
           </SurfaceCard>
         )}
 
+        {/* Cadence Arcs (2026-09-01): the motif's own wait state, replacing the stock spinner —
+            the same swap `app/compare.tsx` and `app/capture/extracting.tsx` already made.
+            Indeterminate by construction (it draws nothing that could be read as progress); the
+            live-region caption beside it is what says what is happening. */}
         {plan.status === 'loading' && (
           <View style={styles.inlineRow}>
-            <ActivityIndicator color={colors.text.primary} />
+            <ArcLoader size={PLAN_LOADER_SIZE} testID="paywall-plan-loading" />
             <Text style={styles.planStatusText} accessibilityLiveRegion="polite">
               {Copy.paywall.plan.loading}
             </Text>
@@ -273,40 +282,49 @@ export default function PaywallScreen() {
             `<PillButton>` matches every other error state's own treatment (e.g. `analyzing.tsx`'s
             `ErrorPanel`). */}
         {plan.status === 'error' && (
-          <SurfaceCard style={styles.planErrorCard} padding={Spacing.lg} accessibilityLiveRegion="polite">
-            <Text style={styles.planStatusText}>{Copy.paywall.plan.error}</Text>
-            <PillButton
-              variant="ghost"
-              label={Copy.paywall.plan.retry}
-              accessibilityHint={Copy.paywall.plan.retryA11yLabel}
-              onPress={() => {
-                void fetchPlan();
-              }}
-            />
+          <SurfaceCard padding={Spacing.lg} accessibilityLiveRegion="polite">
+            <View style={styles.planErrorCard}>
+              <Text style={styles.planErrorText}>{Copy.paywall.plan.error}</Text>
+              <PillButton
+                variant="ghost"
+                label={Copy.paywall.plan.retry}
+                accessibilityHint={Copy.paywall.plan.retryA11yLabel}
+                onPress={() => {
+                  void fetchPlan();
+                }}
+              />
+            </View>
           </SurfaceCard>
         )}
 
+        {/* The three cards, in ladder order, each wearing one more arc than the one above it —
+            see components/paywall/tier-card.tsx for why that is the honest picture of a tier
+            ladder whose own footnote says the higher tiers are "more of it, not different". The
+            arc counts are ornament, never a quota or an entitlement. */}
         <View style={styles.cards}>
           <TierCard
+            testID="paywall-tier-free"
             name={Copy.paywall.tier.free.name}
             price={Copy.paywall.tier.free.price}
             detail={Copy.paywall.tier.free.detail}
+            arcs={1}
             cta={ctaForFree(plan)}
-            styles={styles}
           />
           <TierCard
+            testID="paywall-tier-pro"
             name={Copy.paywall.tier.pro.name}
             price={Copy.paywall.tier.pro.price}
             detail={Copy.paywall.tier.pro.detail}
+            arcs={2}
             cta={ctaForPurchasableTier('pro', plan, purchase, handleUpgrade)}
-            styles={styles}
           />
           <TierCard
+            testID="paywall-tier-elite"
             name={Copy.paywall.tier.elite.name}
             price={Copy.paywall.tier.elite.price}
             detail={Copy.paywall.tier.elite.detail}
+            arcs={3}
             cta={ctaForPurchasableTier('elite', plan, purchase, handleUpgrade)}
-            styles={styles}
           />
         </View>
 
@@ -314,51 +332,6 @@ export default function PaywallScreen() {
       </ScrollView>
       </SafeAreaView>
     </ScreenGradient>
-  );
-}
-
-type Styles = ReturnType<typeof createStyles>;
-
-type TierCardProps = {
-  name: string;
-  price: string;
-  detail: string;
-  cta: TierCardCta;
-  styles: Styles;
-};
-
-function TierCard({ name, price, detail, cta, styles }: TierCardProps) {
-  return (
-    <SurfaceCard style={styles.card} padding={Spacing.xl}>
-      <View style={styles.cardHeaderRow}>
-        <Text style={styles.cardName}>{name}</Text>
-        <Text style={styles.cardPrice}>{price}</Text>
-      </View>
-      <Text style={styles.cardDetail}>{detail}</Text>
-
-      {cta.kind === 'current' && (
-        <View style={styles.currentPlanBadge}>
-          <Text style={styles.currentPlanText}>{Copy.paywall.cta.current}</Text>
-        </View>
-      )}
-
-      {/* `secondary`, deliberately not `primary`: this screen offers a parallel choice between
-          two upgrade paths and has no single primary action, so spending `Accent` here would
-          break the "one accent, one CTA" rule constants/theme.ts states. The pill's secondary
-          variant is the same `surface.raised` + `control.border` treatment this button already
-          had — the shape changed, the restraint did not. */}
-      {cta.kind === 'upgrade' && (
-        <PillButton
-          variant="secondary"
-          label={cta.label}
-          accessibilityHint={cta.busy ? Copy.paywall.purchase.pending : undefined}
-          disabled={cta.disabled}
-          busy={cta.busy}
-          onPress={cta.onPress}
-          style={styles.upgradeButton}
-        />
-      )}
-    </SurfaceCard>
   );
 }
 
@@ -432,66 +405,19 @@ function createStyles(colors: ThemeColors) {
       gap: Spacing.sm,
       alignItems: 'flex-start',
     },
-    cards: {
-      gap: Spacing.lg,
-    },
-    card: {
-      gap: Spacing.sm,
-    },
-    cardHeaderRow: {
-      flexDirection: 'row',
-      alignItems: 'baseline',
-      justifyContent: 'space-between',
-    },
-    cardName: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
-      letterSpacing: Tracking.display,
-      color: colors.text.primary,
-    },
-    // Mono — the "measured readouts and any pace/metric text" role (theme.ts's FontFamily.mono
-    // doc comment), same treatment Home already gives its quota-count caption.
-    cardPrice: {
-      fontFamily: FontFamily.mono.regular,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-    },
-    cardDetail: {
+    /** The same caption, on a card rather than on the wash — so it takes `text.secondary`, which
+     *  IS proven on an opaque surface (and is not proven on the wash, which is why the loading
+     *  caption above it stays primary). */
+    planErrorText: {
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
       color: colors.text.secondary,
     },
-    // A non-interactive label, not a disabled button — "Current plan" names a fact about this
-    // card, not a control the user could have pressed (copy deck: "Disabled-state label").
-    currentPlanBadge: {
-      minHeight: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-      // `Radius.pill` and a hairline, not `control.border`: this is explicitly NOT a control (see
-      // the comment above), and giving it the same 3:1 interactive boundary the upgrade pill has
-      // is precisely what would make it look tappable. A quiet chip reads as a status.
-      borderRadius: Radius.pill,
-      borderWidth: 1,
-      borderColor: colors.hairline,
-      marginTop: Spacing.sm,
-      paddingHorizontal: Spacing.lg,
-    },
-    currentPlanText: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.xs,
-      letterSpacing: Tracking.eyebrow,
-      textTransform: 'uppercase',
-      color: colors.text.secondary,
-    },
-    // NOT Accent — theme.ts reserves that for "the primary CTA, and only the primary CTA," and
-    // this screen has no single primary action (it's a parallel choice between two upgrade
-    // paths, unlike Home's one CTA). Same bordered "secondary button" treatment
-    // app/(auth)/sign-in.tsx uses for its own non-sole actions (Google/email sign-in): the
-    // interactive-boundary `control.border` (issue #96) is what marks this as tappable, not fill
-    // color.
-    upgradeButton: {
-      marginTop: Spacing.sm,
+    // The three cards' own type, spacing and CTA treatment moved to
+    // `components/paywall/tier-card.tsx` with the card itself — this screen now owns only the
+    // ladder's spacing.
+    cards: {
+      gap: Spacing.lg,
     },
     footnote: {
       fontFamily: FontFamily.body.regular,
@@ -501,12 +427,6 @@ function createStyles(colors: ThemeColors) {
       // anything dimmer; H3, v23-ux-audit-r1: opacity here dropped this below WCAG AA).
       color: colors.text.primary,
       textAlign: 'center',
-    },
-    disabled: {
-      opacity: Opacity.disabled,
-    },
-    pressed: {
-      opacity: Opacity.pressed,
     },
   });
 }

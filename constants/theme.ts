@@ -1,4 +1,31 @@
 /**
+ * V2.3 design tokens — "CADENCE ARCS" (2026-09-01), a warm espresso/clay system built on the
+ * concentric-arc motif: ripples radiating from a footstrike.
+ *
+ * THIS IS A FULL VISUAL SYSTEM REPLACEMENT, not a recolor of the Calm scheme below it. What
+ * changed, and every one of these is re-proven (not asserted) in
+ * `constants/__tests__/theme-contrast.test.ts`:
+ *
+ *   - `Colors`, `Gradient`, `Glass`, `Score`, `Semantic`, `Accent` are all re-solved on an
+ *     espresso base (`#17120E` ink) with a clay accent. The blue/violet Calm palette is gone.
+ *   - `FontFamily` moves to Bricolage Grotesque (display), Manrope (body/UI) and Space Mono
+ *     (metrics). Newsreader survives untouched as the `prose` role — see that token.
+ *   - `Arc` is new: the motif's own two roles (the drawn ornament and the ring track).
+ *   - `Radius`, `Spacing`, `FontSize`, `Tracking`, `LineHeight`, `Elevation`, `ControlHeight`,
+ *     `ContentWidth`, `TabBar`, `HitTarget`, `CheckboxSize`, `Opacity` and `Motion` are UNCHANGED.
+ *     The redesign is a colour/type/motif pass; the geometry and pacing the app is built against
+ *     were not the problem and re-cutting them would have been churn.
+ *
+ * METHOD, unchanged from every pass before it: hold a hue and its saturation, move ONLY lightness
+ * until the target ratio clears, and solve each role to a COMMON target rather than to the bare
+ * minimum, so a family of tokens reads as one scale instead of as four accidents. Every ratio
+ * quoted in a comment below was computed against these exact exports.
+ *
+ * -------------------------------------------------------------------------------------------
+ * HISTORY (kept: these blocks explain why several values are shaped the way they are, and the
+ * constraints they name are still live — only the hues moved).
+ * -------------------------------------------------------------------------------------------
+ *
  * V2.3 design tokens — "The Gait Plate", on the Calm colour scheme (palette swapped 2026-08-02).
  *
  * Source of truth: `docs/design/frontend-design-brief.md` §2. Every value below is either lifted
@@ -113,68 +140,91 @@ export type ColorScheme = 'light' | 'dark';
 // theme-contrast.test.ts, never asserted from this comment.
 // -------------------------------------------------------------------------------------------
 
+// -------------------------------------------------------------------------------------------
+// CADENCE ARCS BASE (2026-09-01) — everything below this line replaces the Calm blue/violet
+// values the block comment above describes. The RULES that comment states all still bind; only
+// the hue family moved, from periwinkle (~228°) to espresso (~27°).
+//
+// The single fixed point is `dark.background` = `#17120E`, the approved "ink" — hue 26.7°, sat
+// 24.3%, L 7.3%. Every other espresso-family value here is that hue held and its lightness moved:
+// the two dark surfaces are the same hue lifted to L 11.5% / 15.0%, and dark `text.secondary`,
+// `hairline` and `control.border` are the same hue in a slightly wider saturation register.
+//
+// DARK IS THE PRIMARY SCHEME and the one the design was drawn for. Light is DERIVED, exactly as
+// Calm's was: the same hue journey, inverted lightness — a warm bone canvas (hue 30°) with
+// espresso text (hue 24°), so daylight reads as the same design language rather than as a second,
+// unrelated theme.
+//
+// `dark.text.primary` is a WARM BONE (`#F7EFE7`), not pure white, and that is deliberate. Pure
+// white on an espresso canvas reads as a blue-cast hole punched in a warm surface — it is the one
+// place the old palette's value could not simply be carried over. It costs nothing: 16.34:1 on
+// background / 14.61:1 on surface.base / 13.19:1 on surface.raised.
+//
+// `hairline` keeps its exact old role — decorative rules, ticks, and the annotation lines drawn
+// over a captured frame — and its exact old constraint: deliberately UNDER 3:1, guarded in
+// theme-contrast.test.ts so it can never quietly double as a control boundary.
+//
+// `control.border` keeps its role and its (wider, post-2026-08-02) proof obligation: >=3:1
+// against all three surfaces AND every `Gradient.page` stop AND every one of those stops seen
+// through each translucent `Glass` tone. Solved over that full set, not over the surfaces alone.
+//   dark  #BDAB9B (hue 28.0°, sat 20.2%, L 67.5%) — worst case 3.11:1.
+//   light #967760 (hue 26.0°, sat 22.0%, L 48.3%) — worst case 3.11:1.
+// Dark still has to go LIGHT rather than darker, for the same reason it did on Calm: the wash it
+// sits on is mid-lightness, so a darker ring has no headroom against the canvas behind it.
+// -------------------------------------------------------------------------------------------
+
 export const Colors = {
   light: {
-    // Sky-blue tint (hue 218.8°, sat 63.0%) — the daylight end of Calm's blue, not a neutral.
-    background: '#E9EFFA',
+    // Warm bone (hue 30.0°, sat 45.0%) — the daylight end of the espresso family, not a neutral.
+    background: '#F7F1EB',
     surface: {
-      base: '#F4F7FC', // cards, sheets — same hue family, lifted to L 97.3%
+      base: '#FBF7F4', // cards, sheets — same hue family, lifted to L 97.0%
       raised: '#FFFFFF', // the one raised element per screen
     },
     text: {
-      // Deep blue-violet (hue 230.3°, sat 44.9%) — the SAME hue as dark mode's `background`, so
-      // the two schemes are one family. 15.10:1 on background / 16.24:1 on surface.base /
-      // 17.44:1 on surface.raised.
-      primary: '#131832',
-      // Same family desaturated (hue 223.6°, sat 22.0%) rather than a separate grey hue —
-      // 5.93:1 / 6.38:1 / 6.85:1.
-      secondary: '#4E5A7A',
+      // Deep espresso (hue 24.0°, sat 40.0%) — the SAME family as dark mode's `background`, so the
+      // two schemes are one palette. 14.67:1 on background / 15.43:1 on surface.base /
+      // 16.44:1 on surface.raised.
+      primary: '#2B1C12',
+      // Same family desaturated (hue 25.5°, sat 18.4%) rather than a separate grey hue —
+      // 6.10:1 / 6.42:1 / 6.84:1.
+      secondary: '#6A5749',
     },
-    // Rules, ticks, annotations — decorative, see note above. Held deliberately weak: 1.28:1
-    // (background) / 1.37:1 (surface.base) / 1.47:1 (surface.raised), all far under the 3:1
+    // Rules, ticks, annotations — decorative, see note above. Held deliberately weak: 1.22:1
+    // (background) / 1.29:1 (surface.base) / 1.37:1 (surface.raised), all far under the 3:1
     // control-boundary floor the guard in theme-contrast.test.ts enforces.
-    hairline: '#CBD5EA',
+    hairline: '#E7DACF',
     control: {
-      // The interactive-boundary role (issue #96) — same hue/sat family as hairline moved into
-      // the desaturated register (222.7°, 20.2%), lightness darkened until the WORST backdrop a
-      // control edge can touch clears 3:1. See the "RETUNED 2026-08-02" note above for the full
-      // set that "worst" is now solved over; the binding case is this ring against a translucent
-      // control sitting on `Gradient.page`'s middle stop, at 3.35:1.
-      border: '#6C7A9D',
+      // The interactive-boundary role (issue #96), solved over the full backdrop set named in the
+      // block comment above. Binding case: this ring against a translucent control sitting on the
+      // page wash, at 3.11:1.
+      border: '#967760',
     },
   },
   dark: {
-    // Calm's night canvas (sampled #0F0F12) given the periwinkle cast of the gradient it shares
-    // the app with — hue 228.6°, sat 41.2%, L 10.0%.
-    background: '#0F1324',
+    // The approved ink — hue 26.7°, sat 24.3%, L 7.3%. The one value in this file taken verbatim
+    // from the design rather than solved.
+    background: '#17120E',
     surface: {
-      // The translucent white-on-blue glass, resolved to solids: ~5% and ~10% white over
-      // `background`, holding the hue (230.8° / 230.0°). Calm's glass reads at 12-18% white, but
-      // over its NEAR-BLACK canvas — the same optical step lands here, and anything lighter
-      // breaks the accent's 3:1 floor against `surface.raised` (see `Accent`).
-      base: '#161A30',
-      raised: '#1C213A',
+      // The same espresso hue lifted to L 11.5% / 15.0%. Held this dark for the same reason the
+      // Calm surfaces were: `surface.raised` is dark mode's lightest surface and therefore the
+      // binding constraint for every lightened foreground in this file — anything lighter breaks
+      // the accent's 3:1 floor against it (see `Accent`).
+      base: '#241D17',
+      raised: '#2E251E',
     },
     text: {
-      // Pure white, exactly as the reference rations it: primary text only (plus the one primary
-      // action pill, via `Accent.onAccent`). 18.44:1 on background / 17.15:1 on surface.base /
-      // 15.81:1 on surface.raised.
-      primary: '#FFFFFF',
-      // The reference sets secondary text as white at reduced opacity rather than a separate grey
-      // hue; resolved to the solid that behaves like it — periwinkle-tinted (hue 224.0°, sat
-      // 27.6%) instead of neutral grey. 7.33:1 / 6.82:1 / 6.29:1.
-      secondary: '#97A3C4',
+      // Warm bone, not pure white — see the block comment above. 16.34:1 / 14.61:1 / 13.19:1.
+      primary: '#F7EFE7',
+      // The same family at a lower lightness (hue 28.3°, sat 20.2%) — a warm taupe, not a neutral
+      // grey. 7.83:1 / 7.00:1 / 6.32:1.
+      secondary: '#B8A594',
     },
-    // Calm's ~15%-white glass hairline over the night canvas, in-hue (228.3°). Deliberately quiet:
-    // 1.49:1 (background) / 1.39:1 (surface.base) / 1.28:1 (surface.raised) — under 3:1 by design.
-    hairline: '#2C3350',
+    // Espresso-family rule (hue 28.0°, sat 18.0%). Deliberately quiet: 1.61:1 (background) /
+    // 1.44:1 (surface.base) / 1.30:1 (surface.raised) — under 3:1 by design.
+    hairline: '#42372E',
     control: {
-      // Same hue/sat family as dark hairline moved to the desaturated register (226.4°, 21.8%),
-      // lightened until the worst backdrop clears 3:1. The binding case is no longer a surface at
-      // all: it is this ring against a translucent control on `Gradient.page`'s BRIGHTEST stop, at
-      // 3.29:1. See the "RETUNED 2026-08-02" note above for why lightening (rather than darkening)
-      // was the only direction with any headroom.
-      border: '#D4D7E3',
+      border: '#BDAB9B',
     },
   },
 } as const;
@@ -245,52 +295,75 @@ export const ScoreBandRange: Record<ScoreBand, readonly [number, number]> = {
   strong: [85, 100],
 };
 
+// RE-CUT FOR THE ESPRESSO BASE (2026-09-01). The four bands keep their semantic identities but
+// their hues moved, and the move was forced by one new fact: THE ACCENT IS NOW ORANGE. On the
+// Calm palette the accent was periwinkle (252°), a full hemisphere from every band, so the ramp
+// could put "needs work" at coral 14° without any risk of a score being mistaken for a CTA. With
+// a clay accent at 21.9° that is no longer true, and a coral `low` would have sat 8° from the
+// primary action colour. So the whole ramp is rotated off the accent instead:
+//
+//   low 352° (rose-red) -> mid 52° (amber) -> strong 152° (jade) -> good 195° (teal)
+//
+// Every pairwise separation in the palette, INCLUDING against the two non-score hues, is >=30°:
+//   accent 21.9 <-> low 352 = 30°   ·   accent <-> mid 52 = 30°   ·   low <-> mid = 60°
+//   strong <-> good = 43°           ·   error 315 <-> low 352 = 37°   ·   error <-> accent = 67°
+// The tightest pair anywhere is 30°, versus the Calm palette's 38° — narrower, and that is the
+// honest cost of an orange accent, stated rather than buried. It is still comfortably above the
+// ~20-25° at which two hues start to be confusable, and the bands are additionally separated by
+// lightness and by never appearing in the same role as the accent (which is CTA-only, never a
+// score — see `Accent`).
+//
+// Warm->cool still maps to bad->good. It is still caution, not alarm.
+//
+// The per-role COMMON targets are unchanged from the Calm ramp, so the four bands still read as
+// one scale rather than four separately-shaved minimums:
+//   dark  `fill` -> 6.50:1 on `surface.base`   ·   dark  `text` -> 5.00:1 on `surface.raised`
+//   light `fill` -> 3.20:1 on `background`     ·   light `text` -> 4.75:1 on `background`
 export const Score: Record<
   ScoreBand,
   { light: { fill: string; text: string }; dark: { fill: string; text: string } }
 > = {
-  // Coral — hue 13.8-14.2°, sat ~60%. The old clay red-orange pulled cooler and desaturated so it
-  // reads as warning-on-blue rather than rust-on-bone.
+  // Rose-red — hue 352°, sat ~58%. Rotated off the accent (see the block above); reads as warning
+  // rather than as "the button colour, but a score".
   low: {
-    // fill L 54.3% -> 3.23:1 (bg) / 3.47:1 (surface.base).
-    // text L 42.7% -> 4.77:1 (bg) / 5.13:1 (surface.base) / 5.50:1 (surface.raised).
-    light: { fill: '#D06545', text: '#AE4A2C' },
-    // fill L 65.5% -> 7.01:1 (bg) / 6.52:1 (surface.base).
-    // text L 59.6% -> 5.83:1 (bg) / 5.43:1 (surface.base) / 5.00:1 (surface.raised) —
+    // fill L 61.2% -> 3.20:1 (bg) / 3.37:1 (surface.base).
+    // text L 48.8% -> 4.73:1 (bg) / 4.98:1 (surface.base) / 5.30:1 (surface.raised).
+    light: { fill: '#D56372', text: '#C53448' },
+    // fill L 70.8% -> 7.30:1 (bg) / 6.52:1 (surface.base).
+    // text L 66.3% -> 6.19:1 (bg) / 5.53:1 (surface.base) / 4.99:1 (surface.raised) —
     // surface.raised is dark mode's *lightest* surface, so it's the binding constraint for a
     // light-tinted foreground, here and in every band below.
-    dark: { fill: '#DC8B72', text: '#D6775A' },
+    dark: { fill: '#E08A95', text: '#DB7785' },
   },
-  // Gold — hue 43.9-44.3°, sat ~58%. Held warm on purpose: it is the one band that must not be
+  // Amber — hue 52°, sat ~58%. Held warm on purpose: it is the one band that must not be
   // mistakable for either neighbour, and a cool "mid" would collapse toward the teal end.
   mid: {
-    // fill L 39.8% -> 3.21:1 (bg) / 3.45:1 (surface.base).
-    // text L 31.6% -> 4.75:1 (bg) / 5.11:1 (surface.base) / 5.49:1 (surface.raised).
-    light: { fill: '#A0812B', text: '#7F6622' },
-    // fill L 47.6% -> 7.00:1 (bg) / 6.51:1 (surface.base).
-    // text L 43.3% -> 5.86:1 (bg) / 5.45:1 (surface.base) / 5.02:1 (surface.raised).
-    dark: { fill: '#C09B33', text: '#AF8D2E' },
+    // fill L 37.3% -> 3.20:1 (bg) / 3.37:1 (surface.base).
+    // text L 29.6% -> 4.74:1 (bg) / 4.99:1 (surface.base) / 5.32:1 (surface.raised).
+    light: { fill: '#968828', text: '#776C20' },
+    // fill L 44.7% -> 7.28:1 (bg) / 6.51:1 (surface.base).
+    // text L 41.1% -> 6.22:1 (bg) / 5.56:1 (surface.base) / 5.02:1 (surface.raised).
+    dark: { fill: '#B4A330', text: '#A6962C' },
   },
-  // Teal — hue 177.7-178.6°, sat ~58%. The old teal-green pushed fully cool; it is now 33° from
-  // `strong` rather than the 5° the warm ramp shipped, so the two top bands no longer rely on
-  // lightness alone to be told apart.
+  // Teal — hue 195°, sat ~55%. The coolest point on the ramp and the furthest thing in the palette
+  // from the espresso canvas, which is what makes a top band legible as an all-clear on it.
   good: {
-    // fill L 36.5% -> 3.21:1 (bg) / 3.45:1 (surface.base).
-    // text L 28.8% -> 4.79:1 (bg) / 5.15:1 (surface.base) / 5.53:1 (surface.raised).
-    light: { fill: '#279390', text: '#1F7472' },
-    // fill L 43.9% -> 7.03:1 (bg) / 6.54:1 (surface.base).
-    // text L 40.0% -> 5.87:1 (bg) / 5.46:1 (surface.base) / 5.04:1 (surface.raised).
-    dark: { fill: '#2FB1AC', text: '#2BA19D' },
+    // fill L 44.7% -> 3.22:1 (bg) / 3.38:1 (surface.base).
+    // text L 35.3% -> 4.77:1 (bg) / 5.02:1 (surface.base) / 5.35:1 (surface.raised).
+    light: { fill: '#3391B1', text: '#29738C' },
+    // fill L 55.9% -> 7.26:1 (bg) / 6.49:1 (surface.base).
+    // text L 49.2% -> 6.19:1 (bg) / 5.53:1 (surface.base) / 4.99:1 (surface.raised).
+    dark: { fill: '#51ADCC', text: '#39A0C3' },
   },
-  // Jade — hue 144.8-145.2°, sat ~50%. The least saturated band: "Strong" is the resting state,
-  // and on a violet canvas a loud green would read as an alert rather than an all-clear.
+  // Jade — hue 152°, sat ~50%. The least saturated band: "Strong" is the resting state, and a
+  // loud green would read as an alert rather than an all-clear.
   strong: {
-    // fill L 39.2% -> 3.22:1 (bg) / 3.46:1 (surface.base).
-    // text L 31.2% -> 4.76:1 (bg) / 5.11:1 (surface.base) / 5.49:1 (surface.raised).
-    light: { fill: '#32965C', text: '#287749' },
-    // fill L 47.3% -> 7.05:1 (bg) / 6.55:1 (surface.base).
-    // text L 42.9% -> 5.84:1 (bg) / 5.44:1 (surface.base) / 5.01:1 (surface.raised).
-    dark: { fill: '#3CB56E', text: '#37A464' },
+    // fill L 39.7% -> 3.21:1 (bg) / 3.38:1 (surface.base).
+    // text L 31.6% -> 4.74:1 (bg) / 4.99:1 (surface.base) / 5.32:1 (surface.raised).
+    light: { fill: '#339869', text: '#287953' },
+    // fill L 47.6% -> 7.25:1 (bg) / 6.48:1 (surface.base).
+    // text L 43.8% -> 6.21:1 (bg) / 5.56:1 (surface.base) / 5.01:1 (surface.raised).
+    dark: { fill: '#3DB67E', text: '#38A873' },
   },
 } as const;
 
@@ -332,10 +405,17 @@ export const Score: Record<
 
 export type SemanticRole = 'error';
 
+// RE-CUT 2026-09-01 for the espresso base. The requirement is unchanged — an error must not be
+// mistakable for the "Needs work" score band — but the ramp rotated (see `Score`), so `error`
+// rotated with it, further into magenta: hue 315° (sat ~55%) against `low`'s 352°, i.e. 37° apart,
+// and 67° from the clay accent. Same shared per-role targets as the bands, so an error never
+// out-shouts or under-shouts one sitting beside it:
+//   light #B63596 (L 46.1%) -> 4.76:1 (bg) / 5.00:1 (surface.base) / 5.33:1 (surface.raised).
+//   dark  #D672BD (L 64.3%) -> 6.20:1 (bg) / 5.54:1 (surface.base) / 5.00:1 (surface.raised).
 export const Semantic: Record<SemanticRole, { light: string; dark: string }> = {
   error: {
-    light: '#C22A67',
-    dark: '#DE6B99',
+    light: '#B63596',
+    dark: '#D672BD',
   },
 } as const;
 
@@ -364,12 +444,63 @@ export const Semantic: Record<SemanticRole, { light: string; dark: string }> = {
 // All ten pairs are computed, not asserted, in theme-contrast.test.ts.
 // -------------------------------------------------------------------------------------------
 
+// CADENCE ARCS (2026-09-01): the accent is CLAY. The design names `#E8703B`, and that literal
+// hex ships — but as `Arc.*.ornament`, the decorative motif colour, NOT here. The reason is the
+// same two-sided squeeze the block above describes, and clay loses it at full brightness exactly
+// as Calm's periwinkle did:
+//   - white on `#E8703B` is 3.08:1 — nowhere near the 4.5:1 a CTA label owes.
+//   - so, holding hue 21.9° and sat 79.4% and moving only lightness (57.1% -> 42.0%), the accent
+//     ships as `#C05416`: white on accent 4.64:1, and the fill itself 4.00 / 3.58 / 3.23:1 on the
+//     dark surfaces and 4.14 / 4.36 / 4.64:1 on the light ones — clearing the >=3:1 non-text floor
+//     on `Colors.dark.surface.raised`, dark mode's lightest surface, with 0.23 to spare.
+// That >=3:1 is again what caps the dark surface stack — see the note on `Colors.dark.surface`.
+// The brand's brighter clay is not lost: it is the arc motif (`Arc`), where WCAG 1.4.3 does not
+// apply because nothing there is text.
 export const Accent = {
   /** The primary CTA, and only the primary CTA — never a score, never decoration. */
-  value: '#7558E8',
+  value: '#C05416',
   /** The only legal label color on an accent fill. */
   onAccent: '#FFFFFF',
 } as const;
+
+// -------------------------------------------------------------------------------------------
+// Arc — NEW for Cadence Arcs (2026-09-01). The redesign's signature motif is concentric arcs
+// radiating from a point, like ripples from a footstrike: corner ornaments on every screen, the
+// loading rings on the wait states, and the ring track behind the score readouts. That motif
+// needs exactly two colour roles, and neither of the existing ones can play them:
+//
+//   - `ornament` — a drawn arc. `Accent` is wrong (the accent is reserved for the primary CTA and
+//     ONLY the primary CTA; painting every screen's corner with it would retire that reservation),
+//     and `hairline` is wrong (it is a 1.2-1.6:1 rule; an arc drawn in it is invisible at the
+//     radii this motif uses). This is where the design's literal clay `#E8703B` lives, in dark —
+//     the brightest, most brand-forward value in the file, in the one role that can carry it.
+//   - `track` — the UNFILLED remainder of a score ring. Structural, decorative, and deliberately
+//     quiet: it must not compete with the `Score.*.fill` arc drawn over it.
+//
+// PROOF OBLIGATION, and it is deliberately STRONGER than WCAG requires. An ornament is decorative,
+// so 1.4.11 does not formally apply to it — but `<ArcRing>` also draws the ring geometry that a
+// score sits in, and a reader who cannot see the ring cannot see where the fill starts. So
+// `ornament` is proven >=3:1 against all three surfaces AND all three `Gradient.page` stops, in
+// both schemes, in theme-contrast.test.ts. Dark ships the literal clay (worst case 3.56:1 on the
+// brightest wash stop); light holds the same hue/sat and drops lightness to 46.1% for `#D25219`
+// (worst case 3.20:1). `track` takes the mirror obligation `hairline` has — proven to stay UNDER
+// 3:1 — so it can never quietly become the thing that carries the ring's meaning.
+// -------------------------------------------------------------------------------------------
+
+export const Arc = {
+  light: {
+    /** A drawn arc: corner ornaments, loading rings, the score-ring geometry. */
+    ornament: '#D25219',
+    /** The unfilled remainder of a score ring. Decorative; no contrast promise. */
+    track: '#E4D1C3',
+  },
+  dark: {
+    ornament: '#E8703B',
+    track: '#504135',
+  },
+} as const;
+
+export type ArcColors = (typeof Arc)[ColorScheme];
 
 // -------------------------------------------------------------------------------------------
 // The page gradient — new for the Calm palette (2026-08-02). Calm's identity IS the gradient:
@@ -414,11 +545,27 @@ export const Accent = {
 // in H3's failure mode and route it to a surface instead.
 // -------------------------------------------------------------------------------------------
 
+// RE-CUT 2026-09-01 for Cadence Arcs. Same role, same one-role-only discipline, same
+// primary-text-only contract — a different journey. The wash now travels espresso -> clay, i.e.
+// from the canvas the app rests on toward the accent it acts in: hue 26° -> 20° -> 14° in dark,
+// mirrored 32° -> 24° -> 16° in light.
+//
+// THE DARK STOPS ARE MID-LIGHTNESS (L 17% -> 25%), NOT NEAR-BLACK, and that is a deliberate call
+// worth naming because the obvious alternative is wrong. A wash whose stops sit at the same
+// lightness as `background` (`#17120E`, L 7.3%) is not a wash at all — it is invisible, and every
+// screen would read as a flat espresso rectangle with the `<ScreenGradient>` component doing
+// nothing. Calm's wash was mid-lightness for the same reason. Lifting the stops is also what keeps
+// the `Glass` contract's measured failure REAL: white-tinted glass over a near-black wash would
+// comfortably carry `text.secondary`, quietly deleting the constraint the counter-guard in
+// theme-contrast.test.ts exists to pin (see that guard, and note 1 at `Glass`).
+//
+// Dark stops carry `text.primary` at 12.16 / 10.73 / 9.66:1. Light stops (hue-matched, inverted
+// lightness, L 89-95%) carry it at 14.92 / 13.72 / 12.43:1.
 export const Gradient = {
   /** The full-bleed screen backdrop, ordered top -> bottom. Carries `text.primary` only. */
   page: {
-    light: ['#DCE8FA', '#E0E2FA', '#E9E0FA'],
-    dark: ['#2F6394', '#3B4A96', '#472E86'],
+    light: ['#F9F3EC', '#F6E8DF', '#F3DBD3'],
+    dark: ['#382A1E', '#4A2F21', '#5D3022'],
   },
 } as const;
 
@@ -479,6 +626,17 @@ export type GradientRole = keyof typeof Gradient;
 // anyway so a component never has to branch on scheme to know what it may put on glass.
 // -------------------------------------------------------------------------------------------
 
+// RE-CUT 2026-09-01 for Cadence Arcs. The contract above is UNCHANGED in every clause — what
+// moved is the tint (the canvas-tinted `chrome` and `scrim` follow `background` from periwinkle to
+// espresso) and the dark white-tinted alphas, which went UP: 0.08/0.12 -> 0.11/0.14, plus
+// `control` 0.13 -> 0.16. That is a change in the honest direction. The old alphas were capped by
+// what `text.primary` could survive over Calm's BRIGHT blue wash; the espresso wash is darker, so
+// the same heavier glass the reference always wanted (12-18% white) now fits inside the same
+// >=4.5:1 obligation with room to spare — worst case is `control` over the brightest wash stop at
+// 6.06:1, against Calm's 4.72:1. Both halves of the contract therefore got STRONGER, not looser:
+// primary text has more margin, and `text.secondary` on white-tinted glass over the wash still
+// genuinely fails (2.90-4.21:1), which is exactly what the counter-guard in theme-contrast.test.ts
+// pins so these alphas cannot drift up again.
 export const Glass = {
   light: {
     /** The default translucent panel. */
@@ -492,19 +650,19 @@ export const Glass = {
     control: 'rgba(255, 255, 255, 0.55)',
     /** Canvas-tinted chrome that must carry the full text scale — the floating tab bar. The only
      *  glass tone proven for `text.secondary`; see contract note 2. */
-    chrome: 'rgba(233, 239, 250, 0.62)',
+    chrome: 'rgba(247, 241, 235, 0.62)',
     /** Decorative edge on a glass panel. No contrast promise — see contract note 3. */
-    hairline: 'rgba(19, 24, 50, 0.10)',
+    hairline: 'rgba(43, 28, 18, 0.10)',
     /** Legibility scrim laid over photographic media before text sits on it. */
-    scrim: 'rgba(233, 239, 250, 0.55)',
+    scrim: 'rgba(247, 241, 235, 0.55)',
   },
   dark: {
-    fill: 'rgba(255, 255, 255, 0.08)',
-    raised: 'rgba(255, 255, 255, 0.12)',
-    control: 'rgba(255, 255, 255, 0.13)',
-    chrome: 'rgba(15, 19, 36, 0.62)',
+    fill: 'rgba(255, 255, 255, 0.11)',
+    raised: 'rgba(255, 255, 255, 0.14)',
+    control: 'rgba(255, 255, 255, 0.16)',
+    chrome: 'rgba(23, 18, 14, 0.62)',
     hairline: 'rgba(255, 255, 255, 0.16)',
-    scrim: 'rgba(15, 19, 36, 0.55)',
+    scrim: 'rgba(23, 18, 14, 0.55)',
   },
 } as const;
 
@@ -525,28 +683,52 @@ export type GlassColors = (typeof Glass)[ColorScheme];
 // frontend-builder task); these are the family/weight name exports it will call `useFonts` with.
 // -------------------------------------------------------------------------------------------
 
+// RE-CUT 2026-09-01 for Cadence Arcs. All three of the roles above keep their exact contracts and
+// call sites; only the families change, and each swap is chosen for what the redesign asks of it:
+//
+//   display: Archivo -> BRICOLAGE GROTESQUE. Archivo is a clean, even grotesque — the right
+//     neutral for "The Gait Plate", and too neutral for a system whose headline gesture is a
+//     radiating arc. Bricolage's flared, slightly irregular terminals share that curve, and it
+//     holds together at `FontSize.hero` where a neutral grotesque reads as a placeholder.
+//   body: Inter -> MANROPE. A rounder, warmer UI face, which is what stops the espresso canvas
+//     reading as a developer tool. Same seven-weight range, so no call site's weight disappears.
+//   mono: IBM Plex Mono -> SPACE MONO. The metrics face. Plex Mono is a typewriter; Space Mono's
+//     geometric bowls echo the arc motif in the one place numbers are set — the score numerals.
+//
+// Installed via `npx expo install @expo-google-fonts/bricolage-grotesque @expo-google-fonts/manrope
+// @expo-google-fonts/space-mono`; loaded in `app/_layout.tsx`'s `useFonts` call.
 export const FontFamily = {
   /** Screen titles and the big score numerals. */
   display: {
-    regular: 'Archivo_400Regular',
-    medium: 'Archivo_500Medium',
-    semiBold: 'Archivo_600SemiBold',
-    bold: 'Archivo_700Bold',
+    regular: 'BricolageGrotesque_400Regular',
+    medium: 'BricolageGrotesque_500Medium',
+    semiBold: 'BricolageGrotesque_600SemiBold',
+    bold: 'BricolageGrotesque_700Bold',
   },
   /** Body copy and UI chrome. */
   body: {
-    regular: 'Inter_400Regular',
-    medium: 'Inter_500Medium',
-    semiBold: 'Inter_600SemiBold',
-    bold: 'Inter_700Bold',
+    regular: 'Manrope_400Regular',
+    medium: 'Manrope_500Medium',
+    semiBold: 'Manrope_600SemiBold',
+    bold: 'Manrope_700Bold',
   },
-  /** Measured score readouts and any pace/metric text. */
+  /** Measured score readouts and any pace/metric text.
+   *
+   * TWO WEIGHTS, not three. Space Mono ships only 400 and 700 — there is no 500 or 600 to load,
+   * and aliasing `medium`/`semiBold` onto one of the two would be a token that lies about what it
+   * renders. The three call sites that asked for `mono.medium` now ask for `mono.bold`, which is
+   * what a metric wants at those sizes anyway. */
   mono: {
-    regular: 'IBMPlexMono_400Regular',
-    medium: 'IBMPlexMono_500Medium',
-    semiBold: 'IBMPlexMono_600SemiBold',
+    regular: 'SpaceMono_400Regular',
+    bold: 'SpaceMono_700Bold',
   },
   /** Coaching prose ONLY — per-pillar feedback and drill instructions (spec 2026-07-26 §3.2).
+   *
+   * DELIBERATELY NOT CHANGED by the 2026-09-01 redesign. The Cadence Arcs direction named three
+   * families (display/body/mono) and was silent about a fourth; that silence is not a reason to
+   * delete a role that exists for a real, load-bearing reason. Newsreader is what makes the
+   * coach's feedback read as writing rather than as a populated field, and it sits at least as
+   * well beside Bricolage/Manrope on espresso as it did beside Archivo/Inter on blue.
    * Never UI chrome: buttons, labels, tabs and every other control stay `body` (Inter). The
    * split exists because the feedback is writing by a coach, and rendering it in the same
    * family as a button label is what made it read as generated UI text. */
