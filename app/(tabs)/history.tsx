@@ -22,32 +22,41 @@
  * decide which rows are deletable, does not compute a tier/quota gate on the list, and does not
  * decide whether Storage successfully purged anything — it only renders what `lib/history.ts`'s
  * reads report and sends the caller's own intent (open, delete) to the server.
+ *
+ * CADENCE ARCS (2026-09-01) — this file is now the screen's I/O and state machine, and very little
+ * else. The row moved out to `components/history/history-row.tsx` (which owns the recomposed
+ * ring-led row and documents what changed about it); what stays here is the header, the four
+ * states, and the list. The two visual changes that belong to THIS file:
+ *   - the header is two tiers (chrome line, then the display title on its own full-width line),
+ *     so the 64pt title no longer shares a row with a 44pt circular control;
+ *   - the empty state leads with the motif's own "nothing to report" picture — a dashed,
+ *     unfilled `<ArcRing>` — rather than with two lines of type on a bare wash.
+ * The DELETE INTERACTION is deliberately untouched: a persistent, visibly labelled per-row control
+ * behind a native confirm, per `docs/design/copy-deck.md` Screen 8 (which supersedes the design
+ * brief's "swipe/long-press"). Only its placement inside the row changed.
  */
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ArcLoader } from '@/components/arc-loader';
+import { HistoryRow } from '@/components/history/history-row';
 import { KineticText } from '@/components/kinetic-text';
+import { ArcRing } from '@/components/ui/arc-ring';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { Copy } from '@/constants/copy';
 import {
+  Arc,
   Colors,
   ContentWidth,
   FontFamily,
   FontSize,
-  HitTarget,
   LineHeight,
   Motion,
-  Opacity,
-  Radius,
-  Score,
-  ScoreBandLabel,
   Spacing,
   TabBar,
   Tracking,
@@ -58,19 +67,17 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
   deleteHistoryAnalysis,
   fetchHistoryList,
-  formatHistoryDate,
-  formatHistoryItemA11yLabel,
-  formatHistoryItemDeleteA11yLabel,
   signFrameStrip,
   type HistoryListItem,
 } from '@/lib/history';
 import { useAnnounce } from '@/lib/use-announce';
 
-// A local layout constant, not a `constants/theme.ts` role — same call `app/result/[id].tsx`
-// makes for its own `HERO_ASPECT_RATIO`: thumbnail sizing isn't one of that file's roles (colors/
-// spacing/type/radii), and this issue's file lane is explicitly this screen, not new
-// design-system tokens.
-const FRAME_THUMBNAIL_SIZE = 56;
+/** The empty state's ring. Composition, not a token — the same call `components/pace-readout.tsx`
+ *  makes for its own ring sizes. Drawn with `fraction={null}`, i.e. the dashed, unfilled track the
+ *  whole app already uses for "nothing to report", so an empty History reads as the same idea a
+ *  not-assessed pillar does rather than as a bespoke empty-state illustration. */
+const EMPTY_RING_SIZE = 160;
+const EMPTY_RING_STROKE = 10;
 
 type ScreenState =
   | { status: 'loading' }
@@ -239,31 +246,35 @@ export default function HistoryScreen() {
     // second time.
     <ScreenGradient>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        {/* The reference's content-detail header: a huge, tightly-leaded title that assembles
-            itself word by word. Was a 24pt heading in a bare row. This is a top-level destination
-            and now looks like one. No eyebrow above it — the copy deck has exactly one string for
-            this screen's name, and setting the same words twice to manufacture a hierarchy would
-            be filler, not structure. */}
-        <View style={styles.headerRow}>
+        {/* A two-tier header, not the old title-and-button row. The 64pt display title used to
+            share a row with a 44pt circular control, which left it a narrow column to wrap into
+            and made the screen's largest element read as one of two things competing for the top
+            edge. Chrome now sits on its own line ABOVE the title, and the title gets the full
+            readable column to itself — the reference's content-detail treatment, and the same
+            shape the arc ornament in this corner (drawn by `<ScreenGradient>`) was composed for.
+            Still no eyebrow above the title: the copy deck has exactly one string for this
+            screen's name, and setting the same words twice to manufacture hierarchy is filler. */}
+        <View style={styles.header}>
+          <View style={styles.chromeRow}>
+            {/* M5 (v23-ux-audit-r1): Home's top bar has a Settings entry point
+                (`app/(tabs)/index.tsx`'s `home-settings`); History had none, so reaching Settings
+                from here required going back to Home first. Same control, same destination. */}
+            <CircleIconButton
+              accessibilityLabel={Copy.settings.title}
+              onPress={() => {
+                router.push('/settings');
+              }}
+              testID="history-settings">
+              <MaterialIcons name="tune" size={20} color={colors.text.primary} />
+            </CircleIconButton>
+          </View>
           <KineticText
             accessibilityRole="header"
             staggerMs={Motion.stagger.line}
-            style={styles.header}
-            containerStyle={styles.headerTitleRow}
+            style={styles.headerTitle}
             testID="history-title">
             {Copy.history.title}
           </KineticText>
-          {/* M5 (v23-ux-audit-r1): Home's top bar has a Settings entry point
-              (`app/(tabs)/index.tsx`'s `home-settings`); History had none, so reaching Settings
-              from here required going back to Home first. Same control, same destination. */}
-          <CircleIconButton
-            accessibilityLabel={Copy.settings.title}
-            onPress={() => {
-              router.push('/settings');
-            }}
-            testID="history-settings">
-            <MaterialIcons name="tune" size={20} color={colors.text.primary} />
-          </CircleIconButton>
         </View>
 
       {state.status === 'loading' && (
@@ -290,6 +301,18 @@ export default function HistoryScreen() {
 
       {state.status === 'ready' && state.items.length === 0 && (
         <View style={styles.centerBlock}>
+          {/* The motif carrying the empty state, instead of two lines of type alone. A dashed,
+              unfilled ring is what this app already draws for "there is nothing to report here"
+              (a not-assessed pillar, a not-assessed overall) — so an empty History is the same
+              idea at hero scale rather than a one-off illustration. Decorative: `<ArcRing>` hides
+              itself from the a11y tree and the copy below carries the whole meaning. */}
+          <ArcRing
+            testID="history-empty-ring"
+            size={EMPTY_RING_SIZE}
+            strokeWidth={EMPTY_RING_STROKE}
+            fraction={null}
+            color={Arc[scheme].ornament}
+          />
           <Text style={styles.emptyTitle}>{Copy.history.empty.title}</Text>
           <Text style={styles.caption}>{Copy.history.empty.body}</Text>
           {/* `secondary`, not `primary`: `Accent` is reserved for the one primary CTA per screen
@@ -313,13 +336,20 @@ export default function HistoryScreen() {
           contentContainerStyle={listContentStyle}
           ListHeaderComponent={
             state.items.length >= 2 ? (
-              <PillButton
-                variant="secondary"
-                label={Copy.history.compare.cta}
-                accessibilityHint={Copy.history.compare.a11yHint}
-                onPress={openCompare}
-                style={styles.compareCta}
-              />
+              // A tools shelf above the content, separated by a hairline rather than by spacing
+              // alone — without the rule this pill read as a first row of the list that happened
+              // to be button-shaped. No label above it: the pill already says what it does, and
+              // setting those words twice to manufacture a hierarchy would be filler (the same
+              // call this screen's header makes about its own missing eyebrow).
+              <View style={styles.listHeader}>
+                <PillButton
+                  variant="secondary"
+                  label={Copy.history.compare.cta}
+                  accessibilityHint={Copy.history.compare.a11yHint}
+                  onPress={openCompare}
+                />
+                <View style={styles.listHeaderRule} />
+              </View>
             ) : null
           }
           renderItem={({ item }) => (
@@ -327,8 +357,6 @@ export default function HistoryScreen() {
               item={item}
               thumbnailUris={thumbnails[item.id] ?? []}
               isDeleting={deletingIds.has(item.id)}
-              colors={colors}
-              scheme={scheme}
               onPress={() => openResult(item)}
               onDelete={() => confirmDelete(item)}
             />
@@ -337,83 +365,6 @@ export default function HistoryScreen() {
       )}
       </SafeAreaView>
     </ScreenGradient>
-  );
-}
-
-function HistoryRow({
-  item,
-  thumbnailUris,
-  isDeleting,
-  colors,
-  scheme,
-  onPress,
-  onDelete,
-}: {
-  item: HistoryListItem;
-  thumbnailUris: string[];
-  isDeleting: boolean;
-  colors: ThemeColors;
-  scheme: ColorScheme;
-  onPress: () => void;
-  onDelete: () => void;
-}) {
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  const dateLabel = formatHistoryDate(item.createdAt);
-  const { overall } = item.outcome.result;
-
-  return (
-    <View style={styles.row}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={formatHistoryItemA11yLabel(item, dateLabel)}
-        onPress={onPress}
-        style={({ pressed }) => [styles.rowMain, pressed && styles.pressed]}>
-        {thumbnailUris.length > 0 ? (
-          <View style={styles.frameStrip} testID={`history-frame-strip-${item.id}`}>
-            {thumbnailUris.map((uri, index) => (
-              <Image key={`${item.id}-${index}`} source={{ uri }} style={styles.thumbnail} contentFit="cover" />
-            ))}
-          </View>
-        ) : (
-          // Covers BOTH the "still resolving" moment and the real "no thumbnail" outcome (empty
-          // media_paths, or every signed-URL attempt failed) with the same neutral placeholder —
-          // never a broken image, never a crash (lib/history.ts's header note on this exact case).
-          <View style={styles.thumbnailPlaceholder} testID={`history-frame-placeholder-${item.id}`} />
-        )}
-
-        <View style={styles.rowInfo}>
-          {/* The score is now the row's headline and the date its supporting metadata — the
-              reference's list rows lead with the thing you came for, not with when it happened.
-              Previously the date was the only prominent text and the score sat in a small chip
-              beneath it. */}
-          {overall.score !== null && overall.band !== null ? (
-            <View style={styles.scoreLine}>
-              <Text style={styles.scoreNumeral}>{overall.score}</Text>
-              <Text style={[styles.scoreBand, { color: Score[overall.band][scheme].text }]}>
-                {ScoreBandLabel[overall.band]}
-              </Text>
-            </View>
-          ) : (
-            <Text style={styles.notAssessedText}>{Copy.result.pillar.notAssessed.generic}</Text>
-          )}
-          <Text style={styles.dateText}>{dateLabel}</Text>
-        </View>
-      </Pressable>
-
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={formatHistoryItemDeleteA11yLabel(item, dateLabel)}
-        accessibilityState={{ disabled: isDeleting }}
-        disabled={isDeleting}
-        onPress={onDelete}
-        style={({ pressed }) => [styles.deleteButton, pressed && !isDeleting && styles.pressed, isDeleting && styles.disabled]}>
-        {/* Kept as a visible word rather than becoming the reference's icon-only row action.
-            Delete is destructive and irreversible here (it purges the stored frames too); an
-            unlabelled glyph would be the one place in this redesign where matching the reference
-            costs the user real clarity. Flagged as a judgement call. */}
-        <Text style={styles.deleteText}>{Copy.history.item.deleteCta}</Text>
-      </Pressable>
-    </View>
   );
 }
 
@@ -427,24 +378,23 @@ function createStyles(colors: ThemeColors) {
     // width/maxWidth/alignSelf here and on centerBlock/listContent below: the same tablet
     // readable-column cap as app/(tabs)/index.tsx (issue #63) — a no-op on any phone, see
     // ContentWidth's own comment in constants/theme.ts.
-    headerRow: {
+    header: {
       width: '100%',
       maxWidth: ContentWidth.readable,
       alignSelf: 'center',
+      gap: Spacing.md,
+      paddingHorizontal: Spacing.xl,
+      paddingTop: Spacing.lg,
+      paddingBottom: Spacing.xl,
+    },
+    // The chrome line above the title. Right-aligned, so the control sits where a top-bar control
+    // is expected and has nothing beside it to compete with.
+    chromeRow: {
       alignItems: 'center',
       flexDirection: 'row',
-      gap: Spacing.md,
-      justifyContent: 'space-between',
-      paddingHorizontal: Spacing.xl,
-      paddingTop: Spacing.xl,
-      paddingBottom: Spacing.lg,
+      justifyContent: 'flex-end',
     },
-    // `<KineticText>`'s own `containerStyle` (the wrapping row `style` gets applied per-word to
-    // — flex has no meaningful effect on an individual word's TextStyle).
-    headerTitleRow: {
-      flex: 1,
-    },
-    header: {
+    headerTitle: {
       fontFamily: FontFamily.display.bold,
       // xl -> display (24 -> 64). The screen's ONE oversized element, per spec 2026-07-26 §3.1's
       // still-standing "at most one display-or-larger element per screen".
@@ -479,15 +429,12 @@ function createStyles(colors: ThemeColors) {
       lineHeight: FontSize.xxl * LineHeight.display,
       color: colors.text.primary,
       textAlign: 'center',
+      // The ring above already carries this block's air; without an extra step here the title sits
+      // closer to the ring than to the body line under it, and the three read as two groups.
+      marginTop: Spacing.md,
     },
     emptyCta: {
       marginTop: Spacing.sm,
-    },
-    pressed: {
-      opacity: Opacity.pressed,
-    },
-    disabled: {
-      opacity: Opacity.disabled,
     },
     list: {
       flex: 1,
@@ -503,92 +450,16 @@ function createStyles(colors: ThemeColors) {
       paddingBottom: TabBar.clearance,
       gap: Spacing.md,
     },
-    compareCta: {
+    // The tools shelf above the list, ruled off from the rows below it. Every per-row style that
+    // used to live here moved to `components/history/history-row.tsx` with the row itself.
+    listHeader: {
       alignSelf: 'stretch',
+      gap: Spacing.lg,
       marginBottom: Spacing.sm,
     },
-    row: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
-      backgroundColor: colors.surface.base,
-      borderColor: colors.hairline,
-      borderRadius: Radius.card,
-      borderWidth: StyleSheet.hairlineWidth * 2,
-      padding: Spacing.md,
-    },
-    rowMain: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.md,
-    },
-    frameStrip: {
-      flexDirection: 'row',
-      gap: Spacing.xs,
-    },
-    thumbnail: {
-      width: FRAME_THUMBNAIL_SIZE,
-      height: FRAME_THUMBNAIL_SIZE,
-      // `Radius.tile`, not `Radius.card`: a thumbnail nested inside a 24pt-cornered row needs the
-      // tighter inner corner, or the two radii fight. Before the redesign `Radius.card` was 0, so
-      // this line drew a square — it is now genuinely a rounded tile.
-      borderRadius: Radius.tile,
-      backgroundColor: colors.surface.raised,
-    },
-    thumbnailPlaceholder: {
-      width: FRAME_THUMBNAIL_SIZE,
-      height: FRAME_THUMBNAIL_SIZE,
-      borderRadius: Radius.tile,
-      backgroundColor: colors.surface.raised,
-      borderColor: colors.hairline,
-      borderWidth: 1,
-    },
-    rowInfo: {
-      flex: 1,
-      gap: Spacing.xs,
-    },
-    dateText: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.xs,
-      // Demoted to secondary metadata under the score — see the row's own comment.
-      color: colors.text.secondary,
-    },
-    scoreLine: {
-      flexDirection: 'row',
-      alignItems: 'baseline',
-      gap: Spacing.sm,
-    },
-    scoreNumeral: {
-      fontFamily: FontFamily.display.semiBold,
-      // The row's headline now: sm -> xl, and in the display family rather than mono.
-      fontSize: FontSize.xl,
-      letterSpacing: Tracking.display,
-      color: colors.text.primary,
-    },
-    scoreBand: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.xs,
-      letterSpacing: Tracking.eyebrow,
-      textTransform: 'uppercase',
-    },
-    notAssessedText: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.xs,
-      color: colors.text.secondary,
-    },
-    deleteButton: {
-      minHeight: HitTarget.min,
-      minWidth: HitTarget.min,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.sm,
-    },
-    deleteText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-      textDecorationLine: 'underline',
+    listHeaderRule: {
+      backgroundColor: colors.hairline,
+      height: StyleSheet.hairlineWidth,
     },
   });
 }
