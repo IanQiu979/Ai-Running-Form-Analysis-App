@@ -1,5 +1,5 @@
 <!--
-  Pace AnalysisAI — app icon / splash mark, "The Gait Plate" (docs/design/frontend-design-brief.md §1)
+  Pace AnalysisAI — app icon / splash mark, "The Cadence Arcs" (docs/design/frontend-design-brief.md §1)
   REVISION 3 — VARIANT B ("The Angle") propagated to production after a three-way comparison.
   Ian picked it: the goniometer/protractor read is the one of the three that looks like a
   measurement instrument rather than a generic stick-and-bar, and the one least likely to be
@@ -77,12 +77,12 @@
     - #mark — the ground-rule + posture-line + angle-arc + landing-marker group.
 
   TOKENS (constants/theme.ts, light) — `hairline` is unused (it only ever colored measure-ticks).
-    field:   Colors.light.background   #F4F1EA (bone)
-    lines:   Colors.light.text.primary #1E1B15
-    landing: Score.strong.light.fill   #2E7D5B (NOT Accent #2F6BEB, reserved for the CTA only)
+    field:   Colors.light.background   #F7F1EB (bone)
+    lines:   Colors.light.text.primary #2B1C12
+    landing: Score.strong.light.fill   #339869 (NOT Accent #2F6BEB, reserved for the CTA only)
 -->
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <rect id="field" x="0" y="0" width="1024" height="1024" fill="#F4F1EA" />
+  <rect id="field" x="0" y="0" width="1024" height="1024" fill="#F7F1EB" />
   <g id="mark">
     <line
       id="ground-rule"
@@ -90,7 +90,7 @@
       y1="520"
       x2="812"
       y2="520"
-      stroke="#1E1B15"
+      stroke="#2B1C12"
       stroke-width="64"
       stroke-linecap="butt"
     />
@@ -100,7 +100,7 @@
       y1="520"
       x2="648"
       y2="265"
-      stroke="#1E1B15"
+      stroke="#2B1C12"
       stroke-width="64"
       stroke-linecap="round"
     />
@@ -108,10 +108,10 @@
       id="angle-arc"
       d="M 770,411 A 280,280 0 0 0 730,344"
       fill="none"
-      stroke="#1E1B15"
+      stroke="#2B1C12"
       stroke-width="48"
       stroke-linecap="round"
     />
-    <circle id="landing-marker" cx="512" cy="520" r="84" fill="#2E7D5B" />
+    <circle id="landing-marker" cx="512" cy="520" r="84" fill="#339869" />
   </g>
 </svg>
