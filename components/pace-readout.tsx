@@ -2,13 +2,28 @@
  * The PACE readout (issue #56) — the four-pillar score block that is the product's payload
  * (design brief §3: "this four-row block ... is the app's signature screen element").
  *
+ * CADENCE ARCS (2026-09-01): THE BARS ARE NOW RINGS. The overall score is one large arc ring and
+ * each pillar carries its own small one, drawn by `components/ui/arc-ring.tsx`. This is a
+ * presentation change and ONLY a presentation change — it reads the exact same `PaceResult` shape
+ * it always has (`overall.score`/`overall.band` and each pillar's `score`/`band`), converts a
+ * 0-100 score to a 0-1 sweep at the point of render, and sends nothing new to the server. The API
+ * contract is untouched.
+ *
+ * A ring is a better carrier for this data than a bar was, for a reason specific to the payload:
+ * a bar's length is only readable against the length of the bars around it, so four bars in a
+ * column invite comparison between pillars, which is precisely the reading PACE does not want
+ * (the four pillars are not a leaderboard). A ring is read against its own full circle, so each
+ * pillar is judged against 100, not against Posture.
+ *
  * THE RULE THIS FILE MUST NEVER BREAK: `score: null` is a first-class, common state (every photo
  * submission reports two pillars this way — motion-over-time pillars a single frame cannot
- * show), not an error. A not-assessed pillar renders NO numeral, NO band word, and NO filled bar
- * — only a hollow, bordered track and a plain-language reason. It must never read as a zero, and
- * never as a greyed-out fake score. `<PillarRow>` below enforces this by construction: the
- * numeral/band-word/bar-fill elements are only ever mounted when `pillar.score !== null` — there
- * is no code path that stringifies `null` into "0".
+ * show), not an error. A not-assessed pillar renders NO numeral, NO band word, and NO swept arc
+ * — only a hollow, DASHED ring track and a plain-language reason. It must never read as a zero,
+ * and never as a greyed-out fake score. `<PillarRow>` below enforces this by construction: the
+ * numeral/band-word elements are only ever mounted when `pillar.score !== null`, and `<ArcRing>`
+ * independently enforces the same thing for the arc itself (it mounts no fill at all for a `null`
+ * fraction — see its header). There is no code path that stringifies `null` into "0", and there
+ * is no code path that turns it into a 0% sweep.
  *
  * Tier gating (Free: scores + one line, no drills, no flags; Pro/Elite: fuller feedback + flags
  * + drills) is never re-derived here (CLAUDE.md: no business rules in the client) — the server
@@ -21,9 +36,8 @@
  * to refuse. `app/result/[id].tsx` renders the stored frame plainly instead.
  *
  * MOTION (issue #61): `firstReveal` is the only thing that switches this file off its default,
- * static render. False (the overwhelmingly common case — every re-open from Past Analyses) keeps
- * every node below byte-identical to the pre-#61 implementation: a plain `Text`/`View` bar at its
- * final width, no Reanimated import in the render path at all. True (set by `app/result/[id].tsx`
+ * static render. False (the overwhelmingly common case — every re-open from Past Analyses) renders
+ * every ring already at its final sweep with nothing scheduled. True (set by `app/result/[id].tsx`
  * only when the `justAnalyzed` nav param is present, motion-consult.md item 3) switches to one of
  * two reveal modes, chosen by `useReducedMotion()`: `animate` (the staggered scaleX fill +
  * numeral count-up, `components/pace-reveal.tsx`) or `crossfade` (brief §6: reduced motion gets
@@ -45,13 +59,15 @@ import { StyleSheet, Text, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { KineticText } from '@/components/kinetic-text';
-import { AnimatedOverallNumeral, AnimatedPillarBarFill } from '@/components/pace-reveal';
+import { AnimatedOverallNumeral } from '@/components/pace-reveal';
 import { PillarDetailModal } from '@/components/pillar-detail-modal';
+import { ArcRing } from '@/components/ui/arc-ring';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
 import { Eyebrow } from '@/components/ui/eyebrow';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Copy } from '@/constants/copy';
 import {
+  Arc,
   Colors,
   FontFamily,
   FontSize,
@@ -95,6 +111,23 @@ type Props = {
  * uses — only the outer crossfade differs). `animate`: the staggered fill + count-up. `crossfade`:
  * brief §6's reduced-motion variant. */
 type RevealMode = 'instant' | 'animate' | 'crossfade';
+
+// Ring geometry. These are COMPOSITION, not tokens, and they live here rather than in
+// `constants/theme.ts` on purpose: a ring's diameter is a decision about this screen's hierarchy —
+// how much louder the overall score is than a pillar — not a reusable scale step. `constants/
+// theme.ts`'s own rule is to publish a token when a value repeats across screens, and no other
+// screen wants these exact two sizes.
+//
+// The proportion is what carries the meaning: the overall ring is ~3.25x a pillar ring's diameter,
+// which is the same order of hierarchy the old layout got from a 96pt numeral over a 12pt bar.
+const OVERALL_RING_SIZE = 208;
+const OVERALL_RING_STROKE = 14;
+const PILLAR_RING_SIZE = 64;
+const PILLAR_RING_STROKE = 6;
+
+/** "~50ms stagger P->A->C->E" — motion-consult.md item 1, carried over verbatim from the bar fill
+ *  the rings replace. */
+const PILLAR_RING_STAGGER_MS = 50;
 
 export function PaceReadout({ result, firstReveal = false, revealReady = true }: Props) {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
@@ -149,37 +182,60 @@ export function PaceReadout({ result, firstReveal = false, revealReady = true }:
         accessibilityRole="header"
         accessibilityLabel={overallA11yLabel(overall)}>
         <Eyebrow>{Copy.result.overall.label}</Eyebrow>
-        {overall.score !== null && overall.band !== null ? (
-          <View style={styles.overallScoreRow}>
-            {revealMode === 'animate' ? (
-              <AnimatedOverallNumeral
-                testID="overall-score"
-                style={styles.overallNumeral}
-                value={overall.score}
-                triggered={revealed}
-              />
-            ) : (
-              // Dynamic Type guard (brief §7: never hard-clip the score readout). At
-              // FontSize.hero a scaled-up numeral would otherwise run off the edge, so it
-              // shrinks to fit its line instead of clipping.
-              <Text
-                testID="overall-score"
-                style={styles.overallNumeral}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.5}>
-                {overall.score}
+        {/* THE SIGNATURE ELEMENT. One large ring carrying the four-pillar average, with the
+            numeral and band word set inside it. The ring's fill colour is the band's own proven
+            `fill` role, so the score is encoded THREE ways — arc length, arc colour, and the
+            numeral — which is one more than the bar it replaces managed.
+            A not-assessed overall still gets a ring: the same dashed, empty track every
+            not-assessed pillar gets, so "we could not score this" looks like the same idea at
+            every scale on this screen rather than like a different component. */}
+        <ArcRing
+          testID="overall-ring"
+          size={OVERALL_RING_SIZE}
+          strokeWidth={OVERALL_RING_STROKE}
+          fraction={overall.score !== null ? overall.score / 100 : null}
+          color={overall.band !== null ? Score[overall.band][scheme].fill : Arc[scheme].ornament}
+          animate={revealMode === 'animate'}
+          // The overall leads; the four pillars follow it (see `PILLAR_RING_STAGGER_MS`), so the
+          // headline number lands first and the detail assembles under it.
+          delayMs={0}>
+          {overall.score !== null && overall.band !== null ? (
+            <View style={styles.overallScoreStack}>
+              {revealMode === 'animate' ? (
+                <AnimatedOverallNumeral
+                  testID="overall-score"
+                  style={styles.overallNumeral}
+                  value={overall.score}
+                  triggered={revealed}
+                />
+              ) : (
+                // Dynamic Type guard (brief §7: never hard-clip the score readout). At
+                // FontSize.display a scaled-up numeral would otherwise run past the ring, so it
+                // shrinks to fit its line instead of clipping. The ring itself never clips its
+                // centred content — see `<ArcRing>` — so the worst case is a numeral that grows
+                // toward the ring's inner edge, not one that gets cut off by it.
+                <Text
+                  testID="overall-score"
+                  style={styles.overallNumeral}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.5}>
+                  {overall.score}
+                </Text>
+              )}
+              <Text testID="overall-band" style={[styles.overallBand, { color: Score[overall.band][scheme].text }]}>
+                {ScoreBandLabel[overall.band]}
               </Text>
-            )}
-            <Text testID="overall-band" style={[styles.overallBand, { color: Score[overall.band][scheme].text }]}>
-              {ScoreBandLabel[overall.band]}
-            </Text>
-          </View>
-        ) : (
+            </View>
+          ) : null}
+        </ArcRing>
+        {overall.score === null || overall.band === null ? (
+          // Set BELOW the ring, not inside it: this is a sentence, not a readout, and a sentence
+          // squeezed into a 208pt circle wraps to four words a line.
           <Text testID="overall-not-assessed" style={styles.overallNotAssessed}>
             {Copy.result.pillar.notAssessed.generic}
           </Text>
-        )}
+        ) : null}
       </View>
 
       <View style={styles.pillarList}>
@@ -237,18 +293,36 @@ function PillarRow({
           style={styles.pillarHeaderInfo}
           accessible
           accessibilityLabel={pillarA11yLabel(label, pillar)}>
-          <Text style={styles.pillarLetter}>{pillarLetter(pillarId)}</Text>
-          <Text style={styles.pillarName}>{label}</Text>
-          {pillar.score !== null && pillar.band !== null ? (
-            <View style={styles.scoreRow}>
+          {/* The pillar's own ring, with its numeral set inside it. Same component, same rules,
+              a quarter of the size — which is the whole point of the motif: the overall score and
+              a pillar score are the same kind of thing at two scales, not two different charts. */}
+          <ArcRing
+            testID={`pillar-ring-${pillarId}`}
+            size={PILLAR_RING_SIZE}
+            strokeWidth={PILLAR_RING_STROKE}
+            fraction={pillar.score !== null ? pillar.score / 100 : null}
+            color={pillar.band !== null ? Score[pillar.band][scheme].fill : Arc[scheme].ornament}
+            animate={revealMode === 'animate'}
+            // "~50ms stagger P->A->C->E" (motion-consult.md item 1) — carried over verbatim from
+            // the bar fill this replaces, offset one step behind the overall ring's own sweep.
+            delayMs={Motion.duration.quick + index * PILLAR_RING_STAGGER_MS}>
+            {pillar.score !== null ? (
               <Text testID={`pillar-score-${pillarId}`} style={styles.scoreNumeral}>
                 {pillar.score}
               </Text>
+            ) : null}
+          </ArcRing>
+          <View style={styles.pillarNameBlock}>
+            <View style={styles.pillarNameRow}>
+              <Text style={styles.pillarLetter}>{pillarLetter(pillarId)}</Text>
+              <Text style={styles.pillarName}>{label}</Text>
+            </View>
+            {pillar.band !== null ? (
               <Text testID={`pillar-band-${pillarId}`} style={[styles.bandWord, { color: Score[pillar.band][scheme].text }]}>
                 {ScoreBandLabel[pillar.band]}
               </Text>
-            </View>
-          ) : null}
+            ) : null}
+          </View>
         </View>
         <CircleIconButton
           testID={`pillar-detail-button-${pillarId}`}
@@ -266,32 +340,10 @@ function PillarRow({
         pillar={pillar}
       />
 
-      <View
-        style={[
-          styles.barTrack,
-          // M1 (v23-ux-audit-r1): a not-assessed pillar's empty track used to be shape-identical
-          // to a filled bar's track, which read as a score of zero. A dashed border on a
-          // transparent fill is structurally distinct from "filled at 0%" at a glance.
-          pillar.score === null || pillar.band === null ? styles.barTrackNotAssessed : null,
-        ]}>
-        {pillar.score !== null && pillar.band !== null ? (
-          revealMode === 'animate' ? (
-            <AnimatedPillarBarFill
-              testID={`pillar-bar-fill-${pillarId}`}
-              index={index}
-              score={pillar.score}
-              triggered={triggered}
-              style={[styles.barFill, { backgroundColor: Score[pillar.band][scheme].fill }]}
-            />
-          ) : (
-            <View
-              testID={`pillar-bar-fill-${pillarId}`}
-              style={[styles.barFill, { width: `${pillar.score}%`, backgroundColor: Score[pillar.band][scheme].fill }]}
-            />
-          )
-        ) : null}
-      </View>
-
+      {/* The bar track that used to sit here is gone — the ring in the header row above IS the
+          score's visual now, and drawing both would encode it twice in two competing shapes.
+          M1 (v23-ux-audit-r1)'s requirement that a not-assessed pillar be structurally distinct
+          from "filled at 0%" moved with it, into `<ArcRing>`'s dashed empty track. */}
       {pillar.score === null || pillar.band === null ? (
         <Text
           testID={`pillar-not-assessed-${pillarId}`}
@@ -364,38 +416,42 @@ function createStyles(colors: ThemeColors) {
     },
     overallBlock: {
       alignItems: 'center',
-      gap: Spacing.xs,
+      gap: Spacing.lg,
     },
     // `overallLabel` is gone — that hand-rolled "uppercase + letterSpacing: 1" style WAS the
     // eyebrow register, written before it had a token. It is now `<Eyebrow>`
     // (components/ui/eyebrow.tsx), so the same micro-label reads identically here and on every
     // other screen instead of each one re-deriving it.
-    overallScoreRow: {
-      alignItems: 'baseline',
-      flexDirection: 'row',
-      gap: Spacing.sm,
-      // Brief §7 forbids clipping the score readout. At FontSize.hero the numeral and the band
-      // word cannot share one line once Dynamic Type scales up, so the row wraps and the band
-      // word drops beneath the numeral rather than being pushed off the edge.
-      flexWrap: 'wrap',
-      justifyContent: 'center',
+    // The numeral and band word stack INSIDE the ring, rather than sitting side by side as they
+    // did beside the bar. A row would have to fit both across the ring's inner diameter (180pt),
+    // which the band words do not survive ("Needs work" at FontSize.lg is wider than that once
+    // Dynamic Type touches it). Stacked, each has the full inner width to itself.
+    overallScoreStack: {
+      alignItems: 'center',
+      gap: Spacing.xs,
     },
     overallNumeral: {
       color: colors.text.primary,
-      // Family and colour unchanged; only the step moves — the screen's ONE hero-scale element
-      // (spec 2026-07-26 §3.1: at most one `display`-or-larger element per screen).
+      // Family and colour unchanged. The step moves from `hero` (96) DOWN to `display` (64),
+      // because the ring is now the thing carrying scale on this screen — a 96pt numeral inside a
+      // 208pt circle leaves no ring left to read. `display` is still this screen's one
+      // display-or-larger element (spec 2026-07-26 §3.1), so the rule that governed the 96 is
+      // satisfied by the 64 in exactly the same way.
       fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.hero,
-      // Added by the redesign: a 96pt numeral set at the default line height floats in far too
-      // much leading, which is what made the score read as small despite its size. Negative
-      // tracking is the same treatment large display type gets everywhere in this pass.
+      fontSize: FontSize.display,
       letterSpacing: Tracking.hero,
-      lineHeight: FontSize.hero * LineHeight.hero,
+      lineHeight: FontSize.display * LineHeight.hero,
+      // Metric numerals in the display face are proportionally spaced; centring the text node
+      // keeps a two-digit and a three-digit score on the same optical axis inside the ring.
+      textAlign: 'center',
     },
     overallBand: {
       fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.lg,
+      // Stepped down from `lg` with the numeral, for the same reason: it now shares the ring's
+      // inner width rather than the full card width.
+      fontSize: FontSize.sm,
       letterSpacing: Tracking.eyebrow,
+      textAlign: 'center',
       textTransform: 'uppercase',
     },
     overallNotAssessed: {
@@ -431,6 +487,16 @@ function createStyles(colors: ThemeColors) {
       flexDirection: 'row',
       gap: Spacing.sm,
     },
+    // The name and its band word stack beside the ring, taking the row's remaining width.
+    pillarNameBlock: {
+      flex: 1,
+      gap: Spacing.xs,
+    },
+    pillarNameRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: Spacing.sm,
+    },
     pillarLetter: {
       color: colors.text.primary,
       fontFamily: FontFamily.display.semiBold,
@@ -447,39 +513,15 @@ function createStyles(colors: ThemeColors) {
       fontFamily: FontFamily.body.medium,
       fontSize: FontSize.md,
     },
-    scoreRow: {
-      alignItems: 'baseline',
-      flexDirection: 'row',
-      gap: Spacing.xs,
-    },
     scoreNumeral: {
       color: colors.text.primary,
       fontFamily: FontFamily.mono.bold,
       fontSize: FontSize.md,
+      textAlign: 'center',
     },
     bandWord: {
       fontFamily: FontFamily.body.semiBold,
       fontSize: FontSize.sm,
-    },
-    barTrack: {
-      backgroundColor: colors.surface.raised,
-      borderColor: colors.hairline,
-      borderRadius: Radius.pill,
-      borderWidth: 1,
-      // Was Spacing.sm (8). A thicker bar is the redesign's one concession to weight in an
-      // otherwise light readout: the bar is the only element that encodes the score twice (length
-      // AND colour, design brief §3), so it earns being the boldest mark in the row.
-      height: Spacing.md,
-      marginTop: Spacing.xs,
-      overflow: 'hidden',
-    },
-    barFill: {
-      borderRadius: Radius.pill,
-      height: '100%',
-    },
-    barTrackNotAssessed: {
-      backgroundColor: 'transparent',
-      borderStyle: 'dashed',
     },
     notAssessedText: {
       color: colors.text.secondary,

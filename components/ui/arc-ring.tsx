@@ -41,7 +41,7 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedProps, useSharedValue, withDelay, withSpring } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 
-import { Arc, Colors, Motion, type ColorScheme } from '@/constants/theme';
+import { Arc, Motion, type ColorScheme } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
