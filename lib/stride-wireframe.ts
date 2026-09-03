@@ -117,10 +117,10 @@ export const BOB_AMPLITUDE = 0.011;
 
 /** Thigh direction from vertical (+ forward). Flexed ahead at contact, extends through stance to
  *  trail behind at toe-off, then drives forward through swing to its peak before contact. */
-export const THIGH_DEG: readonly number[] = [18, 10, -8, -24, -12, 14, 32, 30];
+export const THIGH_DEG: readonly number[] = [22, 10, -8, -26, -14, 8, 34, 30];
 /** Knee flexion, relative (0 = straight). Small at contact, loads to its stance peak at
  *  mid-stance, near-straight at toe-off, folds hard mid-swing (heel to glute), unfolds to land. */
-export const KNEE_FLEX_DEG: readonly number[] = [18, 36, 26, 12, 78, 102, 78, 34];
+export const KNEE_FLEX_DEG: readonly number[] = [20, 38, 28, 12, 86, 114, 84, 36];
 /** Ankle, relative to the shin: positive = plantarflexed (toe pointing down), negative =
  *  dorsiflexed (toe pulled up). Dorsiflexed as the body passes over the foot, plantarflexed for
  *  push-off, neutral-to-slightly-dorsiflexed through swing so the toe clears. */
@@ -332,6 +332,36 @@ export const GROUND_TRAVEL_PER_CYCLE: number = (() => {
   const b = solveStride(STANCE.to).nearAnkle[0];
   const dt = STANCE.to - STANCE.from;
   return dt > 0 ? (a - b) / dt : 0;
+})();
+
+/**
+ * The figure's bounding box over the whole cycle, figure-box units: the furthest any joint or the
+ * head's ring reaches. The component frames on THIS, not on the nominal 0-1 box — the runner
+ * leans and reaches forward, so its true centre is not x = 0.5, and the box has slack the hero
+ * would otherwise render as dead margin — and it hangs the gait ruler under exactly this span.
+ * Derived, so a retuned table re-frames itself.
+ */
+export const FIGURE_EXTENT: {
+  readonly x0: number;
+  readonly x1: number;
+  readonly top: number;
+} = (() => {
+  let x0 = 1;
+  let x1 = 0;
+  let top = 1;
+  for (let i = 0; i < DERIVE_SAMPLES; i++) {
+    const s = solveStride(i / DERIVE_SAMPLES);
+    for (const v of Object.values(s)) {
+      if (!Array.isArray(v)) continue;
+      x0 = Math.min(x0, v[0]);
+      x1 = Math.max(x1, v[0]);
+      top = Math.min(top, v[1]);
+    }
+    x0 = Math.min(x0, s.head[0] - HEAD_RADIUS);
+    x1 = Math.max(x1, s.head[0] + HEAD_RADIUS);
+    top = Math.min(top, s.head[1] - HEAD_RADIUS);
+  }
+  return { x0, x1, top };
 })();
 
 /** The still frame `<StrideWireframeHero>` renders under reduced motion: late swing, knee

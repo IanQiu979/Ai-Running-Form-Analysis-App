@@ -22,9 +22,10 @@ import {
   STRIDE_WIREFRAME_PALETTE,
   StrideWireframeHero,
   computeViewBox,
+  FRAME,
   cycleDurationMs,
 } from '../stride-wireframe-hero';
-import { GROUND_Y, REST_PHASE, strideLayers } from '@/lib/stride-wireframe';
+import { FIGURE_EXTENT, GROUND_Y, REST_PHASE, strideLayers } from '@/lib/stride-wireframe';
 
 const mockUseReducedMotion = jest.fn(() => false);
 jest.mock('@/hooks/use-reduced-motion', () => ({
@@ -103,19 +104,26 @@ describe('sizing', () => {
     expect(screen.getByTestId('hero-near', HIDDEN)).toBeTruthy();
   });
 
-  it('computes a viewBox that keeps the figure centred, reserves room for the ruler, and extends along the longer axis', () => {
-    // The content is 100 wide and taller than 100: the ruler and its captions hang below the
-    // ground. Whatever the box, both must fit — the wide case is the one that clipped the ruler.
+  it('computes a viewBox that frames the figure’s own extent, reserves room for the ruler, and extends along the longer axis', () => {
+    // The frame is the runner's derived reach (not the nominal 0-100 box) plus the ruler and
+    // its captions hanging below the ground. Whatever the box, all of it must fit — the wide
+    // case is the one that clipped the ruler.
     const tall = computeViewBox(200, 400, 4);
-    expect(tall.w).toBe(108);
-    expect(tall.h).toBeCloseTo(216, 8);
-    expect(tall.x).toBe(-4);
+    expect(tall.w).toBeCloseTo(FRAME.w + 8, 8);
+    expect(tall.h).toBeCloseTo(tall.w * 2, 8);
+    expect(tall.x + tall.w / 2).toBeCloseTo(FRAME.cx, 8);
+    expect(tall.y).toBeLessThanOrEqual(FRAME.y0 - 4);
     expect(tall.y + tall.h).toBeGreaterThan(GROUND_Y * 100 + 14);
     const wide = computeViewBox(400, 200, 4);
-    expect(wide.y).toBe(-4);
+    expect(wide.h).toBeCloseTo(FRAME.h + 8, 8);
+    expect(wide.y).toBeCloseTo(FRAME.y0 - 4, 8);
     expect(wide.y + wide.h).toBeGreaterThan(GROUND_Y * 100 + 14);
     expect(wide.w / wide.h).toBeCloseTo(2, 8);
-    expect(wide.x).toBeCloseTo(-(wide.w - 100) / 2, 8);
+    expect(wide.x + wide.w / 2).toBeCloseTo(FRAME.cx, 8);
+    // The frame is derived from the gait: it hugs the figure rather than the nominal box.
+    expect(FRAME.x0).toBeGreaterThan(0);
+    expect(FRAME.x1).toBeLessThan(100);
+    expect(FRAME.y0).toBeGreaterThan(0);
   });
 
   it('derives the cycle length from cadence and playback rate', () => {
@@ -160,8 +168,10 @@ describe('reduced motion — the still tree', () => {
     await render(<StrideWireframeHero testID="hero" />);
     await layout();
     const cursorX = Number((screen.getByTestId('hero-cursor', HIDDEN).props.d as string).match(/^M(-?[\d.]+)/)?.[1]);
-    // The ruler spans x=20..80; the cursor sits REST_PHASE of the way along it.
-    expect(cursorX).toBeCloseTo(20 + 60 * REST_PHASE, 1);
+    // The ruler spans the figure's derived reach; the cursor sits REST_PHASE of the way along it.
+    const x0 = Math.round(FIGURE_EXTENT.x0 * 100);
+    const x1 = Math.round(FIGURE_EXTENT.x1 * 100);
+    expect(cursorX).toBeCloseTo(x0 + (x1 - x0) * REST_PHASE, 1);
   });
 });
 

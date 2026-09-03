@@ -63,8 +63,8 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
                           # cyan on near-black regardless of colour scheme, with gait-lab chrome
                           # (grid, scrolling ground, cycle ruler, knee arc, live knee angle). Its
                           # geometry is pure math in lib/stride-wireframe.ts (periodic Catmull-
-                          # Rom over 8 PACE-grounded keyframes; ground line + ground speed
-                          # DERIVED from the gait). Palette pinned in the file on purpose until
+                          # Rom over 8 PACE-grounded keyframes; ground line, ground speed and
+                          # the frame it is drawn in DERIVED from the gait). Palette pinned in the file on purpose until
                           # the new token set lands — see its header for the integration
                           # contract. Not yet mounted on a product screen: the onboarding
                           # rebuild drops it in. Preview: app/dev/stride-wireframe.tsx

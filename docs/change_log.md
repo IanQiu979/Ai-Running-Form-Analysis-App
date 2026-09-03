@@ -29,13 +29,25 @@ token set and the onboarding rebuild; this entry is only the hero itself.
   Eight per-joint keyframes (thigh, knee, ankle, upper arm, elbow — degrees, as a goniometer reads
   them) are interpolated with a periodic Catmull-Rom spline, so the loop seam is C1-smooth and the
   figure never pauses at a keyframe the way `low-poly-field.tsx`'s smoothstep runner does. The
-  ground line, stance window (0 → 38% of the cycle) and ground speed are DERIVED from the gait at
+  ground line, stance window (0 → 36% of the cycle), ground speed and the figure's own extent are DERIVED from the gait at
   module load, so a retuned table cannot float a foot or desync the treadmill. Tuned in a browser
   harness against sole-height numbers, then locked: rigid bone lengths, seamless loop,
   contralateral limbs, feet on the ground only in stance, no knee hyperextension, compact landing,
   one-line trunk lean, ground-speed = foot-speed (`lib/__tests__/stride-wireframe.test.ts`);
   a11y hiding, pinned palette in both schemes, still-vs-loop tree selection, first-frame parity and
   layer switches (`components/__tests__/stride-wireframe-hero.test.tsx`).
+- **Iterated on feel against a browser frame-strip and on a simulator (2026-09-04).** Two
+  things changed after seeing it move. (1) The gait: the landing thigh/knee opened a few degrees
+  so initial contact no longer reads as a standing foot-plant, and mid-swing knee flexion went
+  102° → 114° with the thigh held further back so the heel visibly tucks toward the glute — the
+  one pose that separates a runner from a brisk walker. Toe-off moved 38% → 36%, still inside a
+  running stance. (2) The framing: the hero used to fit the nominal 0-100 figure box, which left a
+  leaning, forward-reaching runner small and off-centre in a portrait box; it now frames on
+  `FIGURE_EXTENT` (the figure's derived reach over the cycle, `lib/stride-wireframe.ts`) via an
+  exported `FRAME`, and the gait ruler spans that same reach — 0% under the trailing toe, 100%
+  under the leading one. Verified on a simulator dev client: Space Mono renders inside the SVG
+  ruler captions, the live knee angle updates on the UI thread under Fabric, and the loop runs
+  with trails.
 - **The palette is pinned in the component, not in `constants/theme.ts` — deliberately.** The
   brief replaces the whole Cadence Arcs token system; the theme task should re-point
   `STRIDE_WIREFRAME_PALETTE` (or pass `lineColor`/`backgroundColor`) once its tokens exist.

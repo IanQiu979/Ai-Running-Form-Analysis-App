@@ -89,6 +89,7 @@ import Svg, { G, Path, Text as SvgText } from 'react-native-svg';
 import { FontFamily, FontSize, Tracking } from '@/constants/theme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import {
+  FIGURE_EXTENT,
   GROUND_TRAVEL_PER_CYCLE,
   GROUND_Y,
   REST_PHASE,
@@ -144,8 +145,17 @@ const Stroke = {
 /** How far behind the live frame each onion-skin ghost sits, as a fraction of the cycle. */
 const TRAIL_LAG = [0.05, 0.1] as const;
 
-/** The gait-cycle ruler: x extent and its drop below the ground, viewBox units. */
-const RULER = { x0: 20, x1: 80, dropBelowGround: 9, tick: 1.4, majorTick: 2.5, cursor: 1.6 } as const;
+/** The gait-cycle ruler: its drop below the ground and its marks, viewBox units. It spans the
+ *  figure's own reach (`FIGURE_EXTENT`), so 0% sits under the trailing toe and 100% under the
+ *  leading one — the ruler measures the runner, not the box. */
+const RULER = {
+  x0: Math.round(FIGURE_EXTENT.x0 * VIEWBOX),
+  x1: Math.round(FIGURE_EXTENT.x1 * VIEWBOX),
+  dropBelowGround: 9,
+  tick: 1.4,
+  majorTick: 2.5,
+  cursor: 1.6,
+} as const;
 
 /** Grid pitch, viewBox units. */
 const GRID_PITCH = 10;
@@ -168,29 +178,39 @@ export function cycleDurationMs(cadenceSpm: number, playbackRate: number): numbe
 }
 
 /**
- * How far below the figure box the chrome reaches: the ruler sits `RULER.dropBelowGround` under
- * the ground, its captions a label's height under that. The viewBox reserves this so a wide box
- * never clips the ruler off the bottom.
+ * The content frame the viewBox fits, viewBox units: the figure's derived reach plus a little
+ * air, from just above the head down to the ruler's captions (the ruler sits
+ * `RULER.dropBelowGround` under the ground, its captions a label's height under that). Framing
+ * on the figure's true extent rather than the nominal 0-100 box is what lets a portrait hero
+ * fill its box with the runner instead of with margin; reserving the caption height is what keeps
+ * a wide box from clipping the ruler off the bottom.
  */
-const CONTENT_HEIGHT = GROUND_Y * VIEWBOX + RULER.dropBelowGround + RULER.majorTick + LABEL_SIZE * 2;
+export const FRAME = (() => {
+  const air = 3;
+  const x0 = FIGURE_EXTENT.x0 * VIEWBOX - air;
+  const x1 = FIGURE_EXTENT.x1 * VIEWBOX + air;
+  const y0 = FIGURE_EXTENT.top * VIEWBOX - air;
+  const y1 = GROUND_Y * VIEWBOX + RULER.dropBelowGround + RULER.majorTick + LABEL_SIZE * 2;
+  return { x0, x1, y0, y1, w: x1 - x0, h: y1 - y0, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 } as const;
+})();
 
 /**
- * The viewBox for a `width` x `height` box: the figure box (0-100 wide, 0-`CONTENT_HEIGHT`
- * tall), centred, extended along whichever axis the box has spare room on so the ground and grid
- * reach the edges, with `inset` units of breathing room.
+ * The viewBox for a `width` x `height` box: `FRAME` centred, extended along whichever axis the
+ * box has spare room on so the ground and grid reach the edges, with `inset` units of breathing
+ * room on every side.
  */
 export function computeViewBox(
   width: number,
   height: number,
   inset: number
 ): { x: number; y: number; w: number; h: number } {
-  const baseW = VIEWBOX + 2 * inset;
-  const baseH = CONTENT_HEIGHT + 2 * inset;
+  const baseW = FRAME.w + 2 * inset;
+  const baseH = FRAME.h + 2 * inset;
   let w = baseW;
   let h = baseH;
   if (width / height > baseW / baseH) w = (baseH * width) / height;
   else h = (baseW * height) / width;
-  return { x: -(w - VIEWBOX) / 2, y: -(h - CONTENT_HEIGHT) / 2, w, h };
+  return { x: FRAME.cx - w / 2, y: FRAME.cy - h / 2, w, h };
 }
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
