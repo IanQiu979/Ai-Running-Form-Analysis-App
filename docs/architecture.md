@@ -58,6 +58,17 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
                           # Fabric, Reanimated's animatedProps bypasses Polygon's own JS render()
                           # that turns `points` into the `d` it actually draws, so an animated
                           # `points` prop is silently inert; see the component's own comments.
+  stride-wireframe-hero.tsx # (2026-09-03) THE REDESIGN'S SIGNATURE ENTRY ANIMATION — a
+                          # motion-capture-style wireframe runner cycling one closed gait, icy
+                          # cyan on near-black regardless of colour scheme, with gait-lab chrome
+                          # (grid, scrolling ground, cycle ruler, knee arc, live knee angle). Its
+                          # geometry is pure math in lib/stride-wireframe.ts (periodic Catmull-
+                          # Rom over 8 PACE-grounded keyframes; ground line + ground speed
+                          # DERIVED from the gait). Palette pinned in the file on purpose until
+                          # the new token set lands — see its header for the integration
+                          # contract. Not yet mounted on a product screen: the onboarding
+                          # rebuild drops it in. Preview: app/dev/stride-wireframe.tsx
+                          # (__DEV__-only, undeclared route => reachable signed-out).
   aperture.tsx            # the result hero's lens (2026-08-02): a permanent radial vignette, plus
                           # a six-bladed iris and an expo-blur rack focus that play once on a
                           # fresh analysis. Wraps DuotoneFrame; sequenced ahead of its wireframe.
