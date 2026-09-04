@@ -42,6 +42,61 @@ export const Copy = {
       submit: 'Sign in',
       link: 'Already have an account? Sign in',
     },
+    // ---------------------------------------------------------------------------------------
+    // THE ENTRY-SCREEN SCROLL CONTENT (2026-09-04, the V2.3 redesign). NOT in
+    // docs/design/copy-deck.md and NOT copy-certified — new strings, flagged as such the same way
+    // every other post-deck addition in this file is.
+    //
+    // WHY IT EXISTS: `app/(auth)/sign-in.tsx` is the front door — there is no separate onboarding
+    // route — and until now it said the app's name, one value-prop line, and nothing else. A
+    // stranger had to create an account to find out what the thing measures. This is the scroll
+    // reveal below the fold that answers that first.
+    //
+    // VOICE RULES, and they are the reason this reads the way it does rather than like a landing
+    // page: (1) it says what the app LOOKS AT, never what it will do for you — no promise of
+    // faster times, no "unlock your potential"; (2) it states the photo/video limit UP FRONT
+    // rather than letting a new user discover it after paying attention to a result, which is the
+    // same honesty rule `pillar.notAssessed` follows; (3) it names what the product is NOT, because
+    // "one thing, done properly" is the actual pitch (CLAUDE.md: no training plans, no logging, no
+    // chat); (4) no second CTA lives down here — the sign-in controls are above this section, and
+    // a screen gets ONE primary action (see `Accent` in constants/theme.ts).
+    // ---------------------------------------------------------------------------------------
+    about: {
+      eyebrow: 'What it reads',
+      heading: 'Four things, every time.',
+      intro:
+        'Every analysis looks at the same four things in the same order, so a run you submit today and one you submit in a month are actually comparable.',
+      pillar: {
+        posture: {
+          label: 'Posture',
+          body: 'Where your head, chest and hips sit over your feet — the line everything else is built on.',
+        },
+        armSwing: {
+          label: 'Arm swing',
+          body: 'What your arms are doing, and whether they are working with your legs or against them.',
+        },
+        cadence: {
+          label: 'Cadence',
+          body: 'How often your feet land. Usually the one thing you can change this week and feel.',
+        },
+        elasticity: {
+          label: 'Elasticity',
+          body: 'How much you get back from the ground — whether you spring off it or sink into it.',
+        },
+      },
+      // The limit, stated before anyone has spent anything on it. `lib/frames.ts` and the
+      // analyze-form flow enforce it; this is the reader-facing statement of the same fact, and it
+      // deliberately says which two rather than "some pillars may not be assessed".
+      limit: {
+        eyebrow: 'What a photo can tell you',
+        body: 'A single photo can answer posture and arm swing. Cadence and elasticity need movement, so they need video. Either way the result says which of the four it actually assessed — it never fills the gap with a guess.',
+      },
+      // The negative space. Kept last because it is the closing argument, not the opening one.
+      scope: {
+        eyebrow: 'What it is not',
+        body: 'No training plans. No mileage log. No chat. One careful read of your form, and what to do about it.',
+      },
+    },
     signUp: {
       submit: 'Create account',
       link: 'New here? Create an account',

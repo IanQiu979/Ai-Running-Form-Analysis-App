@@ -33,10 +33,10 @@
   stroke weight) at this heavier weight — achieved gap is ~58.8px, verified.
 
   Fill color is functionally arbitrary (only alpha is read); used Colors.light.text.primary
-  (#2B1C12) as a token-consistent placeholder rather than an unrelated literal like #000000.
+  (#12171B) as a token-consistent placeholder rather than an unrelated literal like #000000.
 -->
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <g id="mark" fill="#2B1C12" stroke="#2B1C12">
+  <g id="mark" fill="#12171B" stroke="#12171B">
     <line
       id="ground-rule"
       x1="212"

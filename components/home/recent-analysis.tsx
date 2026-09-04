@@ -40,7 +40,7 @@ import { Eyebrow } from '@/components/ui/eyebrow';
 import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
-  Arc,
+  Meter,
   Colors,
   FontFamily,
   FontSize,
@@ -102,7 +102,7 @@ export function RecentAnalysis({
           size={HERO_RING_SIZE}
           strokeWidth={HERO_RING_STROKE}
           fraction={null}
-          color={Arc[scheme].ornament}
+          color={Meter[scheme].rule}
         />
         {/* Only the genuinely-empty branch gets to say so — the failed-read branch shows the ring
             and stays silent rather than telling a user with a full history that they have none. */}
@@ -139,7 +139,7 @@ export function RecentAnalysis({
             size={HERO_RING_SIZE}
             strokeWidth={HERO_RING_STROKE}
             fraction={overall.score !== null ? overall.score / 100 : null}
-            color={overall.band !== null ? Score[overall.band][scheme].fill : Arc[scheme].ornament}>
+            color={overall.band !== null ? Score[overall.band][scheme].fill : Meter[scheme].rule}>
             {assessed && overall.band !== null ? (
               <View style={styles.scoreStack}>
                 {/* Home's ONE display-or-larger element (spec 2026-07-26 §3.1). The empty state's

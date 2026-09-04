@@ -32,7 +32,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 
-import { Arc, Motion, type ColorScheme } from '@/constants/theme';
+import { Meter, Motion, type ColorScheme } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 
@@ -67,7 +67,7 @@ export type ArcLoaderProps = {
 
 export function ArcLoader({ size, strokeWidth = 2, color, style, testID }: ArcLoaderProps) {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const stroke = color ?? Arc[scheme].ornament;
+  const stroke = color ?? Meter[scheme].rule;
   const reduceMotion = useReducedMotion();
 
   return (
@@ -141,8 +141,8 @@ function SpinningArc({
       style={[styles.ring, { width: diameter, height: diameter }, still ? undefined : spinStyle]}>
       <Svg width={diameter} height={diameter}>
         <Circle
-          // See the note on `<CornerArcs>`'s per-arc testID: the gap in this dash array is the
-          // whole reason the rotation is visible, and it can only be asserted from a named node.
+          // Named so a test can reach it: the GAP in this dash array is the whole reason the
+          // rotation is visible at all, and there is no way to assert that from an unnamed node.
           testID={testID ? `${testID}-arc` : undefined}
           cx={diameter / 2}
           cy={diameter / 2}

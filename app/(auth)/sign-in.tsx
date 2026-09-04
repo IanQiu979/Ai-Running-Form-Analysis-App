@@ -17,6 +17,7 @@ import Animated, {
 import { KineticText } from '@/components/kinetic-text';
 import { StrideWireframeHero } from '@/components/stride-wireframe-hero';
 import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/turnstile-widget';
+import { Eyebrow } from '@/components/ui/eyebrow';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { SurfaceCard } from '@/components/ui/surface-card';
@@ -45,7 +46,9 @@ import { useSession } from '@/lib/session-provider';
 import { applySignupSession, signUpWithCaptcha } from '@/lib/signup-with-captcha';
 import { supabase } from '@/lib/supabase';
 import { resolveTurnstileConfig } from '@/lib/turnstile-config';
+import { pillarLetter } from '@/lib/pace-readout';
 import { useAnnounce } from '@/lib/use-announce';
+import { PACE_PILLARS } from '@shared/pace';
 
 
 // The site key is Cloudflare's own public identifier for this Turnstile widget — safe to inline
@@ -449,6 +452,77 @@ export default function SignInScreen() {
             disabled={isBusy}
             block
           />
+
+          {/* ===== THE SCROLL REVEAL =========================================================
+              This screen is the front door — there is no separate onboarding route — and it used
+              to end at the sign-in controls, so a stranger had to create an account to find out
+              what the app measures. Everything from here down answers that, and it is ADDITIVE:
+              nothing above it moved, and no auth behaviour changed.
+
+              IT SITS BELOW THE CONTROLS, NOT ABOVE THEM, and that ordering is the one real
+              decision here. A returning user is the common case and must never scroll past a
+              brochure to reach a sign-in button; a new user is the one who scrolls, and scrolling
+              is exactly the gesture that signals "there is more here". So the first screenful is
+              the wordmark, the second is the two ways in, and the reveal is the reward for
+              looking further.
+
+              NO SECOND CTA LIVES DOWN HERE. A screen gets one primary action (see `Accent` in
+              constants/theme.ts), it is above, and repeating it at the bottom would spend the
+              accent twice on one screen — the exact discipline the two-tier accent system exists
+              to enforce.
+
+              CONTRAST: headings and intro copy are `text.primary`, the ONLY role
+              `Gradient.page` is proven for. Every line of `text.secondary` below is inside a
+              `<SurfaceCard>`, because the wash does not carry it — see `Gradient`'s contract in
+              constants/theme.ts. That split is why this section is cards-on-a-wash rather than a
+              single flowing column.
+              ================================================================================= */}
+          <View style={styles.about}>
+            <Eyebrow tone="primary" accessibilityRole="header">
+              {Copy.auth.about.eyebrow}
+            </Eyebrow>
+            <Text style={styles.aboutHeading}>{Copy.auth.about.heading}</Text>
+            <Text style={styles.aboutIntro}>{Copy.auth.about.intro}</Text>
+
+            {/* One card per pillar, in canonical P-A-C-E order from the shared module rather than
+                from a list retyped here — the same rule every other four-pillar surface in the app
+                follows, so this cannot drift out of order or lose one. */}
+            {PACE_PILLARS.map((id) => (
+              <SurfaceCard key={id} testID={`sign-in-pillar-${id}`}>
+                <View style={styles.pillarRow}>
+                  {/* Mono, matching how a pillar is marked everywhere else in the app (the readout,
+                      the compare panel). Decorative here — the label beside it is the accessible
+                      name, so a screen reader is not made to spell "P". */}
+                  <Text
+                    style={styles.pillarLetter}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants">
+                    {pillarLetter(id)}
+                  </Text>
+                  <View style={styles.pillarText}>
+                    <Text style={styles.pillarLabel}>{Copy.auth.about.pillar[id].label}</Text>
+                    <Text style={styles.pillarBody}>{Copy.auth.about.pillar[id].body}</Text>
+                  </View>
+                </View>
+              </SurfaceCard>
+            ))}
+
+            {/* The photo/video limit, stated before anyone has spent anything on discovering it.
+                Same honesty rule `Copy.result.pillar.notAssessed` follows on the result screen. */}
+            <SurfaceCard testID="sign-in-about-limit">
+              <View style={styles.noteBody}>
+                <Eyebrow>{Copy.auth.about.limit.eyebrow}</Eyebrow>
+                <Text style={styles.pillarBody}>{Copy.auth.about.limit.body}</Text>
+              </View>
+            </SurfaceCard>
+
+            <SurfaceCard testID="sign-in-about-scope">
+              <View style={styles.noteBody}>
+                <Eyebrow>{Copy.auth.about.scope.eyebrow}</Eyebrow>
+                <Text style={styles.pillarBody}>{Copy.auth.about.scope.body}</Text>
+              </View>
+            </SurfaceCard>
+          </View>
         </Animated.ScrollView>
       </KeyboardAvoidingView>
       </SafeAreaView>
@@ -524,6 +598,66 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       // it used to get from being a lighter tone now comes from the 64pt wordmark above it.
       color: colors.text.primary,
       textAlign: 'center',
+    },
+    // ---- the scroll reveal (see the section's own comment in the JSX) ------------------------
+    // A full `editorial` gap above it: this is a different subject from the sign-in controls, and
+    // the gap is what says so without a divider rule. `gap` inside is the card rhythm.
+    about: {
+      marginTop: Spacing.editorial,
+      gap: Spacing.md,
+    },
+    aboutHeading: {
+      fontFamily: FontFamily.display.semiBold,
+      fontSize: FontSize.xl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xl * LineHeight.heading,
+      // On the wash, so `text.primary` — the only role `Gradient.page` is proven for.
+      color: colors.text.primary,
+    },
+    aboutIntro: {
+      fontFamily: FontFamily.body.regular,
+      fontSize: FontSize.md,
+      lineHeight: FontSize.md * LineHeight.body,
+      // Also on the wash, so also primary — same reason `valueProp` above is raised from
+      // secondary. Its hierarchy comes from sitting under a display-family heading, not from tone.
+      color: colors.text.primary,
+      marginBottom: Spacing.sm,
+    },
+    pillarRow: {
+      flexDirection: 'row',
+      // `flex-start`, not `center`: at large Dynamic Type the body wraps to several lines and a
+      // centred letter would float halfway down the card instead of marking its first line.
+      alignItems: 'flex-start',
+      gap: Spacing.lg,
+    },
+    pillarLetter: {
+      fontFamily: FontFamily.mono.bold,
+      fontSize: FontSize.lg,
+      lineHeight: FontSize.lg * LineHeight.heading,
+      color: colors.text.secondary,
+    },
+    pillarText: {
+      // `flex: 1` so the copy reflows beside the letter at large Dynamic Type rather than pushing
+      // it off the card (brief §7: reflow, never clip).
+      flex: 1,
+      gap: Spacing.xs,
+    },
+    pillarLabel: {
+      fontFamily: FontFamily.body.semiBold,
+      fontSize: FontSize.md,
+      lineHeight: FontSize.md * LineHeight.heading,
+      color: colors.text.primary,
+    },
+    pillarBody: {
+      fontFamily: FontFamily.body.regular,
+      fontSize: FontSize.sm,
+      lineHeight: FontSize.sm * LineHeight.body,
+      // Secondary is legal here and nowhere above: this text is inside a `<SurfaceCard>`, which is
+      // an opaque `surface.*` and IS proven for both text roles.
+      color: colors.text.secondary,
+    },
+    noteBody: {
+      gap: Spacing.sm,
     },
     actions: {
       gap: Spacing.md,

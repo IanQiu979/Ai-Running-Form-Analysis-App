@@ -37,7 +37,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ArcRing } from '@/components/ui/arc-ring';
 import { Copy } from '@/constants/copy';
 import {
-  Arc,
+  Meter,
   Colors,
   FontFamily,
   FontSize,
@@ -104,7 +104,7 @@ export function HistoryRow({
           size={ROW_RING_SIZE}
           strokeWidth={ROW_RING_STROKE}
           fraction={overall.score !== null ? overall.score / 100 : null}
-          color={overall.band !== null ? Score[overall.band][scheme].fill : Arc[scheme].ornament}>
+          color={overall.band !== null ? Score[overall.band][scheme].fill : Meter[scheme].rule}>
           {overall.score !== null ? (
             <Text style={styles.scoreNumeral}>{overall.score}</Text>
           ) : null}

@@ -50,7 +50,7 @@ import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { Copy } from '@/constants/copy';
 import {
-  Arc,
+  Meter,
   Colors,
   ContentWidth,
   FontFamily,
@@ -250,8 +250,7 @@ export default function HistoryScreen() {
             share a row with a 44pt circular control, which left it a narrow column to wrap into
             and made the screen's largest element read as one of two things competing for the top
             edge. Chrome now sits on its own line ABOVE the title, and the title gets the full
-            readable column to itself — the reference's content-detail treatment, and the same
-            shape the arc ornament in this corner (drawn by `<ScreenGradient>`) was composed for.
+            readable column to itself — the reference's content-detail treatment.
             Still no eyebrow above the title: the copy deck has exactly one string for this
             screen's name, and setting the same words twice to manufacture hierarchy is filler. */}
         <View style={styles.header}>
@@ -311,7 +310,7 @@ export default function HistoryScreen() {
             size={EMPTY_RING_SIZE}
             strokeWidth={EMPTY_RING_STROKE}
             fraction={null}
-            color={Arc[scheme].ornament}
+            color={Meter[scheme].rule}
           />
           <Text style={styles.emptyTitle}>{Copy.history.empty.title}</Text>
           <Text style={styles.caption}>{Copy.history.empty.body}</Text>

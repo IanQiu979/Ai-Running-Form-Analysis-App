@@ -297,17 +297,17 @@ export default function PaywallScreen() {
           </SurfaceCard>
         )}
 
-        {/* The three cards, in ladder order, each wearing one more arc than the one above it —
+        {/* The three cards, in ladder order, each wearing one more rule than the one above it —
             see components/paywall/tier-card.tsx for why that is the honest picture of a tier
             ladder whose own footnote says the higher tiers are "more of it, not different". The
-            arc counts are ornament, never a quota or an entitlement. */}
+            mark counts are ornament, never a quota or an entitlement. */}
         <View style={styles.cards}>
           <TierCard
             testID="paywall-tier-free"
             name={Copy.paywall.tier.free.name}
             price={Copy.paywall.tier.free.price}
             detail={Copy.paywall.tier.free.detail}
-            arcs={1}
+            marks={1}
             cta={ctaForFree(plan)}
           />
           <TierCard
@@ -315,7 +315,7 @@ export default function PaywallScreen() {
             name={Copy.paywall.tier.pro.name}
             price={Copy.paywall.tier.pro.price}
             detail={Copy.paywall.tier.pro.detail}
-            arcs={2}
+            marks={2}
             cta={ctaForPurchasableTier('pro', plan, purchase, handleUpgrade)}
           />
           <TierCard
@@ -323,7 +323,7 @@ export default function PaywallScreen() {
             name={Copy.paywall.tier.elite.name}
             price={Copy.paywall.tier.elite.price}
             detail={Copy.paywall.tier.elite.detail}
-            arcs={3}
+            marks={3}
             cta={ctaForPurchasableTier('elite', plan, purchase, handleUpgrade)}
           />
         </View>

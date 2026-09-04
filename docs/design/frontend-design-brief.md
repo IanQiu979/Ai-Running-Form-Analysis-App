@@ -1,10 +1,10 @@
 # V2.3 — Design Brief (MVP)
 
 > **Read this before citing §4.** This brief records the design intent at the time of writing
-> (2026-07), and **most of it has since been amended in place and is current** — §2's tokens were
-> swapped wholesale on 2026-08-02 and quote exactly what `constants/theme.ts` exports, and §2's
-> type/radius rules and §6's motion budget carry their own dated amendment notes. Treat those
-> sections as authoritative.
+> (2026-07), and **most of it has since been amended in place and is current** — §2's
+> radius/spacing rules and §6's motion budget carry their own dated amendment notes and still hold.
+> Treat those sections as authoritative. **§2's and §3's colour and type tables are not** — see the
+> 2026-09-04 correction below; `constants/theme.ts` owns those values.
 >
 > What is **superseded** is the screen-by-screen interaction detail in §4 — one known divergence,
 > not an exhaustive list — specifically screen 8's
@@ -14,12 +14,17 @@
 > deletion affordance only — not tokens, motion, or layout, which stay with this brief. The
 > superseded text is kept unrewritten so the record of why the design changed survives.
 >
-> **Pending, not yet in force (2026-09-01):** the "Cadence Arcs" redesign on the unmerged branch
-> `redesign/cadence-arcs-2026-09-01` replaces §2's colour and type layer again (espresso/clay,
-> Bricolage Grotesque / Manrope / Space Mono) and replaces §3's horizontal pillar bars with radial
-> rings. **Nothing on `main` reflects that yet**, so §2 below still quotes what `constants/theme.ts`
-> actually exports today. When that branch merges, amend §2 and §3 in place the way 2026-08-02 did.
-> See `docs/architecture.md`'s "UNMERGED — the Cadence Arcs redesign" sub-section.
+> **§2 and §3 have been overtaken twice and are no longer current (corrected 2026-09-04).** This
+> note previously said the "Cadence Arcs" redesign was pending on an unmerged branch and that §2
+> still quoted what `constants/theme.ts` exports; both were true when written and wrong from
+> 2026-09-01, when Cadence Arcs merged to `main` as #195 (espresso/clay tokens, Bricolage
+> Grotesque / Manrope / Space Mono, §3's horizontal pillar bars re-cut as radial rings). The "Cold Read" redesign
+> (2026-09-04, branch `fm/v23-redesign-theme-onboarding`) replaces the colour layer again —
+> near-monochrome cool base, one icy-cyan accent, the `Arc` motif retired for `Meter`.
+> **`constants/theme.ts` is the only authority for token values**; the tables in §2 and §3 below
+> are kept unrewritten as the record of the Calm-era intent, not as shipped values. See
+> `docs/architecture.md`'s "SUPERSEDED — the Cadence Arcs redesign" and "UNMERGED — the Cold Read
+> redesign" sub-sections.
 
 > **Scope: basic MVP, one document.** Unlike V2.2's two-doc design layer, V2.3 keeps the whole
 > design system in this single brief — enough for a builder to execute, no more. It covers tokens,

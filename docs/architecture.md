@@ -49,8 +49,9 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
   kinetic-text.tsx        # per-word reveal. Splits a sentence into one Text per word but keeps
                           # ONE accessible node carrying the whole string — see its header.
   marquee.tsx             # the standing PACE-pillar ticker on Home.
-  low-poly-field.tsx      # the morphing triangle mark (Analyzing wait, Home ambient, sign-in's
-                          # own full-opacity scroll-reveal section since 2026-08-08).
+  low-poly-field.tsx      # the morphing triangle mark (Analyzing wait, Home ambient). Removed from
+                          # sign-in 2026-09-01; that screen's scroll reveal is the pace/pillars
+                          # content, and its hero is <StrideWireframeHero> on the animation branch.
                           # Per-vertex SVG since 2026-08-02, when the captain lifted the
                           # react-native-svg ban annotation-lines.tsx used to carry: a pose is
                           # three independent vertices, so a facet genuinely reshapes. Each facet
@@ -77,10 +78,10 @@ constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dar
 constants/copy.ts         # strings lifted verbatim from docs/design/copy-deck.md — sign-in and
                           # Home's copy live here first (M1); more screens' copy lands with them
 constants/contrast.ts     # contrast-ratio helper backing the AA proof below
-constants/__tests__/theme-contrast.test.ts  # 179-assertion Jest proof every text/surface and
-                          # band pair clears WCAG AA (9 brief-§2 intent values were darkened/
-                          # lightened minimally to pass — each old → new value is a comment in
-                          # theme.ts next to the token it changed)
+constants/__tests__/theme-contrast.test.ts  # Jest proof (246 cases as of 2026-09-04) that every
+                          # text/surface and band pair clears WCAG AA, plus the >=30 degree hue
+                          # separation between every chromatic role — each value's derivation is
+                          # a comment in theme.ts next to the token it changed
 hooks/                    # use-color-scheme, use-theme-color
 lib/
   supabase.ts             # the Supabase client — see "Current — auth flow" below
@@ -745,9 +746,10 @@ override fixes `useSafeAreaInsets()` consumers and nothing else.
   compliance checklist gating M7 (App Store privacy labels, consent upgrade, data inventory,
   retention limits), plus two conflicts surfaced for Ian (see `docs/status.md`).
 - `constants/theme.ts` + `constants/contrast.ts` — the brief's §2 tokens as light+dark theme
-  values, spacing/radii/type scales, and the score-band palette, with an 83-assertion Jest test
-  (`constants/__tests__/theme-contrast.test.ts`) proving every text/surface and band pair clears
-  WCAG AA. Font families (`@expo-google-fonts/archivo`, `inter`, `ibm-plex-mono`) installed via
+  values, spacing/radii/type scales, and the score-band palette, with a Jest proof
+  (`constants/__tests__/theme-contrast.test.ts`) that every text/surface and band pair clears
+  WCAG AA — 83 assertions when this section was written, 246 as of 2026-09-04; the test has only
+  ever grown. Run it for the current count rather than trusting a number in prose. Font families (`@expo-google-fonts/archivo`, `inter`, `ibm-plex-mono`) installed via
   `npx expo install`; `expo-font` added to `app.json`'s plugins.
 - **`Colors[scheme].control.border`, a new interactive-boundary role (issue #96, 2026-07-13).**
   Every non-accent button/input/checkbox previously relied on `hairline` (~1.22–1.49:1 across
@@ -765,12 +767,13 @@ override fixes `useSafeAreaInsets()` consumers and nothing else.
 UI work builds from these rather than re-deriving the direction. Still open from Phase 0.5:
 Ian's certification review of the drafted Elasticity content (`knowledge/pace_framework.md`).
 
-### UNMERGED — the "Cadence Arcs" redesign (branch `redesign/cadence-arcs-2026-09-01`, 2026-09-01)
+### SUPERSEDED — the "Cadence Arcs" redesign (merged to `main` 2026-09-01 as #195)
 
-**Not on `main`, not in any build.** Everything in this sub-section exists only on that branch;
-until it merges, the design layer described above (Calm, 2026-08-02) is what the app ships. It is
-recorded here rather than left in commit messages because it changes the token contracts every
-future screen will be written against. Full narrative: `docs/change_log.md`'s 2026-09-01 entries.
+**This section is history, not the current design layer.** Cadence Arcs did merge — it replaced the
+Calm layer described above — and it is what `main` ships today. It is in turn superseded by "Cold
+Read" (next sub-section), which retires its motif and its palette wholesale. Read it for the
+CONSTRAINTS it names, several of which still bind: they are why the current values are shaped the
+way they are. Full narrative: `docs/change_log.md`'s 2026-09-01 entries.
 
 - **Token layer re-cut, geometry deliberately untouched.** `constants/theme.ts` moves to a warm
   espresso/clay palette (`#17120E` ink, `#C05416` accent) and to Bricolage Grotesque (display) /
@@ -817,9 +820,10 @@ future screen will be written against. Full narrative: `docs/change_log.md`'s 20
   `<StrideWireframeHero>` (above) rather than on the arc motif: the gait readout leads the header,
   in the stack above the wordmark, and it is the screen's subject rather than atmosphere behind
   the type. `components/arc-burst.tsx` — oversized counter-rotating arcs, previously drawn behind
-  that wordmark — is what it replaced and is now unused; it is left in the tree because the
-  parallel redesign owns whether the arc motif survives at all. Two "loud moments" cannot share
-  one screen, and an opaque instrument panel over turning rings reads as a mistake.
+  that wordmark — is what it replaced, and it is now **deleted**: it was left unused in the tree
+  only until the parallel redesign ruled on the arc motif, and Cold Read (next sub-section) retired
+  it. Two "loud moments" cannot share one screen, and an opaque instrument panel over turning rings
+  reads as a mistake.
 - **Launch assets were re-cut to match** — the `assets/source/*.svg` marks and the PNGs
   `scripts/generate-app-assets.js` rasterizes from them, plus `app.json`'s splash and Android
   adaptive-icon background colours (`#F7F1EB` light / `#17120E` dark). Same pipeline as the
@@ -830,14 +834,76 @@ future screen will be written against. Full narrative: `docs/change_log.md`'s 20
   `<SampleResultBanner>` remains unchanged and is the control of record — see
   `docs/change_log.md`'s 2026-09-01 entry.
 
+### UNMERGED — the "Cold Read" redesign (branch `fm/v23-redesign-theme-onboarding`, 2026-09-04)
+
+**Not on `main`, not in any build.** Everything in this sub-section exists only on that branch;
+until it merges, the Cadence Arcs layer above is what the app ships. Its entry-screen hero
+(`<StrideWireframeHero>`) was built on a second branch, `fm/v23-redesign-animation`, which landed
+first as #196 on 2026-09-04 and IS on `main`; this branch is rebased onto it, so the hero's mount on
+sign-in is the real one and the pillar reveal below sits under it. Recorded here rather than left in commit messages because it changes the
+token contracts every future screen is written against. Full narrative: `docs/change_log.md`'s
+2026-09-04 entry.
+
+- **Token layer re-cut again; geometry, type and motion deliberately untouched.**
+  `constants/theme.ts` moves to a near-monochrome cool base — one hue family (~206-212°) at 9-25%
+  saturation, near-black `#0B0D0F` in dark, cool bone `#F4F5F7` in light. `FontFamily` is
+  **unchanged** this time (Bricolage Grotesque / Manrope / Space Mono / Newsreader all survive), as
+  are `Radius`, `Spacing`, `FontSize`, `Tracking`, `LineHeight`, `Elevation`, `ControlHeight`,
+  `ContentWidth`, `TabBar`, `HitTarget`, `CheckboxSize`, `Opacity` and `Motion`. This is a colour
+  pass and nothing else.
+- **A two-tier accent, and `onAccent` is no longer white.** Graphite carries the whole UI; one
+  saturated icy cyan `#0A95B1` is reserved for the true primary CTA, at most once per screen.
+  `Accent.onAccent` is the ink `#0B0D0F`: white on this accent is 3.53:1 and fails AA, the ink is
+  5.51:1. The accent's value is forced by two opposing floors — ≥3:1 against the light page wash's
+  last stop `#EAF0F3` caps it (a primary `<PillButton>` is a bordered-less accent fill drawn
+  directly on `<ScreenGradient>`, so the wash, not `background`, is the binding backdrop), ≥3:1
+  against dark mode's `surface.raised` floors it — so a paler "icier" cyan is arithmetically
+  impossible for a theme-invariant accent. Worst case 3.07:1 across every surface and wash stop in
+  both schemes, all of them proven in `theme-contrast.test.ts`. Call sites already read the token,
+  so none changed.
+- **The score ramp vacated cyan.** rose 350° → amber 45° → green 118° → jade 156°, error 308°,
+  accent 190°. The old teal `good` (195°) could not coexist with a cyan accent at ≥30°. Tightest
+  pairwise separation anywhere is now 33.9°, and the ramp is monotonic in band order for the first
+  time — the espresso ramp doubled back between `good` (195°) and `strong` (152°).
+- **`Arc` retired, `Meter` introduced.** `Meter.rule` (a drawn measurement line: a meter's ring
+  stroke, a tick, an indeterminate wait mark) keeps `Arc.ornament`'s **≥3:1** obligation against
+  every surface and every `Gradient.page` stop; `Meter.track` keeps `Arc.track`'s mirror obligation
+  to stay **under** 3:1. Both are **achromatic**, which is the structural half of the two-tier
+  accent rule: a meter's geometry is monochrome, its value is a score hue, the accent is the CTA.
+  `components/ui/corner-arcs.tsx` and `components/arc-burst.tsx` are **deleted**, and
+  `<ScreenGradient>` lost its `ornament` prop — a decoration repeated on twelve screens is the
+  wrong kind of loud on a system whose rule is one loud element per screen. `<ArcRing>` and
+  `<ArcLoader>` are unchanged in behaviour and now paint from `Meter`.
+- **`Gradient.page` and `Glass` re-solved, contracts unchanged.** Every clause survives: the wash
+  carries `text.primary` only; white-tinted glass (`fill`/`raised`/`control`) carries
+  `text.primary` only; canvas-tinted `chrome` is the only tone proven for both text roles; a glass
+  control's boundary is a proven `control.border` ring, never its fill. The dark wash is a deep
+  charcoal (L 13.5-19.5%) whose **floor is set by the `Glass` counter-guard**, not by taste — a
+  near-black wash would let white glass carry secondary text and silently delete the constraint
+  that guard exists to pin. Dark glass alphas rose to 0.12/0.15/0.17.
+- **The entry screen is now also the pitch.** `app/(auth)/sign-in.tsx` gained scrollable
+  pace/pillars content **below** the sign-in controls (a returning user must never scroll past a
+  brochure to reach a sign-in button): the four pillars iterated from the shared `PACE_PILLARS`
+  list, the photo-versus-video limit stated before it bites, and what the product is not. Auth
+  logic and flow are untouched, and no second CTA lives down there.
+- **Two claims moved from comment to computation.** `constants/contrast.ts` gained `hue()`,
+  `hueSeparation()` and `MIN_HUE_SEPARATION`; `theme-contrast.test.ts` now proves the ≥30°
+  separation between every chromatic role and the ramp's one-way ordering, per scheme, from the
+  shipped hexes. `app/(auth)/__tests__/sign-in-entry-content.test.tsx` locks the reveal's pillar
+  list and its position below the controls.
+- **Launch assets re-tinted** (`assets/source/*.svg`, `app.json`, `scripts/generate-app-assets.js`),
+  PNGs regenerated with `npm run assets`. The icon's landing marker stays `Score.strong` and
+  deliberately not the accent.
+
 ## Current — app icon & splash assets (done 2026-07-12, closes GitHub issue #26)
 
 Real app icon + splash art, replacing the Expo template defaults. Design is "The Gait Plate"
 per `docs/design/frontend-design-brief.md` §1: a ground rule, a posture line leaning off it, a
 short detached arc marking the lean angle (drawn like a goniometer/biomechanics annotation), and
-a filled landing marker at the vertex — the one point of color, `score.strong` (`#3CB56E` dark /
-`#32965C` light as of the 2026-08-02 Calm swap, see `docs/change_log.md`), deliberately **not**
-`accent` (`#7558E8`), which the brief reserves for the primary CTA alone.
+a filled landing marker at the vertex — the one point of color, `score.strong`, deliberately
+**not** `accent`, which the brief reserves for the primary CTA alone. The marks have been re-tinted
+with every palette swap since (Calm 2026-08-02, Cadence Arcs 2026-09-01, Cold Read 2026-09-04); the
+hexes live at their tokens in `constants/theme.ts`, never quoted here.
 
 ```
 assets/
@@ -857,8 +923,9 @@ scripts/
   (`scripts/generate-app-assets.js`, `sharp` devDependency) rasterizes them into the six PNGs
   `app.json` points at. Edit a source SVG and re-run `npm run assets`; the PNGs in
   `assets/images/` are regenerated, not hand-edited.
-- `icon.png` is deliberately flattened onto the bone field (`#F4F1EA`) with **no alpha
-  channel**: iOS applies its own corner mask, and App Store Connect rejects an icon that carries
+- `icon.png` is deliberately flattened onto the bone field (`Colors.light.background`, mirrored by
+  hand into `scripts/generate-app-assets.js` — see that file's header) with **no alpha channel**:
+  iOS applies its own corner mask, and App Store Connect rejects an icon that carries
   transparency. The generator script hard-fails if alpha ever reappears on that file.
 - A dedicated dark-mode splash mark (`splash-icon-dark.png`, wired via `app.json`'s
   `expo-splash-screen` plugin `dark.image` key) exists because the mark is dark ink drawn for a
@@ -871,9 +938,9 @@ scripts/
   so the PNG that used to hold a solid field was dead weight.
 - Closed GitHub issue #26 (2026-07-12) by wiring `app.json`'s splash and Android
   `adaptiveIcon.backgroundColor` to `constants/theme.ts` tokens instead of the Expo template
-  defaults. The token values themselves were re-swapped 2026-08-02 (the Calm palette change);
-  see `docs/change_log.md` for the current hexes — `app.json` still points at the same tokens,
-  not template defaults, so issue #26 remains closed.
+  defaults. The token values themselves have been re-swapped with every palette change since
+  (most recently Cold Read, 2026-09-04); `constants/theme.ts` owns the current hexes — `app.json`
+  still carries the same two token values, not template defaults, so issue #26 remains closed.
 
 ## Current — EAS build & release config (groundwork only; the pipeline half is Apple-blocked)
 

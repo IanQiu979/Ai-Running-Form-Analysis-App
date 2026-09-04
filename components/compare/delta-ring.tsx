@@ -31,7 +31,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { ArcRing } from '@/components/ui/arc-ring';
-import { Arc, Colors, FontFamily, FontSize, Score, type ColorScheme } from '@/constants/theme';
+import { Meter, Colors, FontFamily, FontSize, Score, type ColorScheme } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { PacePillarResult } from '@shared/pace';
 
@@ -62,13 +62,13 @@ export function DeltaRing({ from, to, testID }: DeltaRingProps) {
       size={OUTER_SIZE}
       strokeWidth={OUTER_STROKE}
       fraction={to.score !== null ? to.score / 100 : null}
-      color={to.band !== null ? Score[to.band][scheme].fill : Arc[scheme].ornament}>
+      color={to.band !== null ? Score[to.band][scheme].fill : Meter[scheme].rule}>
       <ArcRing
         testID={testID ? `${testID}-before` : undefined}
         size={INNER_SIZE}
         strokeWidth={INNER_STROKE}
         fraction={from.score !== null ? from.score / 100 : null}
-        color={from.band !== null ? Score[from.band][scheme].fill : Arc[scheme].ornament}>
+        color={from.band !== null ? Score[from.band][scheme].fill : Meter[scheme].rule}>
         {to.score !== null ? (
           <View style={styles.center}>
             <Text

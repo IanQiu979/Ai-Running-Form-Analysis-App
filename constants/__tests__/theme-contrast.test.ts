@@ -10,8 +10,10 @@
  *     carries meaning, >=3:1.
  *   - each score band's `text` (a band word/numeral rendered in the score hue) on every surface,
  *     both themes — text, >=4.5:1.
- *   - the accent: white CTA label on accent — text, >=4.5:1; accent itself on every surface —
- *     non-text button/tint boundary, >=3:1.
+ *   - the accent: its `onAccent` label colour on the accent fill — text, >=4.5:1; the accent fill
+ *     itself on every surface — non-text button/tint boundary, >=3:1. `onAccent` is the INK, not
+ *     white, since the Cold Read pass (2026-09-04) — the pair is computed, so a revert to white
+ *     fails here rather than shipping a 3.53:1 CTA label.
  *   - `Semantic.error` on every surface, both themes — text, >=4.5:1 (issue #24); also asserted
  *     distinct from `Score.low.text` in both themes, the issue's actual requirement — a system
  *     error must not be mistakable for the "Needs work" score band it used to borrow from.
@@ -33,20 +35,35 @@
  *     contract is primary-text-only, for the reason documented at the token in theme.ts, and
  *     asserting a pair the token does not promise would be asserting a lie.
  *
+ *   - HUE SEPARATION between every chromatic role (2026-09-04, the Cold Read palette). Contrast is
+ *     not the only thing a colour-coded scoring app owes its user: two bands that clear AA
+ *     individually are still useless if they are the same colour, and a band that sits on top of
+ *     the CTA's hue makes "the accent means act on this" a lie. `theme.ts` has claimed a >=30
+ *     degree floor across three successive palettes and had only ever WRITTEN it in a comment.
+ *     It is computed here now, from the exports, per scheme.
+ *
  * `hairline` is intentionally not asserted to clear either AA floor on its own — see the comment
  * on it in theme.ts: it's a decorative structural rule, not text or a UI-component boundary, so
  * WCAG 1.4.11 does not apply to it. It IS asserted to stay under 3:1 above, precisely because
  * `control.border` must not be allowed to collapse back into it.
  */
 
-import { AA_NON_TEXT, AA_TEXT, contrastRatio, type Hex } from '../contrast';
+import {
+  AA_NON_TEXT,
+  AA_TEXT,
+  contrastRatio,
+  hue,
+  hueSeparation,
+  MIN_HUE_SEPARATION,
+  type Hex,
+} from '../contrast';
 import {
   Accent,
-  Arc,
   Colors,
   type ColorScheme,
   Glass,
   Gradient,
+  Meter,
   Score,
   ScoreBandOrder,
   Semantic,
@@ -75,31 +92,43 @@ const semanticErrorTextPairs: Pair[] = [];
 const controlBorderPairs: Pair[] = [];
 const hairlineBelowControlFloorPairs: Pair[] = [];
 const gradientTextPairs: Pair[] = [];
-// Cadence Arcs (2026-09-01) — the motif's two roles. `ornament` takes the same >=3:1 non-text
-// obligation a score fill does, and `track` takes `hairline`'s mirror obligation (stay UNDER 3:1);
-// see the `Arc` token in theme.ts for why an ornament is held to a floor WCAG would not impose.
-const arcOrnamentPairs: Pair[] = [];
-const arcTrackBelowFloorPairs: Pair[] = [];
+// Cold Read (2026-09-04) — `Meter`'s two roles, which replace the retired `Arc`. `rule` takes the
+// same >=3:1 non-text obligation a score fill does, and `track` takes `hairline`'s mirror
+// obligation (stay UNDER 3:1); see the `Meter` token in theme.ts for why a decorative line is held
+// to a floor WCAG would not impose on it.
+const meterRulePairs: Pair[] = [];
+const meterTrackBelowFloorPairs: Pair[] = [];
 
 for (const scheme of SCHEMES) {
   const c = Colors[scheme];
   const surfaces = surfacesFor(scheme);
 
-  // Everything an arc can be drawn on: the three surfaces plus every page-wash stop. Taken from
-  // the exports, so a stop added to `Gradient.page` is proven for the motif the moment it ships.
-  const arcBackdrops: [string, string][] = [
+  // Everything an opaque non-text mark can be drawn on: the three surfaces plus every page-wash
+  // stop. Taken from the exports, so a stop added to `Gradient.page` is proven the moment it ships.
+  //
+  // THE ACCENT BELONGS IN THIS SET, and leaving it out was a real hole (found 2026-09-04): a
+  // primary `<PillButton>` is an accent FILL with no border ring — the fill IS its WCAG 1.4.11
+  // boundary — and primary CTAs render straight onto `<ScreenGradient>`, not inside a card. Proving
+  // the accent against the three opaque surfaces alone therefore proved it against backdrops it is
+  // frequently not on; the light wash's last stop is darker than any of them.
+  const nonTextBackdrops: [string, string][] = [
     ...surfaces,
     ...Gradient.page[scheme].map((stop, i) => [`gradient.page[${i}]`, stop] as [string, string]),
   ];
-  for (const [backdropName, backdropHex] of arcBackdrops) {
-    arcOrnamentPairs.push({
-      label: `${scheme} arc.ornament on ${backdropName}`,
-      fg: Arc[scheme].ornament,
+  for (const [backdropName, backdropHex] of nonTextBackdrops) {
+    meterRulePairs.push({
+      label: `${scheme} meter.rule on ${backdropName}`,
+      fg: Meter[scheme].rule,
       bg: backdropHex,
     });
-    arcTrackBelowFloorPairs.push({
-      label: `${scheme} arc.track on ${backdropName} (must stay quieter than the fill drawn over it)`,
-      fg: Arc[scheme].track,
+    meterTrackBelowFloorPairs.push({
+      label: `${scheme} meter.track on ${backdropName} (must stay quieter than the fill drawn over it)`,
+      fg: Meter[scheme].track,
+      bg: backdropHex,
+    });
+    accentNonTextPairs.push({
+      label: `${scheme} accent on ${backdropName}`,
+      fg: Accent.value,
       bg: backdropHex,
     });
   }
@@ -111,7 +140,6 @@ for (const scheme of SCHEMES) {
       fg: c.text.secondary,
       bg: surfaceHex,
     });
-    accentNonTextPairs.push({ label: `${scheme} accent on ${surfaceName}`, fg: Accent.value, bg: surfaceHex });
     controlBorderPairs.push({
       label: `${scheme} control.border on ${surfaceName}`,
       fg: c.control.border,
@@ -158,7 +186,7 @@ for (const scheme of SCHEMES) {
   }
 }
 
-accentTextPairs.push({ label: 'onAccent (white) on accent', fg: Accent.onAccent, bg: Accent.value });
+accentTextPairs.push({ label: 'onAccent (the ink) on accent', fg: Accent.onAccent, bg: Accent.value });
 
 // ---------------------------------------------------------------------------------------------
 // Glass — added with the 2026-08-02 shape/type/motion redesign.
@@ -331,8 +359,9 @@ describe('the Glass contract is a real constraint, not a preference', () => {
   // in two directions — glass may now be a control's FILL (clause 3), and one canvas-tinted tone
   // (`chrome`) now carries both text roles (clause 2) — but it did NOT touch the thing this guard
   // pins, and the numbers say so: `text.secondary` on white-tinted glass over the gradient still
-  // measures 1.8-3.0:1 in dark mode, exactly as it did before. So this assertion states the same
-  // truth it always did, and is neither skipped nor loosened. It now iterates
+  // measures 2.92-4.40:1 in dark mode under the Cold Read palette — every pair short of the 4.5:1
+  // floor, so the failure this guard asserts is as real as it was on the espresso wash, and the
+  // headroom it leaves is what pins that wash's minimum lightness. It now iterates
   // `WhiteTintedGlassTones` (which includes the NEW `control` tone) rather than a hardcoded pair,
   // so the frosted control fill is covered by it too.
   //
@@ -389,26 +418,26 @@ describe('theme contrast — non-text pairs clear AA (>=3:1)', () => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
   });
 
-  // The arc motif (2026-09-01). Held to the non-text floor even though a decorative ornament is
+  // The meter rule (2026-09-04). Held to the non-text floor even though a decorative line is
   // formally exempt, because the same token draws the ring a score's fill sits inside — a reader
   // who cannot see the ring cannot see where the fill starts.
-  test.each(arcOrnamentPairs)('$label', ({ fg, bg }) => {
+  test.each(meterRulePairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
   });
 });
 
-describe('the arc track stays a track — 2026-09-01', () => {
-  // The mirror of the `hairline` guard below: `Arc.*.track` is the UNFILLED remainder of a score
+describe('the meter track stays a track — 2026-09-04', () => {
+  // The mirror of the `hairline` guard below: `Meter.*.track` is the UNFILLED remainder of a score
   // ring, and its whole job is to be quieter than the `Score.*.fill` arc drawn over it. If this
   // starts failing, the track has been strengthened into something that competes with the score
   // it is supposed to be the backdrop for — at which point a ring's fill length stops reading.
-  test.each(arcTrackBelowFloorPairs)('$label', ({ fg, bg }) => {
+  test.each(meterTrackBelowFloorPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeLessThan(AA_NON_TEXT);
   });
 
-  // The ornament and the track are two roles, not one value at two opacities.
-  test.each(SCHEMES)('%s: arc.ornament !== arc.track', (scheme) => {
-    expect(Arc[scheme].ornament).not.toBe(Arc[scheme].track);
+  // The rule and the track are two roles, not one value at two opacities.
+  test.each(SCHEMES)('%s: meter.rule !== meter.track', (scheme) => {
+    expect(Meter[scheme].rule).not.toBe(Meter[scheme].track);
   });
 });
 
@@ -449,5 +478,61 @@ describe('contrast.ts sanity', () => {
 
   it('rates a color against itself as 1', () => {
     expect(contrastRatio(Accent.value, Accent.value)).toBeCloseTo(1, 5);
+  });
+});
+
+describe('hue separation — no chromatic role may collide with another', () => {
+  // WHY THIS EXISTS, and why it is not redundant with the contrast blocks above: contrast measures
+  // a colour against its BACKGROUND, and every band in this palette clears its floor. What no
+  // contrast assertion can catch is two bands, or a band and the accent, landing on the same hue —
+  // at which point "Solid" and "Strong" are the same picture, or a score reads as a button. The
+  // >=30 degree floor is `theme.ts`'s own long-standing rule (see MIN_HUE_SEPARATION in
+  // contrast.ts for why 30 and not 20), and it is what forced the 2026-09-04 ramp to vacate teal
+  // when the accent became cyan. Computed per scheme from the shipped hexes, so a "small" tweak to
+  // one band that quietly walks it into a neighbour fails here rather than in someone's eyes.
+  const chromaticRoles = (scheme: ColorScheme): { name: string; hex: string }[] => [
+    ...ScoreBandOrder.map((band) => ({ name: `score.${band}.fill`, hex: Score[band][scheme].fill })),
+    { name: 'accent', hex: Accent.value },
+    { name: 'semantic.error', hex: Semantic.error[scheme] },
+  ];
+
+  test.each(SCHEMES)('%s: every role is genuinely chromatic (a grey has no hue to separate)', (scheme) => {
+    for (const { name, hex } of chromaticRoles(scheme)) {
+      expect({ name, hue: hue(hex) }).not.toEqual({ name, hue: null });
+    }
+  });
+
+  const pairs = SCHEMES.flatMap((scheme) => {
+    const roles = chromaticRoles(scheme);
+    return roles.flatMap((a, i) =>
+      roles.slice(i + 1).map((b) => ({ label: `${scheme}: ${a.name} vs ${b.name}`, a, b }))
+    );
+  });
+
+  it('has pairs to check at all (guards against the generator silently producing none)', () => {
+    expect(pairs.length).toBeGreaterThan(0);
+  });
+
+  test.each(pairs)('$label', ({ a, b }) => {
+    const [hueA, hueB] = [hue(a.hex), hue(b.hex)];
+    // Non-null is asserted above; this narrows for TypeScript and fails loudly rather than
+    // silently passing a comparison against a null.
+    expect(hueA).not.toBeNull();
+    expect(hueB).not.toBeNull();
+    expect(hueSeparation(hueA as number, hueB as number)).toBeGreaterThanOrEqual(MIN_HUE_SEPARATION);
+  });
+
+  // The score ramp's ORDERING claim, which the Cold Read re-cut is the first palette to satisfy:
+  // bad -> good and warm -> cool are the same journey, with no doubling back between bands. The
+  // espresso ramp put `good` at 195 degrees and `strong` at 152, so moving UP the scale moved
+  // BACKWARDS round the wheel between the top two bands. Measured from `low` as the origin so the
+  // wrap at 360 (low sits at ~350) does not turn a monotonic ramp into a false failure.
+  test.each(SCHEMES)('%s: the ramp runs one way round the wheel, in band order', (scheme) => {
+    const origin = hue(Score.low[scheme].fill) as number;
+    const fromLow = ScoreBandOrder.map((band) => {
+      const h = hue(Score[band][scheme].fill) as number;
+      return (h - origin + 360) % 360;
+    });
+    expect(fromLow).toEqual([...fromLow].sort((x, y) => x - y));
   });
 });

@@ -34,7 +34,7 @@ import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
-  Arc,
+  Meter,
   Colors,
   ContentWidth,
   FontFamily,
@@ -346,7 +346,7 @@ function SourceCard({
           size={CARD_BADGE_SIZE}
           strokeWidth={Spacing.xs}
           fraction={1}
-          color={Arc[scheme].ornament}>
+          color={Meter[scheme].rule}>
           <MaterialIcons name={icon} size={CARD_BADGE_ICON_SIZE} color={colors.text.primary} />
         </ArcRing>
         <View style={styles.cardText}>
