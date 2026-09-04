@@ -93,8 +93,10 @@ export type ColorScheme = 'light' | 'dark';
 // of those seen through each translucent `Glass` tone. Solved over that whole set, not over the
 // surfaces alone, and solved to a COMMON worst case rather than to each scheme's bare minimum so
 // the ring has the same visual weight in both:
-//   light #76828C (hue 207.3°, sat 8.7%, L 50.6%) — worst case 3.53:1 (over glass on wash stop 2).
-//   dark  #A8B4BE (hue 207.3°, sat 14.5%, L 70.2%) — worst case 3.43:1 (over glass on wash stop 2).
+//   light #76828C (hue 207.3°, sat 8.7%, L 50.6%) — worst case 3.42:1, against the bare wash's
+//     last stop (its next-worst is 3.53:1, that same stop seen through `chrome`).
+//   dark  #A8B4BE (hue 207.3°, sat 14.5%, L 70.2%) — worst case 3.43:1, against a `control`-tone
+//     glass fill over that same last stop.
 // Dark still has to go LIGHT rather than darker: the wash it sits on is lifted off the canvas
 // (constraint 2), so a darker ring has no headroom against what is behind it.
 // -------------------------------------------------------------------------------------------
@@ -439,7 +441,7 @@ export type GradientRole = keyof typeof Gradient;
 //   3. Glass MAY be an interactive control's fill — WITH a `control.border` ring. An 8-17% white
 //      wash reads ~1.1:1 against what is behind it, so the FILL can never carry WCAG 1.4.11's 3:1
 //      itself. It does not have to: `Colors.*.control.border` is an opaque, proven ring, solved
-//      against the wash outside it AND every glass tone inside it (worst case 3.53:1 light /
+//      against the wash outside it AND every glass tone inside it (worst case 3.42:1 light /
 //      3.43:1 dark). What is LOST, stated plainly: a glass control's affordance rests on a 1pt
 //      ring rather than a solid fill, and its label's contrast falls from ~15:1 (white on opaque
 //      `surface.raised`) to 6.39:1 worst case — still AA, and on this darker wash considerably
