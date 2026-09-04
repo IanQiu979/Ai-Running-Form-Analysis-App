@@ -14,8 +14,8 @@ import Animated, {
   useAnimatedRef,
 } from 'react-native-reanimated';
 
-import { ArcBurst } from '@/components/arc-burst';
 import { KineticText } from '@/components/kinetic-text';
+import { StrideWireframeHero } from '@/components/stride-wireframe-hero';
 import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/turnstile-widget';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
@@ -71,7 +71,7 @@ export default function SignInScreen() {
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors, scheme), [colors, scheme]);
 
-  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const { height: windowHeight } = useWindowDimensions();
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
 
   const [mode, setMode] = useState<Mode>('signIn');
@@ -251,21 +251,32 @@ export default function SignInScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           scrollEventThrottle={16}>
-          {/* THE SPLASH-SCALE HEADER. The reference's own first screen is one line of type on a
-              wash and nothing else; the wordmark here takes that scale (xxl -> display) and
-              assembles word by word on arrival. This is the whole first screenful now — the
-              low-poly mark gets its own section below instead of sharing this one as atmosphere,
-              since it no longer needs to fit alongside the wordmark on first paint. */}
+          {/* THE SPLASH-SCALE HEADER, and the whole first screenful: the stride readout, then
+              the app's name at display scale assembling word by word on arrival, then the value
+              prop. The mark leads here rather than sitting behind the type — it is the subject
+              of the screen, not atmosphere for it. */}
           <View style={[styles.header, { minHeight: windowHeight * 0.6 }]}>
-            {/* THE ONE LOUD MOMENT (Cadence Arcs, 2026-09-01). This screen is the redesign's
-                single deliberate exception: everywhere else the motif is a small, still corner
-                ripple, and here it is a ring set drawn wider than the device and turning behind
-                the wordmark. It sits UNDER the type in the stack and is pinned absolutely, so it
-                takes no layout and can never push the headline around; `windowWidth * 1.6` is
-                what makes every ring run off both edges, which is the difference between a ripple
-                passing through the screen and a target centred on it. Decorative and inert —
-                see `<ArcBurst>`'s header for what it suppresses under reduced motion. */}
-            <ArcBurst size={windowWidth * 1.6} style={styles.burst} testID="sign-in-burst" />
+            {/* THE ONE LOUD MOMENT (stride wireframe, 2026-09-04). This screen is the
+                redesign's single deliberate exception, and this is what it spends it on: the
+                gait-lab readout, in the reserved icy cyan on its own near-black ground, running
+                one closed stride above the app's name. It says what the app does before a word
+                of copy does. It REPLACES the Cadence Arcs burst that held this slot — the two
+                are both "the loud moment" and cannot share a screen, and an opaque instrument
+                panel floating over turning rings reads as a mistake rather than as a
+                composition. Unlike the burst this one takes real layout (it is the subject, not
+                atmosphere behind the type), so it sits in the stack above the wordmark with a
+                fixed aspect and a clipped frame — see `styles.heroFrame`.
+
+                Everything about it — sizing, chrome, reduced motion, the pinned palette and why
+                it is pinned rather than themed — is documented in
+                `components/stride-wireframe-hero.tsx`'s header; this screen only gives it a box.
+                Decorative and inert: no label, so it stays out of the a11y tree. */}
+            <View style={styles.heroFrame}>
+              <StrideWireframeHero
+                style={StyleSheet.absoluteFill}
+                testID="sign-in-stride-hero"
+              />
+            </View>
             <KineticText
               accessibilityRole="header"
               staggerMs={Motion.stagger.line}
@@ -477,16 +488,19 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
     header: {
       alignItems: 'center',
       justifyContent: 'center',
-      gap: Spacing.md,
-      // The burst is drawn wider than this container on purpose and must be allowed to overflow
-      // it — clipping it here would put a hard rectangular edge on a set of arcs whose whole
-      // point is that they run off the screen.
-      overflow: 'visible',
+      gap: Spacing.lg,
     },
-    // Absolutely positioned so the burst contributes nothing to layout: the wordmark's position
-    // must not depend on how big the decoration behind it happens to be.
-    burst: {
-      position: 'absolute',
+    // The stride hero's frame. The hero paints its own square-cornered near-black ground edge to
+    // edge of whatever box it is given, so the rounded corner has to be clipped from out here
+    // (`overflow: 'hidden'` + `Radius.hero`, the system's full-bleed-hero corner). A fixed
+    // `aspectRatio` rather than a height: it must hold its shape across every device width, and
+    // 8:5 is the landscape crop that gives the ground a visible run under the figure without
+    // pushing the wordmark off the first screenful.
+    heroFrame: {
+      width: '100%',
+      aspectRatio: 8 / 5,
+      borderRadius: Radius.hero,
+      overflow: 'hidden',
     },
     wordmarkRow: {
       justifyContent: 'center',

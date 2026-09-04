@@ -51,10 +51,19 @@ token set and the onboarding rebuild; this entry is only the hero itself.
 - **The palette is pinned in the component, not in `constants/theme.ts` — deliberately.** The
   brief replaces the whole Cadence Arcs token system; the theme task should re-point
   `STRIDE_WIREFRAME_PALETTE` (or pass `lineColor`/`backgroundColor`) once its tokens exist.
-- **Dev-only preview route `app/dev/stride-wireframe.tsx`** — aspect/layer/playback toggles for
-  iterating on the hero without the onboarding rebuild. `__DEV__`-gated (redirects home in a
-  release build), undeclared in the Stack so it is reachable signed-out. Delete once the hero is
-  mounted for real.
+- **Mounted on sign-in (2026-09-04), and it took the "one loud moment" slot from `<ArcBurst>`.**
+  Sign-in is the app's entry screen for a signed-out user and the only screen the redesign lets
+  be loud, so that is where an entry animation belongs. The hero now leads the header — above the
+  wordmark, in the layout stack rather than pinned behind the type, in a `Radius.hero`-clipped
+  8:5 frame — and the oversized counter-rotating arc burst that used to sit behind the wordmark is
+  gone from the screen. The two are both "the loud moment" and cannot share one; an opaque
+  instrument panel floating over turning rings reads as a mistake, not a composition.
+  `components/arc-burst.tsx` is left in the tree, now unused, because the parallel
+  `v23-redesign-theme-onboarding` work owns whether the arc motif survives at all. **Nothing else
+  on the screen moved** — no copy, no controls, no auth wiring; the diff is the mark, its frame,
+  and the two comments that explain them.
+- **The dev-only preview route `app/dev/stride-wireframe.tsx` is deleted** — it existed to iterate
+  on the hero before it had a home, and it has one now. The screen itself is the preview.
 
 ## 2026-09-01 (result/sample stays honest — blurred "locked pillars" considered and rejected)
 

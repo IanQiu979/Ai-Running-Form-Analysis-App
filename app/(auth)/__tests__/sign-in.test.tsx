@@ -195,3 +195,27 @@ describe('sign-in screen: Turnstile configuration handed to the widget', () => {
     expect(mockTurnstileProps.baseUrl).toBe('https://project-ref.supabase.co/');
   });
 });
+
+/**
+ * REGRESSION LOCK — the signature mark's mount (2026-09-04). `<StrideWireframeHero>` is the
+ * redesign's entry animation and this screen is the only place it is mounted, so nothing else in
+ * the repo would notice if it silently stopped rendering here. Two things are worth holding:
+ * that it is on the screen at all, and that it is DECORATIVE — the screen deliberately gives it
+ * no `accessibilityLabel`, so it must stay out of the a11y tree rather than announcing an
+ * unlabelled image over the wordmark. (Hence `includeHiddenElements`: an a11y-hidden node is
+ * excluded from RNTL queries by default — see CLAUDE.md § Testing.)
+ *
+ * The control-reachability block above is what proves the mark cannot gate the form, in both
+ * motion settings; it does not need repeating here.
+ */
+describe('sign-in screen: the stride wireframe mark', () => {
+  it('mounts the hero, hidden from assistive tech', async () => {
+    await render(<SignInScreen />);
+
+    const hero = screen.getByTestId('sign-in-stride-hero', { includeHiddenElements: true });
+
+    expect(hero.props.accessibilityElementsHidden).toBe(true);
+    expect(hero.props.importantForAccessibility).toBe('no-hide-descendants');
+    expect(screen.queryByTestId('sign-in-stride-hero')).toBeNull();
+  });
+});

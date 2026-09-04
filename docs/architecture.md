@@ -66,9 +66,8 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
                           # Rom over 8 PACE-grounded keyframes; ground line, ground speed and
                           # the frame it is drawn in DERIVED from the gait). Palette pinned in the file on purpose until
                           # the new token set lands — see its header for the integration
-                          # contract. Not yet mounted on a product screen: the onboarding
-                          # rebuild drops it in. Preview: app/dev/stride-wireframe.tsx
-                          # (__DEV__-only, undeclared route => reachable signed-out).
+                          # contract. MOUNTED on app/(auth)/sign-in.tsx's header, where it took
+                          # over the "one loud moment" slot from <ArcBurst> (2026-09-04).
   aperture.tsx            # the result hero's lens (2026-08-02): a permanent radial vignette, plus
                           # a six-bladed iris and an expo-blur rack focus that play once on a
                           # fresh analysis. Wraps DuotoneFrame; sequenced ahead of its wireframe.
@@ -814,10 +813,13 @@ future screen will be written against. Full narrative: `docs/change_log.md`'s 20
   on Analyzing; `app/capture/extracting.tsx`'s horizontal progress bar became a genuinely
   determinate ring driven by the real frame count, with the indeterminate loader covering the
   "preparing" state where no total is known yet. In-button spinners were left alone.
-- **Sign-in is the one deliberate exception.** `components/arc-burst.tsx` draws oversized
-  counter-rotating arcs behind the wordmark. Kept separate from `<ArcLoader>` on purpose: rotating
-  rings mean "wait" there and "this is the brand" here, and a shared primitive would be a shared
-  meaning.
+- **Sign-in is the one deliberate exception**, and as of 2026-09-04 it spends that exception on
+  `<StrideWireframeHero>` (above) rather than on the arc motif: the gait readout leads the header,
+  in the stack above the wordmark, and it is the screen's subject rather than atmosphere behind
+  the type. `components/arc-burst.tsx` — oversized counter-rotating arcs, previously drawn behind
+  that wordmark — is what it replaced and is now unused; it is left in the tree because the
+  parallel redesign owns whether the arc motif survives at all. Two "loud moments" cannot share
+  one screen, and an opaque instrument panel over turning rings reads as a mistake.
 - **Launch assets were re-cut to match** — the `assets/source/*.svg` marks and the PNGs
   `scripts/generate-app-assets.js` rasterizes from them, plus `app.json`'s splash and Android
   adaptive-icon background colours (`#F7F1EB` light / `#17120E` dark). Same pipeline as the
