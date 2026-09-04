@@ -82,7 +82,13 @@ token set and the onboarding rebuild; this entry is only the hero itself.
   the measured box would render a caption below 9pt — the same floor the RN-layer knee readout
   already applied to itself — and grows the frame's bottom reserve to match, solving the two for a
   fixed point so a floored ruler is never clipped. A hero large enough not to need the floor is
-  framed exactly as before.
+  framed exactly as before. That scale is capped at `RULER_SCALE_MAX` (4): unclamped, the fixed
+  point's gain exceeds 1 below roughly 61pt of box height and diverges — a 300x50 box reached
+  scale 18,000 and shrank the runner to a sub-pixel dot while the caption stayed under the floor —
+  so the clamp is what makes the iteration converge for every box, and it is now asserted rather
+  than silently falling out of the loop's last iteration. A box too short to reach 9pt inside the
+  cap keeps the ruler line, ticks and cursor and drops the captions entirely (`ruler.labels`):
+  an absent label beats one taller than the runner.
 - **The dev-only preview route `app/dev/stride-wireframe.tsx` is deleted** — it existed to iterate
   on the hero before it had a home, and it has one now. The screen itself is the preview.
 
