@@ -23,6 +23,9 @@ import {
   StrideWireframeHero,
   computeViewBox,
   computeStageLayout,
+  frameFor,
+  rulerScaleFor,
+  RULER_SCALE_MAX,
   FRAME,
   cycleDurationMs,
 } from '../stride-wireframe-hero';
@@ -137,15 +140,62 @@ describe('sizing', () => {
     [120, 160],
   ];
 
+  // Boxes too short for the floor to be reachable at all: the ruler scale would have to run away
+  // to hundreds or thousands, so these are the cases the cap and the caption drop exist for.
+  const SHORT_BOXES: readonly (readonly [number, number])[] = [
+    [400, 70],
+    [800, 60],
+    [300, 50],
+  ];
+
   it('never renders a ruler caption below the 9pt floor the knee readout already uses', () => {
     // LABEL_SIZE is in viewBox units, so the same nominal size is a different point size in every
     // box; at the sign-in frame it lands near 5pt, which reads as a smudge, not an instrument.
     for (const [w, h] of BOXES) {
       const { vb, ruler } = computeStageLayout(w, h, 4);
       const pointsPerUnit = w / vb.w;
+      expect(ruler.labels).toBe(true);
       expect(ruler.label * pointsPerUnit).toBeGreaterThanOrEqual(9 - 1e-6);
       expect(ruler.tick * pointsPerUnit).toBeGreaterThan(4);
     }
+  });
+
+  it('drops the captions rather than let them outgrow the runner, for every aspect', () => {
+    for (const [w, h] of [...BOXES, ...SHORT_BOXES]) {
+      const { vb, ruler } = computeStageLayout(w, h, 4);
+      const scale = ruler.label / 2.4;
+      // The scale stays inside its clamp, so the frame — and the grid built from it — stays sane.
+      expect(scale).toBeGreaterThanOrEqual(1);
+      expect(scale).toBeLessThanOrEqual(RULER_SCALE_MAX + 1e-9);
+      // The ruler stays an annotation: never more than a seventh of the figure's own height.
+      expect(ruler.label).toBeLessThan(((GROUND_Y - FIGURE_EXTENT.top) * 100) / 7);
+      // A caption is either legible or absent — never rendered under the floor.
+      const labelPt = (ruler.label * w) / vb.w;
+      expect(ruler.labels).toBe(labelPt >= 9 - 1e-6);
+      // And the layout is a true fixed point, not the last iterate of a runaway loop.
+      expect(rulerScaleFor(vb.w / w)).toBeCloseTo(scale, 8);
+      expect(computeViewBox(w, h, 4, frameFor(scale))).toEqual(vb);
+    }
+  });
+
+  it('leaves the short boxes without captions and with the figure still framed', () => {
+    for (const [w, h] of SHORT_BOXES) {
+      const { vb, ruler } = computeStageLayout(w, h, 4);
+      expect(ruler.labels).toBe(false);
+      // The runner still fills the frame's short axis rather than collapsing to a dot.
+      expect(vb.h).toBeLessThanOrEqual(frameFor(RULER_SCALE_MAX).h + 8 + 1e-9);
+      // The ruler line and its ticks stay — only the captions yield.
+      expect(ruler.tick).toBeGreaterThan(0);
+    }
+  });
+
+  it('omits the ruler captions from the rendered tree when they cannot be legible', async () => {
+    await render(<StrideWireframeHero testID="hero" />);
+    await layout(345, 215.6);
+    expect(screen.getByTestId('hero-ruler-labels', HIDDEN)).toBeTruthy();
+    await layout(300, 50);
+    expect(screen.queryByTestId('hero-ruler-labels', HIDDEN)).toBeNull();
+    expect(screen.getByTestId('hero-cursor', HIDDEN)).toBeTruthy();
   });
 
   it('leaves a hero big enough not to need the floor exactly as authored', () => {

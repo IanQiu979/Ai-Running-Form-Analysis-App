@@ -29,7 +29,9 @@
  *   - It SIZES ITSELF TO ITS `style`: give it a width/height, an `aspectRatio`, `flex: 1`, or
  *     `StyleSheet.absoluteFill`; it measures the box it was given and fits the figure inside it
  *     (centred, `xMidYMid meet`-style) with the ground and grid extended edge to edge. Any aspect
- *     works — portrait gives the figure room, landscape gives the ground a long run.
+ *     works — portrait gives the figure room, landscape gives the ground a long run. A box too
+ *     short to render a legible ruler caption keeps the ruler and drops the captions (see
+ *     `RULER_SCALE_MAX`); the figure is never shrunk to make room for a label.
  *   - It paints its own near-black background over the whole box, with no rounded corners; clip
  *     it with a parent `overflow: 'hidden'` + `borderRadius` if the layout wants a tile.
  *   - `chrome` (default true) toggles the grid, ground, ruler and labels; `trails` (default true)
@@ -170,17 +172,35 @@ const GRID_PITCH = 10;
  * the ruler is scaled up by `rulerScaleFor` whenever the measured box would render a caption
  * below `LABEL_MIN_PT` — the same legibility floor the RN-layer `KneeReadout` applies to itself,
  * converted through the box's viewBox-units-per-point. `frameFor` reserves room for whatever
- * scale comes out, so a floored ruler is never clipped.
+ * scale comes out, so a floored ruler is never clipped. The scale is capped at
+ * `RULER_SCALE_MAX`; a box so short that even the cap cannot reach the floor renders the ruler
+ * line, ticks and cursor without any captions at all.
  */
 const LABEL_SIZE = 2.4;
 
 /** Legibility floor for the ruler captions, in points. Matches `KneeReadout`'s own floor. */
 const LABEL_MIN_PT = 9;
 
+/**
+ * The hard cap on the ruler scale. Without one the floor's fixed point is a linear map whose gain
+ * exceeds 1 for boxes under roughly 61pt of height, so it diverges: a 300x50 box reached a scale
+ * of 18,000, framing the runner as a sub-pixel dot and building tens of thousands of grid
+ * segments — and the caption was STILL under the floor, because the iteration merely ran out of
+ * steps. Capping bounds the map, which is what makes it converge for every box.
+ *
+ * 4 is the value because the chrome is the instrument's annotation, not its subject: a caption
+ * here is 9.6 viewBox units against a figure 74 units tall, and every aspect the hero is actually
+ * asked for (down to a 600x150 strip, whose floor lands at 3.59) still reaches the floor inside
+ * it, so no box that converged before loses its captions. Past it the label would outgrow the
+ * ruler it annotates, so the captions are dropped instead — see `computeStageLayout`.
+ */
+export const RULER_SCALE_MAX = 4;
+
 /** How much to scale the ruler (captions, ticks, cursor) for a box that renders `unitsPerPoint`
- *  viewBox units per point. Never below 1: a large hero keeps the authored proportions. */
+ *  viewBox units per point. Never below 1 (a large hero keeps the authored proportions) and
+ *  never above `RULER_SCALE_MAX` (the ruler stays subordinate to the figure). */
 export function rulerScaleFor(unitsPerPoint: number): number {
-  return Math.max(1, (LABEL_MIN_PT * unitsPerPoint) / LABEL_SIZE);
+  return Math.min(RULER_SCALE_MAX, Math.max(1, (LABEL_MIN_PT * unitsPerPoint) / LABEL_SIZE));
 }
 
 /**
@@ -243,9 +263,15 @@ export function computeViewBox(
 /**
  * The viewBox AND the ruler scale for a measured box — the two are mutually dependent (a floored
  * ruler needs a taller frame, and a taller frame renders fewer points per viewBox unit), so this
- * iterates the pair to a fixed point. It converges geometrically for any box taller than a few
- * points, and settles at `rulerScale === 1` (and exactly `FRAME`) for any hero big enough not to
- * need the floor, so a large render is bit-for-bit what it was before the floor existed.
+ * iterates the pair to a fixed point. Because `rulerScaleFor` is monotonic and clamped into
+ * `[1, RULER_SCALE_MAX]`, the iteration starts at the bottom of a bounded interval and only
+ * climbs, so it always converges — either on the floor's own fixed point or by saturating the
+ * cap. A box short enough to saturate the cap without reaching `LABEL_MIN_PT` reports
+ * `ruler.labels === false`: the captions are dropped rather than rendered illegibly, which is
+ * why `RulerLabels` can promise it never draws below the floor.
+ *
+ * It settles at `rulerScale === 1` (and exactly `FRAME`) for any hero big enough not to need the
+ * floor, so a large render is bit-for-bit what it was before the floor existed.
  */
 export function computeStageLayout(
   width: number,
@@ -258,16 +284,27 @@ export function computeStageLayout(
     majorTick: number;
     cursor: number;
     label: number;
+    labels: boolean;
     y: number;
     labelY: number;
   };
 } {
   let rulerScale = 1;
   let vb = computeViewBox(width, height, inset, FRAME);
-  for (let i = 0; i < 32; i++) {
+  let converged = false;
+  for (let i = 0; i < 64; i++) {
     const next = rulerScaleFor(vb.w / width);
-    if (Math.abs(next - rulerScale) < 1e-9) break;
+    if (Math.abs(next - rulerScale) < 1e-9) {
+      converged = true;
+      break;
+    }
     rulerScale = next;
+    vb = computeViewBox(width, height, inset, frameFor(rulerScale));
+  }
+  if (!converged) {
+    // Unreachable for a bounded monotone map, but a layout must be deterministic rather than
+    // "whatever the last iteration happened to hold": settle on the cap, which is stable.
+    rulerScale = RULER_SCALE_MAX;
     vb = computeViewBox(width, height, inset, frameFor(rulerScale));
   }
   const majorTick = RULER.majorTick * rulerScale;
@@ -280,6 +317,8 @@ export function computeStageLayout(
       majorTick,
       cursor: RULER.cursor * rulerScale,
       label,
+      /** Whether the captions clear `LABEL_MIN_PT` at this size at all. False drops them. */
+      labels: (label * width) / vb.w >= LABEL_MIN_PT - 1e-6,
       /** The ruler's baseline, viewBox units. */
       y,
       /** The baseline of the IC/TO captions hanging under it. */
@@ -480,7 +519,7 @@ function Stage({ box, animate, phase, chrome, trails, readouts, lineColor, backg
                 fill="none"
               />
             )}
-            <RulerLabels ruler={ruler} color={lineColor} />
+            {ruler.labels && <RulerLabels ruler={ruler} color={lineColor} testID={id('ruler-labels')} />}
           </>
         )}
 
@@ -679,8 +718,10 @@ function RulerCursor({
 
 /** The ruler's captions: the cycle's name, and IC/TO (initial contact / toe-off — a gait
  *  plot's two canonical events) at each foot's marks. Texture, not copy — dim and mono — but
- *  never below `LABEL_MIN_PT` once rendered: an unreadable instrument label is not texture. */
-function RulerLabels({ ruler, color }: { ruler: StageRuler; color: string }) {
+ *  never below `LABEL_MIN_PT` once rendered: an unreadable instrument label is not texture. A box
+ *  too short to reach that floor within `RULER_SCALE_MAX` renders no captions at all — the caller
+ *  checks `ruler.labels` — because an absent label beats one taller than the runner. */
+function RulerLabels({ ruler, color, testID }: { ruler: StageRuler; color: string; testID?: string }) {
   const span = RULER.x1 - RULER.x0;
   const rulerY = ruler.y;
   const labelY = ruler.labelY;
@@ -692,7 +733,7 @@ function RulerLabels({ ruler, color }: { ruler: StageRuler; color: string }) {
     letterSpacing: 0.3,
   } as const;
   return (
-    <>
+    <G testID={testID}>
       <SvgText {...text} x={RULER.x0} y={rulerY - ruler.cursor - 1.2} textAnchor="start">
         GAIT CYCLE
       </SvgText>
@@ -709,7 +750,7 @@ function RulerLabels({ ruler, color }: { ruler: StageRuler; color: string }) {
           TO
         </SvgText>
       ))}
-    </>
+    </G>
   );
 }
 
