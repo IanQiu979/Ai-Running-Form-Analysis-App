@@ -16,6 +16,7 @@ import { render, screen } from '@testing-library/react-native';
 
 import { PaceDeltaPanel } from '../pace-delta-panel';
 import { Copy } from '@/constants/copy';
+import { PACE_PILLARS } from '@shared/pace';
 import { pillarDeltaA11yLabel } from '@/lib/compare';
 import { freeTierVideoResult, photoResult } from '@/lib/pace-fixtures';
 
@@ -78,9 +79,17 @@ describe('a pillar not assessed on one side is never a zero', () => {
 });
 
 describe('the motif', () => {
-  it('wears the corner ripple, so the deltas read as the same system as the readouts above them', async () => {
+  // COLD READ (2026-09-04): this panel used to wear a corner ripple drawn by the retired
+  // `<CornerArcs>`. The ripple is gone and the RINGS are what tie the deltas to the readouts above
+  // them — which was always the real connection; the ornament was decoration on top of it. Locking
+  // the rings rather than the ornament is therefore the assertion that should have been here all
+  // along, and it is the one that survives a palette change.
+  it('states every pillar with a ring, so the deltas read as the same system as the readouts above them', async () => {
     await renderPanel();
 
-    expect(screen.getByTestId('panel-ornament', HIDDEN)).toBeTruthy();
+    for (const id of PACE_PILLARS) {
+      expect(screen.getByTestId(`compare-delta-ring-${id}`, HIDDEN)).toBeTruthy();
+    }
+    expect(screen.queryByTestId('panel-ornament', HIDDEN)).toBeNull();
   });
 });

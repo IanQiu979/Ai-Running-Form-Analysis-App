@@ -318,18 +318,7 @@ export default function ResultScreen() {
   const revealReady = annotationsDone || (!heroPending && !heroUri);
 
   return (
-    // The corner ripple is opted OUT only while something is actually occupying that corner
-    // (Cadence Arcs, 2026-09-01): the hero — or, below, its pending placeholder — bleeds to the
-    // top-right the ornament would sit in, and an arc drawn over photographic media is neither
-    // proven for contrast nor legible.
-    //
-    // It is opted back IN when this result has no hero at all (`heroPath` was absent, or its
-    // signed URL resolved to nothing). That case used to inherit the blanket `"none"` and left the
-    // motif missing from the screen entirely — the ornament was being suppressed for a hero that
-    // was never there. `heroPending` counts as "occupied" because the placeholder holds the corner
-    // for the image that is on its way in; flipping the ornament on and back off again as the URL
-    // resolves would be motion no event caused.
-    <ScreenGradient ornament={heroUri || heroPending ? 'none' : 'topRight'}>
+    <ScreenGradient>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
         <Animated.ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
           {/* THE HERO, and the biggest composition change on this screen. It is now the first

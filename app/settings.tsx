@@ -57,7 +57,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArcLoader } from '@/components/arc-loader';
 import { KineticText } from '@/components/kinetic-text';
 import { CircleIconButton } from '@/components/ui/circle-icon-button';
-import { CornerArcs } from '@/components/ui/corner-arcs';
 import { Eyebrow } from '@/components/ui/eyebrow';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
@@ -116,12 +115,6 @@ type ConsentState =
 /** The inline wait ring, sized to sit on one line beside its caption. Composition, not a token —
  *  the same reasoning `components/pace-readout.tsx` gives for keeping its own ring sizes local. */
 const INLINE_LOADER_SIZE = 24;
-
-/** The Plan card's ripple: card-scale (the screen's own ornament scales with the viewport, and that
- *  radius inside a card would fill it) and quieter than a screen ornament, because it is drawn on
- *  an opaque surface directly behind reading matter. */
-const PLAN_ORNAMENT_RADIUS = 116;
-const PLAN_ORNAMENT_OPACITY = 0.28;
 
 const TIER_LABEL: Record<SubscriptionTier, string> = {
   free: Copy.tier.free,
@@ -631,18 +624,11 @@ export default function SettingsScreen() {
           <Eyebrow tone="primary" accessibilityRole="header">
             {Copy.settings.section.plan}
           </Eyebrow>
-          {/* THE ONE ORNAMENTED CARD ON THIS SCREEN. Settings is chrome, not a result — the arc
-              motif is spent here, on the single card that says something about the account itself,
-              and nowhere else on the screen. `padding={0}` + an inner padded node is what lets the
-              ripple radiate from the card's actual corner (an absolutely-positioned child resolves
-              against its parent's PADDING box). */}
+          {/* `padding={0}` + an inner padded `cardBody` is the shape every card on this screen
+              uses, so the three of them stay structurally identical. (It also used to be what let
+              the retired arc ornament radiate from the card's real corner; the ornament is gone
+              with the Cadence Arcs motif, the shape stays because the other cards share it.) */}
           <SurfaceCard padding={0}>
-            <CornerArcs
-              testID="settings-plan-ornament"
-              corner="topRight"
-              radius={PLAN_ORNAMENT_RADIUS}
-              opacity={PLAN_ORNAMENT_OPACITY}
-            />
             <View style={styles.cardBody}>
             {plan.status === 'loading' && (
               <View style={styles.inlineRow}>

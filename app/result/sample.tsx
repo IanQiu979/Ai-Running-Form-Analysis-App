@@ -67,14 +67,7 @@ export default function SampleResultScreen() {
   }
 
   return (
-    // Ornament suppressed only while the hero actually occupies that corner — tracking
-    // `/result/[id]`'s own rule exactly, because this screen has the identical bleeding-hero
-    // layout and the two result screens must not differ in a way the user can see but not
-    // explain. A sample with no hero (the mailbox carried no frame) gets the motif back, rather
-    // than inheriting a suppression meant for an image that isn't there. There is no `heroPending`
-    // counterpart here: the hero is a `data:` URI already in memory, so it is present on the first
-    // frame or not at all — nothing to resolve, nothing to hold the corner for.
-    <ScreenGradient ornament={pending.heroDataUri ? 'none' : 'topRight'}>
+    <ScreenGradient>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
         <ScrollView contentContainerStyle={styles.content}>
           {pending.heroDataUri ? (

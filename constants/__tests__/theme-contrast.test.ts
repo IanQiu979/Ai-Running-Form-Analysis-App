@@ -400,17 +400,17 @@ describe('theme contrast — non-text pairs clear AA (>=3:1)', () => {
   });
 });
 
-describe('the arc track stays a track — 2026-09-01', () => {
+describe('the meter track stays a track — 2026-09-04', () => {
   // The mirror of the `hairline` guard below: `Meter.*.track` is the UNFILLED remainder of a score
   // ring, and its whole job is to be quieter than the `Score.*.fill` arc drawn over it. If this
   // starts failing, the track has been strengthened into something that competes with the score
   // it is supposed to be the backdrop for — at which point a ring's fill length stops reading.
-  test.each(arcTrackBelowFloorPairs)('$label', ({ fg, bg }) => {
+  test.each(meterTrackBelowFloorPairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeLessThan(AA_NON_TEXT);
   });
 
-  // The ornament and the track are two roles, not one value at two opacities.
-  test.each(SCHEMES)('%s: arc.ornament !== arc.track', (scheme) => {
+  // The rule and the track are two roles, not one value at two opacities.
+  test.each(SCHEMES)('%s: meter.rule !== meter.track', (scheme) => {
     expect(Meter[scheme].rule).not.toBe(Meter[scheme].track);
   });
 });

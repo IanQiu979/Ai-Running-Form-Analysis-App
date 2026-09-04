@@ -19,8 +19,7 @@ import { render, screen } from '@testing-library/react-native';
 
 import { ArcLoader } from '@/components/arc-loader';
 import { ArcRing } from '@/components/ui/arc-ring';
-import { CornerArcs } from '@/components/ui/corner-arcs';
-import { Meter, Score } from '@/constants/theme';
+import { Score } from '@/constants/theme';
 
 const HIDDEN = { includeHiddenElements: true } as const;
 
@@ -133,41 +132,6 @@ describe('<ArcRing> — the first painted frame', () => {
 
     // r + strokeWidth/2 === size/2. A radius of size/2 would draw half the stroke outside the box.
     expect(screen.getByTestId('ring-track', HIDDEN).props.r).toBe(90);
-  });
-});
-
-describe('<CornerArcs>', () => {
-  it('draws `count` concentric arcs, each fainter than the one inside it', async () => {
-    await render(<CornerArcs testID="arcs" radius={200} count={4} />);
-
-    const opacities = [0, 1, 2, 3].map(
-      (i) => screen.getByTestId(`arcs-arc-${i}`, HIDDEN).props.strokeOpacity as number
-    );
-    expect(screen.queryByTestId('arcs-arc-4', HIDDEN)).toBeNull();
-
-    for (let i = 1; i < opacities.length; i += 1) {
-      expect(opacities[i]).toBeLessThan(opacities[i - 1]);
-    }
-  });
-
-  it('grows each arc’s radius outward from the corner', async () => {
-    await render(<CornerArcs testID="arcs" radius={200} count={4} />);
-
-    const radii = [0, 1, 2, 3].map((i) => screen.getByTestId(`arcs-arc-${i}`, HIDDEN).props.r as number);
-    expect(radii).toEqual([50, 100, 150, 200]);
-  });
-
-  it('defaults to the proven meter.rule role rather than a literal', async () => {
-    await render(<CornerArcs testID="arcs" radius={120} count={2} />);
-
-    // The hook resolves to `light` under Jest (no OS scheme), which is the case worth pinning:
-    // dark's rule is the eye-catching one, so a mistake there would be noticed; light's would not.
-    // `stroke` is normalised by react-native-svg into a packed int, so this compares the ARGB the
-    // token resolves to rather than the hex string — which is also what actually gets painted.
-    expect(screen.getByTestId('arcs-arc-0', HIDDEN).props.stroke).toEqual(
-      screen.getByTestId('arcs-arc-1', HIDDEN).props.stroke
-    );
-    expect(Meter.light.rule).not.toBe(Meter.dark.rule);
   });
 });
 

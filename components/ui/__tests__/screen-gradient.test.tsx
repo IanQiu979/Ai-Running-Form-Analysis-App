@@ -76,37 +76,21 @@ describe('ScreenGradient', () => {
     expect(screen.getByTestId('bg-wash', { includeHiddenElements: true })).toBeTruthy();
   });
 
-  // Cadence Arcs (2026-09-01). The ornament lives here rather than on twelve screens so that "on
-  // every screen" is structural; these lock the two halves of that decision — it is on by
-  // default, and it is genuinely suppressible for the one screen whose top corner is occupied.
-  describe('the corner ornament', () => {
-    it('draws the arc ripple by default, without being asked for', async () => {
-      await render(<ScreenGradient testID="bg" />);
+  // COLD READ (2026-09-04). The corner ripple this component used to stencil onto every screen is
+  // gone with the Cadence Arcs motif — see the header of `components/ui/screen-gradient.tsx` for
+  // why a repeated decoration is the wrong thing on a system whose rule is that exactly one
+  // element per screen may be loud. This is the regression lock for that removal: the wash and the
+  // children are all this component may ever mount, so a future "just a small mark in the corner"
+  // has to come back through a deliberate change here rather than arriving quietly.
+  it('mounts nothing between the wash and the screen’s own content', async () => {
+    await render(
+      <ScreenGradient testID="bg">
+        <Text>Analyze my form</Text>
+      </ScreenGradient>
+    );
 
-      expect(screen.getByTestId('bg-ornament', { includeHiddenElements: true })).toBeTruthy();
-    });
-
-    it('can be suppressed entirely — the result screen’s hero owns its top corner', async () => {
-      await render(<ScreenGradient testID="bg" ornament="none" />);
-
-      expect(screen.queryByTestId('bg-ornament', { includeHiddenElements: true })).toBeNull();
-    });
-
-    it('keeps the ornament behind the screen’s own content', async () => {
-      await render(
-        <ScreenGradient testID="bg">
-          <Text>Analyze my form</Text>
-        </ScreenGradient>
-      );
-
-      // Paint order is child order in React Native: the ornament must be mounted BEFORE the
-      // children, or the ripple draws on top of the screen's controls.
-      const root = screen.getByTestId('bg', { includeHiddenElements: true });
-      const ornamentIndex = root.children.findIndex(
-        (child) => typeof child !== 'string' && child.props?.testID === 'bg-ornament'
-      );
-      expect(ornamentIndex).toBeGreaterThanOrEqual(0);
-      expect(ornamentIndex).toBeLessThan(root.children.length - 1);
-    });
+    const root = screen.getByTestId('bg', { includeHiddenElements: true });
+    expect(root.children).toHaveLength(2);
+    expect(screen.queryByTestId('bg-ornament', { includeHiddenElements: true })).toBeNull();
   });
 });
