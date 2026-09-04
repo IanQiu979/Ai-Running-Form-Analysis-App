@@ -180,7 +180,7 @@ export type ThemeColors = (typeof Colors)[ColorScheme];
 // Every pairwise separation in the palette, INCLUDING against the two non-score hues, is >=30°,
 // and this is PROVEN in theme-contrast.test.ts (`hue separation` block) rather than asserted here:
 //   low<->mid 55°   mid<->good 73°   good<->strong 38°   strong<->accent 34°   accent<->low 160°
-//   error 308° <-> low 42°   error <-> accent 118°   ...tightest pair anywhere: 33.9°.
+//   error 308° <-> low 42°   error <-> accent 118°   ...tightest pair anywhere: 33.6°.
 // That tightest pair sits BETWEEN the espresso ramp's 30° and the Calm ramp's 38°: better than an
 // orange accent could manage, short of what a violet one did. Cyan is a mid-wheel accent, and a
 // narrower worst pair than 38° is the honest cost of putting the highlight there.

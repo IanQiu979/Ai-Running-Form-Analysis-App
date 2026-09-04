@@ -14,9 +14,11 @@
   mark-light.svg: it only ever colored measure-ticks, removed two revisions ago.
     field:   #0B0D0F
     lines:   Colors.dark.text.primary #EDF1F4
-    landing: Score.strong.dark.fill   #3C9974 — unchanged from light; theme.ts keeps the "strong"
-             fill token identical across both themes, so the landing marker is the one element that
-             does NOT re-tint between mark-light and mark-dark.
+    landing: Score.strong.light.fill  #3C9974 — deliberately the LIGHT band's fill, drawn here on
+             the dark field too. theme.ts does not keep the "strong" fill identical across schemes
+             (Score.strong.dark.fill is #44AF84); the landing marker is simply the one element that
+             is intentionally the same in mark-light and mark-dark, so the mark reads as one object
+             in both.
 -->
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <rect id="field" x="0" y="0" width="1024" height="1024" fill="#0B0D0F" />

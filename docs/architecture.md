@@ -859,7 +859,7 @@ token contracts every future screen is written against. Full narrative: `docs/ch
   token, so none changed.
 - **The score ramp vacated cyan.** rose 350° → amber 45° → green 118° → jade 156°, error 308°,
   accent 190°. The old teal `good` (195°) could not coexist with a cyan accent at ≥30°. Tightest
-  pairwise separation anywhere is now 33.9°, and the ramp is monotonic in band order for the first
+  pairwise separation anywhere is now 33.6°, and the ramp is monotonic in band order for the first
   time — the espresso ramp doubled back between `good` (195°) and `strong` (152°).
 - **`Arc` retired, `Meter` introduced.** `Meter.rule` (a drawn measurement line: a meter's ring
   stroke, a tick, an indeterminate wait mark) keeps `Arc.ornament`'s **≥3:1** obligation against

@@ -176,7 +176,7 @@ for (const scheme of SCHEMES) {
   }
 }
 
-accentTextPairs.push({ label: 'onAccent (white) on accent', fg: Accent.onAccent, bg: Accent.value });
+accentTextPairs.push({ label: 'onAccent (the ink) on accent', fg: Accent.onAccent, bg: Accent.value });
 
 // ---------------------------------------------------------------------------------------------
 // Glass — added with the 2026-08-02 shape/type/motion redesign.

@@ -31,7 +31,7 @@ rebased onto it, so the hero's real mount on sign-in is what the reveal below no
 - **The score ramp was re-cut cooler, and the cost is stated rather than buried.** An icy-cyan
   accent closes the 160-220° window the old ramp's teal `good` lived in, so the ramp vacates cyan:
   rose 350° → amber 45° → green 118° → jade 156°, with `Semantic.error` at 308°. Tightest pairwise
-  separation anywhere in the palette is 33.9° — better than an orange accent could manage, short of
+  separation anywhere in the palette is 33.6° — better than an orange accent could manage, short of
   what the Calm violet one did. In exchange the ramp is **monotonic in band order** for the first
   time: the espresso ramp put `good` at 195° and `strong` at 152°, so moving up the scale moved
   backwards round the wheel.
@@ -45,7 +45,11 @@ rebased onto it, so the hero's real mount on sign-in is what the reveal below no
 - **The paywall's tier mark survived, re-cut.** It was never really decoration — the ladder is
   drawn as "one, two, three of the same thing", which is the honest picture of a ladder whose own
   footnote says the higher tiers are more of it, not different. The ripple became a **ruler**:
-  stacked ticks in `Meter.rule`. A ladder of tiers is a scale, and a scale is made of ticks.
+  stacked ticks in `Meter.rule`. A ladder of tiers is a scale, and a scale is made of ticks. The
+  ticks sit in the card's **content column**, not floating over it: the ripple was translucent
+  enough to overlap the right-aligned price, and an opaque rule is not, so the mark is the column's
+  first row with a lane reserved for the ladder's tallest rung. `tier-card-mark.test.tsx` pins that
+  a rule can never share space with the price at any mark count.
 - **`Gradient.page` and `Glass` were re-solved with their contracts UNCHANGED** — the wash carries
   `text.primary` only; white-tinted glass carries `text.primary` only; the canvas-tinted `chrome`
   tone is still the only one proven for both text roles; a glass control is still bounded by a

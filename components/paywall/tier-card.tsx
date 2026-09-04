@@ -21,9 +21,17 @@
  * server-only, and issue #52's own rule is that this whole screen is cosmetic). The card renders
  * the strings and the CTA state it is handed and decides nothing.
  *
- * `<SurfaceCard padding={0}>` with an inner padded node is deliberate, and is what that prop's own
- * doc comment describes: an absolutely-positioned mark resolves against its parent's PADDING box,
- * so a mark inside a padded card floats in from the corner instead of sitting at it.
+ * THE MARK SHARES THE CONTENT COLUMN, and does not float over it. It used to be absolutely
+ * positioned at a 16pt inset while the type below it sat at 24pt, which put the bottom of a
+ * three-rule ladder straight through the right-aligned price. A ripple at 0.34 opacity could get
+ * away with that; opaque `Meter.rule` cannot. So the mark is now the first row of the same padded
+ * column the header row is in — it can no longer overlap the price at ANY rule count, because
+ * nothing in that column overlaps anything else in it. `<SurfaceCard padding={0}>` with an inner
+ * padded node is kept so the mark and the type resolve against one shared inset.
+ *
+ * The lane it sits in reserves `MARK_LADDER_MAX` rules' worth of height whatever this card carries,
+ * so the type below does not move because a tier wears one rule fewer than its neighbour. A ladder
+ * taller than that grows the lane rather than colliding with anything.
  *
  * The one card carrying `tone="raised"` is whichever one is the CURRENT plan — "the one raised
  * element per screen" (constants/theme.ts) spent on the true statement about this account, not on a
@@ -57,15 +65,17 @@ export type TierCardCta =
   | { kind: 'current' }
   | { kind: 'upgrade'; label: string; busy: boolean; disabled: boolean; onPress: () => void };
 
-/** Card-scale, not screen-scale: the screen's own ripple scales with the viewport, and dropping
- *  that radius into a card would fill it. */
-/** The tier mark: a stack of rules in the card's top-right corner. Geometry is composition, not a
- *  token — these numbers repeat nowhere else in the app (the same reasoning
+/** The tier mark: a stack of rules at the top of the card's content column. Geometry is
+ *  composition, not a token — these numbers repeat nowhere else in the app (the same reasoning
  *  `components/pace-readout.tsx` gives for keeping its own ring sizes local). */
 const MARK_RULE_WIDTH = 28;
 const MARK_RULE_HEIGHT = 2;
 const MARK_RULE_GAP = 5;
-const MARK_INSET = Spacing.lg;
+/** The tallest rung the ladder currently climbs to. Only the RESERVED height depends on it: a card
+ *  handed more rules than this still draws all of them, it just makes its own lane taller. */
+const MARK_LADDER_MAX = 3;
+export const MARK_LANE_HEIGHT =
+  MARK_LADDER_MAX * MARK_RULE_HEIGHT + (MARK_LADDER_MAX - 1) * MARK_RULE_GAP;
 
 export type TierCardProps = {
   name: string;
@@ -85,20 +95,20 @@ export function TierCard({ name, price, detail, marks, cta, testID }: TierCardPr
 
   return (
     <SurfaceCard testID={testID} tone={isCurrent ? 'raised' : 'base'} padding={0}>
-      {/* Decorative and inert: hidden from the a11y tree entirely, because the ladder it draws is
-          already stated in words by the tier name, price and detail below it. It takes no layout
-          and no touches. */}
-      <View
-        testID={testID ? `${testID}-mark` : undefined}
-        style={styles.mark}
-        pointerEvents="none"
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants">
-        {Array.from({ length: marks }, (_, i) => (
-          <View key={i} testID={testID ? `${testID}-mark-${i}` : undefined} style={styles.markRule} />
-        ))}
-      </View>
-      <View style={styles.content}>
+      <View testID={testID ? `${testID}-content` : undefined} style={styles.content}>
+        {/* Decorative and inert: hidden from the a11y tree entirely, because the ladder it draws is
+            already stated in words by the tier name, price and detail below it. It takes no
+            touches, and it takes a FIXED slice of layout that does not vary with `marks`. */}
+        <View
+          testID={testID ? `${testID}-mark` : undefined}
+          style={styles.mark}
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants">
+          {Array.from({ length: marks }, (_, i) => (
+            <View key={i} testID={testID ? `${testID}-mark-${i}` : undefined} style={styles.markRule} />
+          ))}
+        </View>
         <View style={styles.headerRow}>
           <Text style={styles.name}>{name}</Text>
           {/* Mono — theme.ts's `FontFamily.mono` role ("measured readouts and any pace/metric
@@ -138,13 +148,14 @@ export function TierCard({ name, price, detail, marks, cta, testID }: TierCardPr
 
 function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   return StyleSheet.create({
-    // The tier mark — see this file's header. Absolutely positioned so it contributes nothing to
-    // layout: the card's type must not move because a tier carries one more rule than another.
+    // The tier mark — see this file's header. In the content column's normal flow, so it cannot be
+    // drawn over the price beside it, with a reserved lane height so the card's type does not move
+    // because a tier carries one more rule than another.
     mark: {
-      position: 'absolute',
-      top: MARK_INSET,
-      right: MARK_INSET,
+      alignSelf: 'flex-end',
       alignItems: 'flex-end',
+      justifyContent: 'flex-start',
+      minHeight: MARK_LANE_HEIGHT,
       gap: MARK_RULE_GAP,
     },
     markRule: {
