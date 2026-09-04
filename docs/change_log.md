@@ -5,6 +5,72 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-04 ("Cold Read" — the near-monochrome visual redesign)
+
+**UNRELEASED.** All of this lives on `fm/v23-redesign-theme-onboarding` and has **not** been merged
+to `main`. The entry-screen hero it is built to receive was the second branch
+(`fm/v23-redesign-animation`) and it landed first, as #196 on 2026-09-04; this branch has since been
+rebased onto it, so the hero's real mount on sign-in is what the reveal below now sits under.
+
+- **A new design system replaces Cadence Arcs**, which merged to `main` on 2026-09-01 (#195) and
+  is what the app ships today. Near-monochrome and
+  cool — one hue family (~206-212°) at 9-25% saturation, so the canvas has a temperature but not a
+  colour. Dark is the primary scheme on a near-black `#0B0D0F`; light is derived from the same
+  family with inverted lightness onto a cool bone `#F4F5F7`. Everything the espresso pass left
+  alone is still untouched: `FontFamily`, `Radius`, `Spacing`, `FontSize`, `Tracking`,
+  `LineHeight`, `Elevation`, `ControlHeight`, `ContentWidth`, `TabBar`, `HitTarget`,
+  `CheckboxSize`, `Opacity` and `Motion` are byte-identical. This is a colour pass.
+- **Two-tier accent, and the second tier is now ink-on-bright.** Graphite carries the whole UI; one
+  saturated icy cyan (`#0A9AB6`) is reserved for the true primary CTA, at most once per screen.
+  `Accent.onAccent` moved from white to the ink, because white on this accent measures 3.33:1 and
+  fails AA outright while the ink measures 5.85:1. Every call site already read the token, so no
+  call site changed. The accent's own value is squeezed from both sides and is forced, not chosen:
+  it must clear 3:1 against light mode's `background` (capping it) and against dark mode's
+  `surface.raised` (flooring it). A paler, "icier" cyan is arithmetically impossible for a
+  theme-invariant accent.
+- **The score ramp was re-cut cooler, and the cost is stated rather than buried.** An icy-cyan
+  accent closes the 160-220° window the old ramp's teal `good` lived in, so the ramp vacates cyan:
+  rose 350° → amber 45° → green 118° → jade 156°, with `Semantic.error` at 308°. Tightest pairwise
+  separation anywhere in the palette is 33.9° — better than an orange accent could manage, short of
+  what the Calm violet one did. In exchange the ramp is **monotonic in band order** for the first
+  time: the espresso ramp put `good` at 195° and `strong` at 152°, so moving up the scale moved
+  backwards round the wheel.
+- **`Arc` is retired; `Meter` replaces the part of it that carried meaning.** The concentric-ripple
+  motif is gone — `components/ui/corner-arcs.tsx` and `components/arc-burst.tsx` are deleted, and
+  `<ScreenGradient>` no longer stencils an ornament onto every screen. What was load-bearing (the
+  geometry a `Score.*.fill` arc is swept over) survives as `Meter.rule` / `Meter.track`, which are
+  deliberately **achromatic**: a meter's structure is monochrome, its value is a score hue, and the
+  accent is spent on the CTA. On the espresso palette `Arc.ornament` shipped the brand's literal
+  clay and was, in practice, a second accent competing with the first.
+- **The paywall's tier mark survived, re-cut.** It was never really decoration — the ladder is
+  drawn as "one, two, three of the same thing", which is the honest picture of a ladder whose own
+  footnote says the higher tiers are more of it, not different. The ripple became a **ruler**:
+  stacked ticks in `Meter.rule`. A ladder of tiers is a scale, and a scale is made of ticks.
+- **`Gradient.page` and `Glass` were re-solved with their contracts UNCHANGED** — the wash carries
+  `text.primary` only; white-tinted glass carries `text.primary` only; the canvas-tinted `chrome`
+  tone is still the only one proven for both text roles; a glass control is still bounded by a
+  proven `control.border` ring rather than by its own fill. The dark wash is a deep charcoal
+  (L 13.5-19.5%), markedly darker than the espresso wash, and its floor is set by the `Glass`
+  counter-guard rather than by taste. Dark glass alphas rose 0.11/0.14/0.16 → 0.12/0.15/0.17, which
+  strengthens both halves of the contract at once.
+- **The entry screen gained scrollable pace/pillars content** (`app/(auth)/sign-in.tsx`). It IS the
+  front door — there is no separate onboarding route — and it used to end at the sign-in controls,
+  so a stranger had to create an account to learn what the app measures. The reveal sits **below**
+  the controls, not above: a returning user must never scroll past a brochure to reach a sign-in
+  button. It states the four pillars (iterated from the shared `PACE_PILLARS` list), the
+  photo-versus-video limit up front rather than after the fact, and what the product is not. No
+  auth logic or flow changed. No second CTA lives down there — one screen, one primary action.
+- **Two new proofs, not just new values.** `constants/contrast.ts` gained `hue()`,
+  `hueSeparation()` and `MIN_HUE_SEPARATION`, and `theme-contrast.test.ts` now **computes** the
+  >=30° hue-separation claim `theme.ts` has asserted in a comment across three palettes, plus the
+  ramp's monotonic-ordering claim. A new screen test locks the entry reveal's pillar list and its
+  position below the controls.
+- **Launch assets were re-tinted** — the four `assets/source/*.svg` marks, `app.json`'s splash and
+  Android adaptive-icon backgrounds, and `scripts/generate-app-assets.js`'s hand-mirrored copies of
+  the two background tokens; PNGs regenerated with `npm run assets`. The icon's landing marker stays
+  `Score.strong` and deliberately not the accent, a rule that is stricter now than when it was
+  written.
+
 ## 2026-09-03 (stride wireframe — the redesign's signature entry animation, built standalone)
 
 **UNRELEASED, on `fm/v23-redesign-animation`.** Part of the captain-approved 2026-09-03 house-style
