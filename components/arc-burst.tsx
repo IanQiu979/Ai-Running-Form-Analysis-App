@@ -36,7 +36,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 
-import { Arc, Motion, type ColorScheme } from '@/constants/theme';
+import { Meter, Motion, type ColorScheme } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 
@@ -66,7 +66,7 @@ export type ArcBurstProps = {
    *  the rings are meant to run off every edge. */
   size: number;
   strokeWidth?: number;
-  /** Override the arc colour. Defaults to `Arc[scheme].ornament` — the brand clay. */
+  /** Override the arc colour. Defaults to `Meter[scheme].rule` — the brand clay. */
   color?: string;
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -74,7 +74,7 @@ export type ArcBurstProps = {
 
 export function ArcBurst({ size, strokeWidth = 1.5, color, style, testID }: ArcBurstProps) {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const stroke = color ?? Arc[scheme].ornament;
+  const stroke = color ?? Meter[scheme].rule;
   const reduceMotion = useReducedMotion();
 
   return (

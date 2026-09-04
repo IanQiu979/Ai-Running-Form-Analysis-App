@@ -10,7 +10,7 @@
  * PURELY DECORATIVE, and the code says so three ways rather than relying on a comment:
  * `pointerEvents="none"`, `accessibilityElementsHidden`, and no text or state anywhere in it. It
  * carries no information a screen reader or a contrast failure could hide. It is nonetheless drawn
- * in `Arc.*.ornament`, which is proven >=3:1 against every surface and every wash stop (see the
+ * in `Meter.*.rule`, which is proven >=3:1 against every surface and every wash stop (see the
  * token's own note on why it takes a floor WCAG would not impose on it) — an ornament that
  * survives on one screen's backdrop and vanishes on another's is not a system, it is an accident.
  *
@@ -20,7 +20,7 @@
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
-import { Arc, type ColorScheme } from '@/constants/theme';
+import { Meter, type ColorScheme } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export type ArcCorner = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
@@ -62,7 +62,7 @@ export function CornerArcs({
   testID,
 }: CornerArcsProps) {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const stroke = color ?? Arc[scheme].ornament;
+  const stroke = color ?? Meter[scheme].rule;
   const { placement, cx, cy } = CORNERS[corner];
   const rings = Array.from({ length: count }, (_, i) => ((i + 1) / count) * radius);
 

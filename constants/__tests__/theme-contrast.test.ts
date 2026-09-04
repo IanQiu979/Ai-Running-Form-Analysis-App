@@ -10,8 +10,10 @@
  *     carries meaning, >=3:1.
  *   - each score band's `text` (a band word/numeral rendered in the score hue) on every surface,
  *     both themes — text, >=4.5:1.
- *   - the accent: white CTA label on accent — text, >=4.5:1; accent itself on every surface —
- *     non-text button/tint boundary, >=3:1.
+ *   - the accent: its `onAccent` label colour on the accent fill — text, >=4.5:1; the accent fill
+ *     itself on every surface — non-text button/tint boundary, >=3:1. `onAccent` is the INK, not
+ *     white, since the Cold Read pass (2026-09-04) — the pair is computed, so a revert to white
+ *     fails here rather than shipping a 3.33:1 CTA label.
  *   - `Semantic.error` on every surface, both themes — text, >=4.5:1 (issue #24); also asserted
  *     distinct from `Score.low.text` in both themes, the issue's actual requirement — a system
  *     error must not be mistakable for the "Needs work" score band it used to borrow from.
@@ -42,11 +44,11 @@
 import { AA_NON_TEXT, AA_TEXT, contrastRatio, type Hex } from '../contrast';
 import {
   Accent,
-  Arc,
   Colors,
   type ColorScheme,
   Glass,
   Gradient,
+  Meter,
   Score,
   ScoreBandOrder,
   Semantic,
@@ -75,31 +77,32 @@ const semanticErrorTextPairs: Pair[] = [];
 const controlBorderPairs: Pair[] = [];
 const hairlineBelowControlFloorPairs: Pair[] = [];
 const gradientTextPairs: Pair[] = [];
-// Cadence Arcs (2026-09-01) — the motif's two roles. `ornament` takes the same >=3:1 non-text
-// obligation a score fill does, and `track` takes `hairline`'s mirror obligation (stay UNDER 3:1);
-// see the `Arc` token in theme.ts for why an ornament is held to a floor WCAG would not impose.
-const arcOrnamentPairs: Pair[] = [];
-const arcTrackBelowFloorPairs: Pair[] = [];
+// Cold Read (2026-09-04) — `Meter`'s two roles, which replace the retired `Arc`. `rule` takes the
+// same >=3:1 non-text obligation a score fill does, and `track` takes `hairline`'s mirror
+// obligation (stay UNDER 3:1); see the `Meter` token in theme.ts for why a decorative line is held
+// to a floor WCAG would not impose on it.
+const meterRulePairs: Pair[] = [];
+const meterTrackBelowFloorPairs: Pair[] = [];
 
 for (const scheme of SCHEMES) {
   const c = Colors[scheme];
   const surfaces = surfacesFor(scheme);
 
-  // Everything an arc can be drawn on: the three surfaces plus every page-wash stop. Taken from
-  // the exports, so a stop added to `Gradient.page` is proven for the motif the moment it ships.
-  const arcBackdrops: [string, string][] = [
+  // Everything a meter can be drawn on: the three surfaces plus every page-wash stop. Taken from
+  // the exports, so a stop added to `Gradient.page` is proven for the meter the moment it ships.
+  const meterBackdrops: [string, string][] = [
     ...surfaces,
     ...Gradient.page[scheme].map((stop, i) => [`gradient.page[${i}]`, stop] as [string, string]),
   ];
-  for (const [backdropName, backdropHex] of arcBackdrops) {
-    arcOrnamentPairs.push({
-      label: `${scheme} arc.ornament on ${backdropName}`,
-      fg: Arc[scheme].ornament,
+  for (const [backdropName, backdropHex] of meterBackdrops) {
+    meterRulePairs.push({
+      label: `${scheme} meter.rule on ${backdropName}`,
+      fg: Meter[scheme].rule,
       bg: backdropHex,
     });
-    arcTrackBelowFloorPairs.push({
-      label: `${scheme} arc.track on ${backdropName} (must stay quieter than the fill drawn over it)`,
-      fg: Arc[scheme].track,
+    meterTrackBelowFloorPairs.push({
+      label: `${scheme} meter.track on ${backdropName} (must stay quieter than the fill drawn over it)`,
+      fg: Meter[scheme].track,
       bg: backdropHex,
     });
   }
@@ -389,16 +392,16 @@ describe('theme contrast — non-text pairs clear AA (>=3:1)', () => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
   });
 
-  // The arc motif (2026-09-01). Held to the non-text floor even though a decorative ornament is
+  // The meter rule (2026-09-04). Held to the non-text floor even though a decorative line is
   // formally exempt, because the same token draws the ring a score's fill sits inside — a reader
   // who cannot see the ring cannot see where the fill starts.
-  test.each(arcOrnamentPairs)('$label', ({ fg, bg }) => {
+  test.each(meterRulePairs)('$label', ({ fg, bg }) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(AA_NON_TEXT);
   });
 });
 
 describe('the arc track stays a track — 2026-09-01', () => {
-  // The mirror of the `hairline` guard below: `Arc.*.track` is the UNFILLED remainder of a score
+  // The mirror of the `hairline` guard below: `Meter.*.track` is the UNFILLED remainder of a score
   // ring, and its whole job is to be quieter than the `Score.*.fill` arc drawn over it. If this
   // starts failing, the track has been strengthened into something that competes with the score
   // it is supposed to be the backdrop for — at which point a ring's fill length stops reading.
@@ -408,7 +411,7 @@ describe('the arc track stays a track — 2026-09-01', () => {
 
   // The ornament and the track are two roles, not one value at two opacities.
   test.each(SCHEMES)('%s: arc.ornament !== arc.track', (scheme) => {
-    expect(Arc[scheme].ornament).not.toBe(Arc[scheme].track);
+    expect(Meter[scheme].rule).not.toBe(Meter[scheme].track);
   });
 });
 

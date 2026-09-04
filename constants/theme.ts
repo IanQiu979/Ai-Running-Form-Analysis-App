@@ -1,20 +1,23 @@
 /**
- * V2.3 design tokens — "CADENCE ARCS" (2026-09-01), a warm espresso/clay system built on the
- * concentric-arc motif: ripples radiating from a footstrike.
+ * V2.3 design tokens — "COLD READ" (2026-09-04): a near-monochrome, cool-scientific system on a
+ * graphite/bone base, with ONE bright icy-cyan highlight reserved for the primary call to action.
  *
- * THIS IS A FULL VISUAL SYSTEM REPLACEMENT, not a recolor of the Calm scheme below it. What
- * changed, and every one of these is re-proven (not asserted) in
- * `constants/__tests__/theme-contrast.test.ts`:
+ * THIS IS A FULL VISUAL SYSTEM REPLACEMENT of the espresso/clay "Cadence Arcs" scheme, and of the
+ * Calm blue/violet scheme before it. What changed, and every one of these is re-proven (not
+ * asserted) in `constants/__tests__/theme-contrast.test.ts`:
  *
- *   - `Colors`, `Gradient`, `Glass`, `Score`, `Semantic`, `Accent` are all re-solved on an
- *     espresso base (`#17120E` ink) with a clay accent. The blue/violet Calm palette is gone.
- *   - `FontFamily` moves to Bricolage Grotesque (display), Manrope (body/UI) and Space Mono
- *     (metrics). Newsreader survives untouched as the `prose` role — see that token.
- *   - `Arc` is new: the motif's own two roles (the drawn ornament and the ring track).
- *   - `Radius`, `Spacing`, `FontSize`, `Tracking`, `LineHeight`, `Elevation`, `ControlHeight`,
- *     `ContentWidth`, `TabBar`, `HitTarget`, `CheckboxSize`, `Opacity` and `Motion` are UNCHANGED.
- *     The redesign is a colour/type/motif pass; the geometry and pacing the app is built against
- *     were not the problem and re-cutting them would have been churn.
+ *   - `Colors`, `Gradient`, `Glass`, `Score`, `Semantic`, `Accent` are all re-solved on a cool
+ *     near-neutral base (hue ~206-212°, saturation 9-25%). The espresso/clay family is gone.
+ *   - `Accent` is icy cyan and its label colour is now the INK, not white — see that token.
+ *   - `Arc` is RETIRED. The concentric-ripple motif is not part of this system; the redesign's
+ *     signature gesture is the entry animation, not a recoloured ornament. Its one load-bearing
+ *     job — drawing the geometry a score fill sits inside — moves to `Meter`, which is a smaller,
+ *     honest role, not a rename. See both tokens.
+ *   - `FontFamily`, `Radius`, `Spacing`, `FontSize`, `Tracking`, `LineHeight`, `Elevation`,
+ *     `ControlHeight`, `ContentWidth`, `TabBar`, `HitTarget`, `CheckboxSize`, `Opacity` and
+ *     `Motion` are UNCHANGED. This pass is a COLOUR pass; the geometry, type and pacing the app
+ *     is built against were not what the captain asked to change, and re-cutting them would be
+ *     churn on top of a large diff.
  *
  * METHOD, unchanged from every pass before it: hold a hue and its saturation, move ONLY lightness
  * until the target ratio clears, and solve each role to a COMMON target rather than to the bare
@@ -22,50 +25,29 @@
  * quoted in a comment below was computed against these exact exports.
  *
  * -------------------------------------------------------------------------------------------
- * HISTORY (kept: these blocks explain why several values are shaped the way they are, and the
- * constraints they name are still live — only the hues moved).
- * -------------------------------------------------------------------------------------------
+ * HISTORY — the constraints these blocks name are still live; only the hues moved. Read them
+ * before changing a value, because several of them explain why a value CANNOT simply be brightened.
  *
- * V2.3 design tokens — "The Gait Plate", on the Calm colour scheme (palette swapped 2026-08-02).
+ * "The Gait Plate" (2026-07-26) was a warm-neutral clinical plate: sharp corners, Archivo/Inter/
+ * IBM Plex Mono, no gradient, no glass. The Calm swap (2026-08-02) replaced its palette with a
+ * blue/violet wash and added the two structural ideas this file still has — `Gradient.page` (a
+ * full-bleed page wash, because Calm has no flat page anywhere) and `Glass` (translucent panels
+ * sitting on it, which opaque `surface.*` cannot express). That same day, pass 3 widened the
+ * `Glass` contract on the captain's explicit decision: glass may be an interactive control's FILL,
+ * provided a proven `control.border` ring carries WCAG 1.4.11 for it, and one canvas-tinted tone
+ * (`chrome`) carries BOTH text roles so the floating tab bar can be translucent. "Cadence Arcs"
+ * (2026-09-01) then swapped the palette again — espresso ink, clay accent — and added the `Arc`
+ * motif this pass retires.
  *
- * Source of truth: `docs/design/frontend-design-brief.md` §2. Every value below is either lifted
- * verbatim from the brief, or — where §2 explicitly requires WCAG AA verification and the
- * intent value failed — computed here to the target ratio, following the same rule V2.2 used:
- * same hue/saturation family, only lightness moved until the target contrast cleared. Every
- * adjustment is commented at its token and proven (not just asserted) in
- * `constants/__tests__/theme-contrast.test.ts`, which computes ratios from these exact exports.
- *
- * THE MOVE ONTO CALM HAPPENED IN TWO PASSES, both on 2026-08-02:
- *
- *   Pass 1 — colour only. `Colors`, `Score`, `Semantic`, `Accent`, and the new `Gradient` were
- *   resampled from the Calm reference capture rather than from the brief's original warm-neutral
- *   table, and §2 was rewritten to match so the "source of truth" line above stays true. Shape,
- *   type, spacing and motion were deliberately left alone. That pass shipped as a recolor.
- *
- *   Pass 2 — shape, type, spacing, component and motion layer (this one). A recolor was not the
- *   whole ask: the reference's design language is as much its softness, its type hierarchy, its
- *   glass, and its pacing as it is its blue. This pass therefore reverses `Radius.card` from 0 to
- *   24 (see that token's own block comment — it is the single biggest reversal here, and a
- *   deliberate one), and adds `Glass`, `Tracking`, `LineHeight`, `Elevation`, `Radius.tile`/
- *   `.hero`, `ControlHeight.pill`/`.circle`, and a longer expressive register on `Motion`
- *   (`duration.gentle`/`.epic`/`.cinematic`, `curve.calm`/`.morph`/`.linear`, `stagger.*`).
- *
- * NOTHING PROVEN WAS WEAKENED. Every existing contrast guarantee still holds and is still computed
- * (not asserted) in `constants/__tests__/theme-contrast.test.ts`; the new `Glass` alphas are
- * composited over every backdrop they may legally sit on and proven there too. `Colors`, `Score`,
- * `Semantic`, `Accent`, `Gradient`, `FontFamily`, `FontSize`, `Spacing`, `ControlWidth`,
- * `ContentWidth`, `HitTarget`, `CheckboxSize`, `Opacity` and `SystemFont` are untouched by pass 2,
- * as are `Motion`'s original three durations and two curves.
- *
- *   Pass 3 — the bold pass, also 2026-08-02, on the captain's explicit decision after pass 2
- *   reported what it had declined. Only two things in this file moved, and each carries its own
- *   block comment saying so at the token: `Glass` gains a `control` tone (so a control can be
- *   genuinely frosted) and a canvas-tinted `chrome` tone (so the floating tab bar can be
- *   translucent and still carry `text.secondary`), and `Colors.*.control.border` is RETUNED in
- *   both schemes. The retune strengthens a guarantee rather than relaxing one: the old ring was
- *   proven only against the opaque surfaces and measured as low as 1.43:1 against the page wash it
- *   has actually sat on since pass 2. The one guarantee that genuinely changed shape is `Glass`'s
- *   own contract — read it at the token; it names what the decision cost.
+ * Three constraints survive all of that and bind this pass too:
+ *   1. `Colors.dark.surface.raised` is dark mode's lightest surface, so it is the binding
+ *      constraint for every lightened foreground in this file, and the >=3:1 non-text floor the
+ *      accent owes it is what caps how light the dark surface stack may go.
+ *   2. The page wash must be LIFTED off `background`. A wash at the canvas's own lightness is not
+ *      a wash — `<ScreenGradient>` would draw nothing — and, more importantly, a near-black wash
+ *      quietly deletes the `Glass` contract's measured failure (note 1 at `Glass`).
+ *   3. `hairline` is decorative and must stay UNDER 3:1; `control.border` is the interactive
+ *      boundary and must clear 3:1 against surfaces, wash stops, and every glass tone over them.
  *
  * Naming is by role ("text.secondary", "score.mid.fill"), never by appearance ("gray600" or
  * "amber"), so a rebrand only ever touches a value, never a call site. No hardcoded colors,
@@ -78,153 +60,87 @@ import { Platform } from 'react-native';
 export type ColorScheme = 'light' | 'dark';
 
 // -------------------------------------------------------------------------------------------
-// Base — brief §2 "Base (Calm-derived blue/violet)".
+// COLD READ BASE (2026-09-04) — near-monochrome, cool, and deliberately almost hueless.
 //
-// Re-derived 2026-08-02 from the Calm reference screens (five-screen capture, preserved at
-// `docs/design/`-adjacent asset `V2.3-Calm-Design-References-calm-screens.png`); every hex below
-// was sampled from that image or computed from a sampled value. The previous warm graphite/bone
-// base is gone — this is a palette swap only, so type, spacing, radius and motion below are
-// byte-identical to what they were.
+// The whole system hangs off ONE hue family, ~206-212° (a cool blue-grey), at saturations between
+// 9% and 25%. That is low enough that no surface reads as "blue" and high enough that nothing
+// reads as a dead neutral grey — the base has a temperature, it just does not have a colour. This
+// is what makes a single saturated accent (see `Accent`) legible as the only chromatic event on a
+// screen: on the espresso base the canvas itself was chromatic and the accent had to shout over
+// it; here the canvas is quiet and the accent can simply be the one bright thing.
 //
-// WHAT THE REFERENCE ACTUALLY HAS — Calm ships TWO registers, not one:
-//   1. A blue->periwinkle->violet page gradient that carries most screens. Sampled off the
-//      content screens (home, content detail): #306393 -> #2D4F8A -> #472E86. That is the
-//      `Gradient.page` role at the bottom of the colour section, NOT `background`.
-//   2. A near-black night canvas for the audio-player and index screens: sampled #0F0F12 /
-//      #070709 / #161616, with translucent-white glass sitting on it (#3B3B3C for a secondary
-//      pill, #495770 for a glass circle button).
-// `background`/`surface.*` are this file's flat, contrast-bearing roles, so they take register 2
-// — Calm's night canvas — given the periwinkle cast the gradient establishes (hue ~228-231°,
-// versus Calm's literally neutral #0F0F12). The gradient is a separate, additive token. This is
-// the faithful reading: both registers ship, each in the role that fits it.
+// DARK IS THE PRIMARY SCHEME. Its `background` is a near-black `#0B0D0F` (hue 210°, sat 15.4%,
+// L 5.1%) — darker than any canvas this app has shipped. The two surfaces are the same hue lifted
+// to L 9.2% / 13.1%, held that dark for the reason constraint 1 above names.
 //
-// WHY NOT PUT THE BRIGHT GRADIENT BLUE IN `background`: it does not survive the surface stack.
-// `surface.raised` is dark mode's lightest surface and therefore the binding constraint for every
-// lightened foreground in this file. With `background` at Calm's mid-gradient #2D4F8A, a 12-18%
-// white glass `surface.raised` lands near L_rel 0.17, which pushes the >=4.5:1 floor for every
-// score-band `text` up to L_rel >= 0.71 — brighter than pure #00FF00 — so four *distinguishable*
-// band hues become arithmetically impossible. Register 2 is both Calm-accurate and the only one
-// that leaves the score scale room to exist.
+// LIGHT IS DERIVED, not invented: the same hue family, inverted lightness — a cool bone canvas
+// (`#F4F5F7`, hue 220°, L 96.3%) with graphite text — so daylight reads as the same design
+// language rather than as a second, unrelated theme. `surface.raised` is pure white, the one
+// place in either scheme where a hue is absent on purpose: it is the single raised element per
+// screen and reading as "brighter than the page" is its whole job.
 //
-// Light is DERIVED, not invented (Calm has no light mode): same blue/violet hue family, inverted
-// lightness. Surfaces are tinted toward Calm's sky blue (hue ~217-219°) and text sits in the same
-// deep blue-violet as dark mode's canvas (hue ~230°), so daylight reads as the same design
-// language rather than a second, unrelated theme.
+// `text.primary` is a cool bone in dark (`#EDF1F4`), not pure white, for the same reason Cadence
+// Arcs' was a warm bone: a foreground with no relation to its canvas reads as a hole punched in
+// it. It costs nothing — 17.14:1 / 15.72:1 / 14.12:1 on the three dark surfaces.
 //
-// `hairline` is a decorative/structural rule (dividers, ticks, and the annotation lines drawn
-// over a captured frame) — not text and not a UI-component boundary — so WCAG 1.4.11 non-text
-// contrast does not apply to it. It maps to Calm's ~15%-white glass hairline.
-//
-// `control.border` (issue #96) is the role `hairline` is explicitly NOT: an actual interactive-
-// boundary color, for the edge of a non-accent button/input/checkbox — anything whose fill alone
-// (`surface.base`/`surface.raised`, both near-invisible against `background` at ~1.1-1.2:1) is
-// not enough to read as a tappable control. Proven >=3:1 (WCAG 1.4.11's floor) against all three
-// surfaces, both schemes, in `theme-contrast.test.ts` — including a guard that hairline itself
-// stays under 3:1, so this role can never quietly collapse back into decorative hairline.
-//
-// RETUNED 2026-08-02 (captain's decision to make `Glass` genuinely translucent — see the `Glass`
-// block below). Both values moved, and this is a WIDENED guarantee, not a restyle. The previous
-// pair (light #7986A6 / dark #6B77A0) was proven only against the three OPAQUE surfaces. Since the
-// Calm redesign every control actually sits on `Gradient.page`, and measured against the wash the
-// old pair was nowhere near the 3:1 floor it advertised: dark #6B77A0 read 1.43 / 1.83 / 2.38
-// against the three stops, and light #7986A6 read 2.94 / 2.85 / 2.86. That was a real, shipped gap
-// — a control ring that met WCAG on a backdrop the control was no longer on. The new values are
-// solved against the FULL set a control edge can touch: three surfaces + flat `background` + all
-// three `Gradient.page` stops + every one of those seen through each translucent `Glass` tone.
-// Method unchanged from the rest of this file: hold hue and saturation, move only lightness.
-//   light #6C7A9D (hue 222.7°, sat 20.2%, L 52.0%) — worst case 3.35:1 (over glass on stop 1).
-//   dark  #D4D7E3 (hue 226.4°, sat 21.8%, L 86.0%) — worst case 3.29:1 (over glass on stop 0).
-// Dark had to go LIGHT, not darker, and that direction is forced: the only darker colour that
-// clears 3:1 against the darkest stop (#472E86) is pure black, at exactly 3.00:1 with no margin.
-// A pale rim on a blue wash is also what the reference itself draws. Every pair is computed in
-// theme-contrast.test.ts, never asserted from this comment.
-// -------------------------------------------------------------------------------------------
-
-// -------------------------------------------------------------------------------------------
-// CADENCE ARCS BASE (2026-09-01) — everything below this line replaces the Calm blue/violet
-// values the block comment above describes. The RULES that comment states all still bind; only
-// the hue family moved, from periwinkle (~228°) to espresso (~27°).
-//
-// The single fixed point is `dark.background` = `#17120E`, the approved "ink" — hue 26.7°, sat
-// 24.3%, L 7.3%. Every other espresso-family value here is that hue held and its lightness moved:
-// the two dark surfaces are the same hue lifted to L 11.5% / 15.0%, and dark `text.secondary`,
-// `hairline` and `control.border` are the same hue in a slightly wider saturation register.
-//
-// DARK IS THE PRIMARY SCHEME and the one the design was drawn for. Light is DERIVED, exactly as
-// Calm's was: the same hue journey, inverted lightness — a warm bone canvas (hue 30°) with
-// espresso text (hue 24°), so daylight reads as the same design language rather than as a second,
-// unrelated theme.
-//
-// `dark.text.primary` is a WARM BONE (`#F7EFE7`), not pure white, and that is deliberate. Pure
-// white on an espresso canvas reads as a blue-cast hole punched in a warm surface — it is the one
-// place the old palette's value could not simply be carried over. It costs nothing: 16.34:1 on
-// background / 14.61:1 on surface.base / 13.19:1 on surface.raised.
-//
-// `hairline` keeps its exact old role — decorative rules, ticks, and the annotation lines drawn
-// over a captured frame — and its exact old constraint: deliberately UNDER 3:1, guarded in
+// `hairline` keeps its exact role (decorative rules, ticks, and the annotation lines drawn over a
+// captured frame) and its exact constraint: deliberately UNDER 3:1, guarded in
 // theme-contrast.test.ts so it can never quietly double as a control boundary.
+//   light #E1E5E9 -> 1.16 / 1.22 / 1.27      dark #262C31 -> 1.38 / 1.26 / 1.14
 //
-// `control.border` keeps its role and its (wider, post-2026-08-02) proof obligation: >=3:1
-// against all three surfaces AND every `Gradient.page` stop AND every one of those stops seen
-// through each translucent `Glass` tone. Solved over that full set, not over the surfaces alone.
-//   dark  #BDAB9B (hue 28.0°, sat 20.2%, L 67.5%) — worst case 3.11:1.
-//   light #967760 (hue 26.0°, sat 22.0%, L 48.3%) — worst case 3.11:1.
-// Dark still has to go LIGHT rather than darker, for the same reason it did on Calm: the wash it
-// sits on is mid-lightness, so a darker ring has no headroom against the canvas behind it.
+// `control.border` (issue #96) keeps its role and its full post-2026-08-02 proof obligation:
+// >=3:1 against all three surfaces AND `background` AND every `Gradient.page` stop AND every one
+// of those seen through each translucent `Glass` tone. Solved over that whole set, not over the
+// surfaces alone, and solved to a COMMON worst case rather than to each scheme's bare minimum so
+// the ring has the same visual weight in both:
+//   light #76828C (hue 207.3°, sat 8.7%, L 50.6%) — worst case 3.53:1 (over glass on wash stop 2).
+//   dark  #A8B4BE (hue 207.3°, sat 14.5%, L 70.2%) — worst case 3.43:1 (over glass on wash stop 2).
+// Dark still has to go LIGHT rather than darker: the wash it sits on is lifted off the canvas
+// (constraint 2), so a darker ring has no headroom against what is behind it.
 // -------------------------------------------------------------------------------------------
 
 export const Colors = {
   light: {
-    // Warm bone (hue 30.0°, sat 45.0%) — the daylight end of the espresso family, not a neutral.
-    background: '#F7F1EB',
+    /** Cool bone (hue 220.0°, sat 15.8%, L 96.3%) — the daylight end of the graphite family. */
+    background: '#F4F5F7',
     surface: {
-      base: '#FBF7F4', // cards, sheets — same hue family, lifted to L 97.0%
-      raised: '#FFFFFF', // the one raised element per screen
+      base: '#FAFBFC', // cards, sheets — same family, lifted to L 98.4%
+      raised: '#FFFFFF', // the one raised element per screen; deliberately hueless
     },
     text: {
-      // Deep espresso (hue 24.0°, sat 40.0%) — the SAME family as dark mode's `background`, so the
-      // two schemes are one palette. 14.67:1 on background / 15.43:1 on surface.base /
-      // 16.44:1 on surface.raised.
-      primary: '#2B1C12',
-      // Same family desaturated (hue 25.5°, sat 18.4%) rather than a separate grey hue —
-      // 6.10:1 / 6.42:1 / 6.84:1.
-      secondary: '#6A5749',
+      // Graphite (hue 206.7°, sat 20.0%, L 8.8%) — the same family as dark mode's canvas, so the
+      // two schemes are one palette. 16.54:1 (bg) / 17.41:1 (base) / 18.04:1 (raised).
+      primary: '#12171B',
+      // Same family desaturated (hue 210.0°, sat 10.1%) — 5.61:1 / 5.91:1 / 6.12:1.
+      secondary: '#59636D',
     },
-    // Rules, ticks, annotations — decorative, see note above. Held deliberately weak: 1.22:1
-    // (background) / 1.29:1 (surface.base) / 1.37:1 (surface.raised), all far under the 3:1
-    // control-boundary floor the guard in theme-contrast.test.ts enforces.
-    hairline: '#E7DACF',
+    /** Rules, ticks, annotations — decorative. Deliberately under the 3:1 control-boundary floor. */
+    hairline: '#E1E5E9',
     control: {
-      // The interactive-boundary role (issue #96), solved over the full backdrop set named in the
-      // block comment above. Binding case: this ring against a translucent control sitting on the
-      // page wash, at 3.11:1.
-      border: '#967760',
+      /** The interactive-boundary role (issue #96), solved over the full backdrop set named
+       *  above. Binding case: this ring over a translucent control on the wash's last stop. */
+      border: '#76828C',
     },
   },
   dark: {
-    // The approved ink — hue 26.7°, sat 24.3%, L 7.3%. The one value in this file taken verbatim
-    // from the design rather than solved.
-    background: '#17120E',
+    /** Near-black (hue 210.0°, sat 15.4%, L 5.1%). The one fixed point of this scheme. */
+    background: '#0B0D0F',
     surface: {
-      // The same espresso hue lifted to L 11.5% / 15.0%. Held this dark for the same reason the
-      // Calm surfaces were: `surface.raised` is dark mode's lightest surface and therefore the
-      // binding constraint for every lightened foreground in this file — anything lighter breaks
-      // the accent's 3:1 floor against it (see `Accent`).
-      base: '#241D17',
-      raised: '#2E251E',
+      // The same hue lifted to L 9.2% / 13.1%. Held this dark for the reason constraint 1 names:
+      // anything lighter breaks the accent's >=3:1 floor against `raised`.
+      base: '#14181B',
+      raised: '#1D2226',
     },
     text: {
-      // Warm bone, not pure white — see the block comment above. 16.34:1 / 14.61:1 / 13.19:1.
-      primary: '#F7EFE7',
-      // The same family at a lower lightness (hue 28.3°, sat 20.2%) — a warm taupe, not a neutral
-      // grey. 7.83:1 / 7.00:1 / 6.32:1.
-      secondary: '#B8A594',
+      // Cool bone, not pure white — see the block above. 17.14:1 / 15.72:1 / 14.12:1.
+      primary: '#EDF1F4',
+      // The same family at L 64.7% (hue 207.3°, sat 12.2%) — 7.84:1 / 7.19:1 / 6.46:1.
+      secondary: '#9AA6B0',
     },
-    // Espresso-family rule (hue 28.0°, sat 18.0%). Deliberately quiet: 1.61:1 (background) /
-    // 1.44:1 (surface.base) / 1.30:1 (surface.raised) — under 3:1 by design.
-    hairline: '#42372E',
+    /** Decorative rule. 1.38:1 / 1.26:1 / 1.14:1 — under 3:1 by design. */
+    hairline: '#262C31',
     control: {
-      border: '#BDAB9B',
+      border: '#A8B4BE',
     },
   },
 } as const;
@@ -235,44 +151,47 @@ export type ThemeColors = (typeof Colors)[ColorScheme];
 // The score scale — brief §2 "The score scale" + §7 "The score hues especially — they carry
 // meaning, so they must clear 3:1 as non-text and their band text 4.5:1."
 //
-// Each band carries two roles, not one hue, because a color needs its full ramp: a bar fill and
-// colored text on the same background are different lightnesses of the same hue.
-//   - `fill` — the bar/progress color (brief §3: "bar: fill LENGTH and COLOR both encode the
-//     score") and any decorative swatch. A non-text graphic that carries meaning, so >=3:1
-//     against both `background` and `surface.base`.
-//   - `text` — the color when a band word or numeral is rendered IN the score hue (e.g. a
-//     colored "Solid" label). Text, so >=4.5:1 against both `background` and `surface.base`.
-// A colored band chip (e.g. Past Analyses' band badge) is built from a neutral
-// `surface.raised` pill + the `text` role for its label + `hairline` for its border — never
-// colored text directly on a solid colored fill, a pairing this scale does not promise to pass
-// (proven, not assumed: see the "fill as a solid chip background" note in the contrast test).
-// This also matches the family's flat, hairline-structured aesthetic better than a saturated
-// filled badge would.
+// Each band carries two roles, not one hue, because a colour needs its full ramp: a bar fill and
+// coloured text on the same background are different lightnesses of the same hue.
+//   - `fill` — the bar/ring/progress colour and any decorative swatch. A non-text graphic that
+//     carries meaning, so >=3:1 against both `background` and `surface.base`.
+//   - `text` — the colour when a band word or numeral is rendered IN the score hue. Text, so
+//     >=4.5:1 against all three surfaces.
+// A coloured band chip is built from a neutral `surface.raised` pill + the `text` role + a
+// `hairline` border — never coloured text directly on a solid coloured fill, a pairing this scale
+// does not promise to pass.
 //
-// RETUNED FOR THE CALM BASE (2026-08-02). The old clay/amber/green ramp was drawn for a
-// warm-neutral bone/graphite base and clashes on blue/violet. Each band keeps its semantic hue
-// identity but is re-cut for the cool register — saturation pulled into the 50-60% band the rest
-// of this palette lives in (no fully-saturated Material hues), and lightness re-solved per scheme
-// against the new surfaces. The four bands are NOT collapsed into shades of one hue: this product
-// IS colour-coded scoring. Shipped hue separations, all >=30° and every one of them wider than
-// what the warm ramp had (its `good`/`strong` sat only 5° apart):
+// RE-CUT COOLER FOR THE COLD READ BASE (2026-09-04), on the captain's explicit call: the old ramp
+// was drawn against espresso and its coral/gold end read as a warm leftover on graphite. The
+// re-cut is constrained by one hard new fact, stated plainly rather than buried —
+// THE ACCENT IS NOW CYAN, at hue 189.8°, which closes the 160-220° window the old ramp's `good`
+// (teal, 195°) lived in. A teal top band and an icy-cyan CTA cannot both exist at >=30° apart.
+// So the ramp vacates cyan and re-lands as:
 //
-//   low 14° (coral) -> mid 44° (gold) -> strong 145° (jade) -> good 178° (teal)
-//   ...and against the two non-score hues: accent 252° (periwinkle-violet), error 336° (rose-
-//   crimson). Closest pair anywhere in the palette is error 336° <-> low 14°, at 38°.
+//   low 350° (rose)  ->  mid 45° (amber)  ->  good 118° (green)  ->  strong 156° (jade)
 //
-// Warm->cool still maps to bad->good. It is still caution, not alarm (brief §2).
+// That is an improvement the old ramp could not get: it is MONOTONIC in band order. The espresso
+// ramp ran 352° -> 52° -> 195°(good) -> 152°(strong), i.e. it doubled back between the top two
+// bands, so "further up the scale" and "further round the wheel" disagreed. Here bad -> good and
+// warm -> cool are the same journey, in band order, with no reversal.
 //
-// Every value's contrast is computed and asserted in theme-contrast.test.ts. Rather than nudging
-// each band to the bare minimum it can clear — which produces four bands of wildly different
-// visual weight, since red is naturally dark and gold naturally light — each band is solved to a
-// COMMON target ratio per role, holding its own hue/saturation and moving only lightness. That is
-// the same "move only lightness" method as before, applied to a shared target so the four bands
-// read as one scale:
-//   - dark  `fill` -> 6.50:1 on `surface.base` (the vivid bar on the night canvas)
-//   - dark  `text` -> 5.00:1 on `surface.raised` (the binding surface — dark mode's lightest)
-//   - light `fill` -> 3.20:1 on `background`   (the binding surface — light mode's darkest)
-//   - light `text` -> 4.75:1 on `background`
+// Every pairwise separation in the palette, INCLUDING against the two non-score hues, is >=30°,
+// and this is PROVEN in theme-contrast.test.ts (`hue separation` block) rather than asserted here:
+//   low<->mid 55°   mid<->good 73°   good<->strong 38°   strong<->accent 34°   accent<->low 160°
+//   error 308° <-> low 42°   error <-> accent 118°   ...tightest pair anywhere: 33.9°.
+// That tightest pair sits BETWEEN the espresso ramp's 30° and the Calm ramp's 38°: better than an
+// orange accent could manage, short of what a violet one did. Cyan is a mid-wheel accent, and a
+// narrower worst pair than 38° is the honest cost of putting the highlight there.
+//
+// SATURATION comes down across the board (55/52/42/44% versus the espresso ramp's 50-58% with two
+// bands at the top of that range). On a canvas that is itself 9-25% saturated, a fully-vivid band
+// reads as an alert; these sit one register quieter, which is what "cooler" buys in practice
+// alongside the hue rotation.
+//
+// The per-role COMMON targets are UNCHANGED from every ramp before this one, so the four bands
+// still read as one scale rather than four separately-shaved minimums:
+//   dark  `fill` -> 6.50:1 on `surface.base`   ·   dark  `text` -> 5.00:1 on `surface.raised`
+//   light `fill` -> 3.20:1 on `background`     ·   light `text` -> 4.75:1 on `background`
 // Each target sits above its WCAG floor (3:1 fill / 4.5:1 text) with real margin, not shaved to
 // the wire, so a future rounding change cannot silently drop a band below AA.
 // -------------------------------------------------------------------------------------------
@@ -295,348 +214,249 @@ export const ScoreBandRange: Record<ScoreBand, readonly [number, number]> = {
   strong: [85, 100],
 };
 
-// RE-CUT FOR THE ESPRESSO BASE (2026-09-01). The four bands keep their semantic identities but
-// their hues moved, and the move was forced by one new fact: THE ACCENT IS NOW ORANGE. On the
-// Calm palette the accent was periwinkle (252°), a full hemisphere from every band, so the ramp
-// could put "needs work" at coral 14° without any risk of a score being mistaken for a CTA. With
-// a clay accent at 21.9° that is no longer true, and a coral `low` would have sat 8° from the
-// primary action colour. So the whole ramp is rotated off the accent instead:
-//
-//   low 352° (rose-red) -> mid 52° (amber) -> strong 152° (jade) -> good 195° (teal)
-//
-// Every pairwise separation in the palette, INCLUDING against the two non-score hues, is >=30°:
-//   accent 21.9 <-> low 352 = 30°   ·   accent <-> mid 52 = 30°   ·   low <-> mid = 60°
-//   strong <-> good = 43°           ·   error 315 <-> low 352 = 37°   ·   error <-> accent = 67°
-// The tightest pair anywhere is 30°, versus the Calm palette's 38° — narrower, and that is the
-// honest cost of an orange accent, stated rather than buried. It is still comfortably above the
-// ~20-25° at which two hues start to be confusable, and the bands are additionally separated by
-// lightness and by never appearing in the same role as the accent (which is CTA-only, never a
-// score — see `Accent`).
-//
-// Warm->cool still maps to bad->good. It is still caution, not alarm.
-//
-// The per-role COMMON targets are unchanged from the Calm ramp, so the four bands still read as
-// one scale rather than four separately-shaved minimums:
-//   dark  `fill` -> 6.50:1 on `surface.base`   ·   dark  `text` -> 5.00:1 on `surface.raised`
-//   light `fill` -> 3.20:1 on `background`     ·   light `text` -> 4.75:1 on `background`
 export const Score: Record<
   ScoreBand,
   { light: { fill: string; text: string }; dark: { fill: string; text: string } }
 > = {
-  // Rose-red — hue 352°, sat ~58%. Rotated off the accent (see the block above); reads as warning
-  // rather than as "the button colour, but a score".
+  // Rose — hue 350°, sat 55%. The warm end of the ramp, and the furthest band from the accent
+  // (160° away), so "needs work" can never be misread as "the button colour, but a score".
   low: {
-    // fill L 61.2% -> 3.20:1 (bg) / 3.37:1 (surface.base).
-    // text L 48.8% -> 4.73:1 (bg) / 4.98:1 (surface.base) / 5.30:1 (surface.raised).
-    light: { fill: '#D56372', text: '#C53448' },
-    // fill L 70.8% -> 7.30:1 (bg) / 6.52:1 (surface.base).
-    // text L 66.3% -> 6.19:1 (bg) / 5.53:1 (surface.base) / 4.99:1 (surface.raised) —
-    // surface.raised is dark mode's *lightest* surface, so it's the binding constraint for a
+    // fill L 61.6% -> 3.22:1 (bg) / 3.39:1 (surface.base).
+    // text L 46.5% -> 4.76:1 (bg) / 5.01:1 (surface.base) / 5.19:1 (surface.raised).
+    light: { fill: '#D36779', text: '#C43950' },
+    // fill L 68.6% -> 7.11:1 (bg) / 6.52:1 (surface.base).
+    // text L 64.5% -> 6.11:1 (bg) / 5.60:1 (surface.base) / 5.03:1 (surface.raised) —
+    // surface.raised is dark mode's *lightest* surface, so it is the binding constraint for a
     // light-tinted foreground, here and in every band below.
-    dark: { fill: '#E08A95', text: '#DB7785' },
+    dark: { fill: '#DB8391', text: '#D67282' },
   },
-  // Amber — hue 52°, sat ~58%. Held warm on purpose: it is the one band that must not be
-  // mistakable for either neighbour, and a cool "mid" would collapse toward the teal end.
+  // Amber — hue 45°, sat 52%. Held warm on purpose: it is the one band that must not be mistakable
+  // for either neighbour, and a cool "mid" would collapse toward the green end.
   mid: {
-    // fill L 37.3% -> 3.20:1 (bg) / 3.37:1 (surface.base).
-    // text L 29.6% -> 4.74:1 (bg) / 4.99:1 (surface.base) / 5.32:1 (surface.raised).
-    light: { fill: '#968828', text: '#776C20' },
-    // fill L 44.7% -> 7.28:1 (bg) / 6.51:1 (surface.base).
-    // text L 41.1% -> 6.22:1 (bg) / 5.56:1 (surface.base) / 5.02:1 (surface.raised).
-    dark: { fill: '#B4A330', text: '#A6962C' },
+    // fill L 41.8% -> 3.21:1 (bg) / 3.38:1 (surface.base).
+    // text L 33.1% -> 4.80:1 (bg) / 5.05:1 (surface.base) / 5.23:1 (surface.raised).
+    light: { fill: '#A28633', text: '#806A29' },
+    // fill L 47.5% -> 7.10:1 (bg) / 6.51:1 (surface.base).
+    // text L 43.9% -> 6.09:1 (bg) / 5.59:1 (surface.base) / 5.02:1 (surface.raised).
+    dark: { fill: '#B8993A', text: '#AA8D36' },
   },
-  // Teal — hue 195°, sat ~55%. The coolest point on the ramp and the furthest thing in the palette
-  // from the espresso canvas, which is what makes a top band legible as an all-clear on it.
+  // Green — hue 118°, sat 42%. This is the band the cyan accent displaced (it was teal 195°), and
+  // it lands here rather than anywhere cooler because 118° is the furthest a green can sit from
+  // both amber (73°) and the accent (72°) while leaving `strong` its own 38°.
   good: {
-    // fill L 44.7% -> 3.22:1 (bg) / 3.38:1 (surface.base).
-    // text L 35.3% -> 4.77:1 (bg) / 5.02:1 (surface.base) / 5.35:1 (surface.raised).
-    light: { fill: '#3391B1', text: '#29738C' },
-    // fill L 55.9% -> 7.26:1 (bg) / 6.49:1 (surface.base).
-    // text L 49.2% -> 6.19:1 (bg) / 5.53:1 (surface.base) / 4.99:1 (surface.raised).
-    dark: { fill: '#51ADCC', text: '#39A0C3' },
+    // fill L 42.7% -> 3.21:1 (bg) / 3.38:1 (surface.base).
+    // text L 33.7% -> 4.78:1 (bg) / 5.03:1 (surface.base) / 5.21:1 (surface.raised).
+    light: { fill: '#439B3F', text: '#357B32' },
+    // fill L 48.8% -> 7.13:1 (bg) / 6.54:1 (surface.base).
+    // text L 44.9% -> 6.10:1 (bg) / 5.59:1 (surface.base) / 5.03:1 (surface.raised).
+    dark: { fill: '#4CB148', text: '#46A342' },
   },
-  // Jade — hue 152°, sat ~50%. The least saturated band: "Strong" is the resting state, and a
-  // loud green would read as an alert rather than an all-clear.
+  // Jade — hue 156°, sat 44%. The coolest band, and the closest one to the accent at 34°. It is
+  // also the least saturated end of the ramp: "Strong" is the resting state, and a loud green
+  // would read as an alert rather than an all-clear.
   strong: {
-    // fill L 39.7% -> 3.21:1 (bg) / 3.38:1 (surface.base).
-    // text L 31.6% -> 4.74:1 (bg) / 4.99:1 (surface.base) / 5.32:1 (surface.raised).
-    light: { fill: '#339869', text: '#287953' },
-    // fill L 47.6% -> 7.25:1 (bg) / 6.48:1 (surface.base).
-    // text L 43.8% -> 6.21:1 (bg) / 5.56:1 (surface.base) / 5.01:1 (surface.raised).
-    dark: { fill: '#3DB67E', text: '#38A873' },
+    // fill L 41.8% -> 3.21:1 (bg) / 3.38:1 (surface.base).
+    // text L 33.1% -> 4.80:1 (bg) / 5.05:1 (surface.base) / 5.24:1 (surface.raised).
+    light: { fill: '#3C9974', text: '#2F795C' },
+    // fill L 47.6% -> 7.15:1 (bg) / 6.56:1 (surface.base).
+    // text L 43.7% -> 6.10:1 (bg) / 5.59:1 (surface.base) / 5.03:1 (surface.raised).
+    dark: { fill: '#44AF84', text: '#3EA179' },
   },
 } as const;
 
 // -------------------------------------------------------------------------------------------
-// Semantic roles — not in the brief (it predates this need); added for issue #24. Until now,
-// `app/(auth)/sign-in.tsx` painted auth errors with `Score.low[scheme].text`, the "Needs work"
-// SCORE-BAND hue — a defensible stopgap (a token, not a hardcoded hex) but semantically wrong,
-// and actively confusing on the M6 Result screen where a low pillar score and a system error
-// would otherwise read as the same colour with different meanings, in an app whose product IS
-// colour-coded scoring. `error` is therefore a distinct hue family from `score.low`, not just a
-// different lightness of it: a rose-crimson (hue ~336°, past pure red toward magenta) vs.
-// score.low's coral (hue ~14°, leaning toward amber) — 38° apart, WIDER than the 25° the previous
-// warm palette shipped, so the two cannot be mistaken for each other even color-blind-adjacent.
-// Retuned for the Calm base 2026-08-02: on blue/violet the old 350° crimson sat too near the
-// canvas's own violet cast, so the hue moved further into magenta. Saturation (~64%) stays in the
-// same restrained family every other token here uses — no generic, fully-saturated Material red
-// (e.g. #F44336, sat ~90%) — matching the palette's "caution not alarm" register (brief §2's line
-// for score.low applies just as well to a system error: this app doesn't scold).
+// Semantic roles — added for issue #24. `error` is a distinct hue FAMILY from `score.low`, not a
+// different lightness of it: a system error and a "Needs work" pillar must not read as the same
+// colour in an app whose product IS colour-coded scoring.
 //
-// Same hue/saturation family across both themes, only lightness moved, exactly like the score
-// bands, and solved to the same shared per-role targets they use so an error never out-shouts or
-// under-shouts a band sitting beside it:
-//   light #C22A67 (hue 335.9°, sat 64.4%, L 46.3%) -> 4.76:1 (bg) / 5.12:1 (surface.base) /
-//     5.50:1 (surface.raised).
-//   dark  #DE6B99 (hue 336.0°, sat 63.5%, L 64.5%) -> 5.86:1 (bg) / 5.45:1 (surface.base) /
-//     5.02:1 (surface.raised) — surface.raised is dark mode's *lightest* surface, so again the
-//     binding constraint for a light-tinted foreground, cleared with real margin rather than
-//     shaved to the wire.
+// RE-CUT 2026-09-04 for the Cold Read base. The requirement is unchanged; the ramp rotated, so
+// `error` rotated with it and stays in magenta: hue 307.9° against `low`'s 350° — 42° apart, and
+// 118° from the icy-cyan accent. Saturation ~52%, the same restrained register the bands moved
+// into; no fully-saturated Material red (this app doesn't scold). Same shared per-role targets as
+// the bands, so an error never out-shouts or under-shouts one sitting beside it:
+//   light #B339A3 (L 46.3%) -> 4.78:1 (bg) / 5.03:1 (surface.base) / 5.21:1 (surface.raised).
+//   dark  #D06BC3 (L 61.8%) -> 6.09:1 (bg) / 5.59:1 (surface.base) / 5.02:1 (surface.raised).
 //
-// `error` is a foreground/text role only (parallel to `text.primary`/`text.secondary` and each
-// score band's `text`), proven as text (>=4.5:1) against all three surfaces in both themes below
-// — see theme-contrast.test.ts. No non-text `fill` role is defined: nothing today paints a solid
-// error-colored graphic (bar, chip fill) the way the score scale does, so adding one would be an
-// unproven, speculative token. `success`/`warning` roles are deliberately NOT added here either —
-// no screen in this codebase has a real near-term consumer for either (grepped: none), and this
-// file's own rule is to prove AA before shipping a token, not get ahead of a need. Add them, with
-// their own proof, when a real consumer shows up.
+// `error` is a foreground/text role only, proven as text (>=4.5:1) against all three surfaces in
+// both themes. No non-text `fill` role, and no `success`/`warning` roles: this file's rule is to
+// prove AA before shipping a token, not to get ahead of a need.
 // -------------------------------------------------------------------------------------------
 
 export type SemanticRole = 'error';
 
-// RE-CUT 2026-09-01 for the espresso base. The requirement is unchanged — an error must not be
-// mistakable for the "Needs work" score band — but the ramp rotated (see `Score`), so `error`
-// rotated with it, further into magenta: hue 315° (sat ~55%) against `low`'s 352°, i.e. 37° apart,
-// and 67° from the clay accent. Same shared per-role targets as the bands, so an error never
-// out-shouts or under-shouts one sitting beside it:
-//   light #B63596 (L 46.1%) -> 4.76:1 (bg) / 5.00:1 (surface.base) / 5.33:1 (surface.raised).
-//   dark  #D672BD (L 64.3%) -> 6.20:1 (bg) / 5.54:1 (surface.base) / 5.00:1 (surface.raised).
 export const Semantic: Record<SemanticRole, { light: string; dark: string }> = {
   error: {
-    light: '#B63596',
-    dark: '#D672BD',
+    light: '#B339A3',
+    dark: '#D06BC3',
   },
 } as const;
 
 // -------------------------------------------------------------------------------------------
 // The accent — brief §2 "One accent (reserved, single-use)". Theme-invariant: the CTA reads the
-// same whether the screen is light or dark, so — like V2.2's `Accent` — it is never nested
-// under `Colors`. Re-derived from the Calm reference 2026-08-02: the accent there is the
-// violet/periwinkle glow — the streak ring and the active tab pill — sampled at #9988F7 /
-// #A9A5F8 / #B1A3F9 (hue ~249°, sat ~87%, L ~75%). Signal blue #2F6BEB is retired: on a blue
-// canvas a blue CTA is not an accent.
+// same whether the screen is light or dark, so it is never nested under `Colors`.
 //
-// The sampled value ships at a lower lightness than the reference's, and that is forced, not
-// preferential. Two floors squeeze this token from opposite sides and there is only a narrow band
-// between them:
-//   - `onAccent` (white) on the fill must clear 4.5:1 -> accent L_rel <= 0.1833.
-//   - the fill must clear 3:1 as a non-text boundary against `Colors.dark.surface.raised`, dark
-//     mode's lightest surface -> accent L_rel >= 0.1492.
-// Calm's literal #9988F7 sits at L_rel 0.309 and fails the first outright (white on it is only
-// 2.92:1) — Calm puts a small white glyph on that pill and does not meet AA there. Holding its
-// hue and saturation and moving only lightness (the method this file uses everywhere), #7558E8
-// (hue 252.1°, sat 75.8%, L 62.7%) lands inside the band with margin on both sides:
-//   white on accent 4.86:1; accent on light bg/base/raised 4.21:1 / 4.53:1 / 4.86:1;
-//   accent on dark bg/base/raised 3.79:1 / 3.53:1 / 3.25:1.
-// That >=3:1 against `surface.raised` is also what caps the dark surface stack — see the note on
-// `Colors.dark.surface` about why the glass could not be pushed to Calm's full 12-18% white.
-// All ten pairs are computed, not asserted, in theme-contrast.test.ts.
+// COLD READ (2026-09-04): the accent is ICY CYAN, and it is the SECOND TIER of a deliberately
+// two-tier system. Near-black/graphite carries essentially all of the UI; this is the one bright,
+// saturated value in the file, and it is reserved for the TRUE PRIMARY call to action —
+// at most ONE per screen. Never a score, never a decorative ornament, never a second button on
+// the same screen. That reservation is the only thing that makes a monochrome app legible: if two
+// things are cyan, neither is the action.
+//
+// TWO FLOORS SQUEEZE THIS TOKEN FROM OPPOSITE SIDES, and the shipped value is what fits between
+// them — it is forced, not preferred:
+//   - the fill must clear 3:1 as a non-text boundary against `Colors.light.background`
+//     (`#F4F5F7`) — light mode's DARKEST surface, and the binding one for a mid-lightness accent,
+//     which caps it at L_rel <= 0.267.
+//   - the fill must also clear 3:1 against `Colors.dark.surface.raised`, dark mode's LIGHTEST
+//     surface, which floors it at L_rel >= 0.142.
+// Holding hue 189.8° and sat 89.6% and moving only lightness, `#0A9AB6` (L 37.6%, L_rel 0.264)
+// lands inside that band: 3.05 / 3.21 / 3.33:1 on the light surfaces and 5.85 / 5.37 / 4.82:1 on
+// the dark ones. A paler, "icier" cyan is arithmetically impossible for a THEME-INVARIANT accent —
+// anything lighter fails its own boundary against a white-ish page. That >=3:1 against
+// `surface.raised` is also what caps the dark surface stack (constraint 1 in the header).
+//
+// `onAccent` CHANGES FROM WHITE TO THE INK, and that is the honest consequence of a bright accent
+// rather than a restyle. White on `#0A9AB6` is 3.33:1 and fails AA outright; the ink `#0B0D0F` on
+// it is 5.85:1. Dark-on-bright is also simply what a cyan CTA wants to be. Every call site already
+// reads `Accent.onAccent` rather than a literal, so this is a value change, not a call-site change
+// — and `theme-contrast.test.ts` proves the pair, so a revert to white fails the build.
 // -------------------------------------------------------------------------------------------
 
-// CADENCE ARCS (2026-09-01): the accent is CLAY. The design names `#E8703B`, and that literal
-// hex ships — but as `Arc.*.ornament`, the decorative motif colour, NOT here. The reason is the
-// same two-sided squeeze the block above describes, and clay loses it at full brightness exactly
-// as Calm's periwinkle did:
-//   - white on `#E8703B` is 3.08:1 — nowhere near the 4.5:1 a CTA label owes.
-//   - so, holding hue 21.9° and sat 79.4% and moving only lightness (57.1% -> 42.0%), the accent
-//     ships as `#C05416`: white on accent 4.64:1, and the fill itself 4.00 / 3.58 / 3.23:1 on the
-//     dark surfaces and 4.14 / 4.36 / 4.64:1 on the light ones — clearing the >=3:1 non-text floor
-//     on `Colors.dark.surface.raised`, dark mode's lightest surface, with 0.23 to spare.
-// That >=3:1 is again what caps the dark surface stack — see the note on `Colors.dark.surface`.
-// The brand's brighter clay is not lost: it is the arc motif (`Arc`), where WCAG 1.4.3 does not
-// apply because nothing there is text.
 export const Accent = {
-  /** The primary CTA, and only the primary CTA — never a score, never decoration. */
-  value: '#C05416',
-  /** The only legal label color on an accent fill. */
-  onAccent: '#FFFFFF',
+  /** The primary CTA, and only the primary CTA — never a score, never decoration, never twice on
+   *  one screen. */
+  value: '#0A9AB6',
+  /** The only legal label/glyph colour on an accent fill. The ink, not white — see the block. */
+  onAccent: '#0B0D0F',
 } as const;
 
 // -------------------------------------------------------------------------------------------
-// Arc — NEW for Cadence Arcs (2026-09-01). The redesign's signature motif is concentric arcs
-// radiating from a point, like ripples from a footstrike: corner ornaments on every screen, the
-// loading rings on the wait states, and the ring track behind the score readouts. That motif
-// needs exactly two colour roles, and neither of the existing ones can play them:
+// Meter — REPLACES `Arc` (2026-09-04). Read this before reaching for the old token.
 //
-//   - `ornament` — a drawn arc. `Accent` is wrong (the accent is reserved for the primary CTA and
-//     ONLY the primary CTA; painting every screen's corner with it would retire that reservation),
-//     and `hairline` is wrong (it is a 1.2-1.6:1 rule; an arc drawn in it is invisible at the
-//     radii this motif uses). This is where the design's literal clay `#E8703B` lives, in dark —
-//     the brightest, most brand-forward value in the file, in the one role that can carry it.
-//   - `track` — the UNFILLED remainder of a score ring. Structural, decorative, and deliberately
-//     quiet: it must not compete with the `Score.*.fill` arc drawn over it.
+// `Arc` had two roles, and they were not equally load-bearing:
+//   - `ornament`, a drawn ripple: corner arcs on every screen, the sign-in burst, the concentric
+//     loading rings. That was the Cadence Arcs MOTIF, and the motif is retired with the palette.
+//     This system's bold gesture is the entry animation, not a decoration repeated in a corner,
+//     and a near-monochrome scheme with a ripple stencilled on every screen is neither minimal nor
+//     scientific. Those ornaments are deleted, not recoloured.
+//   - the geometry a score sits IN: the ring stroke a `Score.*.fill` arc is swept over, and the
+//     unfilled remainder behind it. That IS load-bearing — a reader who cannot see the track
+//     cannot see where the fill starts — so it survives here, under a name that says what it is.
 //
-// PROOF OBLIGATION, and it is deliberately STRONGER than WCAG requires. An ornament is decorative,
-// so 1.4.11 does not formally apply to it — but `<ArcRing>` also draws the ring geometry that a
-// score sits in, and a reader who cannot see the ring cannot see where the fill starts. So
-// `ornament` is proven >=3:1 against all three surfaces AND all three `Gradient.page` stops, in
-// both schemes, in theme-contrast.test.ts. Dark ships the literal clay (worst case 3.56:1 on the
-// brightest wash stop); light holds the same hue/sat and drops lightness to 46.1% for `#D25219`
-// (worst case 3.20:1). `track` takes the mirror obligation `hairline` has — proven to stay UNDER
-// 3:1 — so it can never quietly become the thing that carries the ring's meaning.
+// Two roles, mirroring what the old token proved:
+//   - `rule` — a drawn measurement line: the ring's own stroke, a tick, an indeterminate wait
+//     mark. Proven >=3:1 against all three surfaces AND all three `Gradient.page` stops, in both
+//     schemes, which is STRONGER than WCAG requires of a decorative line, for the reason above.
+//     light #7B8693 — worst case 3.22:1 (on wash stop 2).
+//     dark  #8F9AA3 — worst case 4.31:1 (on wash stop 2).
+//   - `track` — the unfilled remainder of a meter. Takes `hairline`'s mirror obligation: proven to
+//     stay UNDER 3:1 on every one of those backdrops, so it can never quietly become the thing
+//     that carries the meter's meaning instead of the fill.
+//
+// NOTE THAT NEITHER ROLE IS CHROMATIC. That is the point of the two-tier system: a meter's
+// structure is drawn in the monochrome tier, its VALUE is drawn in `Score.*.fill`, and the accent
+// is spent on the CTA. On the espresso palette `Arc.ornament` shipped the brand's literal clay and
+// was, in practice, a second accent competing with the first.
 // -------------------------------------------------------------------------------------------
 
-export const Arc = {
+export const Meter = {
   light: {
-    /** A drawn arc: corner ornaments, loading rings, the score-ring geometry. */
-    ornament: '#D25219',
-    /** The unfilled remainder of a score ring. Decorative; no contrast promise. */
-    track: '#E4D1C3',
+    /** A drawn measurement line: a meter's ring stroke, a tick, an indeterminate wait mark. */
+    rule: '#7B8693',
+    /** The unfilled remainder of a meter. Decorative; deliberately quieter than the fill. */
+    track: '#DDE3E9',
   },
   dark: {
-    ornament: '#E8703B',
-    track: '#504135',
+    rule: '#8F9AA3',
+    track: '#2C343A',
   },
 } as const;
 
-export type ArcColors = (typeof Arc)[ColorScheme];
+export type MeterColors = (typeof Meter)[ColorScheme];
 
 // -------------------------------------------------------------------------------------------
-// The page gradient — new for the Calm palette (2026-08-02). Calm's identity IS the gradient:
-// there is no white (or flat) page anywhere in the reference; one continuous sky-blue ->
-// periwinkle -> violet wash carries every screen that is not the near-black player. The token
-// file had no role for that, so screens had nothing to reach for and the wash could only have
-// arrived as hardcoded hexes in a component — exactly what CLAUDE.md § Code conventions forbids.
-//
-// ONE role only. `page` is the full-bleed screen backdrop, ordered top -> bottom, and it is the
-// only gradient any screen in this codebase has a use for today. No `card`, `sheet`, `hero` or
-// `overlay` variants are speculated here: this file's rule is to prove a token against AA before
-// shipping it, not to publish a catalogue nothing consumes.
-//
-// Dark stops are sampled straight off the reference's CONTENT screens (home body, content-detail
-// sheet), not off the splash. The splash's sky-blue top (#75B1E7) carries white text at 2.28:1 —
-// Calm gets away with that because the only thing on it is one line of decorative low-opacity
-// copy. The content screens are where Calm actually puts headlines, and they clear comfortably:
-//   #2F6394 (hue 209.1°) 6.30:1  ->  #3B4A96 (hue 230.1°) 8.06:1  ->  #472E86 (hue 257.0°)
-//   10.48:1, each against `Colors.dark.text.primary`.
-// Light stops are derived the same way the light scheme is: identical hue journey (216° -> 235°
-// -> 261°), inverted lightness, at L ~92-93% so `Colors.light.text.primary` clears 14.09:1 /
-// 13.64:1 / 13.71:1.
+// The page gradient — one role only. `page` is the full-bleed screen backdrop, ordered
+// top -> bottom, and it is the only gradient any screen in this codebase has a use for. No
+// `card`/`sheet`/`hero` variants are speculated: this file proves a token against AA before
+// shipping it rather than publishing a catalogue nothing consumes.
 //
 // CONTRACT — the gradient is proven for `text.primary` ONLY, and that is a design rule, not an
-// oversight. `Colors.dark.text.secondary` on the darkest dark stop is 4.17:1 and fails AA, and it
-// cannot be fixed from either end: dropping the stops far enough (L_rel <= 0.043) turns the wash
-// black and deletes the Calm identity the token exists for, while lifting `text.secondary` far
-// enough erases the whole primary/secondary step. This is also how the reference behaves —
-// Calm puts one white headline on the gradient and drops everything else (captions, metadata,
-// list rows) onto a glass card, i.e. onto `surface.base`/`surface.raised`, which ARE proven for
-// both text roles. Secondary text, score fills and score text belong on a surface — or, since
-// 2026-08-02's pass 3, on the one canvas-tinted `Glass.*.chrome` tone that is proven for both
-// roles — never directly on the wash. Asserted per stop in theme-contrast.test.ts.
+// oversight. Secondary text, score fills, score text, coaching prose and `Semantic.error` belong
+// on an opaque `surface.*` (usually a `<SurfaceCard>`) — or on the one canvas-tinted
+// `Glass.*.chrome` tone, which IS proven for both roles. Asserted per stop in
+// theme-contrast.test.ts, where `text.secondary` is deliberately NOT asserted: asserting a pair
+// the token does not promise would be asserting a lie.
 //
 // EXEMPTION, ruled deliberately (L8, v23-ux-audit-r1): `text.secondary` directly on the wash is
-// permitted for a purely DECORATIVE, non-text glyph — e.g. Home's top-bar `<LowPolyField>` mark
-// (`app/(tabs)/index.tsx`) — because WCAG 1.4.3 text contrast does not apply to it at all; it
-// carries no information a screen reader or a contrast failure could hide. This is narrower than
-// H3's rule (which is about TEXT dimmed with `opacity`): do not read this exemption as licence to
-// dim actual copy the same way — that is exactly the bug H3 fixed. If a decorative mark like this
-// one is ever given `opacity` on top of `text.secondary`/`text.primary`, treat it as landing back
-// in H3's failure mode and route it to a surface instead.
+// permitted for a purely DECORATIVE, non-text glyph, because WCAG 1.4.3 does not apply to it at
+// all. Do not read that as licence to dim actual copy with `opacity` — that is the bug H3 fixed.
+//
+// COLD READ (2026-09-04): the wash travels from the graphite the app rests on toward the cyan it
+// acts in — hue 212° -> 202° -> 194° in dark, mirrored 216° -> 204° -> 196° in light — at
+// saturations of 10-30%. It is a temperature shift far more than a colour one, which is the whole
+// register of this scheme.
+//
+// THE DARK STOPS ARE A DEEP CHARCOAL (L 13.5% -> 19.5%), LIFTED OFF THE NEAR-BLACK CANVAS
+// (`#0B0D0F`, L 5.1%) — see constraint 2 in the header. They are markedly darker than the espresso
+// wash's L 17-25%, which is what makes this scheme read as near-black rather than as graphite; the
+// floor on how dark they may go is set by the `Glass` counter-guard, and stop 0 sits just above
+// it. Dark stops carry `text.primary` at 14.06 / 12.51 / 10.89:1; light stops (hue-matched,
+// inverted lightness, L 93.5-98.5%) carry it at 17.41 / 16.77 / 15.68:1.
 // -------------------------------------------------------------------------------------------
 
-// RE-CUT 2026-09-01 for Cadence Arcs. Same role, same one-role-only discipline, same
-// primary-text-only contract — a different journey. The wash now travels espresso -> clay, i.e.
-// from the canvas the app rests on toward the accent it acts in: hue 26° -> 20° -> 14° in dark,
-// mirrored 32° -> 24° -> 16° in light.
-//
-// THE DARK STOPS ARE MID-LIGHTNESS (L 17% -> 25%), NOT NEAR-BLACK, and that is a deliberate call
-// worth naming because the obvious alternative is wrong. A wash whose stops sit at the same
-// lightness as `background` (`#17120E`, L 7.3%) is not a wash at all — it is invisible, and every
-// screen would read as a flat espresso rectangle with the `<ScreenGradient>` component doing
-// nothing. Calm's wash was mid-lightness for the same reason. Lifting the stops is also what keeps
-// the `Glass` contract's measured failure REAL: white-tinted glass over a near-black wash would
-// comfortably carry `text.secondary`, quietly deleting the constraint the counter-guard in
-// theme-contrast.test.ts exists to pin (see that guard, and note 1 at `Glass`).
-//
-// Dark stops carry `text.primary` at 12.16 / 10.73 / 9.66:1. Light stops (hue-matched, inverted
-// lightness, L 89-95%) carry it at 14.92 / 13.72 / 12.43:1.
 export const Gradient = {
   /** The full-bleed screen backdrop, ordered top -> bottom. Carries `text.primary` only. */
   page: {
-    light: ['#F9F3EC', '#F6E8DF', '#F3DBD3'],
-    dark: ['#382A1E', '#4A2F21', '#5D3022'],
+    light: ['#FAFBFC', '#F4F7F9', '#EAF0F3'],
+    dark: ['#1F2226', '#242C30', '#27373C'],
   },
 } as const;
 
 export type GradientRole = keyof typeof Gradient;
 
 // -------------------------------------------------------------------------------------------
-// Glass — added by the 2026-08-02 SHAPE/TYPE/MOTION redesign (the follow-up to the palette-only
-// swap above). The Calm reference's second structural idea, after the gradient, is translucent
-// white sitting ON that gradient: circular top-bar buttons, the floating tab bar, the panel a
-// hero image fades into. `Colors.*.surface.*` cannot express that — they are opaque, so a card
-// built from them hides the wash instead of letting it through.
+// Glass — translucent panels sitting ON the page wash: circular top-bar buttons, the floating tab
+// bar, the panel a hero fades into. `Colors.*.surface.*` cannot express that — they are opaque,
+// so a card built from them hides the wash instead of letting it through.
 //
-// THE CONTRACT — REVISED 2026-08-02 BY THE CAPTAIN'S DECISION. The original version of this block
-// forbade glass from ever being an interactive control's fill, so the app's secondary pills, its
-// circular icon buttons and its tab bar all shipped OPAQUE and the reference's defining material
-// was missing from every control. The captain was told why (see note 2) and asked for the Calm look
-// anyway. Rather than trade the boundary away, this revision separates the two things the old rule
-// conflated: a control's FILL and a control's BOUNDARY are independent, and only the boundary owes
-// WCAG 1.4.11 anything. So the fill is now genuinely frosted and the boundary is still proven.
+// THE CONTRACT IS UNCHANGED BY THE 2026-09-04 PALETTE PASS. Every clause below is the one the
+// captain settled on 2026-08-02; only the tints and alphas moved.
 //
-//   1. WHITE-TINTED glass (`fill`, `raised`, `control`) carries `text.primary` ONLY. Proven below
-//      against every backdrop glass can legally sit on — all three `Gradient.page` stops plus the
+//   1. WHITE-TINTED glass (`fill`, `raised`, `control`) carries `text.primary` ONLY. Proven
+//      against every backdrop glass may legally sit on — all three `Gradient.page` stops plus the
 //      flat `background` — in theme-contrast.test.ts, which composites the alpha itself rather
-//      than trusting a comment. Dark mode is the binding case: white on `dark.fill` over the
-//      BRIGHTEST gradient stop is 5.26:1, on `dark.raised` 4.81:1, on `dark.control` 4.72:1.
-//      Anything heavier than ~0.13 white pushes a tone under 4.5:1, which is why these alphas are
-//      what they are and not the reference's literal ~0.15-0.18. Text legibility is NOT what the
-//      captain's decision traded away, and this is the line that says so: every alpha here is
-//      capped by the worst legal backdrop, not chosen for looks.
+//      than trusting a comment. Dark mode is the binding case: `text.primary` on `dark.control`
+//      over the brightest wash stop is 6.39:1, on `dark.raised` 6.82:1, on `dark.fill` 7.49:1.
 //
 //   2. CANVAS-TINTED glass (`chrome`) carries BOTH text roles, and it is the only tone that does.
-//      It is tinted toward this scheme's own `background` rather than toward white, so instead of
+//      Tinted toward this scheme's own `background` rather than toward white, so instead of
 //      washing the backdrop out it darkens it (dark) / lightens it (light) toward the surface the
-//      full text scale was tuned against. That is what buys `text.secondary` back: 4.99:1 worst
-//      case in dark, 5.93:1 in light. It exists because the floating tab bar is the single most
-//      recognisable piece of Calm's chrome AND it renders inactive tabs in `text.secondary` — on
-//      white-tinted glass those two facts are irreconcilable (a dimmed white over the bright end
-//      of the wash tops out around 3.7:1, short of AA at a 13pt label), and this is the tone that
-//      reconciles them without going opaque. See the counter-guard in theme-contrast.test.ts: the
-//      white-tinted tones still genuinely FAIL for secondary text, and that guard is kept, not
-//      loosened.
+//      full text scale was tuned against. That is what buys `text.secondary` back: 6.87:1 worst
+//      case in dark, 5.49:1 in light. It exists because the floating tab bar renders inactive tabs
+//      in `text.secondary`. See the counter-guard in theme-contrast.test.ts: the white-tinted
+//      tones still genuinely FAIL for secondary text, and that guard is kept, not loosened.
 //
-//   3. Glass MAY now be an interactive control's fill — WITH a `control.border` ring. This is the
-//      clause the captain's decision changed, and the ring is the whole reason it can change
-//      honestly. An 8-13% white wash reads ~1.1:1 against the wash behind it, exactly as the old
-//      note said, so the FILL can never carry the 3:1 non-text boundary itself. It does not have
-//      to: `Colors.*.control.border` is an opaque, proven ring, and it was retuned in this same
-//      pass (see its block above) specifically so it clears 3:1 against every gradient stop AND
-//      against every one of those stops seen through each glass tone. So a glass control is
-//      frosted AND bounded. WHAT IS ACTUALLY LOST, stated plainly rather than left to the diff: a
-//      glass control's affordance now rests on a 1pt ring instead of on a solid fill, and its
-//      label's contrast falls from 15.81:1 (white on opaque `surface.raised`) to 4.72:1 worst case
-//      — still AA, but AAA is gone for those labels. That is the captain's call, made knowingly.
-//      `hairline` here stays decorative and carries no contrast promise, same as
-//      `Colors.*.hairline`.
+//   3. Glass MAY be an interactive control's fill — WITH a `control.border` ring. An 8-17% white
+//      wash reads ~1.1:1 against what is behind it, so the FILL can never carry WCAG 1.4.11's 3:1
+//      itself. It does not have to: `Colors.*.control.border` is an opaque, proven ring, solved
+//      against the wash outside it AND every glass tone inside it (worst case 3.53:1 light /
+//      3.43:1 dark). What is LOST, stated plainly: a glass control's affordance rests on a 1pt
+//      ring rather than a solid fill, and its label's contrast falls from ~15:1 (white on opaque
+//      `surface.raised`) to 6.39:1 worst case — still AA, and on this darker wash considerably
+//      better than the 4.72:1 the Calm palette shipped. `hairline` here stays decorative.
 //
-// Light mode is far less constrained (white over already-light stops), but takes the same contract
-// anyway so a component never has to branch on scheme to know what it may put on glass.
+// Light mode is far less constrained (white over already-light stops) but takes the same contract
+// anyway, so a component never has to branch on scheme to know what it may put on glass.
+//
+// THE DARK ALPHAS WENT UP AGAIN (0.11/0.14/0.16 -> 0.12/0.15/0.17), and that is the honest
+// direction. Alpha here is capped by what `text.primary` can survive over the BRIGHTEST wash stop;
+// this wash is darker than the espresso one, so the reference's heavier 12-18% glass now fits
+// inside the same >=4.5:1 obligation with a large margin. Both halves of the contract got
+// STRONGER, not looser: primary text has more room, and `text.secondary` on white-tinted glass
+// over the wash still genuinely fails (2.92-4.40:1), which is exactly what the counter-guard pins
+// so these alphas cannot drift up further.
 // -------------------------------------------------------------------------------------------
 
-// RE-CUT 2026-09-01 for Cadence Arcs. The contract above is UNCHANGED in every clause — what
-// moved is the tint (the canvas-tinted `chrome` and `scrim` follow `background` from periwinkle to
-// espresso) and the dark white-tinted alphas, which went UP: 0.08/0.12 -> 0.11/0.14, plus
-// `control` 0.13 -> 0.16. That is a change in the honest direction. The old alphas were capped by
-// what `text.primary` could survive over Calm's BRIGHT blue wash; the espresso wash is darker, so
-// the same heavier glass the reference always wanted (12-18% white) now fits inside the same
-// >=4.5:1 obligation with room to spare — worst case is `control` over the brightest wash stop at
-// 6.06:1, against Calm's 4.72:1. Both halves of the contract therefore got STRONGER, not looser:
-// primary text has more margin, and `text.secondary` on white-tinted glass over the wash still
-// genuinely fails (2.90-4.21:1), which is exactly what the counter-guard in theme-contrast.test.ts
-// pins so these alphas cannot drift up again.
 export const Glass = {
   light: {
     /** The default translucent panel. */
@@ -650,19 +470,19 @@ export const Glass = {
     control: 'rgba(255, 255, 255, 0.55)',
     /** Canvas-tinted chrome that must carry the full text scale — the floating tab bar. The only
      *  glass tone proven for `text.secondary`; see contract note 2. */
-    chrome: 'rgba(247, 241, 235, 0.62)',
+    chrome: 'rgba(244, 245, 247, 0.62)',
     /** Decorative edge on a glass panel. No contrast promise — see contract note 3. */
-    hairline: 'rgba(43, 28, 18, 0.10)',
+    hairline: 'rgba(18, 23, 27, 0.10)',
     /** Legibility scrim laid over photographic media before text sits on it. */
-    scrim: 'rgba(247, 241, 235, 0.55)',
+    scrim: 'rgba(244, 245, 247, 0.55)',
   },
   dark: {
-    fill: 'rgba(255, 255, 255, 0.11)',
-    raised: 'rgba(255, 255, 255, 0.14)',
-    control: 'rgba(255, 255, 255, 0.16)',
-    chrome: 'rgba(23, 18, 14, 0.62)',
-    hairline: 'rgba(255, 255, 255, 0.16)',
-    scrim: 'rgba(23, 18, 14, 0.55)',
+    fill: 'rgba(255, 255, 255, 0.12)',
+    raised: 'rgba(255, 255, 255, 0.15)',
+    control: 'rgba(255, 255, 255, 0.17)',
+    chrome: 'rgba(11, 13, 15, 0.62)',
+    hairline: 'rgba(255, 255, 255, 0.14)',
+    scrim: 'rgba(11, 13, 15, 0.55)',
   },
 } as const;
 
@@ -673,6 +493,7 @@ export const Glass = {
 export const WhiteTintedGlassTones = ['fill', 'raised', 'control'] as const;
 
 export type GlassColors = (typeof Glass)[ColorScheme];
+
 
 // -------------------------------------------------------------------------------------------
 // Type — brief §2 "Type". Three families, each isolated to its role: Archivo (grotesque) for

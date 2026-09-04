@@ -41,7 +41,7 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedProps, useSharedValue, withDelay, withSpring } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 
-import { Arc, Motion, type ColorScheme } from '@/constants/theme';
+import { Meter, Motion, type ColorScheme } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -62,7 +62,7 @@ export type ArcRingProps = {
    */
   fraction: number | null;
   /** The fill arc's colour. Callers pass a proven role — `Score[band][scheme].fill` for a score,
-   *  `Arc[scheme].ornament` for a non-score ring. Never a literal. */
+   *  `Meter[scheme].rule` for a non-score ring. Never a literal. */
   color: string;
   /** Animate the sweep in once, on mount. Default false: finished instantly, nothing scheduled. */
   animate?: boolean;
@@ -88,7 +88,7 @@ export function ArcRing({
   testID,
 }: ArcRingProps) {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const arc = Arc[scheme];
+  const meter = Meter[scheme];
 
   // Geometry, computed once per size — never re-derived on a frame. The radius is inset by half
   // the stroke so the ring's OUTER edge lands on `size`, not half a stroke past it.
@@ -156,7 +156,7 @@ export function ArcRing({
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke={arc.track}
+          stroke={meter.track}
           strokeWidth={strokeWidth}
           strokeDasharray={assessed ? undefined : [...NOT_ASSESSED_DASH]}
           fill="none"

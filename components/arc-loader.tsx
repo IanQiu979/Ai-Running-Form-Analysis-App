@@ -32,7 +32,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 
-import { Arc, Motion, type ColorScheme } from '@/constants/theme';
+import { Meter, Motion, type ColorScheme } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 
@@ -67,7 +67,7 @@ export type ArcLoaderProps = {
 
 export function ArcLoader({ size, strokeWidth = 2, color, style, testID }: ArcLoaderProps) {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const stroke = color ?? Arc[scheme].ornament;
+  const stroke = color ?? Meter[scheme].rule;
   const reduceMotion = useReducedMotion();
 
   return (

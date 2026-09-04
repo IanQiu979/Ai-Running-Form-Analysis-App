@@ -20,7 +20,7 @@ import { render, screen } from '@testing-library/react-native';
 import { ArcLoader } from '@/components/arc-loader';
 import { ArcRing } from '@/components/ui/arc-ring';
 import { CornerArcs } from '@/components/ui/corner-arcs';
-import { Arc, Score } from '@/constants/theme';
+import { Meter, Score } from '@/constants/theme';
 
 const HIDDEN = { includeHiddenElements: true } as const;
 
@@ -157,17 +157,17 @@ describe('<CornerArcs>', () => {
     expect(radii).toEqual([50, 100, 150, 200]);
   });
 
-  it('defaults to the proven ornament role rather than a literal', async () => {
+  it('defaults to the proven meter.rule role rather than a literal', async () => {
     await render(<CornerArcs testID="arcs" radius={120} count={2} />);
 
     // The hook resolves to `light` under Jest (no OS scheme), which is the case worth pinning:
-    // dark's clay is the eye-catching one, so a mistake there would be noticed; light's would not.
+    // dark's rule is the eye-catching one, so a mistake there would be noticed; light's would not.
     // `stroke` is normalised by react-native-svg into a packed int, so this compares the ARGB the
     // token resolves to rather than the hex string — which is also what actually gets painted.
     expect(screen.getByTestId('arcs-arc-0', HIDDEN).props.stroke).toEqual(
       screen.getByTestId('arcs-arc-1', HIDDEN).props.stroke
     );
-    expect(Arc.light.ornament).not.toBe(Arc.dark.ornament);
+    expect(Meter.light.rule).not.toBe(Meter.dark.rule);
   });
 });
 

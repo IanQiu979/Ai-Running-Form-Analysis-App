@@ -50,7 +50,7 @@ import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
 import { Copy } from '@/constants/copy';
 import {
-  Arc,
+  Meter,
   Colors,
   ContentWidth,
   FontFamily,
@@ -311,7 +311,7 @@ export default function HistoryScreen() {
             size={EMPTY_RING_SIZE}
             strokeWidth={EMPTY_RING_STROKE}
             fraction={null}
-            color={Arc[scheme].ornament}
+            color={Meter[scheme].rule}
           />
           <Text style={styles.emptyTitle}>{Copy.history.empty.title}</Text>
           <Text style={styles.caption}>{Copy.history.empty.body}</Text>

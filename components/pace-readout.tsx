@@ -67,7 +67,7 @@ import { Eyebrow } from '@/components/ui/eyebrow';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Copy } from '@/constants/copy';
 import {
-  Arc,
+  Meter,
   Colors,
   FontFamily,
   FontSize,
@@ -194,7 +194,7 @@ export function PaceReadout({ result, firstReveal = false, revealReady = true }:
           size={OVERALL_RING_SIZE}
           strokeWidth={OVERALL_RING_STROKE}
           fraction={overall.score !== null ? overall.score / 100 : null}
-          color={overall.band !== null ? Score[overall.band][scheme].fill : Arc[scheme].ornament}
+          color={overall.band !== null ? Score[overall.band][scheme].fill : Meter[scheme].rule}
           animate={revealMode === 'animate'}
           // The overall leads; the four pillars follow it (see `PILLAR_RING_STAGGER_MS`), so the
           // headline number lands first and the detail assembles under it.
@@ -301,7 +301,7 @@ function PillarRow({
             size={PILLAR_RING_SIZE}
             strokeWidth={PILLAR_RING_STROKE}
             fraction={pillar.score !== null ? pillar.score / 100 : null}
-            color={pillar.band !== null ? Score[pillar.band][scheme].fill : Arc[scheme].ornament}
+            color={pillar.band !== null ? Score[pillar.band][scheme].fill : Meter[scheme].rule}
             animate={revealMode === 'animate'}
             // "~50ms stagger P->A->C->E" (motion-consult.md item 1) — carried over verbatim from
             // the bar fill this replaces, offset one step behind the overall ring's own sweep.

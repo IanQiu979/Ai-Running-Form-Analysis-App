@@ -57,7 +57,7 @@ import { SurfaceCard } from '@/components/ui/surface-card';
 import { Copy } from '@/constants/copy';
 import {
   Accent,
-  Arc,
+  Meter,
   CheckboxSize,
   Colors,
   ContentWidth,
@@ -331,7 +331,7 @@ function PickerRow({
         size={PICKER_RING_SIZE}
         strokeWidth={PICKER_RING_STROKE}
         fraction={overall.score !== null ? overall.score / 100 : null}
-        color={overall.band !== null ? Score[overall.band][scheme].fill : Arc[scheme].ornament}>
+        color={overall.band !== null ? Score[overall.band][scheme].fill : Meter[scheme].rule}>
         {overall.score !== null ? <Text style={styles.scoreNumeral}>{overall.score}</Text> : null}
       </ArcRing>
 
