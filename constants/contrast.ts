@@ -42,6 +42,44 @@ export function contrastRatio(a: Hex, b: Hex): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+/**
+ * The colour's HUE in degrees (0-360), from the standard HSL conversion. A grey (max === min)
+ * has no hue at all and returns `null` rather than a misleading 0 — "red" and "no colour" must
+ * not be the same answer, because the whole point of the caller below is to measure how far apart
+ * two hues are.
+ *
+ * Exists for the same reason `contrastRatio` does: `constants/theme.ts` makes a load-bearing claim
+ * about hue separation (every chromatic role >=30 degrees from every other, so a score band can
+ * never be mistaken for the accent or for its neighbour), and that claim was previously only
+ * written in a comment. `theme-contrast.test.ts` now computes it.
+ */
+export function hue(hex: Hex): number | null {
+  const { r, g, b } = hexToRgb(hex);
+  const [rn, gn, bn] = [r / 255, g / 255, b / 255];
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const delta = max - min;
+  if (delta === 0) return null;
+  const raw =
+    max === rn ? (gn - bn) / delta + (gn < bn ? 6 : 0) : max === gn ? (bn - rn) / delta + 2 : (rn - gn) / delta + 4;
+  return raw * 60;
+}
+
+/**
+ * The shortest distance between two hues on the colour wheel, in degrees (0-180). Wrapping is the
+ * whole point: 350 degrees and 10 degrees are 20 apart, not 340.
+ */
+export function hueSeparation(a: number, b: number): number {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+/** The palette's own floor for how close two CHROMATIC roles may sit. Not a WCAG number — WCAG has
+ * nothing to say about hue — but the constraint `constants/theme.ts` has held across three
+ * palettes, because two hues closer than roughly 20-25 degrees start to be confusable and a
+ * scoring app whose bands blur into each other (or into its CTA) has lost the thing it sells. */
+export const MIN_HUE_SEPARATION = 30;
+
 /** WCAG 1.4.3 — normal text minimum. */
 export const AA_TEXT = 4.5;
 

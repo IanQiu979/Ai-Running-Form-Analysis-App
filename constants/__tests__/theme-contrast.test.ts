@@ -35,13 +35,28 @@
  *     contract is primary-text-only, for the reason documented at the token in theme.ts, and
  *     asserting a pair the token does not promise would be asserting a lie.
  *
+ *   - HUE SEPARATION between every chromatic role (2026-09-04, the Cold Read palette). Contrast is
+ *     not the only thing a colour-coded scoring app owes its user: two bands that clear AA
+ *     individually are still useless if they are the same colour, and a band that sits on top of
+ *     the CTA's hue makes "the accent means act on this" a lie. `theme.ts` has claimed a >=30
+ *     degree floor across three successive palettes and had only ever WRITTEN it in a comment.
+ *     It is computed here now, from the exports, per scheme.
+ *
  * `hairline` is intentionally not asserted to clear either AA floor on its own — see the comment
  * on it in theme.ts: it's a decorative structural rule, not text or a UI-component boundary, so
  * WCAG 1.4.11 does not apply to it. It IS asserted to stay under 3:1 above, precisely because
  * `control.border` must not be allowed to collapse back into it.
  */
 
-import { AA_NON_TEXT, AA_TEXT, contrastRatio, type Hex } from '../contrast';
+import {
+  AA_NON_TEXT,
+  AA_TEXT,
+  contrastRatio,
+  hue,
+  hueSeparation,
+  MIN_HUE_SEPARATION,
+  type Hex,
+} from '../contrast';
 import {
   Accent,
   Colors,
@@ -452,5 +467,61 @@ describe('contrast.ts sanity', () => {
 
   it('rates a color against itself as 1', () => {
     expect(contrastRatio(Accent.value, Accent.value)).toBeCloseTo(1, 5);
+  });
+});
+
+describe('hue separation — no chromatic role may collide with another', () => {
+  // WHY THIS EXISTS, and why it is not redundant with the contrast blocks above: contrast measures
+  // a colour against its BACKGROUND, and every band in this palette clears its floor. What no
+  // contrast assertion can catch is two bands, or a band and the accent, landing on the same hue —
+  // at which point "Solid" and "Strong" are the same picture, or a score reads as a button. The
+  // >=30 degree floor is `theme.ts`'s own long-standing rule (see MIN_HUE_SEPARATION in
+  // contrast.ts for why 30 and not 20), and it is what forced the 2026-09-04 ramp to vacate teal
+  // when the accent became cyan. Computed per scheme from the shipped hexes, so a "small" tweak to
+  // one band that quietly walks it into a neighbour fails here rather than in someone's eyes.
+  const chromaticRoles = (scheme: ColorScheme): { name: string; hex: string }[] => [
+    ...ScoreBandOrder.map((band) => ({ name: `score.${band}.fill`, hex: Score[band][scheme].fill })),
+    { name: 'accent', hex: Accent.value },
+    { name: 'semantic.error', hex: Semantic.error[scheme] },
+  ];
+
+  test.each(SCHEMES)('%s: every role is genuinely chromatic (a grey has no hue to separate)', (scheme) => {
+    for (const { name, hex } of chromaticRoles(scheme)) {
+      expect({ name, hue: hue(hex) }).not.toEqual({ name, hue: null });
+    }
+  });
+
+  const pairs = SCHEMES.flatMap((scheme) => {
+    const roles = chromaticRoles(scheme);
+    return roles.flatMap((a, i) =>
+      roles.slice(i + 1).map((b) => ({ label: `${scheme}: ${a.name} vs ${b.name}`, a, b }))
+    );
+  });
+
+  it('has pairs to check at all (guards against the generator silently producing none)', () => {
+    expect(pairs.length).toBeGreaterThan(0);
+  });
+
+  test.each(pairs)('$label', ({ a, b }) => {
+    const [hueA, hueB] = [hue(a.hex), hue(b.hex)];
+    // Non-null is asserted above; this narrows for TypeScript and fails loudly rather than
+    // silently passing a comparison against a null.
+    expect(hueA).not.toBeNull();
+    expect(hueB).not.toBeNull();
+    expect(hueSeparation(hueA as number, hueB as number)).toBeGreaterThanOrEqual(MIN_HUE_SEPARATION);
+  });
+
+  // The score ramp's ORDERING claim, which the Cold Read re-cut is the first palette to satisfy:
+  // bad -> good and warm -> cool are the same journey, with no doubling back between bands. The
+  // espresso ramp put `good` at 195 degrees and `strong` at 152, so moving UP the scale moved
+  // BACKWARDS round the wheel between the top two bands. Measured from `low` as the origin so the
+  // wrap at 360 (low sits at ~350) does not turn a monotonic ramp into a false failure.
+  test.each(SCHEMES)('%s: the ramp runs one way round the wheel, in band order', (scheme) => {
+    const origin = hue(Score.low[scheme].fill) as number;
+    const fromLow = ScoreBandOrder.map((band) => {
+      const h = hue(Score[band][scheme].fill) as number;
+      return (h - origin + 360) % 360;
+    });
+    expect(fromLow).toEqual([...fromLow].sort((x, y) => x - y));
   });
 });
