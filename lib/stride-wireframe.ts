@@ -320,19 +320,77 @@ export const STANCE: { readonly from: number; readonly to: number } = (() => {
   return { from: from ?? 0, to };
 })();
 
+/** Sampling density for the cumulative ground-travel table below. Fine enough that the table's
+ *  linear interpolation tracks the planted foot to well under a thousandth of a figure unit. */
+const GROUND_SAMPLES = 512;
+
+/** The near ankle's backward speed at `phase`, figure-box units per cycle: minus the derivative
+ *  of its x, by central difference over the same spline the figure itself is drawn from. */
+function ankleSpeedAt(phase: number): number {
+  const h = 1 / (8 * GROUND_SAMPLES);
+  return (solveStride(phase - h).nearAnkle[0] - solveStride(phase + h).nearAnkle[0]) / (2 * h);
+}
+
+const SPEED_AT_CONTACT = ankleSpeedAt(STANCE.from);
+const SPEED_AT_TOE_OFF = ankleSpeedAt(STANCE.to);
+
 /**
- * How far the ground travels per cycle, in figure-box units — the planted foot's backward speed
- * relative to the hip, measured over the stance window above and held for the whole cycle. The
- * scrolling ground under the runner must move at exactly the speed the feet push it: a ground
- * that slides faster or slower than the stance foot is the single most common tell of a fake
- * treadmill loop. Derived, so a retuned leg table cannot desynchronise it.
+ * The ground's speed at `phase`, figure-box units per cycle. Inside a stance window it IS the
+ * planted foot's instantaneous speed, so the ground and that foot move as one body and the foot
+ * cannot skate — an averaged speed slides the planted foot against the ground by most of a foot
+ * length, which is the exact treadmill-loop tell this hero exists to avoid. Through flight, where
+ * no foot is touching and nothing constrains the ground, it eases (smoothstep) from the speed the
+ * last foot let go at to the speed the next one lands at, so the ground never steps.
+ *
+ * Half-cycle periodic: the two legs do the same thing half a cycle apart, so this is derived from
+ * the near leg alone and holds for the far leg's stance for free — and it is what makes the
+ * cumulative offset below close exactly at the loop seam.
  */
-export const GROUND_TRAVEL_PER_CYCLE: number = (() => {
-  const a = solveStride(STANCE.from).nearAnkle[0];
-  const b = solveStride(STANCE.to).nearAnkle[0];
-  const dt = STANCE.to - STANCE.from;
-  return dt > 0 ? (a - b) / dt : 0;
+function groundSpeedAt(phase: number): number {
+  const stanceLen = STANCE.to - STANCE.from;
+  const r = (((phase - STANCE.from) % 0.5) + 0.5) % 0.5;
+  if (r <= stanceLen) return ankleSpeedAt(STANCE.from + r);
+  const t = (r - stanceLen) / (0.5 - stanceLen);
+  const ease = t * t * (3 - 2 * t);
+  return SPEED_AT_TOE_OFF + (SPEED_AT_CONTACT - SPEED_AT_TOE_OFF) * ease;
+}
+
+/** Cumulative ground travel from phase 0, integrated once at module load (trapezoid) over
+ *  `groundSpeedAt`. `groundTravelAt` reads it per frame; nothing integrates on the UI thread. */
+const GROUND_TRAVEL_TABLE: readonly number[] = (() => {
+  const table = new Array<number>(GROUND_SAMPLES + 1);
+  table[0] = 0;
+  const dp = 1 / GROUND_SAMPLES;
+  let prev = groundSpeedAt(0);
+  for (let i = 1; i <= GROUND_SAMPLES; i++) {
+    const next = groundSpeedAt(i * dp);
+    table[i] = table[i - 1] + ((prev + next) / 2) * dp;
+    prev = next;
+  }
+  return table;
 })();
+
+/**
+ * How far the ground travels over one whole cycle, in figure-box units. The component sizes the
+ * ground's dash pattern so a whole number of dashes fits into exactly this, which is what keeps
+ * the dash phase from jumping when the loop wraps. Derived, so a retuned leg table cannot
+ * desynchronise it.
+ */
+export const GROUND_TRAVEL_PER_CYCLE: number = GROUND_TRAVEL_TABLE[GROUND_SAMPLES];
+
+/**
+ * How far the ground has travelled by `phase` (0-1), figure-box units — the scrolling ground's
+ * offset. NOT `phase * GROUND_TRAVEL_PER_CYCLE`: that linear ramp is an average, and averaging it
+ * is what lets the planted foot skate. This tracks the foot itself. A worklet: called per frame.
+ */
+export function groundTravelAt(phase: number): number {
+  'worklet';
+  const n = GROUND_TRAVEL_TABLE.length - 1;
+  const p = phase <= 0 ? 0 : phase >= 1 ? 1 : phase;
+  const x = p * n;
+  const i = Math.min(n - 1, Math.floor(x));
+  return GROUND_TRAVEL_TABLE[i] + (GROUND_TRAVEL_TABLE[i + 1] - GROUND_TRAVEL_TABLE[i]) * (x - i);
+}
 
 /**
  * The figure's bounding box over the whole cycle, figure-box units: the furthest any joint or the

@@ -22,6 +22,7 @@ import {
   STRIDE_WIREFRAME_PALETTE,
   StrideWireframeHero,
   computeViewBox,
+  computeStageLayout,
   FRAME,
   cycleDurationMs,
 } from '../stride-wireframe-hero';
@@ -124,6 +125,44 @@ describe('sizing', () => {
     expect(FRAME.x0).toBeGreaterThan(0);
     expect(FRAME.x1).toBeLessThan(100);
     expect(FRAME.y0).toBeGreaterThan(0);
+  });
+
+  // Boxes the hero is really asked for: the shipped sign-in frame (full width on a 393pt device,
+  // 8:5), the two the viewBox test uses, and two extremes on either axis.
+  const BOXES: readonly (readonly [number, number])[] = [
+    [345, 215.6],
+    [200, 400],
+    [400, 200],
+    [600, 150],
+    [120, 160],
+  ];
+
+  it('never renders a ruler caption below the 9pt floor the knee readout already uses', () => {
+    // LABEL_SIZE is in viewBox units, so the same nominal size is a different point size in every
+    // box; at the sign-in frame it lands near 5pt, which reads as a smudge, not an instrument.
+    for (const [w, h] of BOXES) {
+      const { vb, ruler } = computeStageLayout(w, h, 4);
+      const pointsPerUnit = w / vb.w;
+      expect(ruler.label * pointsPerUnit).toBeGreaterThanOrEqual(9 - 1e-6);
+      expect(ruler.tick * pointsPerUnit).toBeGreaterThan(4);
+    }
+  });
+
+  it('leaves a hero big enough not to need the floor exactly as authored', () => {
+    const big = computeStageLayout(900, 1200, 4);
+    expect(big.ruler.label).toBeCloseTo(2.4, 8);
+    expect(big.ruler.majorTick).toBeCloseTo(2.5, 8);
+    expect(big.vb).toEqual(computeViewBox(900, 1200, 4));
+  });
+
+  it('reserves room for a floored ruler, so its captions never fall outside the viewBox', () => {
+    for (const [w, h] of BOXES) {
+      const { vb, ruler } = computeStageLayout(w, h, 4);
+      // Baseline plus a generous descender for the lowest caption row (IC / TO).
+      expect(ruler.labelY + ruler.label * 0.3).toBeLessThanOrEqual(vb.y + vb.h);
+      // And the row above the ruler stays clear of the ground line it hangs under.
+      expect(ruler.y - ruler.cursor - 1.2 - ruler.label).toBeGreaterThan(GROUND_Y * 100);
+    }
   });
 
   it('derives the cycle length from cadence and playback rate', () => {

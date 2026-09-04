@@ -482,9 +482,9 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       gap: Spacing.xxl,
     },
     // Given a `minHeight` of most of the viewport at the render site (it needs `useWindowDimensions`,
-    // which a `StyleSheet.create` module can't read) so this reads as its own first screenful and
-    // scrolling is required to reach the mark section below it — the deliberate scroll-reveal this
-    // screen is now built around, replacing the old single-screen layout.
+    // which a `StyleSheet.create` module can't read) so its three parts — the stride hero, the
+    // wordmark and the value prop — centre together as their own first screenful, with the form
+    // below the fold rather than crowding the animation the screen is built around.
     header: {
       alignItems: 'center',
       justifyContent: 'center',

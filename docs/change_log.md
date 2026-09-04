@@ -33,7 +33,7 @@ token set and the onboarding rebuild; this entry is only the hero itself.
   module load, so a retuned table cannot float a foot or desync the treadmill. Tuned in a browser
   harness against sole-height numbers, then locked: rigid bone lengths, seamless loop,
   contralateral limbs, feet on the ground only in stance, no knee hyperextension, compact landing,
-  one-line trunk lean, ground-speed = foot-speed (`lib/__tests__/stride-wireframe.test.ts`);
+  one-line trunk lean, planted-foot-does-not-skate (`lib/__tests__/stride-wireframe.test.ts`);
   a11y hiding, pinned palette in both schemes, still-vs-loop tree selection, first-frame parity and
   layer switches (`components/__tests__/stride-wireframe-hero.test.tsx`).
 - **Iterated on feel against a browser frame-strip and on a simulator (2026-09-04).** Two
@@ -62,6 +62,27 @@ token set and the onboarding rebuild; this entry is only the hero itself.
   `v23-redesign-theme-onboarding` work owns whether the arc motif survives at all. **Nothing else
   on the screen moved** — no copy, no controls, no auth wiring; the diff is the mark, its frame,
   and the two comments that explain them.
+- **The ground now tracks the planted foot's POSITION, not its average speed (2026-09-04).** The
+  first cut scrolled the ground at a flat two-sample average of the stance ankle's backward speed.
+  That speed is not constant over stance (0.45 → 1.29 units/cycle), so the planted foot skated
+  against the ground by up to 0.041 figure units — ~59% of a foot length, ~8pt at the shipped
+  sign-in size — which is precisely the treadmill tell the derivation exists to remove.
+  `lib/stride-wireframe.ts` now integrates the ankle's instantaneous speed over the stance window
+  and smoothsteps between toe-off and the next contact through flight (where no foot is touching
+  and nothing constrains the ground), into a cumulative `groundTravelAt(phase)` table built at
+  module load. Residual slip is ~2e-5 units. The speed function is half-cycle periodic, so one
+  cycle closes exactly at the seam, and `GROUND_TRAVEL_PER_CYCLE` is still the whole-cycle travel
+  the dash period divides into a whole number of dashes (still 5), so the dash phase does not jump
+  when the loop wraps. The old test recomputed the constant's own expression and could not fail;
+  it is replaced by a bound on the foot-against-ground drift across both feet's stance windows.
+- **The SVG ruler captions and ticks have a legibility floor (2026-09-04).** `LABEL_SIZE` is in
+  viewBox units, so at the sign-in hero's 8:5 frame the GAIT CYCLE / 100% / IC / TO captions
+  rendered near 5pt and the ticks near 3pt — dim smudges, not instrument labels. `computeStageLayout`
+  now scales the whole ruler (captions, ticks, cursor, and its drop below the ground) up whenever
+  the measured box would render a caption below 9pt — the same floor the RN-layer knee readout
+  already applied to itself — and grows the frame's bottom reserve to match, solving the two for a
+  fixed point so a floored ruler is never clipped. A hero large enough not to need the floor is
+  framed exactly as before.
 - **The dev-only preview route `app/dev/stride-wireframe.tsx` is deleted** — it existed to iterate
   on the hero before it had a home, and it has one now. The screen itself is the preview.
 

@@ -2,9 +2,9 @@
  * <StrideWireframeHero> — the app's signature entry/onboarding animation (captain-approved
  * 2026-09-03): a motion-capture-style wireframe runner cycling through one closed running gait,
  * drawn in icy-cyan lines on a near-black ground, with the instrument chrome of a gait-lab
- * readout around it — a faint grid, a ground that scrolls at the speed the feet push it, a
- * gait-cycle ruler with a moving cursor, a knee-flexion arc and a live knee angle. It says the
- * one thing this app does — "we measure your running form" — without a word of copy.
+ * readout around it — a faint grid, a ground whose scroll tracks the planted foot's own
+ * displacement so it cannot skate, a gait-cycle ruler with a moving cursor, a knee-flexion arc
+ * and a live knee angle. It says the one thing this app does — "we measure your running form" — without a word of copy.
  *
  * WHERE THE GEOMETRY LIVES. Everything about the figure — proportions, the gait tables, the
  * forward kinematics, the path serialisation, the derived ground line and ground speed — is in
@@ -50,8 +50,9 @@
  * (the only correct curve for a continuous loop — `constants/theme.ts`'s `Motion.curve.linear`
  * note — an eased loop would visibly pulse at every seam) and repeats. Every animated node is a
  * `useAnimatedProps` worklet reading that one value on the UI thread: the figure's layers rebuild
- * their `d` per frame from `solveStride(phase)`, the ground's `strokeDashoffset` advances by the
- * derived ground travel, the ruler's cursor slides, and the knee angle is written as `text` onto
+ * their `d` per frame from `solveStride(phase)`, the ground's `strokeDashoffset` follows the
+ * derived cumulative ground travel, the ruler's cursor slides, and the knee angle is written as
+ * `text` onto
  * a disabled `TextInput` (the same ReText pattern `components/pace-reveal.tsx` uses). Nothing
  * crosses to the JS thread per frame and nothing animates a layout property.
  *
@@ -98,6 +99,7 @@ import {
   corePath,
   farLimbsPath,
   farMarkersPath,
+  groundTravelAt,
   nearLegPath,
   nearLimbsPath,
   nearMarkersPath,
@@ -160,8 +162,26 @@ const RULER = {
 /** Grid pitch, viewBox units. */
 const GRID_PITCH = 10;
 
-/** SVG label size, viewBox units (scales with the hero). */
+/**
+ * The nominal size of the SVG ruler captions, in viewBox units — i.e. relative to the figure, so
+ * they scale with the hero. Below a certain rendered box that nominal size falls under the point
+ * size anything is readable at (at the sign-in hero's 8:5 frame it lands near 5pt, and the ticks
+ * near 3pt), and dim mono smudges read as dirt on the lens rather than as instrument labels. So
+ * the ruler is scaled up by `rulerScaleFor` whenever the measured box would render a caption
+ * below `LABEL_MIN_PT` — the same legibility floor the RN-layer `KneeReadout` applies to itself,
+ * converted through the box's viewBox-units-per-point. `frameFor` reserves room for whatever
+ * scale comes out, so a floored ruler is never clipped.
+ */
 const LABEL_SIZE = 2.4;
+
+/** Legibility floor for the ruler captions, in points. Matches `KneeReadout`'s own floor. */
+const LABEL_MIN_PT = 9;
+
+/** How much to scale the ruler (captions, ticks, cursor) for a box that renders `unitsPerPoint`
+ *  viewBox units per point. Never below 1: a large hero keeps the authored proportions. */
+export function rulerScaleFor(unitsPerPoint: number): number {
+  return Math.max(1, (LABEL_MIN_PT * unitsPerPoint) / LABEL_SIZE);
+}
 
 /**
  * The scrolling ground's dash period. Chosen so an integer number of periods fits into one
@@ -185,14 +205,20 @@ export function cycleDurationMs(cadenceSpm: number, playbackRate: number): numbe
  * fill its box with the runner instead of with margin; reserving the caption height is what keeps
  * a wide box from clipping the ruler off the bottom.
  */
-export const FRAME = (() => {
+export function frameFor(rulerScale: number) {
   const air = 3;
   const x0 = FIGURE_EXTENT.x0 * VIEWBOX - air;
   const x1 = FIGURE_EXTENT.x1 * VIEWBOX + air;
   const y0 = FIGURE_EXTENT.top * VIEWBOX - air;
-  const y1 = GROUND_Y * VIEWBOX + RULER.dropBelowGround + RULER.majorTick + LABEL_SIZE * 2;
+  const y1 =
+    GROUND_Y * VIEWBOX +
+    (RULER.dropBelowGround + RULER.majorTick + LABEL_SIZE * 2) * rulerScale;
   return { x0, x1, y0, y1, w: x1 - x0, h: y1 - y0, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 } as const;
-})();
+}
+
+/** The frame at the authored ruler scale — what a hero large enough to need no legibility floor
+ *  is framed on, and the reference the sizing tests measure against. */
+export const FRAME = frameFor(1);
 
 /**
  * The viewBox for a `width` x `height` box: `FRAME` centred, extended along whichever axis the
@@ -202,16 +228,67 @@ export const FRAME = (() => {
 export function computeViewBox(
   width: number,
   height: number,
-  inset: number
+  inset: number,
+  frame: ReturnType<typeof frameFor> = FRAME
 ): { x: number; y: number; w: number; h: number } {
-  const baseW = FRAME.w + 2 * inset;
-  const baseH = FRAME.h + 2 * inset;
+  const baseW = frame.w + 2 * inset;
+  const baseH = frame.h + 2 * inset;
   let w = baseW;
   let h = baseH;
   if (width / height > baseW / baseH) w = (baseH * width) / height;
   else h = (baseW * height) / width;
-  return { x: FRAME.cx - w / 2, y: FRAME.cy - h / 2, w, h };
+  return { x: frame.cx - w / 2, y: frame.cy - h / 2, w, h };
 }
+
+/**
+ * The viewBox AND the ruler scale for a measured box — the two are mutually dependent (a floored
+ * ruler needs a taller frame, and a taller frame renders fewer points per viewBox unit), so this
+ * iterates the pair to a fixed point. It converges geometrically for any box taller than a few
+ * points, and settles at `rulerScale === 1` (and exactly `FRAME`) for any hero big enough not to
+ * need the floor, so a large render is bit-for-bit what it was before the floor existed.
+ */
+export function computeStageLayout(
+  width: number,
+  height: number,
+  inset: number
+): {
+  vb: { x: number; y: number; w: number; h: number };
+  ruler: {
+    tick: number;
+    majorTick: number;
+    cursor: number;
+    label: number;
+    y: number;
+    labelY: number;
+  };
+} {
+  let rulerScale = 1;
+  let vb = computeViewBox(width, height, inset, FRAME);
+  for (let i = 0; i < 32; i++) {
+    const next = rulerScaleFor(vb.w / width);
+    if (Math.abs(next - rulerScale) < 1e-9) break;
+    rulerScale = next;
+    vb = computeViewBox(width, height, inset, frameFor(rulerScale));
+  }
+  const majorTick = RULER.majorTick * rulerScale;
+  const label = LABEL_SIZE * rulerScale;
+  const y = GROUND_Y * VIEWBOX + RULER.dropBelowGround * rulerScale;
+  return {
+    vb,
+    ruler: {
+      tick: RULER.tick * rulerScale,
+      majorTick,
+      cursor: RULER.cursor * rulerScale,
+      label,
+      /** The ruler's baseline, viewBox units. */
+      y,
+      /** The baseline of the IC/TO captions hanging under it. */
+      labelY: y + majorTick + label + 0.6,
+    },
+  };
+}
+
+export type StageRuler = ReturnType<typeof computeStageLayout>['ruler'];
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
@@ -334,9 +411,9 @@ type StageProps = {
 /** Everything inside the measured box. Split out so the hero's own `onLayout` never re-renders
  *  the SVG tree for a same-size layout event. */
 function Stage({ box, animate, phase, chrome, trails, readouts, lineColor, backgroundColor, testID }: StageProps) {
-  const vb = useMemo(() => computeViewBox(box.width, box.height, 4), [box.width, box.height]);
+  const { vb, ruler } = useMemo(() => computeStageLayout(box.width, box.height, 4), [box.width, box.height]);
   const groundY = GROUND_Y * VIEWBOX;
-  const rulerY = groundY + RULER.dropBelowGround;
+  const rulerY = ruler.y;
   const id = (suffix: string) => (testID ? `${testID}-${suffix}` : undefined);
 
   // Static chrome geometry. Built once per box size; none of it animates.
@@ -353,13 +430,14 @@ function Stage({ box, animate, phase, chrome, trails, readouts, lineColor, backg
   const rulerD = useMemo(() => {
     const span = RULER.x1 - RULER.x0;
     let d = `M${RULER.x0} ${rulerY} H${RULER.x1}`;
-    for (let i = 0; i <= 8; i++) d += ` M${(RULER.x0 + (span * i) / 8).toFixed(2)} ${rulerY} v${RULER.tick}`;
+    for (let i = 0; i <= 8; i++)
+      d += ` M${(RULER.x0 + (span * i) / 8).toFixed(2)} ${rulerY} v${ruler.tick.toFixed(2)}`;
     // Toe-off for each foot: the stance/swing boundary, the one event a gait plot always marks.
     for (const p of [STANCE.to, 0.5 + STANCE.to]) {
-      d += ` M${(RULER.x0 + span * p).toFixed(2)} ${rulerY} v${RULER.majorTick}`;
+      d += ` M${(RULER.x0 + span * p).toFixed(2)} ${rulerY} v${ruler.majorTick.toFixed(2)}`;
     }
     return d;
-  }, [rulerY]);
+  }, [rulerY, ruler]);
 
   const still = useMemo(() => solveStride(REST_PHASE), []);
 
@@ -386,23 +464,23 @@ function Stage({ box, animate, phase, chrome, trails, readouts, lineColor, backg
                 strokeOpacity={Tier.groundDash}
                 strokeWidth={Stroke.groundDash}
                 strokeDasharray={GROUND_DASH}
-                strokeDashoffset={REST_PHASE * GROUND_TRAVEL_UNITS}
+                strokeDashoffset={groundTravelAt(REST_PHASE) * VIEWBOX}
                 fill="none"
               />
             )}
             <Path d={rulerD} stroke={lineColor} strokeOpacity={Tier.ruler} strokeWidth={Stroke.ruler} fill="none" />
             {animate ? (
-              <RulerCursor phase={phase} rulerY={rulerY} color={lineColor} testID={id('cursor')} />
+              <RulerCursor phase={phase} rulerY={rulerY} cursor={ruler.cursor} color={lineColor} testID={id('cursor')} />
             ) : (
               <Path
                 testID={id('cursor')}
-                d={cursorD(REST_PHASE, rulerY)}
+                d={cursorD(REST_PHASE, rulerY, ruler.cursor)}
                 stroke={lineColor}
                 strokeWidth={Stroke.cursor}
                 fill="none"
               />
             )}
-            <RulerLabels rulerY={rulerY} color={lineColor} />
+            <RulerLabels ruler={ruler} color={lineColor} />
           </>
         )}
 
@@ -466,10 +544,10 @@ function strokeProps(color: string, opacity: number, width: number) {
   } as const;
 }
 
-function cursorD(phase: number, rulerY: number): string {
+function cursorD(phase: number, rulerY: number, cursor: number): string {
   'worklet';
   const x = RULER.x0 + (RULER.x1 - RULER.x0) * phase;
-  return `M${x.toFixed(2)} ${(rulerY - RULER.cursor).toFixed(2)} v${(RULER.cursor * 2).toFixed(2)}`;
+  return `M${x.toFixed(2)} ${(rulerY - cursor).toFixed(2)} v${(cursor * 2).toFixed(2)}`;
 }
 
 type Phase = ReturnType<typeof useSharedValue<number>>;
@@ -551,8 +629,8 @@ function GroundDashes({ phase, d, color, testID }: { phase: Phase; d: string; co
   const animatedProps = useAnimatedProps(() => {
     'worklet';
     // Increasing the offset shifts the pattern toward the path's start (left), i.e. the ground
-    // runs backward under a runner facing right, at the derived speed of the planted foot.
-    return { strokeDashoffset: phase.value * GROUND_TRAVEL_UNITS };
+    // runs backward under a runner facing right, tracking the planted foot's own displacement.
+    return { strokeDashoffset: groundTravelAt(phase.value) * VIEWBOX };
   });
   return (
     <AnimatedPath
@@ -563,22 +641,34 @@ function GroundDashes({ phase, d, color, testID }: { phase: Phase; d: string; co
       strokeOpacity={Tier.groundDash}
       strokeWidth={Stroke.groundDash}
       strokeDasharray={GROUND_DASH}
-      strokeDashoffset={REST_PHASE * GROUND_TRAVEL_UNITS}
+      strokeDashoffset={groundTravelAt(REST_PHASE) * VIEWBOX}
       fill="none"
     />
   );
 }
 
-function RulerCursor({ phase, rulerY, color, testID }: { phase: Phase; rulerY: number; color: string; testID?: string }) {
+function RulerCursor({
+  phase,
+  rulerY,
+  cursor,
+  color,
+  testID,
+}: {
+  phase: Phase;
+  rulerY: number;
+  cursor: number;
+  color: string;
+  testID?: string;
+}) {
   const animatedProps = useAnimatedProps(() => {
     'worklet';
-    return { d: cursorD(phase.value, rulerY) };
+    return { d: cursorD(phase.value, rulerY, cursor) };
   });
   return (
     <AnimatedPath
       testID={testID}
       animatedProps={animatedProps}
-      d={cursorD(REST_PHASE, rulerY)}
+      d={cursorD(REST_PHASE, rulerY, cursor)}
       stroke={color}
       strokeWidth={Stroke.cursor}
       strokeLinecap="round"
@@ -588,23 +678,25 @@ function RulerCursor({ phase, rulerY, color, testID }: { phase: Phase; rulerY: n
 }
 
 /** The ruler's captions: the cycle's name, and IC/TO (initial contact / toe-off — a gait
- *  plot's two canonical events) at each foot's marks. Texture, not copy: tiny, dim, mono. */
-function RulerLabels({ rulerY, color }: { rulerY: number; color: string }) {
+ *  plot's two canonical events) at each foot's marks. Texture, not copy — dim and mono — but
+ *  never below `LABEL_MIN_PT` once rendered: an unreadable instrument label is not texture. */
+function RulerLabels({ ruler, color }: { ruler: StageRuler; color: string }) {
   const span = RULER.x1 - RULER.x0;
-  const labelY = rulerY + RULER.majorTick + LABEL_SIZE + 0.6;
+  const rulerY = ruler.y;
+  const labelY = ruler.labelY;
   const text = {
     fill: color,
     fillOpacity: Tier.label,
-    fontSize: LABEL_SIZE,
+    fontSize: ruler.label,
     fontFamily: FontFamily.mono.regular,
     letterSpacing: 0.3,
   } as const;
   return (
     <>
-      <SvgText {...text} x={RULER.x0} y={rulerY - RULER.cursor - 1.2} textAnchor="start">
+      <SvgText {...text} x={RULER.x0} y={rulerY - ruler.cursor - 1.2} textAnchor="start">
         GAIT CYCLE
       </SvgText>
-      <SvgText {...text} x={RULER.x1} y={rulerY - RULER.cursor - 1.2} textAnchor="end">
+      <SvgText {...text} x={RULER.x1} y={rulerY - ruler.cursor - 1.2} textAnchor="end">
         100%
       </SvgText>
       {[0, 0.5].map((p) => (

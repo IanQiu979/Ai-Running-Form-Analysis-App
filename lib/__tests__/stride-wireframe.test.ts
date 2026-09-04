@@ -15,7 +15,8 @@
  *      swing foot that drags, or a stance window that is not a running stance (~35-40%).
  *   5. THE GAIT IS PACE-CORRECT: the knee never hyperextends, the elbow never straightens, the
  *      landing is compact (foot under the knee, not out ahead), the trunk leans as one line.
- *   6. THE GROUND MOVES AT THE PLANTED FOOT'S SPEED — a treadmill loop's one give-away.
+ *   6. THE GROUND TRACKS THE PLANTED FOOT — not its average speed, its instantaneous position:
+ *      a planted foot that skates against the ground is a treadmill loop's one give-away.
  */
 import {
   ANKLE_FLEX_DEG,
@@ -41,6 +42,7 @@ import {
   UPPER_ARM_DEG,
   UPPER_ARM_LEN,
   catmullRomPeriodic,
+  groundTravelAt,
   hipBob,
   solveStride,
   strideLayers,
@@ -180,12 +182,43 @@ describe('solveStride — feet and ground', () => {
     }
   });
 
-  it('moves the ground at the planted foot’s own speed', () => {
-    const a = solveStride(STANCE.from).nearAnkle[0];
-    const b = solveStride(STANCE.to).nearAnkle[0];
-    const footSpeed = (a - b) / (STANCE.to - STANCE.from);
-    expect(GROUND_TRAVEL_PER_CYCLE).toBeCloseTo(footSpeed, 8);
+  // The ground and the planted foot must move as one body: any drift between them is the foot
+  // skating, which is the treadmill-loop tell this hero exists to avoid. A flat per-cycle average
+  // leaves up to 0.041 units of it (~59% of a foot length); tracking the foot leaves ~2e-5.
+  const MAX_FOOT_SLIP = 0.001;
+
+  it('holds the near foot still against the ground through its whole stance', () => {
+    const anchorX = solveStride(STANCE.from).nearAnkle[0];
+    const anchorGround = groundTravelAt(STANCE.from);
+    for (let i = 0; i <= 200; i++) {
+      const p = STANCE.from + ((STANCE.to - STANCE.from) * i) / 200;
+      const footTravel = anchorX - solveStride(p).nearAnkle[0];
+      const groundTravel = groundTravelAt(p) - anchorGround;
+      expect(Math.abs(footTravel - groundTravel)).toBeLessThan(MAX_FOOT_SLIP);
+    }
+  });
+
+  it('holds the far foot still against the ground through its stance, half a cycle later', () => {
+    const anchorX = solveStride(0.5 + STANCE.from).farAnkle[0];
+    const anchorGround = groundTravelAt(0.5 + STANCE.from);
+    for (let i = 0; i <= 200; i++) {
+      const p = 0.5 + STANCE.from + ((STANCE.to - STANCE.from) * i) / 200;
+      const footTravel = anchorX - solveStride(p).farAnkle[0];
+      const groundTravel = groundTravelAt(p) - anchorGround;
+      expect(Math.abs(footTravel - groundTravel)).toBeLessThan(MAX_FOOT_SLIP);
+    }
+  });
+
+  it('runs the ground forward only, and never stalls it mid-flight', () => {
+    let prev = groundTravelAt(0);
+    expect(prev).toBe(0);
+    for (let i = 1; i <= 400; i++) {
+      const next = groundTravelAt(i / 400);
+      expect(next).toBeGreaterThan(prev);
+      prev = next;
+    }
     expect(GROUND_TRAVEL_PER_CYCLE).toBeGreaterThan(0);
+    expect(groundTravelAt(1)).toBeCloseTo(GROUND_TRAVEL_PER_CYCLE, 10);
   });
 });
 
