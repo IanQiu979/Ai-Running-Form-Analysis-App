@@ -5,6 +5,93 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-03 (stride wireframe — the redesign's signature entry animation, built standalone)
+
+**UNRELEASED, on `fm/v23-redesign-animation`.** Part of the captain-approved 2026-09-03 house-style
+redesign (near-monochrome "cool scientific" base, one locked icy-cyan highlight reserved for the
+primary CTA and this animation). The parallel `v23-redesign-theme-onboarding` work owns the new
+token set and the onboarding rebuild; this entry is only the hero itself.
+
+- **New `<StrideWireframeHero>` (`components/stride-wireframe-hero.tsx`).** A side-view
+  motion-capture skeleton — joint markers, rigid bones, a rigid heel-ankle-toe foot — running in
+  place through one closed gait cycle, drawn in icy cyan (`#8CF0FF`) on near-black (`#07090C`)
+  regardless of the surrounding light/dark mode, inside gait-lab chrome: a faint grid, a ground
+  whose dashes scroll at the speed the planted foot pushes it, a gait-cycle ruler with a moving
+  cursor and IC/TO marks, a knee-flexion arc, a lean reference, onion-skin trails of the near
+  leg, and a live knee angle (`useAnimatedProps` on a disabled `TextInput`, the
+  `components/pace-reveal.tsx` pattern). One linear, repeating shared value drives every layer
+  on the UI thread; every shape animates as a `Path d` (the Fabric lesson from
+  `low-poly-field.tsx`). Sizes itself to its `style`; hidden from a11y unless given a label.
+- **Reduced motion renders the still frame** (`REST_PHASE`, late swing) as plain paths with no
+  Reanimated work scheduled and no trails — chrome and a static knee angle remain, per
+  `docs/design/motion-consult.md`'s "suppress vestibular triggers, keep the meaning".
+- **The gait is continuous, not keyframe-stepped, and PACE-correct** (`lib/stride-wireframe.ts`).
+  Eight per-joint keyframes (thigh, knee, ankle, upper arm, elbow — degrees, as a goniometer reads
+  them) are interpolated with a periodic Catmull-Rom spline, so the loop seam is C1-smooth and the
+  figure never pauses at a keyframe the way `low-poly-field.tsx`'s smoothstep runner does. The
+  ground line, stance window (0 → 36% of the cycle), ground speed and the figure's own extent are DERIVED from the gait at
+  module load, so a retuned table cannot float a foot or desync the treadmill. Tuned in a browser
+  harness against sole-height numbers, then locked: rigid bone lengths, seamless loop,
+  contralateral limbs, feet on the ground only in stance, no knee hyperextension, compact landing,
+  one-line trunk lean, planted-foot-does-not-skate (`lib/__tests__/stride-wireframe.test.ts`);
+  a11y hiding, pinned palette in both schemes, still-vs-loop tree selection, first-frame parity and
+  layer switches (`components/__tests__/stride-wireframe-hero.test.tsx`).
+- **Iterated on feel against a browser frame-strip and on a simulator (2026-09-04).** Two
+  things changed after seeing it move. (1) The gait: the landing thigh/knee opened a few degrees
+  so initial contact no longer reads as a standing foot-plant, and mid-swing knee flexion went
+  102° → 114° with the thigh held further back so the heel visibly tucks toward the glute — the
+  one pose that separates a runner from a brisk walker. Toe-off moved 38% → 36%, still inside a
+  running stance. (2) The framing: the hero used to fit the nominal 0-100 figure box, which left a
+  leaning, forward-reaching runner small and off-centre in a portrait box; it now frames on
+  `FIGURE_EXTENT` (the figure's derived reach over the cycle, `lib/stride-wireframe.ts`) via an
+  exported `FRAME`, and the gait ruler spans that same reach — 0% under the trailing toe, 100%
+  under the leading one. Verified on a simulator dev client: Space Mono renders inside the SVG
+  ruler captions, the live knee angle updates on the UI thread under Fabric, and the loop runs
+  with trails.
+- **The palette is pinned in the component, not in `constants/theme.ts` — deliberately.** The
+  brief replaces the whole Cadence Arcs token system; the theme task should re-point
+  `STRIDE_WIREFRAME_PALETTE` (or pass `lineColor`/`backgroundColor`) once its tokens exist.
+- **Mounted on sign-in (2026-09-04), and it took the "one loud moment" slot from `<ArcBurst>`.**
+  Sign-in is the app's entry screen for a signed-out user and the only screen the redesign lets
+  be loud, so that is where an entry animation belongs. The hero now leads the header — above the
+  wordmark, in the layout stack rather than pinned behind the type, in a `Radius.hero`-clipped
+  8:5 frame — and the oversized counter-rotating arc burst that used to sit behind the wordmark is
+  gone from the screen. The two are both "the loud moment" and cannot share one; an opaque
+  instrument panel floating over turning rings reads as a mistake, not a composition.
+  `components/arc-burst.tsx` is left in the tree, now unused, because the parallel
+  `v23-redesign-theme-onboarding` work owns whether the arc motif survives at all. **Nothing else
+  on the screen moved** — no copy, no controls, no auth wiring; the diff is the mark, its frame,
+  and the two comments that explain them.
+- **The ground now tracks the planted foot's POSITION, not its average speed (2026-09-04).** The
+  first cut scrolled the ground at a flat two-sample average of the stance ankle's backward speed.
+  That speed is not constant over stance (0.45 → 1.29 units/cycle), so the planted foot skated
+  against the ground by up to 0.041 figure units — ~59% of a foot length, ~8pt at the shipped
+  sign-in size — which is precisely the treadmill tell the derivation exists to remove.
+  `lib/stride-wireframe.ts` now integrates the ankle's instantaneous speed over the stance window
+  and smoothsteps between toe-off and the next contact through flight (where no foot is touching
+  and nothing constrains the ground), into a cumulative `groundTravelAt(phase)` table built at
+  module load. Residual slip is ~2e-5 units. The speed function is half-cycle periodic, so one
+  cycle closes exactly at the seam, and `GROUND_TRAVEL_PER_CYCLE` is still the whole-cycle travel
+  the dash period divides into a whole number of dashes (still 5), so the dash phase does not jump
+  when the loop wraps. The old test recomputed the constant's own expression and could not fail;
+  it is replaced by a bound on the foot-against-ground drift across both feet's stance windows.
+- **The SVG ruler captions and ticks have a legibility floor (2026-09-04).** `LABEL_SIZE` is in
+  viewBox units, so at the sign-in hero's 8:5 frame the GAIT CYCLE / 100% / IC / TO captions
+  rendered near 5pt and the ticks near 3pt — dim smudges, not instrument labels. `computeStageLayout`
+  now scales the whole ruler (captions, ticks, cursor, and its drop below the ground) up whenever
+  the measured box would render a caption below 9pt — the same floor the RN-layer knee readout
+  already applied to itself — and grows the frame's bottom reserve to match, solving the two for a
+  fixed point so a floored ruler is never clipped. A hero large enough not to need the floor is
+  framed exactly as before. That scale is capped at `RULER_SCALE_MAX` (4): unclamped, the fixed
+  point's gain exceeds 1 below roughly 61pt of box height and diverges — a 300x50 box reached
+  scale 18,000 and shrank the runner to a sub-pixel dot while the caption stayed under the floor —
+  so the clamp is what makes the iteration converge for every box, and it is now asserted rather
+  than silently falling out of the loop's last iteration. A box too short to reach 9pt inside the
+  cap keeps the ruler line, ticks and cursor and drops the captions entirely (`ruler.labels`):
+  an absent label beats one taller than the runner.
+- **The dev-only preview route `app/dev/stride-wireframe.tsx` is deleted** — it existed to iterate
+  on the hero before it had a home, and it has one now. The screen itself is the preview.
+
 ## 2026-09-01 (result/sample stays honest — blurred "locked pillars" considered and rejected)
 
 - **A blurred "locked pillars" treatment for the pre-signup preview (`app/result/sample.tsx`) was

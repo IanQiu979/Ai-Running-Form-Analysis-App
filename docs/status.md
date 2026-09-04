@@ -1177,6 +1177,48 @@ milestone "done" criteria.
     (`workout-v2.2`) regardless of `--device`. The live proof above covers the same path at the
     network layer; a UI-level pass is worth one run when no other lane is driving a simulator.
 
+40. **The stride wireframe's ground scroll pulses ~3x per stance, because the gait tables say it
+    should.** Accepted deliberately 2026-09-04, not a regression — filed so the real fix is not
+    lost. `lib/stride-wireframe.ts` now derives the scrolling ground from the planted foot's
+    *instantaneous* backward speed (`groundTravelAt`), which removed the foot skate: worst slip
+    across both feet's stance windows went from **0.041 figure units (~59% of `FOOT_LEN`, ~8pt at
+    the shipped sign-in size) to ~1.7e-5** — locked by drift bounds in
+    `lib/__tests__/stride-wireframe.test.ts` that fail against the old averaged implementation.
+
+    What that could not fix is the cause. For a runner at steady speed with the hip pinned (this
+    run-in-place framing) the stance ankle's backward velocity *relative to the hip* should be
+    near-constant; `THIGH_DEG`/`KNEE_FLEX_DEG`/`ANKLE_FLEX_DEG` as authored make it vary about
+    **3x** — measured **43.4 → 129.1 viewBox units/cycle**, peaking ~6% into the cycle (just after
+    footstrike) and troughing ~29% (mid-stance), twice per cycle. So the artifact did not
+    disappear, it moved: it used to be a foot that slid, and it is now a ground that surges and
+    stalls.
+
+    **What each one actually looks like**, since the numbers do not settle it. The old skate was
+    on the *subject*: watching the planted foot, it crept forward along the ground through stance
+    and opened a gap of roughly half a foot-length by toe-off — the classic treadmill/moonwalk
+    tell, and the exact thing this animation exists to not do. The new pulse is on the
+    *background*: the foot is genuinely glued to the floor, and instead the dash field lurches
+    just after each footstrike and eases through mid-stance. At sign-in size those dashes are
+    ~30pt apart at 35–50% opacity and travel ~3pt per frame at the surge against ~1pt at the
+    stall, so it reads as a faint rhythmic hitch in the texture rather than as broken physics.
+    Both were compared frame-by-frame off the real geometry rather than by eye on a device.
+
+    **The durable fix** is retuning the stance segment of those three tables so the stance ankle's
+    x-velocity is near-constant; the two derivations then converge and the ground scrolls smoothly.
+    That is a real re-tune of a gait whose look is already signed off, so it is deliberately not
+    being done blind — it wants a simulator pass alongside it.
+
+41. **The stride wireframe's initial-contact frame floats ~1.8pt above the ground.** Pre-existing
+    from the hero's first commit (e588cb3), not introduced by #40's fix, and low-severity.
+    `GROUND_Y` is the minimum sole height over the *whole* cycle, which occurs at mid-stance, so at
+    phase 0 — the frame the docs and the ruler's `IC` mark both call initial contact — the sole is
+    **0.00997 figure units (~1 viewBox unit, ~1.8pt at sign-in size) above the ground line**. The
+    foot visibly touches down a few frames after the `IC` mark rather than at it. It also means
+    `STANCE.from` is 0 only because 0.00997 fits under `PLANTED_TOLERANCE` (0.012) with 17% of
+    margin — by phase 0.99 the gap is already 0.0122. The existing
+    `expect(STANCE.from).toBeCloseTo(0, 2)` test guards a regression here, so this is a fidelity
+    note rather than a fragility one.
+
 ## Next action
 
 **RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the
