@@ -49,8 +49,9 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
   kinetic-text.tsx        # per-word reveal. Splits a sentence into one Text per word but keeps
                           # ONE accessible node carrying the whole string — see its header.
   marquee.tsx             # the standing PACE-pillar ticker on Home.
-  low-poly-field.tsx      # the morphing triangle mark (Analyzing wait, Home ambient, sign-in's
-                          # own full-opacity scroll-reveal section since 2026-08-08).
+  low-poly-field.tsx      # the morphing triangle mark (Analyzing wait, Home ambient). Removed from
+                          # sign-in 2026-09-01; that screen's scroll reveal is the pace/pillars
+                          # content, and its hero is <StrideWireframeHero> on the animation branch.
                           # Per-vertex SVG since 2026-08-02, when the captain lifted the
                           # react-native-svg ban annotation-lines.tsx used to carry: a pose is
                           # three independent vertices, so a facet genuinely reshapes. Each facet
@@ -899,9 +900,10 @@ token contracts every future screen is written against. Full narrative: `docs/ch
 Real app icon + splash art, replacing the Expo template defaults. Design is "The Gait Plate"
 per `docs/design/frontend-design-brief.md` §1: a ground rule, a posture line leaning off it, a
 short detached arc marking the lean angle (drawn like a goniometer/biomechanics annotation), and
-a filled landing marker at the vertex — the one point of color, `score.strong` (`#3CB56E` dark /
-`#32965C` light as of the 2026-08-02 Calm swap, see `docs/change_log.md`), deliberately **not**
-`accent` (`#7558E8`), which the brief reserves for the primary CTA alone.
+a filled landing marker at the vertex — the one point of color, `score.strong`, deliberately
+**not** `accent`, which the brief reserves for the primary CTA alone. The marks have been re-tinted
+with every palette swap since (Calm 2026-08-02, Cadence Arcs 2026-09-01, Cold Read 2026-09-04); the
+hexes live at their tokens in `constants/theme.ts`, never quoted here.
 
 ```
 assets/
@@ -921,8 +923,9 @@ scripts/
   (`scripts/generate-app-assets.js`, `sharp` devDependency) rasterizes them into the six PNGs
   `app.json` points at. Edit a source SVG and re-run `npm run assets`; the PNGs in
   `assets/images/` are regenerated, not hand-edited.
-- `icon.png` is deliberately flattened onto the bone field (`#F4F1EA`) with **no alpha
-  channel**: iOS applies its own corner mask, and App Store Connect rejects an icon that carries
+- `icon.png` is deliberately flattened onto the bone field (`Colors.light.background`, mirrored by
+  hand into `scripts/generate-app-assets.js` — see that file's header) with **no alpha channel**:
+  iOS applies its own corner mask, and App Store Connect rejects an icon that carries
   transparency. The generator script hard-fails if alpha ever reappears on that file.
 - A dedicated dark-mode splash mark (`splash-icon-dark.png`, wired via `app.json`'s
   `expo-splash-screen` plugin `dark.image` key) exists because the mark is dark ink drawn for a
@@ -935,9 +938,9 @@ scripts/
   so the PNG that used to hold a solid field was dead weight.
 - Closed GitHub issue #26 (2026-07-12) by wiring `app.json`'s splash and Android
   `adaptiveIcon.backgroundColor` to `constants/theme.ts` tokens instead of the Expo template
-  defaults. The token values themselves were re-swapped 2026-08-02 (the Calm palette change);
-  see `docs/change_log.md` for the current hexes — `app.json` still points at the same tokens,
-  not template defaults, so issue #26 remains closed.
+  defaults. The token values themselves have been re-swapped with every palette change since
+  (most recently Cold Read, 2026-09-04); `constants/theme.ts` owns the current hexes — `app.json`
+  still carries the same two token values, not template defaults, so issue #26 remains closed.
 
 ## Current — EAS build & release config (groundwork only; the pipeline half is Apple-blocked)
 
