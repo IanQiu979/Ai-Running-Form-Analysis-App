@@ -141,8 +141,8 @@ function SpinningArc({
       style={[styles.ring, { width: diameter, height: diameter }, still ? undefined : spinStyle]}>
       <Svg width={diameter} height={diameter}>
         <Circle
-          // See the note on `<CornerArcs>`'s per-arc testID: the gap in this dash array is the
-          // whole reason the rotation is visible, and it can only be asserted from a named node.
+          // Named so a test can reach it: the GAP in this dash array is the whole reason the
+          // rotation is visible at all, and there is no way to assert that from an unnamed node.
           testID={testID ? `${testID}-arc` : undefined}
           cx={diameter / 2}
           cy={diameter / 2}
