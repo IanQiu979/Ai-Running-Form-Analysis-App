@@ -180,7 +180,7 @@ export type ThemeColors = (typeof Colors)[ColorScheme];
 // Every pairwise separation in the palette, INCLUDING against the two non-score hues, is >=30°,
 // and this is PROVEN in theme-contrast.test.ts (`hue separation` block) rather than asserted here:
 //   low<->mid 55°   mid<->good 73°   good<->strong 38°   strong<->accent 34°   accent<->low 160°
-//   error 308° <-> low 42°   error <-> accent 118°   ...tightest pair anywhere: 33.6°.
+//   error 308° <-> low 42°   error <-> accent 118°   ...tightest pair anywhere: 33.9°.
 // That tightest pair sits BETWEEN the espresso ramp's 30° and the Calm ramp's 38°: better than an
 // orange accent could manage, short of what a violet one did. Cyan is a mid-wheel accent, and a
 // narrower worst pair than 38° is the honest cost of putting the highlight there.
@@ -306,20 +306,28 @@ export const Semantic: Record<SemanticRole, { light: string; dark: string }> = {
 //
 // TWO FLOORS SQUEEZE THIS TOKEN FROM OPPOSITE SIDES, and the shipped value is what fits between
 // them — it is forced, not preferred:
-//   - the fill must clear 3:1 as a non-text boundary against `Colors.light.background`
-//     (`#F4F5F7`) — light mode's DARKEST surface, and the binding one for a mid-lightness accent,
-//     which caps it at L_rel <= 0.267.
+//   - the fill must clear 3:1 as a non-text boundary against the LIGHTEST-canvas backdrop a
+//     primary CTA is actually drawn on. That is NOT `Colors.light.background`: a primary
+//     `<PillButton>` is an accent fill with no border ring (only `secondary` gets one), and it
+//     renders directly on `<ScreenGradient>`, so the binding backdrop is the light wash's LAST
+//     stop `Gradient.page.light[2]` (`#EAF0F3`, L_rel 0.863) — darker than `background`, and the
+//     real cap at L_rel <= 0.254. An earlier revision of this token named `background` as "light
+//     mode's darkest surface" and solved against the three opaque surfaces only; the CTA had
+//     already moved off them, and `#0A9AB6` measured 2.89:1 on that stop.
 //   - the fill must also clear 3:1 against `Colors.dark.surface.raised`, dark mode's LIGHTEST
-//     surface, which floors it at L_rel >= 0.142.
-// Holding hue 189.8° and sat 89.6% and moving only lightness, `#0A9AB6` (L 37.6%, L_rel 0.264)
-// lands inside that band: 3.05 / 3.21 / 3.33:1 on the light surfaces and 5.85 / 5.37 / 4.82:1 on
-// the dark ones. A paler, "icier" cyan is arithmetically impossible for a THEME-INVARIANT accent —
-// anything lighter fails its own boundary against a white-ish page. That >=3:1 against
-// `surface.raised` is also what caps the dark surface stack (constraint 1 in the header).
+//     surface, which floors it at L_rel >= 0.146.
+// Holding hue 189.8° and sat 89.6% and moving only lightness, `#0A95B1` (L 36.7%, L_rel 0.247)
+// lands inside that band, with a worst case of 3.07:1 measured across all three light surfaces,
+// all three light wash stops, all three dark surfaces and all three dark wash stops — the whole
+// set `theme-contrast.test.ts` now iterates, so the wash can never again be the backdrop nothing
+// proved. Light surfaces read 3.24 / 3.41 / 3.53:1, dark ones 5.51 / 5.06 / 4.54:1.
+// A paler, "icier" cyan is arithmetically impossible for a THEME-INVARIANT accent — anything
+// lighter fails its own boundary against a white-ish page. That >=3:1 against `surface.raised` is
+// also what caps the dark surface stack (constraint 1 in the header).
 //
 // `onAccent` CHANGES FROM WHITE TO THE INK, and that is the honest consequence of a bright accent
-// rather than a restyle. White on `#0A9AB6` is 3.33:1 and fails AA outright; the ink `#0B0D0F` on
-// it is 5.85:1. Dark-on-bright is also simply what a cyan CTA wants to be. Every call site already
+// rather than a restyle. White on `#0A95B1` is 3.53:1 and fails AA outright; the ink `#0B0D0F` on
+// it is 5.51:1. Dark-on-bright is also simply what a cyan CTA wants to be. Every call site already
 // reads `Accent.onAccent` rather than a literal, so this is a value change, not a call-site change
 // — and `theme-contrast.test.ts` proves the pair, so a revert to white fails the build.
 // -------------------------------------------------------------------------------------------
@@ -327,7 +335,7 @@ export const Semantic: Record<SemanticRole, { light: string; dark: string }> = {
 export const Accent = {
   /** The primary CTA, and only the primary CTA — never a score, never decoration, never twice on
    *  one screen. */
-  value: '#0A9AB6',
+  value: '#0A95B1',
   /** The only legal label/glyph colour on an accent fill. The ink, not white — see the block. */
   onAccent: '#0B0D0F',
 } as const;

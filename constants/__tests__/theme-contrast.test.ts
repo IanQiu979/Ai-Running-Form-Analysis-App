@@ -13,7 +13,7 @@
  *   - the accent: its `onAccent` label colour on the accent fill — text, >=4.5:1; the accent fill
  *     itself on every surface — non-text button/tint boundary, >=3:1. `onAccent` is the INK, not
  *     white, since the Cold Read pass (2026-09-04) — the pair is computed, so a revert to white
- *     fails here rather than shipping a 3.33:1 CTA label.
+ *     fails here rather than shipping a 3.53:1 CTA label.
  *   - `Semantic.error` on every surface, both themes — text, >=4.5:1 (issue #24); also asserted
  *     distinct from `Score.low.text` in both themes, the issue's actual requirement — a system
  *     error must not be mistakable for the "Needs work" score band it used to borrow from.
@@ -103,13 +103,19 @@ for (const scheme of SCHEMES) {
   const c = Colors[scheme];
   const surfaces = surfacesFor(scheme);
 
-  // Everything a meter can be drawn on: the three surfaces plus every page-wash stop. Taken from
-  // the exports, so a stop added to `Gradient.page` is proven for the meter the moment it ships.
-  const meterBackdrops: [string, string][] = [
+  // Everything an opaque non-text mark can be drawn on: the three surfaces plus every page-wash
+  // stop. Taken from the exports, so a stop added to `Gradient.page` is proven the moment it ships.
+  //
+  // THE ACCENT BELONGS IN THIS SET, and leaving it out was a real hole (found 2026-09-04): a
+  // primary `<PillButton>` is an accent FILL with no border ring — the fill IS its WCAG 1.4.11
+  // boundary — and primary CTAs render straight onto `<ScreenGradient>`, not inside a card. Proving
+  // the accent against the three opaque surfaces alone therefore proved it against backdrops it is
+  // frequently not on; the light wash's last stop is darker than any of them.
+  const nonTextBackdrops: [string, string][] = [
     ...surfaces,
     ...Gradient.page[scheme].map((stop, i) => [`gradient.page[${i}]`, stop] as [string, string]),
   ];
-  for (const [backdropName, backdropHex] of meterBackdrops) {
+  for (const [backdropName, backdropHex] of nonTextBackdrops) {
     meterRulePairs.push({
       label: `${scheme} meter.rule on ${backdropName}`,
       fg: Meter[scheme].rule,
@@ -118,6 +124,11 @@ for (const scheme of SCHEMES) {
     meterTrackBelowFloorPairs.push({
       label: `${scheme} meter.track on ${backdropName} (must stay quieter than the fill drawn over it)`,
       fg: Meter[scheme].track,
+      bg: backdropHex,
+    });
+    accentNonTextPairs.push({
+      label: `${scheme} accent on ${backdropName}`,
+      fg: Accent.value,
       bg: backdropHex,
     });
   }
@@ -129,7 +140,6 @@ for (const scheme of SCHEMES) {
       fg: c.text.secondary,
       bg: surfaceHex,
     });
-    accentNonTextPairs.push({ label: `${scheme} accent on ${surfaceName}`, fg: Accent.value, bg: surfaceHex });
     controlBorderPairs.push({
       label: `${scheme} control.border on ${surfaceName}`,
       fg: c.control.border,
@@ -349,8 +359,9 @@ describe('the Glass contract is a real constraint, not a preference', () => {
   // in two directions — glass may now be a control's FILL (clause 3), and one canvas-tinted tone
   // (`chrome`) now carries both text roles (clause 2) — but it did NOT touch the thing this guard
   // pins, and the numbers say so: `text.secondary` on white-tinted glass over the gradient still
-  // measures 1.8-3.0:1 in dark mode, exactly as it did before. So this assertion states the same
-  // truth it always did, and is neither skipped nor loosened. It now iterates
+  // measures 2.92-4.40:1 in dark mode under the Cold Read palette — every pair short of the 4.5:1
+  // floor, so the failure this guard asserts is as real as it was on the espresso wash, and the
+  // headroom it leaves is what pins that wash's minimum lightness. It now iterates
   // `WhiteTintedGlassTones` (which includes the NEW `control` tone) rather than a hardcoded pair,
   // so the frosted control fill is covered by it too.
   //

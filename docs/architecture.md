@@ -77,7 +77,7 @@ constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dar
 constants/copy.ts         # strings lifted verbatim from docs/design/copy-deck.md — sign-in and
                           # Home's copy live here first (M1); more screens' copy lands with them
 constants/contrast.ts     # contrast-ratio helper backing the AA proof below
-constants/__tests__/theme-contrast.test.ts  # Jest proof (240 cases as of 2026-09-04) that every
+constants/__tests__/theme-contrast.test.ts  # Jest proof (246 cases as of 2026-09-04) that every
                           # text/surface and band pair clears WCAG AA, plus the >=30 degree hue
                           # separation between every chromatic role — each value's derivation is
                           # a comment in theme.ts next to the token it changed
@@ -747,7 +747,7 @@ override fixes `useSafeAreaInsets()` consumers and nothing else.
 - `constants/theme.ts` + `constants/contrast.ts` — the brief's §2 tokens as light+dark theme
   values, spacing/radii/type scales, and the score-band palette, with a Jest proof
   (`constants/__tests__/theme-contrast.test.ts`) that every text/surface and band pair clears
-  WCAG AA — 83 assertions when this section was written, 240 as of 2026-09-04; the test has only
+  WCAG AA — 83 assertions when this section was written, 246 as of 2026-09-04; the test has only
   ever grown. Run it for the current count rather than trusting a number in prose. Font families (`@expo-google-fonts/archivo`, `inter`, `ibm-plex-mono`) installed via
   `npx expo install`; `expo-font` added to `app.json`'s plugins.
 - **`Colors[scheme].control.border`, a new interactive-boundary role (issue #96, 2026-07-13).**
@@ -851,15 +851,18 @@ token contracts every future screen is written against. Full narrative: `docs/ch
   `ContentWidth`, `TabBar`, `HitTarget`, `CheckboxSize`, `Opacity` and `Motion`. This is a colour
   pass and nothing else.
 - **A two-tier accent, and `onAccent` is no longer white.** Graphite carries the whole UI; one
-  saturated icy cyan `#0A9AB6` is reserved for the true primary CTA, at most once per screen.
-  `Accent.onAccent` is the ink `#0B0D0F`: white on this accent is 3.33:1 and fails AA, the ink is
-  5.85:1. The accent's value is forced by two opposing floors — ≥3:1 against light mode's
-  `background` caps it, ≥3:1 against dark mode's `surface.raised` floors it — so a paler "icier"
-  cyan is arithmetically impossible for a theme-invariant accent. Call sites already read the
-  token, so none changed.
+  saturated icy cyan `#0A95B1` is reserved for the true primary CTA, at most once per screen.
+  `Accent.onAccent` is the ink `#0B0D0F`: white on this accent is 3.53:1 and fails AA, the ink is
+  5.51:1. The accent's value is forced by two opposing floors — ≥3:1 against the light page wash's
+  last stop `#EAF0F3` caps it (a primary `<PillButton>` is a bordered-less accent fill drawn
+  directly on `<ScreenGradient>`, so the wash, not `background`, is the binding backdrop), ≥3:1
+  against dark mode's `surface.raised` floors it — so a paler "icier" cyan is arithmetically
+  impossible for a theme-invariant accent. Worst case 3.07:1 across every surface and wash stop in
+  both schemes, all of them proven in `theme-contrast.test.ts`. Call sites already read the token,
+  so none changed.
 - **The score ramp vacated cyan.** rose 350° → amber 45° → green 118° → jade 156°, error 308°,
   accent 190°. The old teal `good` (195°) could not coexist with a cyan accent at ≥30°. Tightest
-  pairwise separation anywhere is now 33.6°, and the ramp is monotonic in band order for the first
+  pairwise separation anywhere is now 33.9°, and the ramp is monotonic in band order for the first
   time — the espresso ramp doubled back between `good` (195°) and `strong` (152°).
 - **`Arc` retired, `Meter` introduced.** `Meter.rule` (a drawn measurement line: a meter's ring
   stroke, a tick, an indeterminate wait mark) keeps `Arc.ornament`'s **≥3:1** obligation against

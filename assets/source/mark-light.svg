@@ -79,7 +79,7 @@
   TOKENS (constants/theme.ts, light) — `hairline` is unused (it only ever colored measure-ticks).
     field:   Colors.light.background   #F4F5F7 (bone)
     lines:   Colors.light.text.primary #12171B
-    landing: Score.strong.light.fill   #3C9974 (NOT Accent #0A9AB6, reserved for the CTA only)
+    landing: Score.strong.light.fill   #3C9974 (NOT Accent #0A95B1, reserved for the CTA only)
 -->
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <rect id="field" x="0" y="0" width="1024" height="1024" fill="#F4F5F7" />

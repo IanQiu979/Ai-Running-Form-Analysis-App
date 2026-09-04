@@ -83,6 +83,10 @@ describe.each(LADDER_COUNTS)('a %i-rule ladder', (marks) => {
     // simply makes its own lane taller instead of spilling over the header row.
     expect(mark.minHeight).toBe(MARK_LANE_HEIGHT);
     expect(mark.height).toBeUndefined();
-    expect(Math.max(extent, MARK_LANE_HEIGHT)).toBeGreaterThanOrEqual(extent);
+    if (marks <= 3) {
+      expect(MARK_LANE_HEIGHT).toBeGreaterThanOrEqual(extent);
+    } else {
+      expect(extent).toBeGreaterThan(MARK_LANE_HEIGHT);
+    }
   });
 });

@@ -21,17 +21,20 @@ rebased onto it, so the hero's real mount on sign-in is what the reveal below no
   `LineHeight`, `Elevation`, `ControlHeight`, `ContentWidth`, `TabBar`, `HitTarget`,
   `CheckboxSize`, `Opacity` and `Motion` are byte-identical. This is a colour pass.
 - **Two-tier accent, and the second tier is now ink-on-bright.** Graphite carries the whole UI; one
-  saturated icy cyan (`#0A9AB6`) is reserved for the true primary CTA, at most once per screen.
-  `Accent.onAccent` moved from white to the ink, because white on this accent measures 3.33:1 and
-  fails AA outright while the ink measures 5.85:1. Every call site already read the token, so no
+  saturated icy cyan (`#0A95B1`) is reserved for the true primary CTA, at most once per screen.
+  `Accent.onAccent` moved from white to the ink, because white on this accent measures 3.53:1 and
+  fails AA outright while the ink measures 5.51:1. Every call site already read the token, so no
   call site changed. The accent's own value is squeezed from both sides and is forced, not chosen:
-  it must clear 3:1 against light mode's `background` (capping it) and against dark mode's
-  `surface.raised` (flooring it). A paler, "icier" cyan is arithmetically impossible for a
-  theme-invariant accent.
+  it must clear 3:1 against the light page wash's last stop `#EAF0F3` (capping it — a primary
+  `<PillButton>` is an unbordered accent fill drawn straight on `<ScreenGradient>`, so the wash is
+  the binding backdrop, not `background`) and against dark mode's `surface.raised` (flooring it).
+  Worst case 3.07:1 over every surface and wash stop in both schemes, and the accent is now proven
+  against the wash stops in `theme-contrast.test.ts` alongside `control.border` and `Meter.rule`.
+  A paler, "icier" cyan is arithmetically impossible for a theme-invariant accent.
 - **The score ramp was re-cut cooler, and the cost is stated rather than buried.** An icy-cyan
   accent closes the 160-220° window the old ramp's teal `good` lived in, so the ramp vacates cyan:
   rose 350° → amber 45° → green 118° → jade 156°, with `Semantic.error` at 308°. Tightest pairwise
-  separation anywhere in the palette is 33.6° — better than an orange accent could manage, short of
+  separation anywhere in the palette is 33.9° — better than an orange accent could manage, short of
   what the Calm violet one did. In exchange the ramp is **monotonic in band order** for the first
   time: the espresso ramp put `good` at 195° and `strong` at 152°, so moving up the scale moved
   backwards round the wheel.
