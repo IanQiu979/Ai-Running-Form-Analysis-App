@@ -205,17 +205,6 @@ function RootLayoutNav() {
             <Stack.Screen name="analyzing" options={{ headerShown: false }} />
             {/* result/[id] — the PACE readout (issue #56) — the payload. */}
             <Stack.Screen name="result/[id]" options={{ headerShown: false }} />
-            {/* result/sample — Free tier's zero-model-call sample preview (captain-approved
-                2026-07-26), the static-route sibling of result/[id] (app/analyzing.tsx routes
-                here instead when the response is a sample, never a real DB-backed result). This
-                was missing from the Stack entirely until the v23-ux-audit-fixbatch-r1 follow-up
-                fix — undeclared-but-still-reachable is the documented behavior for an unguarded
-                route (see the comment above), not for one that needs the guard: without an
-                explicit entry here, a genuine cold/direct navigation to `/result/sample` (no
-                pending sample staged) rendered the screen's `<Redirect href="/" />` bail-out with
-                nothing to redirect FROM, since the route was never a real member of this Stack's
-                navigator tree — same reasoning as every other screen in this guard. */}
-            <Stack.Screen name="result/sample" options={{ headerShown: false }} />
             {/* Screen 11 — Settings (issue #53). A pushed top-level route, not a tab, per
                 docs/architecture.md's route tree ("paywall, settings"), which nests only
                 (tabs)/history. Declaring it INSIDE this guard is load-bearing for exactly the reason

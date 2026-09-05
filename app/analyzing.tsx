@@ -87,7 +87,6 @@ import {
 import { onAppForeground } from '@/lib/app-state';
 import { checkConnectivity } from '@/lib/connectivity';
 import { clearPendingAnalysisMarker, setPendingAnalysisMarker } from '@/lib/pending-analysis';
-import { setPendingSampleResult } from '@/lib/pending-sample-result';
 import { useSession } from '@/lib/session-provider';
 import { signOut, type SignOutResult } from '@/lib/sign-out';
 import { supabase } from '@/lib/supabase';
@@ -197,18 +196,6 @@ export default function AnalyzingScreen() {
             // paywall below instead of offering a Retry that would resubmit into the same
             // exhausted quota.
             dispatch({ type: 'failed', attempt, code: result.error.code });
-            return;
-          }
-
-          if (result.data.kind === 'sample') {
-            // Free tier (captain-approved 2026-07-26): zero model calls, a labeled preview
-            // instead. `heroDataUri` is built from the frame ALREADY in memory — the "their own
-            // uploaded photo" requirement, with nothing uploaded to Storage for a sample. A photo
-            // submission is always exactly one frame server-side, but this stays defensive rather
-            // than assuming it.
-            const heroDataUri =
-              request.frames.length > 0 ? `data:image/jpeg;base64,${request.frames[0]}` : null;
-            dispatch({ type: 'sample', attempt, result: result.data.result, heroDataUri });
             return;
           }
 
@@ -360,19 +347,6 @@ export default function AnalyzingScreen() {
       pathname: '/result/[id]',
       params: { id: state.analysisId, justAnalyzed: '1' },
     } as Href);
-  }, [state, router]);
-
-  // Free tier's sample preview (captain-approved 2026-07-26), mirroring the 'succeeded' effect
-  // above: stage the result in its own one-shot mailbox (a `PaceResult` plus a `data:` URI is far
-  // past what's sane as a serialized route param, same reasoning `justAnalyzed` above avoids for
-  // the real path) and hand off to the static `/result/sample` route. No `analyses` row exists for
-  // a sample, so there is nothing for the marker below to reconcile later — clear it the same way
-  // the real success path does.
-  useEffect(() => {
-    if (state.phase !== 'sample') return;
-    clearPendingAnalysisMarker();
-    setPendingSampleResult({ result: state.result, heroDataUri: state.heroDataUri });
-    router.replace('/result/sample');
   }, [state, router]);
 
   // Issue #136: a real 402 quota_exceeded opens the paywall rather than the generic retryable

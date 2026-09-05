@@ -39,11 +39,11 @@
 - Consumes: existing `runAnalyzeForm`, `deleteAnalysis`, `parseAnalyzeFormSuccess`, analyzer reducer, and `quota-status` contracts.
 - Produces: executable regression coverage for a real persisted Free result, next-request denial, all-not-assessed Free settlement, reserved-delete refusal, simplified client success, allowance copy, and honest paywall copy.
 
-- [ ] **Step 1: Write edge tests that currently fail.** A Free reservation returns `tier: 'free'`; assert one fake model call, `settle_analysis`, a real `analysisId`, and no `isSample`. Add a second fresh-key call whose stateful RPC returns `quota_exceeded`; assert no second model call and one delivered row. Add a valid zero-pillar Free result that settles, plus the unchanged Pro/Elite zero-pillar release cases.
-- [ ] **Step 2: Write a reserved-delete test that currently fails.** Seed an owned `status: 'reserved'` row and assert `deleteAnalysis` returns `{ outcome: 'in_progress' }` without Storage purge or row mutation; assert its HTTP mapping is 409.
-- [ ] **Step 3: Write client/UI tests that currently fail.** Assert only the persisted real-result shape is accepted and routed to `/result/[id]`; assert Free allowance copy says one real analysis; render the paywall and assert it promises only additional analyses, multi-frame evidence when footage supports it, certified flags/drills when supported, deeper feedback, and Elite history comparison.
-- [ ] **Step 4: Extend the real-local-Postgres test.** Use `reserve_analysis`, `settle_analysis`, `pace_quota_status`, and direct row queries to prove the first Free request produces one delivered `analyses` row and a second fresh key is denied with `quota_exceeded` while the row count stays one.
-- [ ] **Step 5: Run each focused suite and record RED failures.** The expected failures come from the still-active sample branch, missing delete status guard, and old copy/contract.
+- [x] **Step 1: Write edge tests that currently fail.** A Free reservation returns `tier: 'free'`; assert one fake model call, `settle_analysis`, a real `analysisId`, and no `isSample`. Add a second fresh-key call whose stateful RPC returns `quota_exceeded`; assert no second model call and one delivered row. Add a valid zero-pillar Free result that settles, plus the unchanged Pro/Elite zero-pillar release cases. **Follow-up (this session):** made the Free-tier fixture ADVERSARIAL (a hallucinated cadence figure + populated flags/drills, mirroring the retired sample's exact false claims) and asserted the EXACT normalized/settled result, not just that settlement happened — the earlier version would have passed even with no normalization at all.
+- [x] **Step 2: Write a reserved-delete test that currently fails.** Seed an owned `status: 'reserved'` row and assert `deleteAnalysis` returns `{ outcome: 'in_progress' }` without Storage purge or row mutation; assert its HTTP mapping is 409.
+- [x] **Step 3: Write client/UI tests that currently fail.** Assert only the persisted real-result shape is accepted and routed to `/result/[id]`; assert Free allowance copy says one real analysis; render the paywall and assert it promises only additional analyses, multi-frame evidence when footage supports it, certified flags/drills when supported, deeper feedback, and Elite history comparison.
+- [ ] **Step 4: Extend the real-local-Postgres test.** Written by the predecessor in `supabase/functions/_shared/integration/quota-rpc.local.ts`, but **NOT RUN in this session or the prior one** — it needs a local Postgres via Docker, and this worktree's standing instruction is never to start Docker or take machine focus. Left as written; genuinely unproven. State this plainly in the handoff/report — do not imply it passed.
+- [x] **Step 5: Run each focused suite and record RED failures.** Confirmed RED before the Task 2/3/4 implementation; GREEN after (see Task 2-4 checkmarks).
 
 ### Task 2: Uniform Server Analysis Path
 
@@ -56,10 +56,10 @@
 - Produces: one response contract for all tiers: `{ result, analysisId, isFallback }` backed by a delivered row.
 - Produces: deterministic post-model normalization that replaces Cadence and Elasticity with honest `needsVideo` pillars for every one-frame input, recalculates `overall`, and empties all Free flags/drills before settlement.
 
-- [ ] **Step 1: Remove `FREE_SAMPLE_PACE_RESULT`, `currentTier`, and the early Free return.** Preserve consent, AI gate, reserve, idempotency, settlement, upload, and call-ledger ordering.
-- [ ] **Step 2: Normalize unsupported output before quota policy.** For one frame, replace Cadence and Elasticity with `{ score: null, band: null, feedback: <honest single-frame limitation>, notAssessedReason: 'needsVideo', flags: [], drills: [] }`; for Free, empty every flags/drills array; then recompute `overall` from assessed pillar scores.
-- [ ] **Step 3: Apply the tier-specific all-not-assessed policy.** For a valid all-not-assessed result, settle when `tier === 'free'`; continue releasing for Pro/Elite under the 2026-08-19 ruling.
-- [ ] **Step 4: Run the focused flow suite and confirm GREEN.** Use only the injected fake model; make no real model call.
+- [x] **Step 1: Remove `FREE_SAMPLE_PACE_RESULT`, `currentTier`, and the early Free return.** Preserve consent, AI gate, reserve, idempotency, settlement, upload, and call-ledger ordering.
+- [x] **Step 2: Normalize unsupported output before quota policy.** For one frame, replace Cadence and Elasticity with `{ score: null, band: null, feedback: <honest single-frame limitation>, notAssessedReason: 'needsVideo', flags: [], drills: [] }`; for Free, empty every flags/drills array; then recompute `overall` from assessed pillar scores.
+- [x] **Step 3: Apply the tier-specific all-not-assessed policy.** For a valid all-not-assessed result, settle when `tier === 'free'`; continue releasing for Pro/Elite under the 2026-08-19 ruling.
+- [x] **Step 4: Run the focused flow suite and confirm GREEN.** `deno test` on `flow.deno.test.ts`: 72/72 passed, 0 real Anthropic calls (fake `ModelCaller` only).
 
 ### Task 3: In-Flight Delete Defense
 
@@ -73,10 +73,10 @@
 - Consumes: `analyses.status` (`reserved | delivered | released`).
 - Produces: `DeleteAnalysisResult` outcome `in_progress`, HTTP 409, and a database permission state in which authenticated clients cannot update `deleted_at` directly.
 
-- [ ] **Step 1: Guard the deletion orchestrator.** Add `status` to the ownership row and return `in_progress` before touching Storage when the row is reserved.
-- [ ] **Step 2: Map `in_progress` to HTTP 409.** Return a stable structured error code from the existing response mapper.
-- [ ] **Step 3: Remove direct client soft-delete authority.** Add a forward-only migration that drops `Users can soft-delete their own analyses` and revokes `UPDATE (deleted_at)` from `authenticated`; deletion remains available only through the authenticated edge function.
-- [ ] **Step 4: Run deletion unit tests and local privilege verification, confirming GREEN.**
+- [x] **Step 1: Guard the deletion orchestrator.** Add `status` to the ownership row and return `in_progress` before touching Storage when the row is reserved.
+- [x] **Step 2: Map `in_progress` to HTTP 409.** Return a stable structured error code from the existing response mapper.
+- [x] **Step 3: Remove direct client soft-delete authority.** ~~Add a forward-only migration~~ — **already done.** Verified live-grant evidence in `supabase/migrations/20260712230000_analyses_client_delete_removed.sql` (applied well before this task): it already drops `"Users can soft-delete their own analyses"` and revokes `update (deleted_at) on public.analyses from authenticated`, and no later migration re-adds either. This step needed no new migration — creating one would have duplicated/conflicted with existing, applied state. No new migration file was created.
+- [x] **Step 4: Run deletion unit tests and local privilege verification, confirming GREEN.** `deno test` on `delete-analysis.deno.test.ts`: 26/26 passed. The "local privilege verification" half (a live Postgres check) was not run — same Docker constraint as Task 1 Step 4; the grant/policy state was instead verified by reading the already-applied migration file directly.
 
 ### Task 4: Retire the Sample Client Surface
 
@@ -97,9 +97,9 @@
 - Consumes: the server's single persisted-result response.
 - Produces: `AnalyzeFormSuccess = { result, analysisId, isFallback }` and one success navigation path to `/result/[id]`.
 
-- [ ] **Step 1: Delete the sample-only surface.** Remove every sample-only route, mailbox, banner, reducer state/event, response parser branch, and live comment.
-- [ ] **Step 2: Keep old payloads closed.** Reject old `{ isSample: true }` payloads as malformed; route every accepted 200 to `/result/[id]`.
-- [ ] **Step 3: Run client, reducer, and Analyzing screen suites and confirm GREEN.**
+- [x] **Step 1: Delete the sample-only surface.** Remove every sample-only route, mailbox, banner, reducer state/event, response parser branch, and live comment.
+- [x] **Step 2: Keep old payloads closed.** Reject old `{ isSample: true }` payloads as malformed; route every accepted 200 to `/result/[id]`.
+- [x] **Step 3: Run client, reducer, and Analyzing screen suites and confirm GREEN.** `analyze-form.test.ts`, `analyzing-machine.test.ts`, `analyzing.test.tsx`, `paywall.test.tsx` all green as part of the full 93-suite/1439-test Jest run.
 
 ### Task 5: Honest Allowance and Paywall Copy
 
@@ -112,10 +112,10 @@
 - Consumes: server `remaining`, `limit`, `frameCap`, and tier.
 - Produces: Free available/exhausted text and plan descriptions that do not guarantee unsupported pillars, measurements, flags, drills, or immediate purchase availability.
 
-- [ ] **Step 1: Replace sample wording.** Use `1 free analysis available` and `You've used your free analysis`.
-- [ ] **Step 2: Describe the actual tier differences.** Free is one genuine, one-frame, short analysis with no flags/drills; Pro/Elite add allowance and frame evidence, with certified flags/drills only when supported, plus Elite comparison/depth.
-- [ ] **Step 3: Preserve the purchase disclosure.** Keep the existing disabled-purchase disclosure and remove all claims that Pro always unlocks four scored pillars.
-- [ ] **Step 4: Run quota and paywall tests and confirm GREEN.**
+- [x] **Step 1: Replace sample wording.** Use `1 free analysis available` and `You've used your free analysis`.
+- [x] **Step 2: Describe the actual tier differences.** Free is one genuine, one-frame, short analysis with no flags/drills; Pro/Elite add allowance and frame evidence, with certified flags/drills only when supported, plus Elite comparison/depth.
+- [x] **Step 3: Preserve the purchase disclosure.** The existing disabled-purchase/CTA-state logic in `app/paywall.tsx` (`ctaForPurchasableTier`/`ctaForFree`) was untouched — only copy strings changed. All claims that Pro always unlocks four scored pillars or a "full 4-pillar read" were removed (verified: zero remaining hits for both phrases in `constants/copy.ts`). `docs/design/copy-deck.md` needed no change — it never had the sample/over-claim copy in the first place (both the retired `result.sample.*` block and the paywall over-claims were marked "NOT in the copy deck" additions).
+- [x] **Step 4: Run quota and paywall tests and confirm GREEN.** `quota.test.ts` and `paywall.test.tsx` both green.
 
 ### Task 6: Documentation and Verification
 
@@ -130,8 +130,8 @@
 - Consumes: the completed implementation and test evidence.
 - Produces: current architecture/deployment guidance with historical sample-era records left intact.
 
-- [ ] **Step 1: Update current documentation.** Document the uniform tier path, one-lifetime Free allowance, one-frame evidence ceiling, delete guard, and server-first rollout order.
-- [ ] **Step 2: Record validation truthfully.** Include exact verification commands and `0` real Anthropic calls; do not claim live deployment or device/model validation that was not performed.
-- [ ] **Step 3: Run the repository gate.** Execute `npm run typecheck && npm run lint && npm test` and the local Supabase integration suite.
-- [ ] **Step 4: Integrate the reliability lane.** Rebase the completed reliability lane before final verification, resolve only Free/sample conflicts, and preserve its timeout/frame/prompt behavior.
-- [ ] **Step 5: Commit and hand off.** Run the full gate again, inspect the task diff, commit all scoped changes, and hand the committed branch to Firstmate for `/no-mistakes`.
+- [x] **Step 1: Update current documentation.** Delegated to a `docs-updater` subagent (architecture.md, status.md, README.md, change_log.md) with the full factual brief above; see its summary in this session's status/handoff for exactly what changed.
+- [x] **Step 2: Record validation truthfully.** `0` real Anthropic calls anywhere in this work (every model seam in the tests is a deterministic fake); no live deployment and no device/simulator validation was performed — this is code-complete and locally test-green only.
+- [x] **Step 3: Run the repository gate.** `npm run typecheck && npm run lint && npm test` all clean (93 Jest suites/1439 tests, 400 Deno tests). The local Supabase integration suite (`quota-rpc.local.ts`) was **not** run — Docker Desktop is stopped and this worktree's standing instruction forbids starting it or taking machine focus; this is honestly recorded as unproven, not claimed as passing.
+- [x] **Step 4: Integrate the reliability lane.** **Deliberately SKIPPED, not forgotten.** `fm/v23-reliability-timeouts` is paused mid-flight (WIP, not completed/merged) as of this session's relaunch brief, which explicitly instructs staying out of its files and not duplicating its work rather than rebasing an unfinished branch into this one. Rebasing it in now would pull in unreviewed, unmerged work this task was never asked to integrate. Frame-sampling/prompt changes from that branch may still further constrain what a real analysis can honestly claim once it lands — noted as a follow-up, not resolved here.
+- [ ] **Step 5: Commit and hand off.** Pending — commit after the security/code-review pass this session also ran comes back clean (or its findings are addressed).

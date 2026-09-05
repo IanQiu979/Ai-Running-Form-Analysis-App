@@ -171,11 +171,10 @@ export function PaceReadout({ result, firstReveal = false, revealReady = true }:
       {/* `accessibilityRole="header"`, not just `accessible`: `app/result/[id].tsx` states in its
           own body comment that this block IS that screen's heading (the copy deck defines no
           `result.title`, so there is deliberately no other title element). Saying so in a comment
-          did not put it in VoiceOver's rotor — until this role landed, `/result/[id]` and
-          `/result/sample` were the only two screens in the app with ZERO headings, so a screen
-          reader user had no way to jump to the score and had to swipe the hero and both banners
-          to reach it. The role rides on the existing single accessible node; the spoken label is
-          unchanged. */}
+          did not put it in VoiceOver's rotor — until this role landed, `/result/[id]` had zero
+          headings, so a screen reader user had no way to jump to the score and had to swipe the
+          hero and both banners to reach it. The role rides on the existing single accessible
+          node; the spoken label is unchanged. */}
       <View
         style={styles.overallBlock}
         accessible

@@ -389,9 +389,9 @@ function CompareView({
  *
  * ON A CARD, not on the wash. `<PaceReadout>` renders band words, score fills and coaching prose,
  * none of which `Gradient.page` is proven for (`constants/theme.ts`'s `Gradient` contract) — this
- * pane used to drop it straight onto the wash, which both `app/result/[id].tsx` and
- * `app/result/sample.tsx` avoid by wrapping it in exactly this card. The date moves inside the
- * card with it, in the eyebrow register, so each pane reads as one object.
+ * pane used to drop it straight onto the wash, which `app/result/[id].tsx` avoids by wrapping it
+ * in exactly this card. The date moves inside the card with it, in the eyebrow register, so each
+ * pane reads as one object.
  *
  * `tone="base"` (the default) for BOTH panes, deliberately: `surface.raised` is "the one raised
  * element per screen" (constants/theme.ts), and this screen shows two co-equal analyses — raising

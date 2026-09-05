@@ -1033,6 +1033,13 @@ milestone "done" criteria.
     would mean new schema/RPC surface beyond this task's captain-approved scope (the free-tier
     behavior change, not new abuse-prevention infrastructure).
 
+    **SUPERSEDED 2026-09-06 (code-complete, not yet deployed) — see Known Issue #43.** The
+    `pace_current_tier` short-circuit this entry describes is retired: Free now runs through
+    `reserve_analysis` like every other tier, so its hard lifetime cap of 1 (plus the 3-strike
+    anti-farming counter) applies to Free again, and the no-rate-limit gap this entry flags no
+    longer exists in the new code. This entry stays as the historical record of the sample-preview
+    era; it is no longer current once #43 deploys.
+
 37. **RESOLVED 2026-08-05 — `main` had been three commits ahead of production for ten days, and
     the drift was costing real money while the shipped copy said otherwise.** PR #171 ("make Free
     tier a zero-model-call sample preview") merged 2026-07-26, but **neither half of it was ever
@@ -1376,6 +1383,60 @@ milestone "done" criteria.
     separately confirmed (no billing lookup performed) but consistent with the audit's prior
     $1.07-for-11-calls rate, i.e. a few tens of cents. `ANALYZE_FORM_EFFORT` stays `'low'` as
     implemented; this eval is the resolution of the merge prerequisite the intent named.
+43. **NEW — Free tier's fabricated zero-model-call sample (Known Issues #36/#37 above) is
+    RETIRED, replaced with a real, capped analysis — code-complete 2026-09-06, NOT YET DEPLOYED.**
+    The captain's ruling: Free now runs through the exact same `analyze-form` path as Pro/Elite —
+    auth → consent → AI spend gate → `reserve_analysis` (the only place tier is now learned, via
+    `reserve.tier`) → model call (+1 retry) → a new server-side normalization step → settle →
+    upload → attach. `pace_current_tier`/`pace_current_tier_unlimited` are no longer called by
+    `analyze-form` at all (the `ALL_USERS_UNLIMITED_ACCESS` override still works, now via
+    `reserve_analysis_unlimited` alone). This closes the launch-blocking defect #36/#37 described:
+    the fabricated sample promised a cadence figure, a left/right ground-contact comparison, and
+    flags/drills that no certified knowledge file supports, and — because it was never
+    persisted — zero Free signup in five weeks ever produced a real `analyses` row.
+
+    The new `normalizeForEvidenceAndTier()` step in `flow.ts` is what makes a REAL result honest
+    rather than merely genuine: for any one-frame submission (Free's only allowance, and any photo
+    from any tier), Cadence and Elasticity are forced to `notAssessedReason: 'needsVideo'`
+    regardless of what the model claimed, and Free additionally has flags/drills stripped from
+    every pillar. `overall` is always recomputed from what survives. A structurally valid response
+    that ends up assessing nothing (a photo that never shows the runner, or a one-frame submission
+    normalized down to zero assessed pillars) now `SETTLE`s for Free — consuming the one lifetime
+    slot, a deliberate asymmetry, since refunding it would turn that single slot into an unlimited
+    free-form-checking loop — but still `RELEASE`s (refunds) for Pro/Elite, unchanged.
+
+    A related hardening landed alongside it: `_shared/delete-analysis.ts`'s
+    `AnalysisOwnershipRow` now carries `status`, and `deleteAnalysis()` refuses a `'reserved'` row
+    with a new `{ outcome: 'in_progress' }` (409, code `in_progress`) before touching Storage —
+    closing a race where a delete-during-analysis could let an in-flight request settle a result
+    nobody could ever see or purge. (This is separate from, and does not close, Known Issue #19's
+    client soft-delete bypass — see that entry.)
+
+    On the client: `AnalyzeFormSuccess` (`lib/analyze-form.ts`) is one shape again,
+    `{ result, analysisId, isFallback }` — the `kind: 'result' | 'sample'` union, `isSample`,
+    `app/result/sample.tsx`, `<SampleResultBanner>`, and `lib/pending-sample-result.ts` are all
+    deleted. `constants/copy.ts`'s Free/paywall copy was rewritten to describe only what the
+    product can actually certify, dropping every promised pillar count and the "sample preview"
+    framing.
+
+    **Deployment ordering is binding**: `analyze-form` must be redeployed before or with the
+    client release, because the simplified client now rejects the retired
+    `{ result, isSample: true }` shape as malformed by construction. An old deployed function
+    paired with the new client fails closed; a new deployed function paired with the old client
+    also degrades safely. **As of this writing this has NOT been deployed** — code-complete and
+    Deno/Jest-tested only (93 Jest suites / 1439 tests + 400 Deno tests, full
+    typecheck+lint clean), with **zero real Anthropic calls** made anywhere in this work.
+
+    **Not verified**: the local Postgres integration proof in
+    `supabase/functions/_shared/integration/quota-rpc.local.ts` (extended to prove one Free
+    request produces one delivered row and a second fresh idempotency key is denied) could not be
+    run this session because Docker Desktop was stopped and starting it / taking machine focus is
+    off-limits for this agent. State this plainly rather than implying it passed.
+
+    **Depends on `fm/v23-reliability-timeouts`** (a parallel, unmerged branch owning timeout/
+    retry/frame-sampling/prompt semantics) for the eventual final frame-sampling and prompt
+    behavior — this work does not duplicate or wait on that branch, and frame sampling may
+    further limit what a real analysis can honestly claim once it lands.
 
 ## Next action
 
@@ -1412,6 +1473,10 @@ still standing between here and a public/TestFlight release:
   rebased onto it, so the hero is on `main` and the pillar reveal sits under its real mount. Until
   this branch merges, `main` ships that hero on espresso/clay. See the M7 row above and
   `docs/change_log.md`'s 2026-09-04 entry.
+- **Known Issue #43** — the Free-tier real-analysis rewrite of `analyze-form` is code-complete
+  and tested but **not deployed**. `analyze-form` needs `supabase functions deploy analyze-form`
+  before or with the client release (the new client rejects the retired sample shape), and the
+  local Postgres integration proof for it could not be run this session (Docker was stopped).
 - **Known Issue #31** — `.maestro/` E2E flows ran for the first time 2026-07-25 but are not yet a
   clean, repeatable pass.
 - **Known Issue #24/#34** — several blocks of uncertified copy across Settings, consent, paywall,
