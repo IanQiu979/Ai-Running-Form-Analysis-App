@@ -51,7 +51,7 @@ const FREE_AVAILABLE: QuotaStatus = {
   used: 0,
   limit: 1,
   remaining: 1,
-  frameCap: 8,
+  frameCap: 1,
   unlimited: false,
   isLifetime: true,
   periodStart: null,
@@ -283,17 +283,16 @@ describe('describeQuota', () => {
     });
   });
 
-  it('renders the free-lifetime caption, never "this month" — the deck is emphatic', () => {
+  it('tells an unused Free account that one real analysis is available', () => {
     expect(describeQuota(FREE_AVAILABLE)).toEqual({
-      primary: Copy.home.quota.free.available,
+      primary: '1 free analysis available',
       secondary: null,
     });
-    expect(Copy.home.quota.free.available.toLowerCase()).not.toContain('this month');
   });
 
-  it('renders the free-exhausted caption with no secondary line', () => {
+  it('tells an exhausted Free account that its real analysis has been used', () => {
     expect(describeQuota(FREE_EXHAUSTED)).toEqual({
-      primary: Copy.home.quota.exhausted.free,
+      primary: "You've used your free analysis",
       secondary: null,
     });
   });

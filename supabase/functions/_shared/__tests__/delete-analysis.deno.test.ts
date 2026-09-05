@@ -133,12 +133,28 @@ const USER_B = '22222222-2222-2222-2222-222222222222';
 const ANALYSIS_ID = '33333333-3333-3333-3333-333333333333';
 const PREFIX = `${USER_A}/${ANALYSIS_ID}/`;
 
+type TestAnalysisStatus = 'reserved' | 'delivered' | 'released';
+
+function ownershipRow(options: {
+  id?: string;
+  userId?: string;
+  deletedAt?: string | null;
+  status?: TestAnalysisStatus;
+} = {}): AnalysisOwnershipRow & { status: TestAnalysisStatus } {
+  return {
+    id: options.id ?? ANALYSIS_ID,
+    user_id: options.userId ?? USER_A,
+    deleted_at: options.deletedAt ?? null,
+    status: options.status ?? 'delivered',
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 1. Happy path
 // ---------------------------------------------------------------------------
 
 Deno.test('deleteAnalysis: happy path — purges every frame under the prefix, then marks the row deleted', async () => {
-  const table = new FakeAnalysesTable({ id: ANALYSIS_ID, user_id: USER_A, deleted_at: null });
+  const table = new FakeAnalysesTable(ownershipRow());
   const storage = new FakeStorage([`${PREFIX}frame-01.jpg`, `${PREFIX}frame-02.jpg`]);
 
   const result = await deleteAnalysis(table, storage, { analysisId: ANALYSIS_ID, callerUserId: USER_A });
@@ -159,7 +175,7 @@ Deno.test('deleteAnalysis: happy path — purges every frame under the prefix, t
 // ---------------------------------------------------------------------------
 
 Deno.test('deleteAnalysis: refuses to purge or delete an analysis owned by a different user', async () => {
-  const table = new FakeAnalysesTable({ id: ANALYSIS_ID, user_id: USER_B, deleted_at: null });
+  const table = new FakeAnalysesTable(ownershipRow({ userId: USER_B }));
   const storage = new FakeStorage([`${USER_B}/${ANALYSIS_ID}/frame-01.jpg`]);
 
   const result = await deleteAnalysis(table, storage, {
@@ -184,12 +200,28 @@ Deno.test('deleteAnalysis: not_found for an id that does not exist, without touc
   assertEquals(storage.listCalls, []);
 });
 
+Deno.test('deleteAnalysis: refuses a reserved row before touching Storage or mutating the row', async () => {
+  const table = new FakeAnalysesTable(ownershipRow({ status: 'reserved' }));
+  const storage = new FakeStorage([`${PREFIX}frame-should-not-exist.jpg`]);
+
+  const result = await deleteAnalysis(table, storage, {
+    analysisId: ANALYSIS_ID,
+    callerUserId: USER_A,
+  });
+
+  assertEquals(result, { outcome: 'in_progress' });
+  assertEquals(storage.listCalls, [], 'an in-flight analysis must be refused before any Storage read');
+  assertEquals(storage.removeCalls, [], 'an in-flight analysis must not lose frames');
+  assertEquals(table.markDeletedCalls, [], 'an in-flight analysis row must not be mutated');
+  assertEquals(storage.remainingPaths(), [`${PREFIX}frame-should-not-exist.jpg`]);
+});
+
 // ---------------------------------------------------------------------------
 // 3. A storage failure never orphans — the row is left untouched, not marked deleted
 // ---------------------------------------------------------------------------
 
 Deno.test('deleteAnalysis: a remove() error leaves the row undeleted and reports purge_failed', async () => {
-  const table = new FakeAnalysesTable({ id: ANALYSIS_ID, user_id: USER_A, deleted_at: null });
+  const table = new FakeAnalysesTable(ownershipRow());
   const storage = new FakeStorage([`${PREFIX}frame-01.jpg`]);
   storage.failRemoveWith = 'simulated storage outage';
 
@@ -209,7 +241,7 @@ Deno.test('deleteAnalysis: a silently-incomplete remove() is still caught by the
   // behind — this is exactly what the "verify" step in delete-analysis.ts's purgePrefix exists
   // to catch, per issue #57's own ordering directive ("delete the Storage objects first,
   // verify, then the row").
-  const table = new FakeAnalysesTable({ id: ANALYSIS_ID, user_id: USER_A, deleted_at: null });
+  const table = new FakeAnalysesTable(ownershipRow());
   const storage = new FakeStorage([`${PREFIX}frame-01.jpg`]);
   storage.corruptRemove = true;
 
@@ -230,7 +262,7 @@ Deno.test('deleteAnalysis: a silently-incomplete remove() is still caught by the
 
 Deno.test('deleteAnalysis: a repeat call on an already-purged, already-deleted analysis converges (idempotent)', async () => {
   const table = new FakeAnalysesTable(
-    { id: ANALYSIS_ID, user_id: USER_A, deleted_at: new Date().toISOString() },
+    ownershipRow({ deletedAt: new Date().toISOString() }),
     { updated: false }
   );
   const storage = new FakeStorage([]); // already purged by the first call
@@ -248,7 +280,7 @@ Deno.test(
     // not gate the purge on `deleted_at` for exactly this reason: if the client DOES eventually
     // call this endpoint for that analysis, the purge still happens.
     const table = new FakeAnalysesTable(
-      { id: ANALYSIS_ID, user_id: USER_A, deleted_at: new Date().toISOString() },
+      ownershipRow({ deletedAt: new Date().toISOString() }),
       { updated: false }
     );
     const storage = new FakeStorage([`${PREFIX}frame-01.jpg`]); // never purged by the direct soft-delete
@@ -264,7 +296,7 @@ Deno.test('deleteAnalysis: calling it twice in a row converges both times with n
   let deletedAt: string | null = null;
   const markDeletedCalls: Array<{ id: string; userId: string }> = [];
   const table: AnalysesTable = {
-    findById: (id) => Promise.resolve({ id, user_id: USER_A, deleted_at: deletedAt }),
+    findById: (id) => Promise.resolve(ownershipRow({ id, deletedAt })),
     markDeleted: (id, userId) => {
       markDeletedCalls.push({ id, userId });
       if (deletedAt) return Promise.resolve({ updated: false });
@@ -296,7 +328,7 @@ Deno.test(
     // late frame as a side effect of markDeleted committing, exactly the race #132 describes —
     // the row still looked live (`deleted_at IS NULL`) when the write happened.
     const table: AnalysesTable = {
-      findById: (id) => Promise.resolve({ id, user_id: USER_A, deleted_at: null }),
+      findById: (id) => Promise.resolve(ownershipRow({ id })),
       markDeleted: (id, userId) => {
         markDeletedCalls.push({ id, userId });
         storage.injectObject(`${PREFIX}frame-late.jpg`);
@@ -325,7 +357,7 @@ Deno.test(
   async () => {
     const storage = new FakeStorage([]);
     const table: AnalysesTable = {
-      findById: (id) => Promise.resolve({ id, user_id: USER_A, deleted_at: null }),
+      findById: (id) => Promise.resolve(ownershipRow({ id })),
       markDeleted: () => {
         storage.injectObject(`${PREFIX}frame-late.jpg`);
         return Promise.resolve({ updated: true });
@@ -348,7 +380,7 @@ Deno.test(
   'deleteAnalysis: an empty second purge (the common case) logs nothing extra',
   async () => {
     const storage = new FakeStorage([`${PREFIX}frame-01.jpg`]);
-    const table = new FakeAnalysesTable({ id: ANALYSIS_ID, user_id: USER_A, deleted_at: null });
+    const table = new FakeAnalysesTable(ownershipRow());
     const events: Record<string, unknown>[] = [];
     const log: LogEvent = (event) => events.push(event);
 
@@ -366,7 +398,7 @@ Deno.test(
     // If a second purge ran here anyway, it would catch this injected object; the requirement is
     // that it must NOT run on this path at all, so the object is left exactly as markDeleted put it.
     const table: AnalysesTable = {
-      findById: (id) => Promise.resolve({ id, user_id: USER_A, deleted_at: new Date().toISOString() }),
+      findById: (id) => Promise.resolve(ownershipRow({ id, deletedAt: new Date().toISOString() })),
       markDeleted: () => {
         storage.injectObject(`${PREFIX}frame-injected-by-markDeleted.jpg`);
         return Promise.resolve({ updated: false }); // already deleted — no transition happened here
@@ -393,7 +425,7 @@ Deno.test(
   async () => {
     const storage = new FakeStorage([`${PREFIX}frame-01.jpg`]);
     const table: AnalysesTable = {
-      findById: (id) => Promise.resolve({ id, user_id: USER_A, deleted_at: null }),
+      findById: (id) => Promise.resolve(ownershipRow({ id })),
       markDeleted: () => {
         // A late frame lands, AND this time its removal genuinely fails (a real Storage-side
         // problem, not just a race) — purgePrefix's fail-closed verification must throw rather
@@ -439,7 +471,7 @@ Deno.test('deleteAnalysis: recurses into a nested folder under the prefix instea
   // A flat, non-recursive list() at PREFIX would see one "folder" entry (`variant`) and, if
   // naively treated as a removable name, either fail to remove it or (worse) report success
   // while orphaning everything inside it. This is the exact trap the checklist names.
-  const table = new FakeAnalysesTable({ id: ANALYSIS_ID, user_id: USER_A, deleted_at: null });
+  const table = new FakeAnalysesTable(ownershipRow());
   const storage = new FakeStorage([`${PREFIX}frame-01.jpg`, `${PREFIX}variant/frame-01-alt.jpg`]);
 
   const result = await deleteAnalysis(table, storage, { analysisId: ANALYSIS_ID, callerUserId: USER_A });
@@ -449,7 +481,7 @@ Deno.test('deleteAnalysis: recurses into a nested folder under the prefix instea
 });
 
 Deno.test('deleteAnalysis: paginates a prefix with more objects than one page', async () => {
-  const table = new FakeAnalysesTable({ id: ANALYSIS_ID, user_id: USER_A, deleted_at: null });
+  const table = new FakeAnalysesTable(ownershipRow());
   const pageSize = 3;
   const paths = Array.from({ length: 7 }, (_, i) => `${PREFIX}frame-${String(i).padStart(2, '0')}.jpg`);
   const storage = new FakeStorage(paths);
@@ -469,7 +501,7 @@ Deno.test('deleteAnalysis: paginates a prefix with more objects than one page', 
 });
 
 Deno.test('deleteAnalysis: an empty prefix (nothing was ever uploaded) is a clean no-op success', async () => {
-  const table = new FakeAnalysesTable({ id: ANALYSIS_ID, user_id: USER_A, deleted_at: null });
+  const table = new FakeAnalysesTable(ownershipRow());
   const storage = new FakeStorage([]);
 
   const result = await deleteAnalysis(table, storage, { analysisId: ANALYSIS_ID, callerUserId: USER_A });
@@ -501,6 +533,15 @@ Deno.test('httpStatusForOutcome maps every outcome to the documented status', ()
   for (const [outcome, status] of cases) {
     assertEquals(httpStatusForOutcome(outcome), status, `outcome "${outcome}" should map to ${status}`);
   }
+});
+
+Deno.test('httpStatusForOutcome maps a reserved-row refusal to HTTP 409', () => {
+  const inProgress = { outcome: 'in_progress' } as unknown as DeleteAnalysisResult;
+  assertEquals(httpStatusForOutcome(inProgress.outcome), 409);
+  assertEquals(responseBodyForOutcome(inProgress), {
+    error: 'This analysis is still in progress and cannot be deleted yet.',
+    code: 'in_progress',
+  });
 });
 
 Deno.test('responseBodyForOutcome returns { deleted: true } on success, with alreadyDeleted surfaced', () => {

@@ -40,6 +40,43 @@ async function release(userId: string, analysisId: string) {
   return data as Record<string, unknown>;
 }
 
+const DELIVERED_RESULT = {
+  pillars: {
+    posture: { score: 80, band: 'good', feedback: 'Tall through mid-stance.', flags: [], drills: [] },
+    armSwing: { score: null, band: null, feedback: null, notAssessedReason: 'angle', flags: [], drills: [] },
+    cadence: { score: null, band: null, feedback: null, notAssessedReason: 'needsVideo', flags: [], drills: [] },
+    elasticity: { score: null, band: null, feedback: null, notAssessedReason: 'needsVideo', flags: [], drills: [] },
+  },
+  overall: { score: 80, band: 'good' },
+};
+
+async function settle(userId: string, analysisId: string) {
+  const { data, error } = await client.rpc('settle_analysis', {
+    p_user_id: userId,
+    p_analysis_id: analysisId,
+    p_result: DELIVERED_RESULT,
+    p_is_fallback: false,
+    p_media_paths: [],
+  });
+  if (error) throw new Error(`settle_analysis failed: ${error.message}`);
+  return data as Record<string, unknown>;
+}
+
+async function quotaStatus(userId: string) {
+  const { data, error } = await client.rpc('pace_quota_status', { p_user_id: userId });
+  if (error) throw new Error(`pace_quota_status failed: ${error.message}`);
+  return data as Record<string, unknown>;
+}
+
+async function analysisRows(userId: string) {
+  const { data, error } = await client
+    .from('analyses')
+    .select('id,status,result,is_fallback')
+    .eq('user_id', userId);
+  if (error) throw new Error(`analysis row query failed: ${error.message}`);
+  return data ?? [];
+}
+
 async function activeAnalysisCount(userId: string): Promise<number> {
   const { count, error } = await client
     .from('analyses')
@@ -179,17 +216,37 @@ Deno.test('pace_current_period: returns the half-open [start, end) window anchor
 // ---------------------------------------------------------------------------
 // 4. FREE IS LIFETIME, PRO/ELITE ARE PERIOD-BASED — a real branch, not just documented.
 // ---------------------------------------------------------------------------
-Deno.test('reserve_analysis: free tier quota is lifetime (limit 1), independent of pace_current_period', async () => {
+Deno.test('Free lifetime flow: one reservation is genuinely delivered and a second fresh key is denied', async () => {
   const userId = await createTestUser(client, 'free-lifetime');
   try {
     const first = await reserve(userId, `free-lifetime-a-${crypto.randomUUID()}`);
     assertEquals(first.allowed, true);
+    assertEquals(first.existing, false);
     assertEquals(first.tier, 'free');
+    assertEquals(first.status, 'reserved');
+
+    const settled = await settle(userId, first.id as string);
+    assertEquals(settled.ok, true);
+    assertEquals(settled.status, 'delivered');
+
+    const deliveredRows = await analysisRows(userId);
+    assertEquals(deliveredRows.length, 1);
+    assertEquals(deliveredRows[0].id, first.id);
+    assertEquals(deliveredRows[0].status, 'delivered');
+    assertEquals(deliveredRows[0].result, DELIVERED_RESULT);
+    assertEquals(deliveredRows[0].is_fallback, false);
+
+    const quotaAfterDelivery = await quotaStatus(userId);
+    assertEquals(quotaAfterDelivery.tier, 'free');
+    assertEquals(quotaAfterDelivery.used, 1);
+    assertEquals(quotaAfterDelivery.limit, 1);
+    assertEquals(quotaAfterDelivery.is_lifetime, true);
 
     const second = await reserve(userId, `free-lifetime-b-${crypto.randomUUID()}`);
     assertEquals(second.allowed, false);
     assertEquals(second.reason, 'quota_exceeded');
     assertEquals(second.limit, 1);
+    assertEquals(await analysisRows(userId), deliveredRows, 'the denied request must not insert a second row');
   } finally {
     await deleteTestUser(client, userId);
   }
