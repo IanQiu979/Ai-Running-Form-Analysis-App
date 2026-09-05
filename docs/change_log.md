@@ -5,6 +5,57 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-06 (Free tier gets a real, capped analysis — the fabricated sample is retired)
+
+**Captain's ruling: Free now runs through the exact same `analyze-form` path as Pro/Elite,
+capped server-side at one lifetime delivered analysis** — enforced by `reserve_analysis`'s
+existing per-user advisory lock and lifetime cap for Free, not a new counter or new schema.
+Code-complete and fully tested (93 Jest suites / 1439 tests + 400 Deno tests, full
+typecheck+lint clean); **not yet deployed**, and zero real Anthropic calls were made anywhere in
+this work.
+
+- **The `pace_current_tier` pre-lookup and the Free short-circuit are gone from
+  `supabase/functions/analyze-form/flow.ts`.** Every tier now runs auth → consent → AI spend gate
+  → `reserve_analysis` (the only place tier is now learned, via `reserve.tier`) → model call (+1
+  retry) → normalize → settle → upload → attach. This closes a launch-blocking defect: the retired
+  sample fabricated a cadence figure and a left/right ground-contact comparison that no certified
+  knowledge file supports, and — because it was never persisted — no Free signup in five weeks
+  ever produced a real `analyses` row.
+- **New server-side normalization step, `normalizeForEvidenceAndTier()`, unconditional and never
+  prompt-only trust.** Any one-frame submission (Free's only allowance, and any photo from any
+  tier) has Cadence and Elasticity forced to `notAssessedReason: 'needsVideo'`, replacing whatever
+  the model claimed. Free additionally has flags/drills stripped from every pillar. `overall` is
+  always recomputed from what survives, via the existing `deriveOverall()`.
+- **Zero-pillar responses now split by tier.** A structurally valid result that ends up assessing
+  nothing still `RELEASE`s (refunds the quota slot) for Pro/Elite, but now `SETTLE`s (consumes the
+  slot) for Free — a deliberate asymmetry, since refunding a blank submission would turn Free's one
+  lifetime slot into an unlimited free-form-checking loop.
+- **New reserved-row delete guard.** `_shared/delete-analysis.ts`'s `AnalysisOwnershipRow` now
+  carries `status`, and `deleteAnalysis()` refuses a `'reserved'` row with `{ outcome:
+  'in_progress' }` (409, code `in_progress`) before touching Storage — closing a race where a
+  delete-during-analysis could let an in-flight request settle a result nobody could ever see or
+  purge.
+- **Client surface simplified.** `AnalyzeFormSuccess` (`lib/analyze-form.ts`) is one shape again,
+  `{ result, analysisId, isFallback }` — no more `kind: 'result' | 'sample'` union, no more
+  `isSample`. Deleted: `app/result/sample.tsx`, `components/sample-result-banner.tsx`,
+  `lib/pending-sample-result.ts`, `supabase/functions/_shared/analyze-form-sample.ts`, and their
+  tests. `app/analyzing.tsx` now only ever routes to `/result/[id]`.
+- **Copy rewritten** (`constants/copy.ts`) to describe only what the product can actually certify
+  — no promised pillar count, no "sample preview" framing. Free: one real analysis from a single
+  photo or frame, no flags/drills. Pro: additional analyses, multi-frame evidence, flags/drills
+  when supported. Elite: deeper per-pillar feedback plus comparison against past analyses.
+- **Deployment ordering is binding**: `analyze-form` must be redeployed before or with the client
+  release, since the simplified client rejects the retired `{ result, isSample: true }` shape by
+  construction. Not deployed as of this entry.
+- **Depends on `fm/v23-reliability-timeouts`** (parallel, unmerged) for the eventual final
+  frame-sampling/prompt behavior; this work does not duplicate or wait on it.
+- **Not verified**: the local Postgres integration proof
+  (`supabase/functions/_shared/integration/quota-rpc.local.ts`) could not be run this session —
+  Docker Desktop was stopped and this agent must not start it or take machine focus.
+
+See `docs/architecture.md`'s "Current — `analyze-form` edge function" section and `docs/status.md`
+Known Issue #42 for the full detail.
+
 ## 2026-09-05 (Expo SDK 54 -> 57)
 
 **On `fm/v23-sdk57-upgrade`, not yet merged to `main`.** One SDK major at a time (54->55->56->57),

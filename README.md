@@ -15,8 +15,9 @@ release work are tracked in [`docs/status.md`](docs/status.md).
 
 Important current limitations:
 
-- Free accounts receive a clearly labelled sample preview without an Anthropic call; Pro/Elite use
-  the live analysis flow. Tier, quota, and frame-cap decisions are server-owned.
+- Free accounts get one real, model-backed analysis (capped at a single lifetime delivered
+  result); Pro/Elite get additional analyses per period. All three tiers run the same
+  `analyze-form` flow — Tier, quota, and frame-cap decisions are server-owned.
 - The paywall does not process a real in-app purchase yet.
 - TestFlight and Apple-dependent work are tracked in
   [`docs/blocked-on-apple.md`](docs/blocked-on-apple.md).

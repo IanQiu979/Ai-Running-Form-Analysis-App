@@ -279,10 +279,10 @@ export const Copy = {
       // string contains no quota number that could drift when the flag is later removed.
       unlimited: 'Elite access · Unlimited analyses',
       free: {
-        available: 'Sample preview available',
+        available: '1 free analysis available',
       },
       exhausted: {
-        free: "You've viewed the sample",
+        free: "You've used your free analysis",
         // --- issues #54/#15 additions start — lifted verbatim from the deck §Screen 2.
         pro: "You've used all {limit} analyses this period — renews {date}",
         elite: "You've used all {limit} analyses this period — renews {date}",
@@ -529,34 +529,6 @@ export const Copy = {
         'This is not medical advice. PACE analyzes visible running form and flags movement patterns that research associates with elevated injury risk — it does not diagnose injuries or conditions. Form assessment from a photo or short video is an estimate, not a lab measurement. If you have pain, swelling, or a persistent problem, or before making a big change to how you run, consult a doctor or a qualified sports physiotherapist.',
     },
     // --- issue #56 additions end ---
-    // --- Free-tier sample preview additions start (captain-approved 2026-07-26) — NOT in the
-    // copy deck. Free tier makes zero model calls; this is the labeled preview shown on
-    // `/result/sample` instead of a real result. `banner.body` is the load-bearing honesty
-    // sentence the whole feature exists for — it must always read as "here's an example of what
-    // Pro returns," never as "here's what we found in your photo." No price appears here or
-    // anywhere in this block by design (captain will set pricing separately). `cta.upgrade` is
-    // DELIBERATELY its own string, not a reuse of `paywall.cta.upgrade.pro` ("Upgrade to Pro"):
-    // this CTA routes to the paywall's plan-picker (`/paywall`), not straight into a Pro
-    // purchase, so "See Pro plans" describes what actually happens on tap.
-    sample: {
-      banner: {
-        title: 'This is a sample',
-        body: "We didn't analyze your photo — Free doesn't run a real analysis. Even a real one from a single photo could only score Posture and Arm swing; Cadence and Elasticity need multiple frames of movement. This sample shows the full 4-pillar read Pro and Elite unlock.",
-      },
-      cta: {
-        upgrade: 'See Pro plans',
-        // NEW key, not in the deck — M10 (v23-ux-audit-r1): the screen's terminal CTA (the
-        // bottom of the scroll, the moment right after the user has understood what the product
-        // does) used to route to "Back to Home" while the upgrade CTA lived only inside the
-        // banner at the top. This is the actual conversion moment, so it gets the accent pill.
-        terminalUpgrade: 'Analyse my own form — upgrade',
-      },
-      // Distinct from `result.hero.altText` on purpose: this screen's `<DuotoneFrame>` renders
-      // with no `annotate` prop (no lines are drawn over a sample), so reusing the real result's
-      // alt text ("marked with posture and ground lines") would describe something not on screen.
-      heroAltText: 'Your uploaded photo.',
-    },
-    // --- Free-tier sample preview additions end ---
   },
   // Screen 8 — Past Analyses (issue #55). Lifted verbatim by key from docs/design/copy-deck.md §
   // Screen 8, same convention as every namespace above. The deck's `history.compare.*` keys
@@ -980,9 +952,13 @@ export const Copy = {
     // every screen before this one has handled shared.cta.* (see settings.back's own comment).
     back: 'Back',
     gate: {
+      // Free tier's REAL, model-backed 1 real analysis, capped for life (captain's ruling,
+      // 2026-09-06 — this replaces the retired zero-model-call sample). Never claim an upgrade
+      // unlocks anything this product cannot certify: no promised pillar count, no cadence figure,
+      // no ground-contact comparison — see `paywall.tier.*` below for the same discipline.
       free: {
-        title: "You've viewed the sample",
-        body: 'Free shows a worked example, not your own form — and a single photo of your own could only ever score 2 of 4 pillars. Upgrade to Pro or Elite for a full 4-pillar read from multiple frames.',
+        title: "You've used your free analysis",
+        body: 'Your one lifetime Free analysis is used. See what Pro and Elite add below.',
       },
       paid: {
         title: "You're out of analyses this period",
@@ -994,22 +970,25 @@ export const Copy = {
       },
     },
     tier: {
+      // Every `detail` below is scoped to what this product can actually certify (2026-09-06
+      // ruling): no promised pillar count, no cadence figure, no left/right ground-contact
+      // comparison — only certified flags/drills, and only "when supported" by the evidence.
       free: {
         name: 'Free',
         price: '$0',
-        detail:
-          'A worked example of a full 4-pillar read, on a sample runner. Your own photo can only score 2 of 4 (Posture, Arm swing) — Pro unlocks Cadence and Elasticity too.',
+        detail: 'Your 1 real analysis, from a single photo or frame — no injury-risk flags or drills.',
       },
       pro: {
         name: 'Pro',
         price: '$6.99 / month',
-        detail: '10 analyses per period. Full PACE analysis, injury-risk flags, and 1–2 corrective drills per issue.',
+        detail:
+          'Additional analyses each period, plus multi-frame evidence when your footage supports it — certified injury-risk flags and drills when supported.',
       },
       elite: {
         name: 'Elite',
         price: '$14.99 / month',
         detail:
-          '30 analyses per period. Everything in Pro, plus a bit more depth per pillar and side-by-side comparison between two past analyses.',
+          'Everything in Pro, plus deeper feedback per pillar and a side-by-side comparison with your past analyses.',
       },
     },
     footnote: 'Elite adds a little more detail and comparison — not a different analysis.',

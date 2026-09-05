@@ -643,8 +643,31 @@ Deno.test('rule 3: the anti-farming refusal is a 429, not a paywall 402', async 
 // unlimited model-spend bypass. Pro/Elite retain the existing refund policy.
 // ===========================================================================
 
+/** A fully valid but ADVERSARIAL zero-pillar response: every pillar honestly not-assessed, yet the
+ * model still attached flags/drills to one of them. Structurally legal (`pace.ts` never forbids
+ * flags/drills on a not-assessed pillar) and exactly the kind of paid-tier content Free must never
+ * render regardless of what the model attaches them to. */
+function allNotAssessedWithStrayContent(): ModelCallResult {
+  return ok({
+    pillars: {
+      posture: {
+        score: null,
+        band: null,
+        feedback: null,
+        notAssessedReason: 'angle',
+        flags: [{ pattern: 'Overstriding', detail: 'Cannot confirm from this angle.' }],
+        drills: [{ name: 'Wall Forward-Lean Drill', instructions: 'Lean from the ankles.' }],
+      },
+      armSwing: { score: null, band: null, feedback: null, notAssessedReason: 'angle', flags: [], drills: [] },
+      cadence: { score: null, band: null, feedback: null, notAssessedReason: 'needsVideo', flags: [], drills: [] },
+      elasticity: { score: null, band: null, feedback: null, notAssessedReason: 'needsVideo', flags: [], drills: [] },
+    },
+    overall: { score: null, band: null },
+  });
+}
+
 Deno.test('zero-pillar policy: Free SETTLES a fully valid result with zero assessed pillars', async () => {
-  const h = harness([allNotAssessed()]);
+  const h = harness([allNotAssessedWithStrayContent()]);
   // The current pre-reserve tier lookup is deliberately set to paid so this test reaches the
   // reservation seam before Task 2 removes that obsolete lookup. The authoritative reserve says
   // Free; that is the value the settlement policy must use.
@@ -665,6 +688,22 @@ Deno.test('zero-pillar policy: Free SETTLES a fully valid result with zero asses
   assertEquals(res.body.analysisId, ANALYSIS_ID, 'Free must receive the persisted row id');
   assertEquals(h.rpc.to('settle_analysis').length, 1, 'the one lifetime Free slot is consumed');
   assertEquals(h.rpc.to('release_analysis').length, 0, 'Free zero-pillar results are not refunded');
+
+  const result = res.body.result as {
+    pillars: Record<string, { score: number | null; flags: unknown[]; drills: unknown[] }>;
+    overall: { score: number | null; band: string | null };
+  };
+  for (const id of ['posture', 'armSwing', 'cadence', 'elasticity']) {
+    assertEquals(result.pillars[id].score, null, `${id}: still honestly not-assessed`);
+    assertEquals(result.pillars[id].flags, [], `${id}: Free strips flags even when the model attached them`);
+    assertEquals(result.pillars[id].drills, [], `${id}: Free strips drills even when the model attached them`);
+  }
+  assertEquals(result.overall, { score: null, band: null }, 'no pillar survived, so overall stays null');
+  assertEquals(
+    h.rpc.to('settle_analysis')[0].args.p_result,
+    result,
+    'exactly what was returned is exactly what was persisted'
+  );
 });
 
 Deno.test('zero-pillar policy: Pro and Elite RELEASE a fully valid result with zero assessed pillars', async () => {
@@ -1464,8 +1503,51 @@ Deno.test('#130: a purge that itself fails still delivers 200 — nothing after 
 // FREE-TIER REAL ANALYSIS — one genuine, persisted lifetime result, then quota denial.
 // ===========================================================================
 
+/** An ADVERSARIAL Free-tier model response — exactly the shape the retired fabricated sample
+ * promised and the launch audit condemned: a confident cadence figure, flags, and drills on a
+ * ONE-FRAME (photo) submission. If normalization is missing or incomplete, this fixture is what
+ * would leak to the caller. */
+function adversarialFreePhotoResult(): ModelCallResult {
+  return ok({
+    pillars: {
+      posture: {
+        score: 78,
+        band: 'good',
+        feedback: 'Tall through mid-stance.',
+        flags: [{ pattern: 'Overstriding', detail: 'Foot lands ahead of the hip.' }],
+        drills: [{ name: 'Wall Forward-Lean Drill', instructions: 'Lean from the ankles.' }],
+      },
+      armSwing: {
+        score: 66,
+        band: 'mid',
+        feedback: 'Some cross-body swing.',
+        flags: [],
+        drills: [{ name: 'Elbow Drive Drill', instructions: 'Drive elbows straight back.' }],
+      },
+      // A single photo cannot show this — a hallucinated cadence figure of the exact kind the
+      // launch audit flagged ("mid-170s spm"). Normalization must overwrite this entirely.
+      cadence: {
+        score: 62,
+        band: 'mid',
+        feedback: 'Cadence looks to be in the mid-170s spm, on the low side.',
+        flags: [{ pattern: 'Low cadence', detail: 'Overstriding risk.' }],
+        drills: [{ name: 'Metronome Drill', instructions: 'Run to a 180bpm click.' }],
+      },
+      // Ditto — a fabricated left/right ground-contact comparison, the other shape the audit named.
+      elasticity: {
+        score: 58,
+        band: 'mid',
+        feedback: 'Left ground contact runs longer than right.',
+        flags: [],
+        drills: [],
+      },
+    },
+    overall: { score: 66, band: 'mid' },
+  });
+}
+
 Deno.test('free tier: one supported result runs reserve -> model -> settle, then a fresh key is denied before model', async () => {
-  const h = harness([ok()]);
+  const h = harness([adversarialFreePhotoResult()]);
   let deliveredRows = 0;
 
   // This is the obsolete branch that makes the test RED today. The post-change flow must learn
@@ -1497,11 +1579,40 @@ Deno.test('free tier: one supported result runs reserve -> model -> settle, then
 
   assertEquals(first.status, 200);
   assertEquals(first.body.analysisId, ANALYSIS_ID, 'Free receives the persisted row id');
-  assertEquals(first.body.result, validToolInput(), 'Free receives the model-authored result');
   assert(!('isSample' in first.body), 'the retired sample marker must never ship');
   assertEquals(h.model.sent.length, 1, 'the first Free allowance funds exactly one model call');
   assertEquals(h.rpc.to('settle_analysis').length, 1, 'the supported result is persisted as delivered');
   assertEquals(deliveredRows, 1, 'the fake backing store contains exactly one delivered row');
+
+  // THE NORMALIZATION CONTRACT — every field the retired sample fabricated must come back honest,
+  // not merely "different": exact values, not a shape check.
+  const result = first.body.result as {
+    pillars: Record<string, { score: number | null; band: string | null; notAssessedReason?: string; flags: unknown[]; drills: unknown[] }>;
+    overall: { score: number | null; band: string | null };
+  };
+  assertEquals(result.pillars.posture.score, 78, 'a real assessed pillar is not touched');
+  assertEquals(result.pillars.posture.flags, [], 'Free strips flags even off a real, assessed pillar');
+  assertEquals(result.pillars.posture.drills, [], 'Free strips drills even off a real, assessed pillar');
+  assertEquals(result.pillars.armSwing.score, 66);
+  assertEquals(result.pillars.armSwing.flags, []);
+  assertEquals(result.pillars.armSwing.drills, []);
+  assertEquals(result.pillars.cadence.score, null, 'a one-frame submission can never carry a cadence figure');
+  assertEquals(result.pillars.cadence.band, null);
+  assertEquals(result.pillars.cadence.notAssessedReason, 'needsVideo');
+  assertEquals(result.pillars.cadence.flags, []);
+  assertEquals(result.pillars.cadence.drills, []);
+  assertEquals(result.pillars.elasticity.score, null, 'a one-frame submission can never carry a ground-contact comparison');
+  assertEquals(result.pillars.elasticity.band, null);
+  assertEquals(result.pillars.elasticity.notAssessedReason, 'needsVideo');
+  assertEquals(result.pillars.elasticity.flags, []);
+  assertEquals(result.pillars.elasticity.drills, []);
+  // overall is RECOMPUTED from the two surviving real pillars (78, 66), never the model's own 66/'mid'
+  // over four pillars it no longer gets credit for.
+  assertEquals(result.overall.score, 72, 'overall must be recomputed from only the surviving pillars');
+  assertEquals(result.overall.band, 'good');
+
+  const settledResult = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
+  assertEquals(settledResult, result, 'exactly what was returned is exactly what was persisted');
 
   const reserveIndex = h.events.indexOf('rpc:reserve_analysis');
   const modelIndex = h.events.indexOf('model');

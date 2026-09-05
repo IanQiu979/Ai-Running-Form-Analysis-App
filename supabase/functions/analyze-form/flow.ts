@@ -10,8 +10,8 @@
  *
  * ══ THE CALL ORDER IS THE CONTRACT ══════════════════════════════════════════════════════════
  *
- *   auth → consent → TIER LOOKUP (free short-circuits here) → AI GATE
- *        → idempotency + quota reserve → model call (+1 retry)
+ *   auth → consent → AI GATE → idempotency + quota reserve (tier is DERIVED here)
+ *        → model call (+1 retry) → normalize (evidence + tier)
  *        → settle → upload frames → attach ... and on any failure: release
  *
  * Every arrow is load-bearing and each has a named failure mode. In order:
@@ -29,19 +29,17 @@
  *    control. A missing row, a `granted = false` row, AND a query error all mean refuse; see
  *    `checkConsent()`. Skip it and the app processes Art. 9 health data with no legal basis.
  *
- * 2.5. TIER LOOKUP, side-effect-free (captain-approved 2026-07-26). `pace_current_tier` answers
- *    "which tier is this user on" with none of `reserve_analysis`'s side effects — no row, no
- *    quota slot spent. A `'free'` result short-circuits the ENTIRE rest of this function: no AI
- *    gate, no reserve, no model call, ever. Free tier is a zero-Anthropic-spend, honestly-labeled
- *    sample preview (`_shared/analyze-form-sample.ts`), a hard cost-control requirement, not just
- *    UX — see that file's header. `'pro'`/`'elite'` fall straight through to the existing path
- *    below, completely unmodified; `reserveAnalysis` re-derives the tier a second time internally,
- *    an accepted redundant `SELECT` traded for not touching the hardened path that follows at all.
- *    On any RPC failure here, `currentTier` throws — same as `reserveAnalysis`'s own error
- *    handling — and the outer `catch` turns it into the same `internal_error` 500 every other
- *    unexpected RPC failure in this function already produces. It deliberately does NOT default to
- *    `'free'` on error: that would silently swallow a paying user's real analysis on a transient
- *    DB blip, which is a worse failure mode than a request that has to be retried.
+ * 2.5. FREE TIER (captain's ruling, 2026-09-06 — supersedes the earlier zero-spend sample). Free
+ *    gets a REAL, model-backed analysis through this SAME path, capped server-side by
+ *    `reserve_analysis`'s one-lifetime-delivered-analysis policy (Known Issue #14's authority, not
+ *    a client-visible counter). There is no more side-effect-free pre-reserve tier lookup and no
+ *    early return: every tier — free, pro, elite — runs gate → reserve → model → normalize →
+ *    settle identically, and `reserve.tier` (from `reserve_analysis` itself) is the only place tier
+ *    is learned. This closes the launch-blocking defect the fabricated sample created: it promised
+ *    a cadence figure, a left/right ground-contact comparison, and flags/drills that do not exist
+ *    in the certified knowledge files, and nobody who saw it ever received a real analysis (five
+ *    weeks, zero `analyses` rows). The normalization step below is what makes a real Free result
+ *    honest rather than merely genuine.
  *
  * 3. AI SPEND GATE, before idempotency and before the reserve — not after (#91's binding call
  *    order). If the gate ran after the reserve, every kill-switch/cap/breaker denial would have to
@@ -51,10 +49,19 @@
  *
  * 4/5. IDEMPOTENCY + ATOMIC RESERVE, both inside `reserve_analysis` (one round trip, one advisory
  *    lock). We branch on the returned `status`, never on `allowed` alone — see `handleExisting()`.
+ *    `reserve.tier` is now the SOLE source of tier for the rest of the request.
  *
  * 6-8. PROMPT → ONE VISION CALL → validate → retry once. `analyze-form-prompt.ts` (#41) builds the
  *    request; `analyze-form-validation.ts` (#45) reads the response and decides. Neither judges
  *    content.
+ *
+ * 8.5. NORMALIZE (evidence + tier) — server-side, unconditional, never prompt-only trust. Cadence
+ *    (a rate) and Elasticity (a bounce cycle) cannot be honestly assessed from a single frame,
+ *    whatever the model claims: every one-frame submission (Free's only allowance, and any photo
+ *    from any tier) has both pillars forced to `notAssessedReason: 'needsVideo'` here, and `overall`
+ *    is recomputed from what is left. Free additionally never renders flags/drills (`pace.ts`'s
+ *    `PacePillarResult` doc comment) — stripped here, not merely omitted from the prompt. See
+ *    `normalizeForEvidenceAndTier()`.
  *
  * 9. SETTLE, THEN UPLOAD, THEN ATTACH — in that order, and only on a deliverable outcome (#130).
  *    THE INVARIANT: a 'reserved' row can never have frames. Frames go up only after the row has
@@ -92,7 +99,6 @@ import {
   type RpcClient,
 } from '../_shared/ai-guard.ts';
 import { estimateTokensForCall } from '../_shared/ai-pricing.ts';
-import { FREE_SAMPLE_PACE_RESULT } from '../_shared/analyze-form-sample.ts';
 import {
   buildAnalyzeFormRequest,
   type AnalyzeFormRequest as AnthropicRequest,
@@ -102,6 +108,7 @@ import {
 import {
   callFailedAttempt,
   decideOutcome,
+  deriveOverall,
   readAttempt,
   type AnalyzeFormDecision,
   type AnthropicMessageResponse,
@@ -115,6 +122,7 @@ import {
   PACE_MAX_REQUEST_BODY_BYTES,
   PACE_PILLARS,
   isPaceResult,
+  type PacePillarResult,
   type PaceResult,
   type PaceTier,
 } from '../_shared/pace.ts';
@@ -382,33 +390,6 @@ interface ReserveResult {
   is_fallback?: boolean;
   reason?: string;
   [key: string]: unknown;
-}
-
-/**
- * `pace_current_tier` — the side-effect-free tier lookup (new migration
- * `20260804120000_pace_current_tier_function.sql`), used ONLY to decide whether this request can
- * skip the model call entirely. MUST throw (not silently default) on an RPC error or an
- * unrecognized value — same posture as `reserveAnalysis` just below, and deliberately the
- * opposite of `checkConsent`'s fail-closed-refuse: defaulting to `'free'` here would silently
- * swallow a paying user's real analysis on a transient DB blip, and defaulting to a paid tier
- * would be the actual spend risk this whole feature exists to avoid. The caller lets the throw
- * propagate to the function's own top-level `catch`, which already turns any unexpected RPC
- * failure into the same `internal_error` 500.
- */
-async function currentTier(
-  rpc: RpcClient,
-  userId: string,
-  allUsersUnlimitedAccess = false
-): Promise<PaceTier> {
-  const fn = allUsersUnlimitedAccess ? 'pace_current_tier_unlimited' : 'pace_current_tier';
-  const { data, error } = await rpc.rpc(fn, { p_user_id: userId });
-  if (error) {
-    throw new Error(`${fn} failed: ${error.message}`);
-  }
-  if (data !== 'free' && data !== 'pro' && data !== 'elite') {
-    throw new Error(`${fn} returned an unexpected tier: ${JSON.stringify(data)}`);
-  }
-  return data;
 }
 
 async function reserveAnalysis(
@@ -688,31 +669,14 @@ export async function runAnalyzeForm(
       ));
     }
 
-    // ── 2.5. Tier lookup — side-effect-free, before the AI gate and the reserve. ────────────
-    //
-    // See the file header's "TIER LOOKUP" section above. A free result answers the whole request
-    // right here: no gate check, no reservation, no `analyses` row, no model call — this is a
-    // fabricated preview, always labeled `isSample: true`. Nothing below this branch ever runs for
-    // a free-tier caller, so `openCalls`/`reservation` stay empty/null and the `finally` at the
-    // bottom is a no-op by construction, exactly like every other early return above it.
-    tier = await currentTier(deps.rpc, callerUserId, deps.allUsersUnlimitedAccess);
-
-    if (tier === 'free') {
-      outcome = 'sample';
-      return (response = {
-        status: 200,
-        body: { result: FREE_SAMPLE_PACE_RESULT, isSample: true },
-      });
-    }
-
     // ── 3. AI spend gate — BEFORE idempotency and reserve (#91's binding order). ────────────
     //
-    // Tier is now known to be 'pro' or 'elite' (free short-circuited above), but the pre-call
-    // estimate below still deliberately uses the WORST case (elite's 8k output budget) rather than
-    // the now-known real tier. That errs strictly toward reserving too much headroom, which
-    // `ai-pricing.ts` names as the intended direction of error — the gate is a ceiling, not an
-    // accountant, and `record_ai_call` settles the real cost from real token counts moments later.
-    // The retry's gate, below, knows the true tier and uses it.
+    // Tier is not known yet — `reserve_analysis` below is the only place it is derived — so the
+    // pre-call estimate deliberately uses the WORST case (elite's 8k output budget) rather than
+    // guessing. That errs strictly toward reserving too much headroom, which `ai-pricing.ts` names
+    // as the intended direction of error — the gate is a ceiling, not an accountant, and
+    // `record_ai_call` settles the real cost from real token counts moments later. The retry's
+    // gate, below, knows the true tier and uses it.
     const firstEstimate = estimateTokensForCall(request.frames.length, 'elite');
     const gate = await gateAiCall(deps.rpc, {
       userId: callerUserId,
@@ -917,30 +881,39 @@ export async function runAnalyzeForm(
 
     isFallback = decision.kind === 'partial';
 
+    // ── 8.5. Normalize (evidence + tier) — see the file header. Server-side, unconditional, and
+    // strictly AFTER the honest-partial decision above: the only input this function ever
+    // recomputes `overall` from again is what actually survives normalization, never what the
+    // model claimed. From here on `normalizedResult` — never `decision.result` — is the value that
+    // gets counted, returned, and persisted.
+    const normalizedResult = normalizeForEvidenceAndTier(decision.result, request.frames.length, tier);
+
     // ── 9.5. Captain decision (audit-v23-r1-decision-zero-pillar-charge-policy). ────────────
     //
     // A response can reach here fully structurally VALID (`decideOutcome` returned `kind:
     // 'valid'`, never even touching the >= 1-assessed-pillar bar that gates the 'partial' branch
     // above) and yet assess NOTHING — every pillar honestly `score: null`, e.g. a clip that never
-    // actually shows the runner. That is a real, well-formed result the user got zero usable
-    // information from, and charging their quota for it is exactly the harm this decision exists
-    // to close. `release_analysis`, not `settle_analysis`: the row hands its quota slot back
-    // (same mechanism `'validation_failed'`/`'model_error'` failures already use), while the
-    // computed `decision.result` — never persisted — is still returned to the caller below, so
-    // the request is NOT failed outright. `'zero_pillars_assessed'` is excluded from
-    // `pace_is_farming_signal` (20260712220000), so this never ticks the 3-strike anti-farm cap:
-    // an honest "nothing to see here" is not an attack.
-    const deliveredResult = decision.result;
+    // actually shows the runner, OR a one-frame submission whose only assessed pillars were
+    // Cadence/Elasticity before normalization forced them to `needsVideo`. That is a real,
+    // well-formed result the user got zero usable information from. For Pro/Elite,
+    // `release_analysis` hands the quota slot back (same mechanism `'validation_failed'`/
+    // `'model_error'` failures already use), while the computed `normalizedResult` — never
+    // persisted — is still returned to the caller below, so the request is NOT failed outright.
+    // Free instead SETTLES a zero-pillar result (2026-09-06 ruling): Free has exactly one lifetime
+    // delivered analysis, and refunding a blank/unusable submission would turn that single slot
+    // into an unlimited free-form-checking loop. `'zero_pillars_assessed'` is excluded from
+    // `pace_is_farming_signal` (20260712220000) either way, so this never ticks the 3-strike
+    // anti-farm cap: an honest "nothing to see here" is not an attack.
     const assessedPillarCount = PACE_PILLARS.filter(
-      (id) => deliveredResult.pillars[id].score !== null
+      (id) => normalizedResult.pillars[id].score !== null
     ).length;
 
-    if (assessedPillarCount === 0) {
+    if (assessedPillarCount === 0 && tier !== 'free') {
       releaseReason = 'zero_pillars_assessed';
       outcome = 'zero_pillars_assessed';
       return (response = {
         status: 200,
-        body: { result: decision.result, analysisId, isFallback },
+        body: { result: normalizedResult, analysisId, isFallback },
       });
     }
 
@@ -987,7 +960,7 @@ export async function runAnalyzeForm(
     const settled = await settleAnalysis(deps.rpc, {
       userId: callerUserId,
       analysisId,
-      result: decision.result,
+      result: normalizedResult,
       isFallback,
     });
 
@@ -1006,7 +979,7 @@ export async function runAnalyzeForm(
 
     return (response = {
       status: 200,
-      body: { result: decision.result, analysisId, isFallback },
+      body: { result: normalizedResult, analysisId, isFallback },
     });
   } catch (err) {
     // Our own bug, or an RPC that hard-failed. Never the user's fault, and never a farming signal:
@@ -1093,6 +1066,54 @@ async function checkConsent(deps: AnalyzeFormDeps, userId: string): Promise<bool
     );
     return false;
   }
+}
+
+/** The honest single-frame limitation, shown IN PLACE of whatever the model wrote for Cadence and
+ * Elasticity when only one frame was sent — see `normalizeForEvidenceAndTier()`. */
+const SINGLE_FRAME_LIMITATION_FEEDBACK =
+  'A single photo cannot show stride-to-stride motion, so this could not be assessed. Submit a short video for cadence and elasticity.';
+
+/**
+ * Server-side normalization — see the file header's "NORMALIZE" step. Never prompt-only trust
+ * (captain's ruling, 2026-09-06, the audit's sharpest finding): whatever the model wrote, this
+ * function is the last word on what actually reaches the caller and gets persisted.
+ *
+ *   - ONE FRAME cannot show stride-to-stride motion. Cadence (a rate) and Elasticity (a bounce
+ *     cycle) are forced to an honest `needsVideo` not-assessed, REPLACING any score/band/flags/
+ *     drills the model invented for them — this is exactly the failure mode the retired sample
+ *     shipped (a hallucinated "mid-170s spm" and a left/right ground-contact comparison neither
+ *     pillar's certified knowledge file supports).
+ *   - FREE never renders flags/drills (`pace.ts`'s `PacePillarResult` doc comment: "Paid-tier
+ *     content"). Stripped here on every pillar, not merely omitted from the prompt.
+ *
+ * `overall` is always recomputed from whatever survives, via the same `deriveOverall()` the
+ * honest-partial fallback path already uses — never the model's own `overall`, which was computed
+ * over pillars this function may have just zeroed out.
+ */
+function normalizeForEvidenceAndTier(result: PaceResult, frameCount: number, tier: PaceTier): PaceResult {
+  const pillars: Record<string, PacePillarResult> = { ...result.pillars };
+
+  if (frameCount === 1) {
+    for (const id of ['cadence', 'elasticity'] as const) {
+      pillars[id] = {
+        score: null,
+        band: null,
+        feedback: SINGLE_FRAME_LIMITATION_FEEDBACK,
+        notAssessedReason: 'needsVideo',
+        flags: [],
+        drills: [],
+      };
+    }
+  }
+
+  if (tier === 'free') {
+    for (const id of PACE_PILLARS) {
+      pillars[id] = { ...pillars[id], flags: [], drills: [] };
+    }
+  }
+
+  const normalizedPillars = pillars as PaceResult['pillars'];
+  return { pillars: normalizedPillars, overall: deriveOverall(normalizedPillars) };
 }
 
 async function callModel(

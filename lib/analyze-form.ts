@@ -36,7 +36,6 @@ import type { PaceFrameSet } from '@/lib/frames';
 import { invokeFunction } from './functions-client';
 import {
   isPaceAnalysisOutcome,
-  isPaceResult,
   PACE_PILLARS,
   type PacePillarId,
   type PacePillarResult,
@@ -85,23 +84,15 @@ export function toAnalyzeFormRequest(
 }
 
 /**
- * The documented 200 response (`docs/architecture.md` "API" table). Two structurally distinct
- * shapes, discriminated by `kind` — never a bolted-on nullable field, because a sample response
- * has nothing DB-backed to reconcile against and no `analysisId`/`isFallback` to speak of:
- *
- *  - `'result'` — `{ result, analysisId, isFallback }`, Pro/Elite's real (or honest-partial
- *    fallback) analysis. A real success and an honest-partial fallback are the SAME shape — see
- *    `@shared/pace`'s `PaceAnalysisOutcome` doc comment — differentiated only by `isFallback`,
- *    never by a different response type. `app/analyzing.tsx` must route both to the result screen
- *    as a result, never as a failure (issue #45).
- *  - `'sample'` — `{ result }`, Free tier's zero-model-call labeled preview (captain-approved
- *    2026-07-26). The wire body is `{ result, isSample: true }` with no `analysisId`/`isFallback`
- *    keys at all — see `supabase/functions/_shared/analyze-form-sample.ts`'s header for why the
- *    content is fabricated, never persisted, and always paired with this honest label.
+ * The documented 200 response (`docs/architecture.md` "API" table): `{ result, analysisId,
+ * isFallback }`, ONE shape for every tier (captain's ruling, 2026-09-06 — Free runs the same
+ * model-backed, server-capped, persisted path Pro/Elite always have; there is no more
+ * zero-model-call sample and no second response shape). A real success and an honest-partial
+ * fallback are the SAME shape — see `@shared/pace`'s `PaceAnalysisOutcome` doc comment —
+ * differentiated only by `isFallback`, never by a different response type. `app/analyzing.tsx`
+ * routes every 200 to the result screen (issue #45).
  */
-export type AnalyzeFormSuccess =
-  | { kind: 'result'; result: PaceResult; analysisId: string; isFallback: boolean }
-  | { kind: 'sample'; result: PaceResult };
+export type AnalyzeFormSuccess = { result: PaceResult; analysisId: string; isFallback: boolean };
 
 /** Every non-2xx `analyze-form` response body (`docs/architecture.md` "Error contract": "every
  * non-2xx response body is structured `{ error, code }`"). `code` is what would route a `402` to
@@ -184,22 +175,17 @@ export function parseAnalyzeFormSuccess(raw: unknown): AnalyzeFormSuccess | null
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const body = raw as Record<string, unknown>;
 
-  // Free tier's sample branch (`{ result, isSample: true }`, no `analysisId`/`isFallback`).
-  // Checked first and structurally, same validation philosophy as the real-result branch below —
-  // a client that doesn't yet know about `isSample` falls through to the `analysisId` check next,
-  // which a sample body fails (no such key), so an older client fails CLOSED on an unrecognized
-  // shape rather than misrendering it.
-  if (body.isSample === true) {
-    return isPaceResult(body.result) ? { kind: 'sample', result: body.result } : null;
-  }
-
+  // The retired `{ result, isSample: true }` shape (no `analysisId`/`isFallback`) is rejected here
+  // by construction, not by a special case: it fails the `analysisId` check below, exactly like
+  // any other malformed body. A server still shipping the old sample response would fail CLOSED
+  // (this screen's generic failure copy), never render a stale fabricated result.
   const { analysisId } = body;
   if (typeof analysisId !== 'string' || !ANALYSIS_ID_PATTERN.test(analysisId)) return null;
 
   const outcome = { result: body.result, isFallback: body.isFallback };
   if (!isPaceAnalysisOutcome(outcome)) return null;
 
-  return { kind: 'result', result: outcome.result, analysisId, isFallback: outcome.isFallback };
+  return { result: outcome.result, analysisId, isFallback: outcome.isFallback };
 }
 
 /**
@@ -363,7 +349,6 @@ export function createMockAnalyzeFormClient(options: MockAnalyzeFormClientOption
           return {
             ok: true,
             data: {
-              kind: 'result',
               result: mockPaceResult(PACE_PILLARS),
               analysisId: mockAnalysisId(),
               isFallback: false,
@@ -373,7 +358,6 @@ export function createMockAnalyzeFormClient(options: MockAnalyzeFormClientOption
           return {
             ok: true,
             data: {
-              kind: 'result',
               result: mockPaceResult(['posture', 'armSwing']),
               analysisId: mockAnalysisId(),
               isFallback: true,
