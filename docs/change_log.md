@@ -205,6 +205,23 @@ this work.
   tier) has Cadence and Elasticity forced to `notAssessedReason: 'needsVideo'`, replacing whatever
   the model claimed. Free additionally has flags/drills stripped from every pillar. `overall` is
   always recomputed from what survives, via the existing `deriveOverall()`.
+  - **Review follow-up, same day.** The strip used to overwrite the pillar's `feedback` wholesale,
+    which could silently delete a stop-running safety signal — the one class of content
+    `analyze-form-prompt.ts`'s SAFETY_RULES make undroppable at every tier. Normalization now
+    strips the ASSESSMENT CLAIM only: any safety sentence the model wrote survives and LEADS the
+    replacement feedback. All four pillars are guarded on a one-frame submission (a pillar the
+    model did not score cannot keep flags or drills), and the limitation sentence is media-aware —
+    a video clipped to one frame by Free's cap is no longer told to submit a video.
+  - **Medium rules now follow the frame count actually attached, not the client's declared
+    `mediaType`.** A video clipped to one frame was being handed the cross-frame rules ("across
+    frames you can assess all four pillars ... arm-swing arc and symmetry"), inviting a comparison
+    that never existed.
+  - **`components/pace-readout.tsx` shows ONE explanation per not-assessed pillar.** The canned
+    `notAssessed` line is now a fallback for a pillar with no feedback, instead of a second,
+    overlapping sentence rendered above the server's own.
+  - **`lib/history.ts` surfaces the new `409 in_progress` delete code** instead of flattening its
+    actionable "retry once the analysis finishes" message into the generic delete failure;
+    `docs/architecture.md`'s API table row for `DELETE /functions/v1/analysis/:id` lists it too.
 - **Zero-pillar responses now split by tier.** A structurally valid result that ends up assessing
   nothing still `RELEASE`s (refunds the quota slot) for Pro/Elite, but now `SETTLE`s (consumes the
   slot) for Free — a deliberate asymmetry, since refunding a blank submission would turn Free's one

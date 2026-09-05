@@ -71,13 +71,18 @@
  *    a completed model round trip, but MUST remain retry-reachable because a repeated content
  *    failure is the only signal `classifyReleaseReason` has for deliberate prompt-injection
  *    farming. If that smaller retry times out, it safely becomes `model_error`, not a strike.
+ *    The MEDIUM RULES are picked from the frame count actually attached, not the client's
+ *    declared `mediaType` — a video clipped to one frame by Free's cap is one instant, and must
+ *    never be handed the cross-frame rules.
  *
  * 8.5. NORMALIZE (evidence + tier) — server-side, unconditional, never prompt-only trust. Cadence
  *    (a rate) and Elasticity (a bounce cycle) cannot be honestly assessed from a single frame,
  *    whatever the model claims: every one-frame submission (Free's only allowance, and any photo
  *    from any tier) has both pillars forced to `notAssessedReason: 'needsVideo'` here, and `overall`
- *    is recomputed from what is left. Free additionally never renders flags/drills (`pace.ts`'s
- *    `PacePillarResult` doc comment) — stripped here, not merely omitted from the prompt. See
+ *    is recomputed from what is left. A stop-running SAFETY signal the model wrote into such a
+ *    pillar survives the strip and leads the replacement feedback (SAFETY_RULES: undroppable at
+ *    every tier). Free additionally never renders flags/drills (`pace.ts`'s `PacePillarResult` doc
+ *    comment) — stripped here, not merely omitted from the prompt. See
  *    `normalizeForEvidenceAndTier()`.
  *
  * 9. SETTLE, THEN UPLOAD, THEN ATTACH — in that order, and only on a deliverable outcome (#130).
@@ -790,9 +795,14 @@ export async function runAnalyzeForm(
     const modelDeadline = Math.min(now() + ANALYZE_FORM_DEADLINE_MS, requestDeadline);
 
     // ── 6/7. The grounded prompt (#41). Server-derived tier; never the client's word for it. ──
+    // The medium rules are chosen by the frames actually attached, NOT by what the client declared:
+    // Free's frame cap is 1, so a video submission routinely arrives as a single frame, and the
+    // video rules ("across frames you can assess all four pillars ... arm-swing arc and symmetry
+    // ... compare them to each other") would then invite a cross-frame comparison that never
+    // existed. One frame is one instant whatever produced it, so it gets the single-frame rules.
     const anthropicRequest = buildAnalyzeFormRequest({
       tier,
-      media: request.mediaType,
+      media: request.frames.length === 1 ? 'photo' : request.mediaType,
       frames: request.frames,
     });
 
@@ -994,7 +1004,11 @@ export async function runAnalyzeForm(
     // recomputes `overall` from again is what actually survives normalization, never what the
     // model claimed. From here on `normalizedResult` — never `decision.result` — is the value that
     // gets counted, returned, and persisted.
-    const normalizedResult = normalizeForEvidenceAndTier(decision.result, request.frames.length, tier);
+    const normalizedResult = normalizeForEvidenceAndTier(decision.result, {
+      frameCount: request.frames.length,
+      mediaType: request.mediaType,
+      tier,
+    });
 
     // ── 9.5. Captain decision (audit-v23-r1-decision-zero-pillar-charge-policy). ────────────
     //
@@ -1176,21 +1190,62 @@ async function checkConsent(deps: AnalyzeFormDeps, userId: string): Promise<bool
   }
 }
 
-/** The honest single-frame limitation, shown IN PLACE of whatever the model wrote for Cadence and
- * Elasticity when only one frame was sent — see `normalizeForEvidenceAndTier()`. */
-const SINGLE_FRAME_LIMITATION_FEEDBACK =
-  'A single photo cannot show stride-to-stride motion, so this could not be assessed. Submit a short video for cadence and elasticity.';
+/** The honest single-frame limitation, in the words of what the runner ACTUALLY submitted. A
+ * one-frame result from a VIDEO is Free's frame cap biting, not a photo — telling that runner to
+ * "submit a short video" is deterministically wrong advice about their own upload. Neither string
+ * repeats `Copy.result.pillar.notAssessed.*`: the client renders the pillar's own feedback INSTEAD
+ * of that canned line whenever one is present (`components/pace-readout.tsx`), so this is the one
+ * explanation a not-assessed pillar shows, never a second overlapping sentence. */
+function singleFrameLimitationFeedback(mediaType: PaceMediaKind): string {
+  return mediaType === 'video'
+    ? 'Only one frame of this video could be analysed on your plan, and a single frame cannot show stride-to-stride motion, so this could not be assessed.'
+    : 'A single photo cannot show stride-to-stride motion, so this could not be assessed. Submit a short video for cadence and elasticity.';
+}
+
+/** The stop-running signals of `knowledge/injury_flags.md`, as the words a model writes them in.
+ * `analyze-form-prompt.ts`'s SAFETY_RULES make these absolute and tier-independent ("say so FIRST,
+ * in the `feedback` of the pillar it shows up in, at EVERY tier including Free"), so normalization
+ * — which is otherwise free to discard everything a not-assessed pillar claims — must carry them
+ * across rather than let a strip delete the one class of content that may never be dropped. */
+const SAFETY_SIGNAL_PATTERN =
+  /\b(swelling|swollen|limp|limping|favour\w*|favor\w*|pain|painful|stress (?:reaction|fracture)|achilles|get (?:it|this|that) (?:looked at|checked|assessed)|see a (?:doctor|physio\w*)|medical assessment|stop running|before running on it)\b/i;
+
+/** Split on sentence boundaries so an assessment claim ("Left ground contact runs longer than
+ * right.") can be dropped while the safety sentence beside it survives — the whole point of
+ * separating "strip assessment claims" from "preserve the warning". */
+function safetySentences(feedback: string | null | undefined): string[] {
+  if (typeof feedback !== 'string') return [];
+  return feedback
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0 && SAFETY_SIGNAL_PATTERN.test(sentence));
+}
+
+/** The stripped pillar's feedback: any safety signal the model wrote LEADS, then the honest
+ * limitation. Nothing else the model said about a pillar it could not see survives. */
+function feedbackForStrippedPillar(feedback: string | null | undefined, limitation: string): string {
+  return [...safetySentences(feedback), limitation].join(' ');
+}
+
+/** Cadence is a rate and Elasticity is a bounce cycle: neither exists inside one still frame. */
+const MOTION_ONLY_PILLARS = ['cadence', 'elasticity'] as const;
 
 /**
  * Server-side normalization — see the file header's "NORMALIZE" step. Never prompt-only trust
  * (captain's ruling, 2026-09-06, the audit's sharpest finding): whatever the model wrote, this
  * function is the last word on what actually reaches the caller and gets persisted.
  *
- *   - ONE FRAME cannot show stride-to-stride motion. Cadence (a rate) and Elasticity (a bounce
- *     cycle) are forced to an honest `needsVideo` not-assessed, REPLACING any score/band/flags/
- *     drills the model invented for them — this is exactly the failure mode the retired sample
- *     shipped (a hallucinated "mid-170s spm" and a left/right ground-contact comparison neither
- *     pillar's certified knowledge file supports).
+ *   - ONE FRAME cannot show stride-to-stride motion. Cadence and Elasticity are forced to an
+ *     honest `needsVideo` not-assessed, REPLACING any score/band/flags/drills the model invented
+ *     for them — this is exactly the failure mode the retired sample shipped (a hallucinated
+ *     "mid-170s spm" and a left/right ground-contact comparison neither pillar's certified
+ *     knowledge file supports). What is stripped is the ASSESSMENT CLAIM, not the pillar's whole
+ *     voice: a stop-running safety signal in that same sentence block is carried across and put
+ *     FIRST, because SAFETY_RULES make it undroppable at every tier including Free.
+ *   - ALL FOUR pillars are guarded on a one-frame submission, not merely the two that are forced.
+ *     Posture and Arm-swing POSITION do survive one frame, but a pillar the model itself did not
+ *     score may not keep flags or drills it cannot support — guarding half of them was never a
+ *     guarantee against fabricated confidence.
  *   - FREE never renders flags/drills (`pace.ts`'s `PacePillarResult` doc comment: "Paid-tier
  *     content"). Stripped here on every pillar, not merely omitted from the prompt.
  *
@@ -1198,19 +1253,34 @@ const SINGLE_FRAME_LIMITATION_FEEDBACK =
  * honest-partial fallback path already uses — never the model's own `overall`, which was computed
  * over pillars this function may have just zeroed out.
  */
-function normalizeForEvidenceAndTier(result: PaceResult, frameCount: number, tier: PaceTier): PaceResult {
+function normalizeForEvidenceAndTier(
+  result: PaceResult,
+  input: { frameCount: number; mediaType: PaceMediaKind; tier: PaceTier }
+): PaceResult {
+  const { frameCount, mediaType, tier } = input;
   const pillars: Record<string, PacePillarResult> = { ...result.pillars };
 
   if (frameCount === 1) {
-    for (const id of ['cadence', 'elasticity'] as const) {
-      pillars[id] = {
-        score: null,
-        band: null,
-        feedback: SINGLE_FRAME_LIMITATION_FEEDBACK,
-        notAssessedReason: 'needsVideo',
-        flags: [],
-        drills: [],
-      };
+    const limitation = singleFrameLimitationFeedback(mediaType);
+
+    for (const id of PACE_PILLARS) {
+      const pillar = pillars[id];
+
+      if ((MOTION_ONLY_PILLARS as readonly string[]).includes(id)) {
+        pillars[id] = {
+          score: null,
+          band: null,
+          feedback: feedbackForStrippedPillar(pillar.feedback, limitation),
+          notAssessedReason: 'needsVideo',
+          flags: [],
+          drills: [],
+        };
+        continue;
+      }
+
+      if (pillar.score === null || pillar.band === null) {
+        pillars[id] = { ...pillar, score: null, band: null, flags: [], drills: [] };
+      }
     }
   }
 

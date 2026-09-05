@@ -266,16 +266,22 @@ export async function signFrameStrip(mediaPaths: string[]): Promise<string[]> {
 /**
  * Every retryable failure `code` `DELETE /functions/v1/analysis/:id` can send (per
  * `docs/architecture.md`'s API table and `supabase/functions/_shared/delete-analysis.ts`'s
- * `responseBodyForOutcome`): `not_found` (404), `not_yours` (403), `purge_failed` (503).
+ * `responseBodyForOutcome`): `not_found` (404), `not_yours` (403), `in_progress` (409),
+ * `purge_failed` (503). `in_progress` is the one that is retryable by simply waiting — the row is
+ * still `'reserved'` while its model call is in flight, and deleting it then would refund spend
+ * (`_shared/delete-analysis-core.ts`) — so its server message must reach the user instead of being
+ * flattened into the generic failure.
  * `'unknown'` is this client's own bucket for anything the contract above doesn't name — a
  * relay/network error, a 401, a 404 from the ROUTE not existing at all versus the documented
  * `not_found` outcome, or a body that doesn't parse as documented — same reasoning
  * `lib/delete-account.ts`'s `DeleteAccountErrorCode` documents for its own `'unknown'` bucket.
  */
-export type HistoryDeleteErrorCode = 'not_found' | 'not_yours' | 'purge_failed' | 'unknown';
+export type HistoryDeleteErrorCode = 'not_found' | 'not_yours' | 'in_progress' | 'purge_failed' | 'unknown';
 
 function isServerHistoryDeleteErrorCode(value: unknown): value is Exclude<HistoryDeleteErrorCode, 'unknown'> {
-  return value === 'not_found' || value === 'not_yours' || value === 'purge_failed';
+  return (
+    value === 'not_found' || value === 'not_yours' || value === 'in_progress' || value === 'purge_failed'
+  );
 }
 
 export interface HistoryDeleteSuccess {
