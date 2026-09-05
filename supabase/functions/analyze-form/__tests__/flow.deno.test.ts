@@ -33,7 +33,6 @@ import {
 import type { RpcClient } from '../../_shared/ai-guard.ts';
 import {
   PACE_ANALYSIS_TOOL_NAME,
-  buildAnalyzeFormRequest,
   type AnalyzeFormRequest,
 } from '../../_shared/analyze-form-prompt.ts';
 import type { AnthropicMessageResponse } from '../../_shared/analyze-form-validation.ts';
@@ -1672,10 +1671,12 @@ Deno.test('pro/elite tiers still run the real persisted-result path', async () =
   }
 });
 
+
 // ===========================================================================
-// ONE FRAME IS ONE INSTANT, whatever produced it. Free's frame cap is 1, so a VIDEO submission
-// routinely arrives as a single frame — the path these three tests police, and the one the
-// multi-frame prompt rules and the photo-worded limitation copy both used to get wrong.
+// ONE FRAME IS ONE INSTANT, whatever produced it — and a STOP-RUNNING SIGNAL survives that,
+// structurally. Free's frame cap is 1, so a VIDEO submission routinely arrives as a single frame:
+// the path where normalization discards every claim the model made about Cadence/Elasticity, and
+// where the certified `safety` declaration is the one thing that must come through untouched.
 // ===========================================================================
 
 const ONE_FRAME_VIDEO_BODY = {
@@ -1685,6 +1686,13 @@ const ONE_FRAME_VIDEO_BODY = {
   idempotencyKey: 'one-frame-video',
 };
 
+const ONE_FRAME_PHOTO_BODY = {
+  mediaType: 'photo',
+  frames: ['AAAA'],
+  timestamps: [0],
+  idempotencyKey: 'one-frame-photo',
+};
+
 function freeReserve() {
   return {
     data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'free' },
@@ -1692,134 +1700,222 @@ function freeReserve() {
   };
 }
 
-/** A frame's CONTENTS never reach the system prompt (`buildSystemPrompt` reads only `media`), so
- * any well-formed frame is enough to build the two candidate prompts to compare against. */
-const PROMPT_PROBE_FRAME = { base64: 'AAAA', mediaType: 'image/jpeg' as const, requestedTimestampMs: 0 };
+function systemText(request: AnalyzeFormRequest): string {
+  return request.system.map((block) => block.text).join('\n');
+}
 
-Deno.test('a video clipped to ONE frame is given the single-frame medium rules, not the cross-frame ones', async () => {
-  const h = harness([ok()]);
-  h.rpc.handlers.reserve_analysis = () => freeReserve();
+/** The three stop-running signals of `knowledge/injury_flags.md`, phrased the way a coach actually
+ * writes them. NONE of these sentences shares vocabulary with a keyword list — that is the point:
+ * preservation must not depend on recognising the words. */
+const SAFETY_CASES = [
+  {
+    label: 'guarding, in the reviewer’s own words',
+    signal: 'swellingLimpOrFavouringOneSide',
+    note: 'The left leg cannot take even weight and she is guarding it — see someone before your next run.',
+  },
+  {
+    label: 'bone-stress language with no clinical vocabulary',
+    signal: 'sharpOrWorseningPain',
+    note: 'You describe a hot, worsening ache along the shin that builds as you go — please have that assessed before your next session.',
+  },
+  {
+    label: 'heel-cord language',
+    signal: 'achillesOrHeelCordPain',
+    note: 'What you describe at the back of the heel gets worse when pushed through; hold off on speed work and have it checked.',
+  },
+] as const;
 
-  await run(h, ONE_FRAME_VIDEO_BODY);
+function pillarWithSafety(
+  signal: string,
+  note: string,
+  extra: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    score: 71,
+    band: 'good',
+    feedback: 'Contact time looks springy and the cadence sits in the mid-170s spm.',
+    safety: { signal, note },
+    flags: [],
+    drills: [],
+    ...extra,
+  };
+}
 
-  const singleFrameSystem = buildAnalyzeFormRequest({
-    tier: 'free',
-    media: 'photo',
-    frames: [PROMPT_PROBE_FRAME],
-  }).system;
-  const crossFrameSystem = buildAnalyzeFormRequest({
-    tier: 'pro',
-    media: 'video',
-    frames: [PROMPT_PROBE_FRAME, { ...PROMPT_PROBE_FRAME, requestedTimestampMs: 400 }],
-  }).system;
+function safeSignal() {
+  return { signal: 'none', note: '' };
+}
 
-  assertEquals(h.model.requests.length, 1);
-  assertEquals(
-    h.model.requests[0].system,
-    singleFrameSystem,
-    'one attached frame must get the one-instant rules, whatever mediaType the client declared'
-  );
-  assertNotEquals(
-    h.model.requests[0].system,
-    crossFrameSystem,
-    'the cross-frame rules invite an arm-swing arc/symmetry comparison that never existed'
-  );
+for (const testCase of SAFETY_CASES) {
+  Deno.test(`a stop-running signal survives the one-frame strip: ${testCase.label}`, async () => {
+    const h = harness([
+      ok({
+        pillars: {
+          posture: { ...scoredPillar(78, 'good'), safety: safeSignal() },
+          armSwing: { ...scoredPillar(66, 'mid'), safety: safeSignal() },
+          cadence: { ...scoredPillar(70, 'good'), safety: safeSignal() },
+          elasticity: pillarWithSafety(testCase.signal, testCase.note),
+        },
+        overall: { score: 71, band: 'good' },
+      }),
+    ]);
+    h.rpc.handlers.reserve_analysis = () => freeReserve();
 
-  // The multi-frame path is unchanged: two frames still get the cross-frame rules.
-  const multi = harness([ok()]);
-  await run(multi, VIDEO_BODY);
-  assertEquals(multi.model.requests[0].system, crossFrameSystem);
-});
+    const res = await run(h, ONE_FRAME_VIDEO_BODY);
 
-/** A one-frame submission in which the model reported a stop-running signal on Elasticity, in the
- * same breath as an assessment claim a single frame cannot support. Normalization must drop the
- * second and keep the first. */
-function safetySignalOnElasticity(): ModelCallResult {
-  return ok({
-    pillars: {
-      posture: scoredPillar(78, 'good'),
-      armSwing: scoredPillar(66, 'mid'),
-      cadence: scoredPillar(70, 'good'),
-      elasticity: {
-        score: 71,
-        band: 'good',
-        feedback:
-          'Visible swelling around the right ankle, and the runner is clearly favouring that side — get it looked at before running on it. Left ground contact runs longer than right.',
-        flags: [],
-        drills: [],
-      },
-    },
-    overall: { score: 71, band: 'good' },
+    assertEquals(res.status, 200);
+    const result = res.body.result as {
+      pillars: Record<
+        string,
+        {
+          score: number | null;
+          band: string | null;
+          feedback: string | null;
+          notAssessedReason?: string;
+          safety?: { signal: string; note: string } | null;
+          flags: unknown[];
+          drills: unknown[];
+        }
+      >;
+    };
+    const elasticity = result.pillars.elasticity;
+
+    // THE WARNING IS THERE, in the runner's face, and unaltered.
+    assertEquals(elasticity.feedback, testCase.note);
+    assertEquals(elasticity.safety, { signal: testCase.signal, note: testCase.note });
+
+    // AND THE ASSESSMENT CLAIM IS GONE — score, band, and the model's prose about a bounce cycle
+    // and a cadence figure a single frame cannot support.
+    assertEquals(elasticity.score, null);
+    assertEquals(elasticity.band, null);
+    assertEquals(elasticity.notAssessedReason, 'singleFrameFromVideo');
+    assertEquals(elasticity.flags, []);
+    assertEquals(elasticity.drills, []);
+    assertEquals(
+      (elasticity.feedback ?? '').includes('mid-170s spm'),
+      false,
+      'a cadence figure must never survive on a pillar one frame cannot assess'
+    );
+
+    // And it is what was PERSISTED, not just what was returned.
+    const settled = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
+    assertEquals(settled.pillars.elasticity.feedback, testCase.note);
+    assertEquals(settled.pillars.elasticity.score, null);
   });
 }
 
-Deno.test('a stop-running safety signal survives the single-frame strip, and leads the pillar feedback', async () => {
-  const h = harness([safetySignalOnElasticity()]);
+Deno.test('a pillar with no stop-running signal keeps no prose at all after the one-frame strip', async () => {
+  const h = harness([
+    ok({
+      pillars: {
+        posture: { ...scoredPillar(78, 'good'), safety: safeSignal() },
+        armSwing: { ...scoredPillar(66, 'mid'), safety: safeSignal() },
+        cadence: pillarWithSafety('none', ''),
+        elasticity: pillarWithSafety('none', ''),
+      },
+      overall: { score: 71, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_PHOTO_BODY);
+  const result = res.body.result as {
+    pillars: Record<string, { feedback: string | null; score: number | null; notAssessedReason?: string }>;
+  };
+
+  assertEquals(result.pillars.cadence.feedback, null, 'no safety signal means no surviving prose');
+  assertEquals(result.pillars.cadence.score, null);
+  assertEquals(
+    result.pillars.cadence.notAssessedReason,
+    'needsVideo',
+    'a photo submitter is told a video would unlock these pillars'
+  );
+  assertEquals(result.pillars.elasticity.feedback, null);
+});
+
+Deno.test('an UNGROUNDED safety signal fails closed: no salvage, no delivery, no charge', async () => {
+  // A signal id outside injury_flags.md's certified list. Salvaging around it would hand the
+  // runner a complete-looking analysis with an unreadable warning quietly dropped.
+  const ungrounded = () =>
+    ok({
+      pillars: {
+        posture: { ...scoredPillar(78, 'good'), safety: { signal: 'runnersKnee', note: 'Stop running.' } },
+        armSwing: { ...scoredPillar(66, 'mid'), safety: safeSignal() },
+        cadence: { ...scoredPillar(70, 'good'), safety: safeSignal() },
+        elasticity: { ...scoredPillar(71, 'good'), safety: safeSignal() },
+      },
+      overall: { score: 71, band: 'good' },
+    });
+  const h = harness([ungrounded(), ungrounded()]);
   h.rpc.handlers.reserve_analysis = () => freeReserve();
 
   const res = await run(h, ONE_FRAME_VIDEO_BODY);
 
-  assertEquals(res.status, 200);
-  const result = res.body.result as {
-    pillars: Record<string, { score: number | null; band: string | null; feedback: string | null; notAssessedReason?: string }>;
-  };
-  const elasticity = result.pillars.elasticity;
-
-  // The ASSESSMENT CLAIM is gone — a single frame cannot show a bounce cycle or a left/right
-  // ground-contact comparison.
-  assertEquals(elasticity.score, null);
-  assertEquals(elasticity.band, null);
-  assertEquals(elasticity.notAssessedReason, 'needsVideo');
-  assertEquals(
-    (elasticity.feedback ?? '').includes('Left ground contact runs longer than right'),
-    false,
-    'a claim the media cannot support must not survive normalization'
-  );
-
-  // The SAFETY SIGNAL is not gone, and it is FIRST (SAFETY_RULES: undroppable at every tier,
-  // never buried under form feedback).
-  assert(
-    (elasticity.feedback ?? '').startsWith(
-      'Visible swelling around the right ankle, and the runner is clearly favouring that side — get it looked at before running on it.'
-    ),
-    `the stop-running signal must lead the feedback; got: ${elasticity.feedback}`
-  );
-
-  // And it reaches the PERSISTED row, not just the response.
-  const settled = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
-  assertEquals(settled.pillars.elasticity.feedback, elasticity.feedback);
+  assertEquals(res.status, 422);
+  assertEquals(res.body.code, 'validation_failed');
+  assertEquals(h.rpc.to('settle_analysis').length, 0, 'nothing may be delivered around a dropped warning');
+  assertEquals(h.rpc.to('release_analysis').length, 1, 'the quota slot is handed back');
+  assertEquals(h.model.sent.length, 2, 'the model got its full second chance first');
 });
 
-Deno.test('the single-frame limitation copy describes what was actually submitted', async () => {
+Deno.test('a real signal on a pillar the salvage would DROP also fails closed', async () => {
+  // Elasticity is unreadable garbage, so a salvage would replace it with the all-null dropped
+  // pillar — taking its declared stop-running signal with it. That must abort the salvage.
+  const withDroppedWarning = () =>
+    ok({
+      pillars: {
+        posture: { ...scoredPillar(78, 'good'), safety: safeSignal() },
+        armSwing: { ...scoredPillar(66, 'mid'), safety: safeSignal() },
+        cadence: { ...scoredPillar(70, 'good'), safety: safeSignal() },
+        elasticity: {
+          score: 'not a number',
+          safety: { signal: 'swellingLimpOrFavouringOneSide', note: 'Get that ankle looked at first.' },
+        },
+      },
+    });
+  const h = harness([withDroppedWarning(), withDroppedWarning()]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_VIDEO_BODY);
+
+  assertEquals(res.status, 422);
+  assertEquals(h.rpc.to('settle_analysis').length, 0);
+  assertEquals(h.rpc.to('release_analysis').length, 1);
+});
+
+Deno.test('the prompt states what the runner SENT and what we RECEIVED as two separate facts', async () => {
   const fromVideo = harness([ok()]);
   fromVideo.rpc.handlers.reserve_analysis = () => freeReserve();
-  const videoRes = await run(fromVideo, ONE_FRAME_VIDEO_BODY);
-  const videoFeedback = (videoRes.body.result as {
-    pillars: Record<string, { feedback: string | null }>;
-  }).pillars.cadence.feedback ?? '';
+  await run(fromVideo, ONE_FRAME_VIDEO_BODY);
+  const videoPrompt = systemText(fromVideo.model.requests[0]);
 
-  assert(
-    /one frame of this video/i.test(videoFeedback),
-    `a video clipped to one frame must be described as such; got: ${videoFeedback}`
+  assert(videoPrompt.includes('WHAT THE RUNNER SENT: a video'), 'their own upload must not be renamed');
+  assert(videoPrompt.includes('WHAT YOU RECEIVED: ONE FRAME'), 'one frame is one instant, whatever produced it');
+  assertEquals(
+    videoPrompt.includes('Tell the runner a short video would unlock'),
+    false,
+    'never advise a video submitter to submit a video'
   );
   assertEquals(
-    /submit a short video/i.test(videoFeedback),
+    videoPrompt.includes('Across frames you can assess all four pillars'),
     false,
-    'never tell a runner who submitted a video to submit a video'
+    'one attached frame must never get the cross-frame rules'
   );
 
   const fromPhoto = harness([ok()]);
   fromPhoto.rpc.handlers.reserve_analysis = () => freeReserve();
-  const photoRes = await run(fromPhoto, {
-    mediaType: 'photo',
-    frames: ['AAAA'],
-    timestamps: [0],
-    idempotencyKey: 'one-frame-photo',
-  });
-  const photoFeedback = (photoRes.body.result as {
-    pillars: Record<string, { feedback: string | null }>;
-  }).pillars.cadence.feedback ?? '';
+  await run(fromPhoto, ONE_FRAME_PHOTO_BODY);
+  const photoPrompt = systemText(fromPhoto.model.requests[0]);
 
-  assert(/single photo/i.test(photoFeedback), `got: ${photoFeedback}`);
-  assert(/submit a short video/i.test(photoFeedback), `a photo submitter is told what would help; got: ${photoFeedback}`);
+  assert(photoPrompt.includes('WHAT THE RUNNER SENT: a photo'));
+  assert(
+    photoPrompt.includes('Tell the runner a short video would unlock'),
+    'a photo submitter IS told what would help'
+  );
+
+  const multiFrame = harness([ok()]);
+  await run(multiFrame, VIDEO_BODY);
+  assert(
+    systemText(multiFrame.model.requests[0]).includes('Across frames you can assess all four pillars'),
+    'the multi-frame path is unchanged'
+  );
 });

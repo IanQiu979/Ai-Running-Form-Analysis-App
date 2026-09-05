@@ -105,13 +105,56 @@ export interface PaceDrill {
 // The result shape
 // -------------------------------------------------------------------------------------------
 
-/** Why a pillar could not be scored — the two "not assessed" strings in
- * `docs/design/copy-deck.md` (`result.pillar.notAssessed.angle` / `.needsVideo`). Optional, and
- * NOT structurally required to be exactly one of these two (see `isPacePillarResult`) — the
- * model may report a reason the copy deck hasn't named a string for yet, and rejecting an
+/** Why a pillar could not be scored. `'angle'` and `'needsVideo'` are the two the MODEL may
+ * report (`docs/design/copy-deck.md`'s `result.pillar.notAssessed.angle` / `.needsVideo`).
+ * `'singleFrameFromVideo'` is written only by the server's own normalization
+ * (`analyze-form/flow.ts`), for the case the other two cannot describe honestly: the runner DID
+ * submit a video, and exactly one frame of it was analysed because that is their plan's frame
+ * cap — telling them to "submit a video" there would be advice about something they already did.
+ * Optional, and NOT structurally required to be one of these three (see `isPacePillarResult`) —
+ * the model may report a reason the copy deck hasn't named a string for yet, and rejecting an
  * otherwise-honest response over that would be exactly the over-tight content validation
  * CLAUDE.md bans. */
-export type PaceNotAssessedReason = 'angle' | 'needsVideo';
+export type PaceNotAssessedReason = 'angle' | 'needsVideo' | 'singleFrameFromVideo';
+
+/**
+ * The stop-running signals of `knowledge/injury_flags.md` — its "Stop-running signals (shown to
+ * ALL tiers when visibly present or reported in the note)" section, one id per certified bullet,
+ * plus `'none'` for "nothing of the kind is visible", which is the overwhelmingly common answer.
+ *
+ * WHY THIS IS AN ENUM AND NOT PROSE. `analyze-form-prompt.ts`'s SAFETY_RULES make a stop-running
+ * signal undroppable at every tier including Free, and `analyze-form/flow.ts`'s normalization has
+ * to strip an unassessable pillar's claims without stripping its warning. Classifying free-form
+ * prose to tell those apart cannot work in either direction — a paraphrase the classifier does not
+ * know drops a real warning, and a coaching sentence that happens to share vocabulary readmits a
+ * fabricated claim. So the two are separated AT THE SOURCE: the model declares the signal in this
+ * closed, certified vocabulary, and normalization copies that declaration across structurally,
+ * with no reading of the prose at all.
+ */
+export const PACE_SAFETY_SIGNALS = [
+  'none',
+  'sharpOrWorseningPain',
+  'swellingLimpOrFavouringOneSide',
+  'achillesOrHeelCordPain',
+] as const;
+
+export type PaceSafetySignalId = (typeof PACE_SAFETY_SIGNALS)[number];
+
+/**
+ * A pillar's safety declaration. `signal` is grounded in the certified list above — anything else
+ * is a shape violation, not a content judgment (see `isPaceSafety`). `note` is the calm,
+ * plain-language sentence `injury_flags.md`'s own language template asks for, and is the ONE piece
+ * of a not-assessed pillar's prose the server carries across verbatim.
+ */
+export interface PaceSafety {
+  signal: PaceSafetySignalId;
+  note: string;
+}
+
+/** Does this pillar carry a real stop-running signal (as opposed to none, or none declared)? */
+export function hasSafetySignal(safety: PaceSafety | null | undefined): safety is PaceSafety {
+  return !!safety && safety.signal !== 'none' && safety.note.trim().length > 0;
+}
 
 /**
  * One pillar's slice of a result. The honest-failure contract lives here: `score: number | null`
@@ -134,6 +177,13 @@ export interface PacePillarResult {
   feedback: string | null;
   /** Present only when `score` is null — why this pillar could not be assessed. */
   notAssessedReason?: PaceNotAssessedReason;
+  /** The pillar's stop-running declaration, in the certified vocabulary — see `PaceSafety`.
+   * Additive and optional: a response that predates the field, or a salvaged pillar, simply has
+   * none. What is NOT optional is that a MALFORMED one fails closed rather than being ignored
+   * (`analyze-form-validation.ts`), and that the production output schema
+   * (`analyze-form-prompt.ts`'s `PACE_RESULT_SCHEMA`) lists it as `required`, so a
+   * grammar-constrained response always carries it. */
+  safety?: PaceSafety | null;
   /** Injury-risk flags raised against this pillar. Paid tiers only; Free and not-assessed
    * pillars are always `[]`, never omitted. */
   flags: PaceInjuryFlag[];
@@ -259,6 +309,22 @@ function isPaceDrill(value: unknown): value is PaceDrill {
   return isRecord(value) && typeof value.name === 'string' && typeof value.instructions === 'string';
 }
 
+/**
+ * The one place a safety declaration's CONTENT is checked, and the one exception to this file's
+ * structural-only rule — deliberately, because `signal` is not prose: it is an id the model picks
+ * from `knowledge/injury_flags.md`'s certified stop-running list, exactly as `band` is picked from
+ * `ScoreBand`. An id outside that list is an ungrounded safety claim, which is precisely what the
+ * closed vocabulary exists to make impossible.
+ */
+export function isPaceSafety(value: unknown): value is PaceSafety {
+  return (
+    isRecord(value) &&
+    typeof value.signal === 'string' &&
+    (PACE_SAFETY_SIGNALS as readonly string[]).includes(value.signal) &&
+    typeof value.note === 'string'
+  );
+}
+
 function isPacePillarResult(value: unknown): value is PacePillarResult {
   if (!isRecord(value)) {
     return false;
@@ -270,6 +336,9 @@ function isPacePillarResult(value: unknown): value is PacePillarResult {
     return false;
   }
   if (value.notAssessedReason !== undefined && typeof value.notAssessedReason !== 'string') {
+    return false;
+  }
+  if (value.safety !== undefined && value.safety !== null && !isPaceSafety(value.safety)) {
     return false;
   }
   if (!Array.isArray(value.flags) || !value.flags.every(isPaceInjuryFlag)) {

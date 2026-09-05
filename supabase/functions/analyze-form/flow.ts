@@ -125,6 +125,7 @@ import {
   PACE_FRAME_CAP,
   PACE_MAX_REQUEST_BODY_BYTES,
   PACE_PILLARS,
+  hasSafetySignal,
   isPaceResult,
   type PacePillarResult,
   type PaceResult,
@@ -751,14 +752,14 @@ export async function runAnalyzeForm(
     reservation = analysisId;
 
     // ── 6/7. The grounded prompt (#41). Server-derived tier; never the client's word for it. ──
-    // The medium rules are chosen by the frames actually attached, NOT by what the client declared:
-    // Free's frame cap is 1, so a video submission routinely arrives as a single frame, and the
-    // video rules ("across frames you can assess all four pillars ... arm-swing arc and symmetry
-    // ... compare them to each other") would then invite a cross-frame comparison that never
-    // existed. One frame is one instant whatever produced it, so it gets the single-frame rules.
+    // Both facts go to the builder — what the runner SENT (`mediaType`) and what actually reached
+    // us (`frames`) — and `analyze-form-prompt.ts` keeps them apart: one attached frame gets the
+    // one-instant rules whatever produced it, while the runner's own upload is still described to
+    // the model as the video it was. Collapsing the two is how a video submitter ends up being
+    // told their upload is a photo and advised to send a video.
     const anthropicRequest = buildAnalyzeFormRequest({
       tier,
-      media: request.frames.length === 1 ? 'photo' : request.mediaType,
+      media: request.mediaType,
       frames: request.frames,
     });
 
@@ -1081,45 +1082,8 @@ async function checkConsent(deps: AnalyzeFormDeps, userId: string): Promise<bool
   }
 }
 
-/** The honest single-frame limitation, in the words of what the runner ACTUALLY submitted. A
- * one-frame result from a VIDEO is Free's frame cap biting, not a photo — telling that runner to
- * "submit a short video" is deterministically wrong advice about their own upload. Neither string
- * repeats `Copy.result.pillar.notAssessed.*`: the client renders the pillar's own feedback INSTEAD
- * of that canned line whenever one is present (`components/pace-readout.tsx`), so this is the one
- * explanation a not-assessed pillar shows, never a second overlapping sentence. */
-function singleFrameLimitationFeedback(mediaType: PaceMediaKind): string {
-  return mediaType === 'video'
-    ? 'Only one frame of this video could be analysed on your plan, and a single frame cannot show stride-to-stride motion, so this could not be assessed.'
-    : 'A single photo cannot show stride-to-stride motion, so this could not be assessed. Submit a short video for cadence and elasticity.';
-}
-
-/** The stop-running signals of `knowledge/injury_flags.md`, as the words a model writes them in.
- * `analyze-form-prompt.ts`'s SAFETY_RULES make these absolute and tier-independent ("say so FIRST,
- * in the `feedback` of the pillar it shows up in, at EVERY tier including Free"), so normalization
- * — which is otherwise free to discard everything a not-assessed pillar claims — must carry them
- * across rather than let a strip delete the one class of content that may never be dropped. */
-const SAFETY_SIGNAL_PATTERN =
-  /\b(swelling|swollen|limp|limping|favour\w*|favor\w*|pain|painful|stress (?:reaction|fracture)|achilles|get (?:it|this|that) (?:looked at|checked|assessed)|see a (?:doctor|physio\w*)|medical assessment|stop running|before running on it)\b/i;
-
-/** Split on sentence boundaries so an assessment claim ("Left ground contact runs longer than
- * right.") can be dropped while the safety sentence beside it survives — the whole point of
- * separating "strip assessment claims" from "preserve the warning". */
-function safetySentences(feedback: string | null | undefined): string[] {
-  if (typeof feedback !== 'string') return [];
-  return feedback
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence.length > 0 && SAFETY_SIGNAL_PATTERN.test(sentence));
-}
-
-/** The stripped pillar's feedback: any safety signal the model wrote LEADS, then the honest
- * limitation. Nothing else the model said about a pillar it could not see survives. */
-function feedbackForStrippedPillar(feedback: string | null | undefined, limitation: string): string {
-  return [...safetySentences(feedback), limitation].join(' ');
-}
-
 /** Cadence is a rate and Elasticity is a bounce cycle: neither exists inside one still frame. */
-const MOTION_ONLY_PILLARS = ['cadence', 'elasticity'] as const;
+const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
 
 /**
  * Server-side normalization — see the file header's "NORMALIZE" step. Never prompt-only trust
@@ -1127,18 +1091,28 @@ const MOTION_ONLY_PILLARS = ['cadence', 'elasticity'] as const;
  * function is the last word on what actually reaches the caller and gets persisted.
  *
  *   - ONE FRAME cannot show stride-to-stride motion. Cadence and Elasticity are forced to an
- *     honest `needsVideo` not-assessed, REPLACING any score/band/flags/drills the model invented
- *     for them — this is exactly the failure mode the retired sample shipped (a hallucinated
- *     "mid-170s spm" and a left/right ground-contact comparison neither pillar's certified
- *     knowledge file supports). What is stripped is the ASSESSMENT CLAIM, not the pillar's whole
- *     voice: a stop-running safety signal in that same sentence block is carried across and put
- *     FIRST, because SAFETY_RULES make it undroppable at every tier including Free.
+ *     honest not-assessed, DISCARDING every claim the model made about them — score, band,
+ *     feedback prose, flags, drills. That prose is exactly the failure mode the retired sample
+ *     shipped (a hallucinated "mid-170s spm" and a left/right ground-contact comparison neither
+ *     pillar's certified knowledge file supports), so none of it survives, however it is phrased.
+ *   - THE ONE THING THAT DOES SURVIVE is the pillar's `safety` declaration, copied across
+ *     STRUCTURALLY — no reading of the prose, no keyword matching, no judgement call. Its
+ *     certified `note` becomes the pillar's feedback, so a stop-running signal leads what the
+ *     runner reads (SAFETY_RULES: undroppable at every tier including Free). Separating the
+ *     warning from the assessment prose AT THE SOURCE (`pace.ts`'s `PaceSafety`) is what makes
+ *     "the warning cannot be dropped" a property of the shape rather than of a classifier.
+ *   - The `notAssessedReason` names what actually happened: `'needsVideo'` for a photo, and
+ *     `'singleFrameFromVideo'` when the runner DID send a video and their plan's cap clipped it
+ *     to one frame. The client renders one sentence from that reason
+ *     (`Copy.result.pillar.notAssessed.*`), so neither surface tells a video submitter to submit
+ *     a video.
  *   - ALL FOUR pillars are guarded on a one-frame submission, not merely the two that are forced.
  *     Posture and Arm-swing POSITION do survive one frame, but a pillar the model itself did not
  *     score may not keep flags or drills it cannot support — guarding half of them was never a
  *     guarantee against fabricated confidence.
  *   - FREE never renders flags/drills (`pace.ts`'s `PacePillarResult` doc comment: "Paid-tier
- *     content"). Stripped here on every pillar, not merely omitted from the prompt.
+ *     content"). Stripped here on every pillar, not merely omitted from the prompt. `safety` is
+ *     NOT tier-gated and is never stripped — it is the one field a cheap tier cannot cost you.
  *
  * `overall` is always recomputed from whatever survives, via the same `deriveOverall()` the
  * honest-partial fallback path already uses — never the model's own `overall`, which was computed
@@ -1152,17 +1126,17 @@ function normalizeForEvidenceAndTier(
   const pillars: Record<string, PacePillarResult> = { ...result.pillars };
 
   if (frameCount === 1) {
-    const limitation = singleFrameLimitationFeedback(mediaType);
-
     for (const id of PACE_PILLARS) {
       const pillar = pillars[id];
 
-      if ((MOTION_ONLY_PILLARS as readonly string[]).includes(id)) {
+      if (MOTION_ONLY_PILLARS.includes(id)) {
+        const safety = pillar.safety ?? null;
         pillars[id] = {
           score: null,
           band: null,
-          feedback: feedbackForStrippedPillar(pillar.feedback, limitation),
-          notAssessedReason: 'needsVideo',
+          feedback: hasSafetySignal(safety) ? safety.note : null,
+          notAssessedReason: mediaType === 'video' ? 'singleFrameFromVideo' : 'needsVideo',
+          safety,
           flags: [],
           drills: [],
         };

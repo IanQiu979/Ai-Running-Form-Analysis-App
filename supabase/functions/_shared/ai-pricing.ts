@@ -72,7 +72,11 @@ export const TOKENS_PER_FRAME = 1600;
 //
 // TODO(#44): pin this exactly with Anthropic's `/v1/messages/count_tokens` endpoint (it is free
 // and does not consume credits) before the first production call, and replace the heuristic.
-export const SYSTEM_PROMPT_TOKENS_ESTIMATE = 24000;
+// RAISED 24000 -> 25500 on 2026-09-06, when the per-pillar `safety` declaration
+// (`pace.ts`'s `PaceSafety`) was added to the output schema — its descriptions ride in the prompt
+// four times, once per pillar. `analyze-form-prompt.deno.test.ts`'s spend-gate test measures the
+// real assembled prompt (~24.5k) and fails if this constant ever falls under it again.
+export const SYSTEM_PROMPT_TOKENS_ESTIMATE = 25500;
 
 // docs/architecture.md step 7: "max_tokens 4-8k", tier-scaled per step 6's verbosity dial (Free
 // gets scores + one line per pillar and no drills; Pro fuller feedback + injury flags + drills;

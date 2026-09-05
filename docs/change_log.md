@@ -10,9 +10,11 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 **Captain's ruling: Free now runs through the exact same `analyze-form` path as Pro/Elite,
 capped server-side at one lifetime delivered analysis** — enforced by `reserve_analysis`'s
 existing per-user advisory lock and lifetime cap for Free, not a new counter or new schema.
-Code-complete and fully tested (93 Jest suites / 1439 tests + 400 Deno tests, full
-typecheck+lint clean); **not yet deployed**, and zero real Anthropic calls were made anywhere in
-this work.
+Code-complete and tested (the edge suite measured at 407 Deno tests
+after this round's additions; the app suite's 93 Jest suites / 1439 tests figure was measured
+BEFORE the 2026-09-06 review rounds and does not include the Jest tests they added — the
+pipeline's own test step is the authoritative count; full typecheck+lint clean); **not yet
+deployed**, and zero real Anthropic calls were made anywhere in this work.
 
 - **The `pace_current_tier` pre-lookup and the Free short-circuit are gone from
   `supabase/functions/analyze-form/flow.ts`.** Every tier now runs auth → consent → AI spend gate
@@ -26,6 +28,30 @@ this work.
   tier) has Cadence and Elasticity forced to `notAssessedReason: 'needsVideo'`, replacing whatever
   the model claimed. Free additionally has flags/drills stripped from every pillar. `overall` is
   always recomputed from what survives, via the existing `deriveOverall()`.
+  - **Review follow-up 2, same day — the safety signal is now structural, not lexical.** The first
+    follow-up preserved a stop-running warning by keyword-matching the model's prose, which could
+    both drop a warning phrased outside the pattern and preserve a fabricated cadence claim that
+    happened to match it. That heuristic is gone. `supabase/functions/_shared/pace.ts` gains an
+    ADDITIVE per-pillar `safety` field — `{ signal, note }`, where `signal` is an id from
+    `knowledge/injury_flags.md`'s certified stop-running list (`PACE_SAFETY_SIGNALS`) — and
+    `PACE_RESULT_SCHEMA` requires it, so the model declares the warning SEPARATELY from its
+    assessment prose. Normalization copies that field across structurally and promotes its `note`
+    to the pillar's feedback; nothing else the model wrote about an unassessable pillar survives.
+    An ungrounded or unreadable `safety` value, and a real signal on a pillar a salvage would drop,
+    both FAIL CLOSED in `analyze-form-validation.ts` (no salvage, retry, then release without
+    charging). `SYSTEM_PROMPT_TOKENS_ESTIMATE` rose 24000 → 25500 because the new schema
+    descriptions ride in the prompt once per pillar.
+  - **The prompt now states two facts, never one.** `analyze-form-prompt.ts` builds its medium
+    rules from what the runner SENT (photo or video) and what REACHED the model (frame count), so a
+    video clipped to one frame by Free's cap gets the one-instant rules while still being described
+    as the video it is — and is never advised to submit a video. `flow.ts` passes the real
+    `mediaType` again rather than relabelling a one-frame video as a photo.
+  - **`notAssessedReason` gains the server-authored `'singleFrameFromVideo'`**, with its own copy
+    string, so both render surfaces (`components/pace-readout.tsx` and
+    `components/pillar-detail-modal.tsx`) and the VoiceOver announcement describe the runner's own
+    upload correctly. The previous round's suppression of the "Not assessed" marker whenever a
+    pillar carried feedback is reverted — it hid the marker on Pro/Elite pillars the model itself
+    could not score — and is replaced by the server no longer writing a competing sentence.
   - **Review follow-up, same day.** The strip used to overwrite the pillar's `feedback` wholesale,
     which could silently delete a stop-running safety signal — the one class of content
     `analyze-form-prompt.ts`'s SAFETY_RULES make undroppable at every tier. Normalization now

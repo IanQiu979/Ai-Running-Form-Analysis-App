@@ -394,7 +394,8 @@ Deno.test('a photo is instructed to report Cadence and Elasticity as needsVideo,
   for (const tier of TIERS) {
     const prompt = fullPromptText(photoInput(tier));
 
-    assertIncludes(prompt, 'A SINGLE PHOTO', `Photo medium not declared for tier "${tier}".`);
+    assertIncludes(prompt, 'WHAT THE RUNNER SENT: a photo', `Photo medium not declared for tier "${tier}".`);
+    assertIncludes(prompt, 'WHAT YOU RECEIVED: ONE FRAME', `Frame count not declared for tier "${tier}".`);
     assertIncludes(
       prompt,
       'You CANNOT assess Cadence or Elasticity from one frame',
@@ -745,7 +746,7 @@ Deno.test('the tool schema mirrors PaceResult exactly — same pillars, same fie
     };
     assert(
       JSON.stringify(pillarSchema.required.slice().sort()) ===
-        JSON.stringify(['band', 'drills', 'feedback', 'flags', 'score']),
+        JSON.stringify(['band', 'drills', 'feedback', 'flags', 'safety', 'score']),
       `Pillar "${pillar}" does not require exactly PacePillarResult's fields.`
     );
     assert(

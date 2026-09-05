@@ -78,7 +78,7 @@
 
 import { DRILLS_MD, INJURY_FLAGS_MD, PACE_FRAMEWORK_MD } from './knowledge.generated.ts';
 import { MAX_OUTPUT_TOKENS_BY_TIER } from './ai-pricing.ts';
-import { PACE_FRAME_CAP, PACE_PILLARS, SCORE_BAND_VALUES } from './pace.ts';
+import { PACE_FRAME_CAP, PACE_PILLARS, PACE_SAFETY_SIGNALS, SCORE_BAND_VALUES } from './pace.ts';
 import type { PaceTier } from './pace.ts';
 
 // -------------------------------------------------------------------------------------------
@@ -309,6 +309,33 @@ function pillarSchema(pillarLabel: string): Record<string, unknown> {
           '"angle": the camera angle, framing, lighting, or crop does not show what this pillar ' +
           'needs.',
       },
+      safety: {
+        type: 'object',
+        description:
+          "This pillar's stop-running declaration, kept OUT of `feedback` so it survives when the " +
+          'server strips claims a single frame cannot support. Say it in `feedback` too, first, ' +
+          'as the safety rules require — this is the machine-readable copy, not a replacement.',
+        properties: {
+          signal: {
+            type: 'string',
+            enum: [...PACE_SAFETY_SIGNALS],
+            description:
+              'injury_flags.md\'s certified stop-running list, and the ONLY values allowed. ' +
+              '"none" (the normal answer) = nothing of the kind is visible or reported; ' +
+              '"sharpOrWorseningPain"; "swellingLimpOrFavouringOneSide"; ' +
+              '"achillesOrHeelCordPain". Declare one ONLY when plainly visible or stated.',
+          },
+          note: {
+            type: 'string',
+            description:
+              'Empty string when signal is "none". Otherwise injury_flags.md\'s language ' +
+              'template: calm, plain language, get it looked at before running on it. Never name ' +
+              'a condition as present.',
+          },
+        },
+        required: ['signal', 'note'],
+        additionalProperties: false,
+      },
       flags: {
         type: 'array',
         description:
@@ -357,7 +384,7 @@ function pillarSchema(pillarLabel: string): Record<string, unknown> {
         },
       },
     },
-    required: ['score', 'band', 'feedback', 'flags', 'drills'],
+    required: ['score', 'band', 'feedback', 'safety', 'flags', 'drills'],
     additionalProperties: false,
   };
 }
@@ -529,6 +556,14 @@ const SAFETY_RULES = [
   "  FIRST, in the `feedback` of the pillar it shows up in, at EVERY tier including Free — in",
   '  calm, plain language, telling the runner to get it looked at before running on it. It is',
   '  never buried under form feedback and never withheld because a tier is cheap.',
+  '- AND DECLARE IT IN THE `safety` FIELD of that same pillar: pick the matching certified',
+  '  `signal` from injury_flags.md\'s stop-running list and put the calm sentence in `note`.',
+  '  Prose alone is not enough — the server strips claims a single frame cannot support, and the',
+  '  `safety` field is what carries the warning through that strip untouched. A stop-running',
+  '  signal you write ONLY into `feedback` can be lost; one you declare here cannot.',
+  '- `signal: "none"` (with an empty `note`) is the normal answer and is required whenever no',
+  '  stop-running signal is visible. Never declare a signal to be safe: a false alarm on every',
+  '  result is how a real one stops being read.',
   '- Do NOT write the "not medical advice" disclaimer into any field. The app renders it under',
   '  every single result already, on every tier. Writing it again would double it on screen.',
 ].join('\n');
@@ -737,30 +772,53 @@ const ROLE_PREAMBLE = [
   'thing this system can produce, because nobody can tell it is wrong.',
 ].join('\n');
 
-const MEDIUM_RULES: Record<PaceMediaKind, string> = {
-  photo: [
-    'THE MEDIA: A SINGLE PHOTO. One frame, one instant.',
-    '- You CAN assess: Posture (trunk lean, head, shoulders, pelvis) and Arm swing POSITION',
-    '  (elbow angle, where the hands are, whether they cross the midline).',
-    '- You CANNOT assess Cadence or Elasticity from one frame. Both are motion over time; a still',
-    '  cannot show step rate, vertical oscillation, or contact quality. Do not infer them from a',
-    '  single pose, however suggestive it looks.',
-    '  => Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
-    '     "needsVideo"`. This is not a failure — it is the correct, honest result for a photo.',
-    '     Tell the runner a short video would unlock those two pillars.',
-    '- Arm swing RANGE (the arc) is also motion over time. Judge position only, and say so.',
-  ].join('\n'),
-  video: [
-    'THE MEDIA: FRAMES FROM A SHORT VIDEO, in capture order.',
-    '- Across frames you can assess all four pillars: trunk/pelvis alignment, arm-swing arc and',
-    '  symmetry, where the foot lands relative to the centre of mass, and how much the torso',
-    '  rises and falls.',
-    '- Read the frames as a sequence: the same runner, moments apart. Compare them to each other',
-    '  — that comparison, not any single frame, is the analysis.',
-    '- The timing between them is approximate. Read the FRAME TIMESTAMPS section before you use',
-    '  it for anything.',
-  ].join('\n'),
-};
+/**
+ * The medium rules, assembled from TWO SEPARATE FACTS that must never be conflated:
+ *
+ *   1. WHAT THE RUNNER SENT — a photo, or a video. Their own upload; we do not get to rename it.
+ *   2. WHAT REACHED YOU — how many frames are actually attached. A video whose plan allows one
+ *      frame arrives here as one frame, and one frame is one instant whatever produced it.
+ *
+ * Collapsing the two is how a runner who submitted a video gets told their upload is a photo and
+ * advised to submit a video. So the one-frame rules below state fact 1 in the runner's terms and
+ * fact 2 in ours, and the "a short video would unlock those pillars" advice is given ONLY when
+ * that advice is actually true for what they sent.
+ */
+function mediumRules(media: PaceMediaKind, frameCount: number): string {
+  if (frameCount === 1) {
+    return [
+      media === 'photo'
+        ? 'WHAT THE RUNNER SENT: a photo.'
+        : 'WHAT THE RUNNER SENT: a video. Their plan allows one frame per analysis, so exactly one frame of it was extracted.',
+      'WHAT YOU RECEIVED: ONE FRAME. One instant, whatever produced it.',
+      '- You CAN assess: Posture (trunk lean, head, shoulders, pelvis) and Arm swing POSITION',
+      '  (elbow angle, where the hands are, whether they cross the midline).',
+      '- You CANNOT assess Cadence or Elasticity from one frame. Both are motion over time; a',
+      '  still cannot show step rate, vertical oscillation, or contact quality. Do not infer them',
+      '  from a single pose, however suggestive it looks.',
+      '  => Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
+      '     "needsVideo"`. This is not a failure — it is the correct, honest result for one frame.',
+      '- Arm swing RANGE (the arc) is also motion over time. Judge position only, and say so.',
+      media === 'photo'
+        ? '- Tell the runner a short video would unlock those two pillars.'
+        : '- They ALREADY sent a video. NEVER tell them to submit one, and never describe their\n  submission as a photo. If you mention the limitation, say only that one frame of their\n  video could be analysed.',
+    ].join('\n');
+  }
+
+  return MULTI_FRAME_RULES;
+}
+
+const MULTI_FRAME_RULES = [
+  'WHAT THE RUNNER SENT: a video.',
+  'WHAT YOU RECEIVED: SEVERAL FRAMES FROM IT, in capture order.',
+  '- Across frames you can assess all four pillars: trunk/pelvis alignment, arm-swing arc and',
+  '  symmetry, where the foot lands relative to the centre of mass, and how much the torso',
+  '  rises and falls.',
+  '- Read the frames as a sequence: the same runner, moments apart. Compare them to each other',
+  '  — that comparison, not any single frame, is the analysis.',
+  '- The timing between them is approximate. Read the FRAME TIMESTAMPS section before you use',
+  '  it for anything.',
+].join('\n');
 
 /**
  * The system message: role, then the three certified documents verbatim, then the operating
@@ -798,7 +856,7 @@ export function buildSystemPrompt(input: AnalyzeFormPromptInput): AnthropicTextB
     'OPERATING RULES FOR THIS ANALYSIS',
     '='.repeat(88),
     '',
-    MEDIUM_RULES[input.media],
+    mediumRules(input.media, input.frames.length),
     '',
     INVARIANT_RULES,
   ].join('\n');
@@ -811,9 +869,11 @@ export function buildSystemPrompt(input: AnalyzeFormPromptInput): AnthropicTextB
  * interval with "approximately" — there is no code path that prints a bare, authoritative-looking
  * millisecond value (issue #112).
  */
-export function formatFrameManifest(frames: PaceFrame[]): string {
+export function formatFrameManifest(frames: PaceFrame[], media: PaceMediaKind = 'photo'): string {
   if (frames.length === 1) {
-    return 'FRAME MANIFEST: 1 frame (a single photo — no timing information applies).';
+    return media === 'video'
+      ? 'FRAME MANIFEST: 1 frame — the only frame extracted from the runner\'s video (their plan\'s cap). No timing information applies to a single frame.'
+      : 'FRAME MANIFEST: 1 frame (a single photo — no timing information applies).';
   }
 
   const lines = frames.map((frame, i) => {
@@ -884,17 +944,24 @@ function buildOutputContract(input: AnalyzeFormPromptInput): string {
  * — "system message = the certified PACE knowledge..., then the image block(s) plus their
  * timestamps, then the PACE scoring instruction."
  */
+function submissionLine(input: AnalyzeFormPromptInput): string {
+  if (input.media === 'photo') {
+    return "Here is the runner's submission: one photo.";
+  }
+  return input.frames.length === 1
+    ? "Here is the runner's submission: a video, of which exactly one frame was extracted for this analysis."
+    : `Here is the runner's submission: ${input.frames.length} frames from a short video.`;
+}
+
 export function buildUserContent(input: AnalyzeFormPromptInput): AnthropicContentBlock[] {
   const blocks: AnthropicContentBlock[] = [];
 
   blocks.push({
     type: 'text',
     text: [
-      input.media === 'photo'
-        ? 'Here is the runner\'s submission: one photo.'
-        : `Here is the runner's submission: ${input.frames.length} frames from a short video.`,
+      submissionLine(input),
       '',
-      formatFrameManifest(input.frames),
+      formatFrameManifest(input.frames, input.media),
     ].join('\n'),
   });
 
@@ -902,8 +969,10 @@ export function buildUserContent(input: AnalyzeFormPromptInput): AnthropicConten
     blocks.push({
       type: 'text',
       text:
-        input.media === 'photo'
-          ? 'The photo:'
+        input.frames.length === 1
+          ? input.media === 'photo'
+            ? 'The photo:'
+            : 'The one frame extracted from the video:'
           : `Frame ${i + 1} of ${input.frames.length} — requested at ~${Math.round(
               frame.requestedTimestampMs
             )} ms (approximate):`,
