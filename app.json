@@ -44,7 +44,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Used to record a video or photo of your running form for analysis. Recording is muted \u2014 Pace Analysis AI never accesses your microphone.",
+          "cameraPermission": "Used to record a video or photo of your running form for analysis. Recording is muted — Pace Analysis AI never accesses your microphone.",
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
@@ -53,11 +53,12 @@
         "expo-image-picker",
         {
           "photosPermission": "Used to choose an existing photo or video of your running form to analyze.",
-          "cameraPermission": "Used to record a video or photo of your running form for analysis. Recording is muted \u2014 Pace Analysis AI never accesses your microphone.",
+          "cameraPermission": "Used to record a video or photo of your running form for analysis. Recording is muted — Pace Analysis AI never accesses your microphone.",
           "microphonePermission": false
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

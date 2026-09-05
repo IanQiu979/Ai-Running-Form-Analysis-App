@@ -50,11 +50,41 @@ function frame(requestedTimestampMs: number): PaceFrame {
   return { base64: 'ZmFrZS1qcGVn', mediaType: 'image/jpeg', requestedTimestampMs };
 }
 
+/**
+ * A genuine stride burst — frames spanning `MAX_STRIDE_BURST_SPAN_MS`'s (900ms) safe zone,
+ * matching what `lib/frames.ts`'s post-#199 `sampleTimestamps` actually produces (a ~700ms window).
+ * `videoInput` uses this by default so every test exercising some OTHER property of the video
+ * prompt (tier depth, medical boundary, flag naming, ...) keeps getting the full four-pillar
+ * `STRIDE_BURST_VIDEO_RULES` text it was written against. Tests of the burst/legacy classification
+ * itself use `legacySparseVideoInput` below instead.
+ */
+function burstFrames(frameCount: number): PaceFrame[] {
+  if (frameCount <= 1) {
+    return Array.from({ length: Math.max(frameCount, 0) }, () => frame(0));
+  }
+  const step = 700 / (frameCount - 1);
+  return Array.from({ length: frameCount }, (_, i) => frame(Math.round(i * step)));
+}
+
 function videoInput(tier: PaceTier, frameCount = 5): AnalyzeFormPromptInput {
   return {
     tier,
     media: 'video',
-    frames: Array.from({ length: frameCount }, (_, i) => frame(i * 400)),
+    frames: burstFrames(frameCount),
+  };
+}
+
+/**
+ * Frames spread across a whole clip the way the pre-#199 sampler used to (1.3-2.2s apart) — wide
+ * enough that `isStrideBurst` must classify them as LEGACY/SPARSE. Exists so the classification
+ * itself, and `LEGACY_SPARSE_VIDEO_RULES`'s forced not-assessed treatment of Cadence/Elasticity,
+ * has dedicated coverage independent of every other video-prompt test's default burst input.
+ */
+function legacySparseVideoInput(tier: PaceTier, frameCount = 5): AnalyzeFormPromptInput {
+  return {
+    tier,
+    media: 'video',
+    frames: Array.from({ length: frameCount }, (_, i) => frame(i * 1_600)),
   };
 }
 
@@ -542,7 +572,7 @@ Deno.test('the image blocks themselves label their timestamps as approximate', (
     .join('\n');
 
   assertIncludes(text, 'Frame 1 of 3 — requested at ~0 ms (approximate)', 'Frame label lost its hedge.');
-  assertIncludes(text, 'Frame 2 of 3 — requested at ~400 ms (approximate)', 'Frame label lost its hedge.');
+  assertIncludes(text, 'Frame 2 of 3 — requested at ~350 ms (approximate)', 'Frame label lost its hedge.');
 
   // Ordering (docs/architecture.md step 7): manifest, then each label immediately before its
   // image, then the scoring instruction LAST.
@@ -704,6 +734,157 @@ Deno.test('the uncertainty must reach the RUNNER — hedged in `feedback`, not j
       `Tier "${tier}" gives no example of a correctly hedged cadence claim.`
     );
   }
+});
+
+// -------------------------------------------------------------------------------------------
+// 5b. ISSUE #199 — the stride-burst / legacy-sparse split (the core-purpose audit's structural
+//     ceiling finding: frames sampled far apart cannot show motion, no matter what the prompt says)
+// -------------------------------------------------------------------------------------------
+
+Deno.test('a genuine stride burst unlocks all four pillars and is labelled STRIDE BURST', () => {
+  const prompt = fullPromptText(videoInput('pro'));
+
+  assertIncludes(prompt, 'A STRIDE BURST', 'A tight burst is not described as a stride burst.');
+  assertIncludes(
+    prompt,
+    'Across these frames you can assess all four pillars',
+    'A stride burst does not unlock all four pillars.'
+  );
+  assertIncludes(
+    prompt,
+    'STRIDE BURST (decoder-reported times, approximate)',
+    'The frame manifest header does not classify a tight burst as a stride burst.'
+  );
+});
+
+Deno.test('frames spread across a whole clip are classified LEGACY/SPARSE and lose Cadence/Elasticity', () => {
+  const prompt = fullPromptText(legacySparseVideoInput('pro'));
+
+  assertIncludes(
+    prompt,
+    'SEVERAL VIDEO FRAMES, SPREAD ACROSS THE CLIP — NOT A STRIDE BURST',
+    'Widely-spaced frames are not described as legacy/sparse.'
+  );
+  assertIncludes(
+    prompt,
+    'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)',
+    'The frame manifest header does not classify widely-spaced frames as legacy/sparse.'
+  );
+  assertIncludes(
+    prompt,
+    'not a motion sequence — it is a coincidence dressed up as one',
+    'Legacy/sparse frames are not told they cannot be read as motion.'
+  );
+  assertIncludes(
+    prompt,
+    '`notAssessedReason:',
+    'Legacy/sparse frames are not instructed toward the not-assessed path.'
+  );
+  assert(
+    !prompt.includes('Across these frames you can assess all four pillars'),
+    'Legacy/sparse frames must not be told all four pillars are assessable.'
+  );
+});
+
+Deno.test('a single video frame is treated like a photo, not a burst and not legacy/sparse', () => {
+  const prompt = fullPromptText(videoInput('free', 1));
+
+  assertIncludes(
+    prompt,
+    'A SINGLE FRAME FROM A VIDEO',
+    'A one-frame video does not get the single-frame video rules.'
+  );
+  assertIncludes(
+    prompt,
+    '"needsVideo"',
+    'A one-frame video does not require the needsVideo not-assessed reason.'
+  );
+  assert(!prompt.includes('A STRIDE BURST'), 'A single frame cannot be a stride burst.');
+  assert(
+    !prompt.includes('SEVERAL VIDEO FRAMES, SPREAD ACROSS THE CLIP'),
+    'A single frame is not "several frames".'
+  );
+});
+
+Deno.test('the burst/legacy split is a server-side property of the frames, not the tier or count', () => {
+  // The whole point of #199's server-side classification (see `isStrideBurst`'s header): the edge
+  // function deploys instantly, a native app update does not, so a request built by an
+  // un-updated client with 5 widely-spaced frames must classify the same as any other 5
+  // widely-spaced frames — Elite's extra depth never buys back missing motion evidence.
+  for (const tier of TIERS) {
+    const sparsePrompt = fullPromptText(legacySparseVideoInput(tier));
+    assertIncludes(
+      sparsePrompt,
+      'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)',
+      `Tier "${tier}" with widely-spaced frames is not classified as legacy/sparse.`
+    );
+
+    const burstPrompt = fullPromptText(videoInput(tier));
+    assertIncludes(
+      burstPrompt,
+      'STRIDE BURST (decoder-reported times, approximate)',
+      `Tier "${tier}" with a tight burst is not classified as a stride burst.`
+    );
+  }
+});
+
+Deno.test('a non-increasing or NaN-spanning frame sequence is never classified as a stride burst', () => {
+  // Defense in depth: `lib/frames.ts` rejects a non-increasing sequence before it is ever sent
+  // (`FrameExtractionError`), but this file must not silently trust that a request arriving here
+  // was built by the current client — see `isStrideBurst`'s own header.
+  const nonIncreasing: AnalyzeFormPromptInput = {
+    tier: 'pro',
+    media: 'video',
+    frames: [frame(0), frame(0), frame(350)],
+  };
+  const prompt = fullPromptText(nonIncreasing);
+
+  assertIncludes(
+    prompt,
+    'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)',
+    'A non-increasing frame sequence must not be trusted as a stride burst.'
+  );
+});
+
+Deno.test('an infinite-spanning frame sequence is never classified as a stride burst', () => {
+  // The other half of "non-increasing or NaN/non-finite-spanning": strictly increasing but with a
+  // non-finite value still fails `Number.isFinite(span)` rather than being trusted as a burst.
+  const infiniteSpan: AnalyzeFormPromptInput = {
+    tier: 'pro',
+    media: 'video',
+    frames: [frame(0), frame(Number.POSITIVE_INFINITY)],
+  };
+  const prompt = fullPromptText(infiniteSpan);
+
+  assertIncludes(
+    prompt,
+    'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)',
+    'A non-finite frame span must not be trusted as a stride burst.'
+  );
+});
+
+Deno.test('the stride-burst span boundary is exact: 900ms is a burst, 901ms is legacy/sparse', () => {
+  const atBoundary: AnalyzeFormPromptInput = {
+    tier: 'pro',
+    media: 'video',
+    frames: [frame(0), frame(900)],
+  };
+  const overBoundary: AnalyzeFormPromptInput = {
+    tier: 'pro',
+    media: 'video',
+    frames: [frame(0), frame(901)],
+  };
+
+  assertIncludes(
+    fullPromptText(atBoundary),
+    'STRIDE BURST (decoder-reported times, approximate)',
+    'A 900ms span (the documented MAX_STRIDE_BURST_SPAN_MS) must classify as a stride burst.'
+  );
+  assertIncludes(
+    fullPromptText(overBoundary),
+    'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)',
+    'A 901ms span must classify as legacy/sparse, one millisecond over the documented ceiling.'
+  );
 });
 
 // -------------------------------------------------------------------------------------------

@@ -99,6 +99,15 @@ jest.mock('expo-router', () => ({
   }),
 }));
 
+// `jest.requireActual('@/lib/frames')` below re-executes the real module, whose top-level
+// `import ... from 'expo-video'` otherwise crashes at import time under Jest (no native module,
+// and jest-expo ships no built-in mock for it, unlike several other expo-* packages). This suite
+// never exercises real video decoding — `extractFrames` itself is fully mocked out below — so an
+// empty stub is enough to let the import resolve.
+jest.mock('expo-video', () => ({
+  createVideoPlayer: jest.fn(),
+}));
+
 // Never resolves: the screen must stay in its "extracting" state — and, critically, stay
 // RENDER-BOUNDED while it does — for as long as extraction is in flight.
 jest.mock('@/lib/frames', () => {
