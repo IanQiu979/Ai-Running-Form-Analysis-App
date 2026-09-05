@@ -67,6 +67,7 @@ export function countAssessedPillars(result: PaceResult): number {
 export function notAssessedCopy(reason: PaceNotAssessedReason | undefined): string {
   if (reason === 'angle') return Copy.result.pillar.notAssessed.angle;
   if (reason === 'needsVideo') return Copy.result.pillar.notAssessed.needsVideo;
+  if (reason === 'singleFrameFromVideo') return Copy.result.pillar.notAssessed.singleFrameFromVideo;
   return Copy.result.pillar.notAssessed.generic;
 }
 

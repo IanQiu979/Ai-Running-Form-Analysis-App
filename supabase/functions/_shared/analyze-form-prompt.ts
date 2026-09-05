@@ -84,7 +84,7 @@
 
 import { DRILLS_MD, INJURY_FLAGS_MD, PACE_FRAMEWORK_MD } from './knowledge.generated.ts';
 import { MAX_OUTPUT_TOKENS_BY_TIER } from './ai-pricing.ts';
-import { PACE_FRAME_CAP, PACE_PILLARS, SCORE_BAND_VALUES } from './pace.ts';
+import { PACE_FRAME_CAP, PACE_PILLARS, PACE_SAFETY_SIGNALS, SCORE_BAND_VALUES } from './pace.ts';
 import type { PaceTier } from './pace.ts';
 
 // -------------------------------------------------------------------------------------------
@@ -303,6 +303,33 @@ function pillarSchema(pillarLabel: string): Record<string, unknown> {
           '"angle": the camera angle, framing, lighting, or crop does not show what this pillar ' +
           'needs.',
       },
+      safety: {
+        type: 'object',
+        description:
+          "This pillar's stop-running declaration, kept OUT of `feedback` so it survives when the " +
+          'server strips claims a single frame cannot support. Say it in `feedback` too, first, ' +
+          'as the safety rules require — this is the machine-readable copy, not a replacement.',
+        properties: {
+          signal: {
+            type: 'string',
+            enum: [...PACE_SAFETY_SIGNALS],
+            description:
+              'injury_flags.md\'s certified stop-running list, and the ONLY values allowed. ' +
+              '"none" (the normal answer) = nothing of the kind is visible or reported; ' +
+              '"sharpOrWorseningPain"; "swellingLimpOrFavouringOneSide"; ' +
+              '"achillesOrHeelCordPain". Declare one ONLY when plainly visible or stated.',
+          },
+          note: {
+            type: 'string',
+            description:
+              'Empty string when signal is "none". Otherwise injury_flags.md\'s language ' +
+              'template: calm, plain language, get it looked at before running on it. Never name ' +
+              'a condition as present.',
+          },
+        },
+        required: ['signal', 'note'],
+        additionalProperties: false,
+      },
       flags: {
         type: 'array',
         description:
@@ -351,7 +378,7 @@ function pillarSchema(pillarLabel: string): Record<string, unknown> {
         },
       },
     },
-    required: ['score', 'band', 'feedback', 'flags', 'drills'],
+    required: ['score', 'band', 'feedback', 'safety', 'flags', 'drills'],
     additionalProperties: false,
   };
 }
@@ -523,6 +550,14 @@ const SAFETY_RULES = [
   "  FIRST, in the `feedback` of the pillar it shows up in, at EVERY tier including Free — in",
   '  calm, plain language, telling the runner to get it looked at before running on it. It is',
   '  never buried under form feedback and never withheld because a tier is cheap.',
+  '- AND DECLARE IT IN THE `safety` FIELD of that same pillar: pick the matching certified',
+  '  `signal` from injury_flags.md\'s stop-running list and put the calm sentence in `note`.',
+  '  Prose alone is not enough — the server strips claims a single frame cannot support, and the',
+  '  `safety` field is what carries the warning through that strip untouched. A stop-running',
+  '  signal you write ONLY into `feedback` can be lost; one you declare here cannot.',
+  '- `signal: "none"` (with an empty `note`) is the normal answer and is required whenever no',
+  '  stop-running signal is visible. Never declare a signal to be safe: a false alarm on every',
+  '  result is how a real one stops being read.',
   '- Do NOT write the "not medical advice" disclaimer into any field. The app renders it under',
   '  every single result already, on every tier. Writing it again would double it on screen.',
 ].join('\n');
@@ -891,9 +926,11 @@ export function buildSystemPrompt(input: AnalyzeFormPromptInput): AnthropicTextB
  * so the classification driving `videoMediaRules` is visible in the manifest text too, not only
  * inferred silently from which rules got included above it.
  */
-export function formatFrameManifest(frames: PaceFrame[]): string {
+export function formatFrameManifest(frames: PaceFrame[], media: PaceMediaKind = 'photo'): string {
   if (frames.length === 1) {
-    return 'FRAME MANIFEST: 1 frame (a single photo or video frame — no timing information applies).';
+    return media === 'video'
+      ? 'FRAME MANIFEST: 1 frame — the only frame that could be extracted from the runner\'s video. No timing information applies to a single frame.'
+      : 'FRAME MANIFEST: 1 frame (a single photo — no timing information applies).';
   }
 
   const lines = frames.map((frame, i) => {
@@ -971,17 +1008,24 @@ function buildOutputContract(input: AnalyzeFormPromptInput): string {
  * — "system message = the certified PACE knowledge..., then the image block(s) plus their
  * timestamps, then the PACE scoring instruction."
  */
+function submissionLine(input: AnalyzeFormPromptInput): string {
+  if (input.media === 'photo') {
+    return "Here is the runner's submission: one photo.";
+  }
+  return input.frames.length === 1
+    ? "Here is the runner's submission: a video, of which exactly one frame was extracted for this analysis."
+    : `Here is the runner's submission: ${input.frames.length} frames from a short video.`;
+}
+
 export function buildUserContent(input: AnalyzeFormPromptInput): AnthropicContentBlock[] {
   const blocks: AnthropicContentBlock[] = [];
 
   blocks.push({
     type: 'text',
     text: [
-      input.media === 'photo'
-        ? 'Here is the runner\'s submission: one photo.'
-        : `Here is the runner's submission: ${input.frames.length} frames from a short video.`,
+      submissionLine(input),
       '',
-      formatFrameManifest(input.frames),
+      formatFrameManifest(input.frames, input.media),
     ].join('\n'),
   });
 
@@ -989,8 +1033,10 @@ export function buildUserContent(input: AnalyzeFormPromptInput): AnthropicConten
     blocks.push({
       type: 'text',
       text:
-        input.media === 'photo'
-          ? 'The photo:'
+        input.frames.length === 1
+          ? input.media === 'photo'
+            ? 'The photo:'
+            : 'The one frame extracted from the video:'
           : `Frame ${i + 1} of ${input.frames.length} — client-reported timestamp ~${Math.round(
               frame.requestedTimestampMs
             )} ms (approximate):`,

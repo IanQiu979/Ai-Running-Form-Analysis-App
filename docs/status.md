@@ -1424,8 +1424,10 @@ milestone "done" criteria.
     `{ result, isSample: true }` shape as malformed by construction. An old deployed function
     paired with the new client fails closed; a new deployed function paired with the old client
     also degrades safely. **As of this writing this has NOT been deployed** — code-complete and
-    Deno/Jest-tested only (93 Jest suites / 1439 tests + 400 Deno tests, full
-    typecheck+lint clean), with **zero real Anthropic calls** made anywhere in this work.
+    Deno/Jest-tested only (the edge suite measured at 407 Deno tests after this round's
+    additions; the app suite's 93 Jest suites / 1439 tests figure predates the 2026-09-06 review
+    rounds and does not include the Jest tests they added — the pipeline's own test step is the
+    authoritative count), with **zero real Anthropic calls** made anywhere in this work.
 
     **Not verified**: the local Postgres integration proof in
     `supabase/functions/_shared/integration/quota-rpc.local.ts` (extended to prove one Free

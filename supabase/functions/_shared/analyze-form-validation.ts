@@ -74,7 +74,9 @@
 import {
   PACE_MIN_ASSESSED_PILLARS_FOR_PARTIAL,
   PACE_PILLARS,
+  hasSafetySignal,
   isPaceResult,
+  isPaceSafety,
   type PacePillarId,
   type PacePillarResult,
   type PaceResult,
@@ -423,6 +425,30 @@ function parseJsonPayload(text: string): unknown {
  * not even an object with a `pillars` record — there is nothing to salvage from a string, an
  * array, or a null.
  */
+/**
+ * FAIL CLOSED ON SAFETY. Salvage exists to rescue the readable pillars of a response that failed
+ * full validation — but a rescue that quietly discards a stop-running declaration is worse than no
+ * rescue at all, because the runner receives a plausible, complete-looking analysis with the one
+ * thing they needed removed from it. So a raw pillar whose `safety` field is unreadable, and a
+ * pillar carrying a real signal that this salvage is about to DROP, both abort the salvage
+ * entirely: the attempt yields nothing, the retry runs, and a second failure releases the
+ * reservation without charging the user. A missing analysis is recoverable; a missing warning is
+ * not.
+ */
+function safetyBlocksSalvage(rawPillar: unknown, kept: boolean): boolean {
+  if (typeof rawPillar !== 'object' || rawPillar === null || Array.isArray(rawPillar)) {
+    return false;
+  }
+  const raw = (rawPillar as { safety?: unknown }).safety;
+  if (raw === undefined || raw === null) {
+    return false;
+  }
+  if (!isPaceSafety(raw)) {
+    return true;
+  }
+  return !kept && hasSafetySignal(raw);
+}
+
 function salvagePillars(input: unknown): Salvage | null {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return null;
@@ -439,7 +465,11 @@ function salvagePillars(input: unknown): Salvage | null {
 
   for (const id of PACE_PILLARS) {
     const candidate = source[id];
-    if (isStructurallyValidPillar(candidate)) {
+    const kept = isStructurallyValidPillar(candidate);
+    if (safetyBlocksSalvage(candidate, kept)) {
+      return null;
+    }
+    if (kept) {
       pillars[id] = candidate;
       parsedPillars.push(id);
       if (candidate.score !== null) {

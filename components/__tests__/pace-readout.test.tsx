@@ -101,33 +101,56 @@ describe('a not-assessed pillar never reads as a zero (photoResult: Cadence + El
   });
 });
 
-// ONE explanation per pillar. The server's normalization writes a media-aware sentence into a
-// not-assessed pillar's `feedback` ("Only one frame of this video ..."), and the canned reason line
-// ("Not assessed — needs video, not a photo.") asserts the opposite thing about the same
-// submission. Rendering both put two overlapping claims on screen; the feedback wins.
-it('renders only the server\'s own sentence for a not-assessed pillar that carries feedback', async () => {
-  const withFeedback: PaceResult = {
+// The runner DID send a video; their plan's frame cap clipped it to one frame. Neither "needs
+// video, not a photo" nor "bad angle" is a true sentence about that upload, so the server writes
+// its own reason and this row must speak it.
+it('speaks the single-frame-from-video reason, never "not a photo", for a clipped video', async () => {
+  const clipped: PaceResult = {
     ...photoResult,
     pillars: {
       ...photoResult.pillars,
-      cadence: {
-        ...photoResult.pillars.cadence,
-        feedback: 'Only one frame of this video could be analysed on your plan.',
+      cadence: { ...photoResult.pillars.cadence, notAssessedReason: 'singleFrameFromVideo' },
+    },
+  };
+
+  await render(<PaceReadout result={clipped} />);
+
+  const line = screen.getByTestId('pillar-not-assessed-cadence', HIDDEN).props.children;
+  expect(line).toBe(Copy.result.pillar.notAssessed.singleFrameFromVideo);
+  expect(line).not.toContain('not a photo');
+  // The a11y announcement is the same fact, not a different one — a screen-reader user on this
+  // path must not be told they sent a photo either.
+  expect(screen.getByLabelText(`Cadence. ${Copy.result.pillar.notAssessed.singleFrameFromVideo}`)).toBeTruthy();
+});
+
+// A Pro/Elite multi-frame analysis may honestly report a pillar as not-assessed AND write real
+// explanatory prose for it (`_shared/pace.ts` permits exactly that). The marker must not vanish
+// just because feedback is present — a dashed ring alone does not say "not assessed".
+it('keeps the not-assessed marker on a Pro pillar that carries its own feedback', async () => {
+  const proWithNote: PaceResult = {
+    ...proTierVideoResult,
+    pillars: {
+      ...proTierVideoResult.pillars,
+      armSwing: {
+        score: null,
+        band: null,
+        feedback: 'Keep the elbows near 90 degrees.',
+        notAssessedReason: 'angle',
+        flags: [],
+        drills: [],
       },
     },
   };
 
-  await render(<PaceReadout result={withFeedback} />);
+  await render(<PaceReadout result={proWithNote} />);
 
-  expect(screen.queryByTestId('pillar-not-assessed-cadence', HIDDEN)).toBeNull();
-  expect(screen.getByTestId('pillar-feedback-cadence').props.accessibilityLabel).toBe(
-    'Only one frame of this video could be analysed on your plan.'
+  expect(screen.getByTestId('pillar-not-assessed-armSwing', HIDDEN).props.children).toBe(
+    Copy.result.pillar.notAssessed.angle
   );
-  // The pillar beside it, with no feedback of its own, still gets the canned reason — the line is
-  // a fallback now, not a duplicate.
-  expect(screen.getByTestId('pillar-not-assessed-elasticity', HIDDEN).props.children).toBe(
-    Copy.result.pillar.notAssessed.needsVideo
+  expect(screen.getByTestId('pillar-feedback-armSwing').props.accessibilityLabel).toBe(
+    'Keep the elbows near 90 degrees.'
   );
+  expect(screen.queryByTestId('pillar-score-armSwing')).toBeNull();
 });
 
 it('renders the "angle" reason distinctly from "needsVideo" for a badly-framed pillar', async () => {

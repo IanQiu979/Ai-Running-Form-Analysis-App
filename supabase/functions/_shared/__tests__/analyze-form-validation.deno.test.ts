@@ -408,7 +408,7 @@ Deno.test('the schema and the TypeScript type cannot drift: one shape, two carri
     const pillar = schema.properties.pillars.properties[id];
     assertEquals(
       pillar.required.sort(),
-      ['band', 'drills', 'feedback', 'flags', 'score'],
+      ['band', 'drills', 'feedback', 'flags', 'safety', 'score'],
       `pillar ${id}'s required keys drifted from PacePillarResult`
     );
     assertEquals(

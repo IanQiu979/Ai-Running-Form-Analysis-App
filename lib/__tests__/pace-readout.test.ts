@@ -55,6 +55,13 @@ describe('notAssessedCopy', () => {
     expect(notAssessedCopy('needsVideo')).toBe(Copy.result.pillar.notAssessed.needsVideo);
   });
 
+  it('maps the server-authored "singleFrameFromVideo" to copy that never calls the upload a photo', () => {
+    const copy = notAssessedCopy('singleFrameFromVideo');
+    expect(copy).toBe(Copy.result.pillar.notAssessed.singleFrameFromVideo);
+    expect(copy).not.toContain('not a photo');
+    expect(copy).toMatch(/video/i);
+  });
+
   it('falls back to the generic string for an unnamed reason instead of dropping the pillar', () => {
     // Cast: pace.ts's own validator deliberately does not restrict notAssessedReason to exactly
     // the two known values (see its doc comment) — this proves the client honors that.

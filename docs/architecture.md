@@ -2877,9 +2877,25 @@ counter), and a new, unconditional, server-side **normalization step** —
 and is never merely prompt-guided:
 
 - **Any one-frame submission** (Free's only allowance, and any photo from any tier) has Cadence and
-  Elasticity forced to `notAssessedReason: 'needsVideo'`, replacing whatever score/band/flags/
-  drills the model wrote for them — closing exactly the hallucinated-cadence failure mode the old
-  sample shipped, this time for real model output too, not just the canned one.
+  Elasticity forced to not-assessed, discarding EVERYTHING the model claimed about them — score,
+  band, feedback prose, flags, drills — closing exactly the hallucinated-cadence failure mode the
+  old sample shipped, this time for real model output too, not just the canned one. The reason
+  recorded is `'needsVideo'` for a photo and `'singleFrameFromVideo'` when the runner sent a video
+  their plan's cap clipped to one frame; the client renders one sentence from that reason, so no
+  surface tells a video submitter to submit a video.
+- **The pillar's `safety` declaration survives that strip, structurally.** `pace.ts`'s `PaceSafety`
+  is an ADDITIVE per-pillar field — a `signal` id from `knowledge/injury_flags.md`'s certified
+  stop-running list plus the calm `note` to show the runner — and it exists precisely so a
+  stop-running warning is separated from assessment prose AT THE SOURCE rather than classified out
+  of it afterwards. Normalization copies it across and promotes its `note` to the pillar's feedback;
+  no keyword matching is involved, in either direction. It is never tier-gated. A safety field that
+  is malformed (or a real signal on a pillar a salvage would drop) **fails closed** in
+  `analyze-form-validation.ts`: the salvage is abandoned, the retry runs, and a second failure
+  releases the reservation without charging the user — a missing analysis is recoverable, a missing
+  warning is not.
+- **The prompt states two separate facts**, never one merged one: what the runner SENT (photo or
+  video, their own upload) and what REACHED the model (how many frames). One attached frame always
+  gets the one-instant rules, whatever produced it.
 - **Free additionally strips flags/drills from every pillar**, assessed or not (`pace.ts`'s
   `PacePillarResult` doc comment marks these paid-tier content).
 - **`overall` is always recomputed** from whatever pillars survive, via the same `deriveOverall()`
