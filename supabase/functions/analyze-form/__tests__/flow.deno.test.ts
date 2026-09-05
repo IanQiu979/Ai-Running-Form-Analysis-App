@@ -477,15 +477,39 @@ function releaseReasonFrom(rpc: FakeRpc): unknown {
   return calls[0].args.p_reason;
 }
 
-Deno.test('rule 3: a content failure is terminal and releases as model_error', async () => {
+Deno.test('rule 3 / finding 1(c): TWO content failures after a REAL retry -> validation_failed', async () => {
+  // The genuine-farmer case, and the ONLY one that ticks the anti-farming counter: the model was
+  // asked twice and twice refused to honor the schema. Content failures MUST stay retry-eligible
+  // (not just transport errors, `model_error`) — see `flow.ts`'s `isRetryEligibleFailure` header
+  // comment — or `retryRan` can never be true at the same time `everyResponseWasContentFailure`
+  // is true, which makes `'validation_failed'` structurally unreachable and silently disables the
+  // 3-strike anti-farming cap. Two attempts in the queue => the retry runs.
   const h = harness([prose(), prose()]);
 
   const res = await run(h);
 
-  assertEquals(res.status, 503);
+  assertEquals(res.status, 422);
+  assertEquals(res.body.code, 'validation_failed');
+  assertEquals(releaseReasonFrom(h.rpc), 'validation_failed');
+  assertEquals(h.model.sent.length, 2, 'the retry genuinely ran');
+});
+
+Deno.test('rule 3: a lone content failure with insufficient retry budget -> model_error, no strike', async () => {
+  // Attack-shaped-but-not-an-attack: the model degrades to prose AND attempt 1 used most of the
+  // model window, so `remaining < MIN_RETRY_BUDGET_MS` and we skip the retry. Only one attempt
+  // exists, and WE cut the second — so this is OUR degradation, released as `model_error` (503,
+  // refunds quota, does NOT tick the 3-strike cap), never `validation_failed`.
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [{ durationMs: 70_000, result: prose() }]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+
+  const res = await run(h);
+
+  assertEquals(res.status, 503, 'server fault is a 503, not the 422 a farming signal gets');
   assertEquals(res.body.code, 'model_error');
   assertEquals(releaseReasonFrom(h.rpc), 'model_error');
-  assertEquals(h.model.sent.length, 1, 'validation/content failures are not retried');
+  assertEquals(model.timeoutBudgets, [80_000], 'the retry was skipped without a full 80s remaining');
 });
 
 Deno.test('finding 1(a): a transport error with too little full-attempt budget skips retry', async () => {
@@ -860,37 +884,50 @@ Deno.test('rule 5: a successful call is recorded as success, with the real token
   assertEquals(records[0].args.p_analysis_id, ANALYSIS_ID);
 });
 
-Deno.test('rule 5: a directly delivered partial is recorded as fallback without a retry', async () => {
-  const h = harness([partial(['posture', 'armSwing'])]);
+Deno.test('rule 5: the call whose output was DELIVERED is the "fallback"; the other is the failure it was', async () => {
+  // Both attempts salvage equally, so attempt 1's is the one delivered. Attempt 2 was still a
+  // real, billed call that produced nothing usable, and it settles as `validation_failed` — a
+  // salvageable `invalid_shape` partial is retry-eligible exactly like any other content failure
+  // (see `flow.ts`'s `isRetryEligibleFailure`), not skipped just because attempt 1 already had
+  // something to deliver.
+  //
+  // This composes correctly with the circuit breaker, which opens only when the last N settled
+  // calls ALL carry 'model_error'/'validation_failed': while we are still DELIVERING results, every
+  // request contributes at least one non-failure ('fallback'/'success'), so the breaker stays shut —
+  // which is the behaviour `ai_breaker_state`'s own comment asks for ("a prompt that degrades
+  // gracefully into partial-but-useful results should not [trip the breaker]"). But the moment we
+  // stop delivering (both attempts fail), every recent call IS a failure and the breaker opens.
+  // Blanket-labelling both calls 'fallback' would have made a total collapse of the model's tool
+  // calling invisible to the breaker forever, while silently doubling spend on every request.
+  const h = harness([partial(['posture', 'armSwing']), partial(['posture', 'armSwing'])]);
 
   const res = await run(h);
 
   assertEquals(res.body.isFallback, true);
   const records = h.rpc.to('record_ai_call');
   assertEquals(records.find((r) => r.args.p_call_id === 'call-1')?.args.p_status, 'fallback');
-  assertEquals(records.length, 1);
+  assertEquals(records.find((r) => r.args.p_call_id === 'call-2')?.args.p_status, 'validation_failed');
 });
 
 Deno.test('rule 5: a partial delivered from the RETRY marks the retry as the fallback', async () => {
-  const h = harness([
-    { ok: false, kind: 'error', message: 'Anthropic returned 500' },
-    partial(['posture', 'armSwing']),
-  ]);
+  const h = harness([prose(), partial(['posture', 'armSwing'])]);
 
   await run(h);
 
   const records = h.rpc.to('record_ai_call');
-  assertEquals(records.find((r) => r.args.p_call_id === 'call-1')?.args.p_status, 'model_error');
+  assertEquals(records.find((r) => r.args.p_call_id === 'call-1')?.args.p_status, 'validation_failed');
   assertEquals(records.find((r) => r.args.p_call_id === 'call-2')?.args.p_status, 'fallback');
 });
 
-Deno.test('rule 5: a terminal content failure is recorded as validation_failed', async () => {
+Deno.test('rule 5: a clean validation failure is recorded as validation_failed', async () => {
   const h = harness([prose(), prose()]);
   await run(h);
 
   const records = h.rpc.to('record_ai_call');
-  assertEquals(records.length, 1);
-  assertEquals(records[0].args.p_status, 'validation_failed');
+  assertEquals(records.length, 2, 'both gated calls must be settled');
+  for (const record of records) {
+    assertEquals(record.args.p_status, 'validation_failed');
+  }
 });
 
 Deno.test('rule 5: an idempotent replay settles the gate reservation as CANCELLED, at $0', async () => {
@@ -1430,8 +1467,8 @@ Deno.test('a failed request logs the release reason it actually used', async () 
 
   await run(h);
 
-  assertEquals(logs[0].releaseReason, 'model_error');
-  assertEquals(logs[0].status, 503);
+  assertEquals(logs[0].releaseReason, 'validation_failed');
+  assertEquals(logs[0].status, 422);
 });
 
 // ===========================================================================

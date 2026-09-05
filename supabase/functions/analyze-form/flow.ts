@@ -52,10 +52,16 @@
  * 4/5. IDEMPOTENCY + ATOMIC RESERVE, both inside `reserve_analysis` (one round trip, one advisory
  *    lock). We branch on the returned `status`, never on `allowed` alone — see `handleExisting()`.
  *
- * 6-8. PROMPT → ONE VISION CALL → validate → retry one quick transport error.
+ * 6-8. PROMPT → ONE VISION CALL → validate → retry once, only for an eligible failure kind.
  *    `analyze-form-prompt.ts` (#41) builds the request; `analyze-form-validation.ts` (#45) reads
- *    the response and decides. Timeout, truncation, refusal, and content/validation failures are
- *    terminal. A transport error gets exactly one retry only while a full model window remains.
+ *    the response and decides. `provider_timeout` and `max_tokens` truncation are terminal —
+ *    attempt 1 already spent most/all of the model window, so a retry would very likely repeat
+ *    the same failure (issue #199) — and so is a policy `refusal` (unlikely to change on the same
+ *    frames, and carries no farming signal either way). A transport blip (`model_error`) OR a
+ *    content/shape failure (`no_tool_use`/`invalid_shape`) gets exactly one retry while a full
+ *    model window remains — content failures MUST stay retry-eligible, not just transport errors,
+ *    because a repeated content failure is the only signal `classifyReleaseReason` has for
+ *    deliberate prompt-injection farming.
  *
  * 9. SETTLE, THEN UPLOAD, THEN ATTACH — in that order, and only on a deliverable outcome (#130).
  *    THE INVARIANT: a 'reserved' row can never have frames. Frames go up only after the row has
@@ -150,8 +156,13 @@ export const ANALYZE_FORM_DEADLINE_MS = 85_000;
  * failed first attempt has enough model time left for one genuinely useful retry. */
 export const MODEL_CALL_TIMEOUT_MS = 80_000;
 
-/** Below this much remaining budget, the retry is skipped rather than started underfunded. A call
- * cut off before one useful attempt can finish is a call we pay for and cannot use. */
+/** Below this much remaining budget, a retry-eligible failure (`model_error`, `no_tool_use`, or
+ * `invalid_shape` — see `isRetryEligibleFailure` in `runAnalyzeForm`; `provider_timeout`,
+ * `truncated`, and `refusal` are never retried regardless of budget) is skipped rather than
+ * started underfunded. A call cut off before one useful attempt can finish is a call we pay for
+ * and cannot use — but this floor must stay reachable for a content/shape failure too, not just a
+ * transport blip, or the anti-farming `'validation_failed'` classification
+ * (`analyze-form-validation.ts`'s `classifyReleaseReason`) silently goes dead. */
 export const MIN_RETRY_BUDGET_MS = 80_000;
 
 /** The client sends raw base64 with no per-frame media type (`lib/analyze-form.ts`'s wire shape is
@@ -818,8 +829,32 @@ export async function runAnalyzeForm(
           ? 'model_error'
           : first.attempt.failure;
       const remaining = modelDeadline - now();
-      const mayRetry =
-        lastFailureReason === 'model_error' && remaining >= MIN_RETRY_BUDGET_MS;
+      // RETRY-ELIGIBLE BY KIND, an explicit allowlist — get this wrong in either direction and
+      // something important breaks:
+      //   - `model_error` (a transport blip) and the two CONTENT/SHAPE failures (`no_tool_use`,
+      //     `invalid_shape`) are eligible. Content failures MUST stay eligible, not just
+      //     transport errors: a REPEATED content failure is the ONLY signal
+      //     `classifyReleaseReason` (`analyze-form-validation.ts`) has for deliberate
+      //     prompt-injection farming — it requires BOTH attempts to be content failures AND
+      //     `retryRan === true`. An earlier version of this fix restricted retry eligibility to
+      //     `model_error` alone, which makes `retryRan` structurally impossible whenever attempt 1
+      //     IS a content failure — silently making `'validation_failed'` unreachable and
+      //     disabling the 3-strike anti-farming cap for the one failure class it exists to catch
+      //     (issue #6/#85). See `flow.deno.test.ts`'s "rule 3" cases for the reachability proof.
+      //   - `provider_timeout` and `truncated` (max_tokens) are NOT eligible: both mean attempt 1
+      //     already spent most/all of the model window on THIS input, so retrying is very likely
+      //     to repeat the same failure and would only double the wait and the spend for nothing
+      //     (issue #199's core-purpose-audit finding: 3 of 6 real video calls timed out, one
+      //     truncated).
+      //   - `refusal` is also NOT eligible: it carries no farming signal
+      //     (`classifyReleaseReason` only recognizes `no_tool_use`/`invalid_shape`) and a policy
+      //     refusal on the exact same frames is unlikely to change on a second ask, so retrying it
+      //     buys nothing.
+      const isRetryEligibleFailure =
+        lastFailureReason === 'model_error' ||
+        lastFailureReason === 'no_tool_use' ||
+        lastFailureReason === 'invalid_shape';
+      const mayRetry = isRetryEligibleFailure && remaining >= MIN_RETRY_BUDGET_MS;
       if (mayRetry) {
         // A SECOND Anthropic request is a second billed call, so it gets its OWN gate — the daily
         // cap and the circuit breaker must both see it. This gate necessarily runs after the
@@ -870,12 +905,14 @@ export async function runAnalyzeForm(
             reason: retryGate.reason,
           });
         }
-      } else if (lastFailureReason === 'model_error') {
-        // `remaining < MIN_RETRY_BUDGET_MS` — we skipped the retry to avoid paying for a call
-        // we'd have to abort. `retryRan` stays false for the same reason. Previously silent: this
-        // is exactly the kind of degradation issue #85 says must be counted, not discovered from
-        // a user complaint — a request that arrived with too little deadline left for a genuine
-        // second attempt.
+      } else if (isRetryEligibleFailure) {
+        // `remaining < MIN_RETRY_BUDGET_MS`, but the failure kind itself was still retry-eligible
+        // — we skipped only because too little of the window is left, not because a
+        // `provider_timeout`/`truncated`/`refusal` made retrying pointless by kind (that case is
+        // silent on purpose: it is not a degradation, it is the intended behavior). `retryRan`
+        // stays false for the same reason. This IS exactly the kind of degradation issue #85 says
+        // must be counted, not discovered from a user complaint — a request that arrived with too
+        // little deadline left for a genuine second attempt.
         logEvent({
           level: 'warn',
           fn: 'analyze-form',
