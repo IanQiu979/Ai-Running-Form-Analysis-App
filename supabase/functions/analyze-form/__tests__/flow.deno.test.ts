@@ -31,7 +31,11 @@ import {
   type ModelCallResult,
 } from '../flow.ts';
 import type { RpcClient } from '../../_shared/ai-guard.ts';
-import { PACE_ANALYSIS_TOOL_NAME } from '../../_shared/analyze-form-prompt.ts';
+import {
+  PACE_ANALYSIS_TOOL_NAME,
+  buildAnalyzeFormRequest,
+  type AnalyzeFormRequest,
+} from '../../_shared/analyze-form-prompt.ts';
 import type { AnthropicMessageResponse } from '../../_shared/analyze-form-validation.ts';
 
 const CALLER = '11111111-1111-4111-8111-111111111111';
@@ -56,8 +60,6 @@ class FakeRpc implements RpcClient {
   constructor(private readonly events: string[] = []) {}
 
   handlers: Record<string, RpcHandler> = {
-    // Legacy pre-reserve lookup kept only so the RED tests can prove Task 2 removes every call.
-    pace_current_tier: () => ({ data: 'pro', error: null }),
     gate_ai_call: () => {
       this.gateSeq += 1;
       return { data: { allowed: true, call_id: `call-${this.gateSeq}`, estimated_usd: 0.09 }, error: null };
@@ -124,10 +126,15 @@ class FakeStorage {
 
 class FakeModel {
   readonly sent: number[] = [];
+  /** The actual request bodies, in order — the emitted prompt is a generated interface this suite
+   * is allowed to assert on (which medium rules a submission was given is not observable any
+   * other way). */
+  readonly requests: AnalyzeFormRequest[] = [];
   constructor(private readonly queue: ModelCallResult[], private readonly events: string[] = []) {}
 
   // deno-lint-ignore require-await
-  async send(_request: unknown, timeoutMs: number): Promise<ModelCallResult> {
+  async send(request: unknown, timeoutMs: number): Promise<ModelCallResult> {
+    this.requests.push(request as AnalyzeFormRequest);
     this.sent.push(timeoutMs);
     this.events.push('model');
     const next = this.queue.shift();
@@ -668,10 +675,8 @@ function allNotAssessedWithStrayContent(): ModelCallResult {
 
 Deno.test('zero-pillar policy: Free SETTLES a fully valid result with zero assessed pillars', async () => {
   const h = harness([allNotAssessedWithStrayContent()]);
-  // The current pre-reserve tier lookup is deliberately set to paid so this test reaches the
-  // reservation seam before Task 2 removes that obsolete lookup. The authoritative reserve says
-  // Free; that is the value the settlement policy must use.
-  h.rpc.handlers.pace_current_tier = () => ({ data: 'pro', error: null });
+  // `reserve_analysis` is the ONLY source of tier — there is no pre-reserve lookup to disagree
+  // with it. Its 'free' is the value the settlement policy must use.
   h.rpc.handlers.reserve_analysis = () => ({
     data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'free' },
     error: null,
@@ -709,7 +714,6 @@ Deno.test('zero-pillar policy: Free SETTLES a fully valid result with zero asses
 Deno.test('zero-pillar policy: Pro and Elite RELEASE a fully valid result with zero assessed pillars', async () => {
   for (const tier of ['pro', 'elite'] as const) {
     const h = harness([allNotAssessed()]);
-    h.rpc.handlers.pace_current_tier = () => ({ data: tier, error: null });
     h.rpc.handlers.reserve_analysis = () => ({
       data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
       error: null,
@@ -1550,9 +1554,6 @@ Deno.test('free tier: one supported result runs reserve -> model -> settle, then
   const h = harness([adversarialFreePhotoResult()]);
   let deliveredRows = 0;
 
-  // This is the obsolete branch that makes the test RED today. The post-change flow must learn
-  // the tier from reserve_analysis and never ask pace_current_tier first.
-  h.rpc.handlers.pace_current_tier = () => ({ data: 'free', error: null });
   h.rpc.handlers.reserve_analysis = () => {
     if (deliveredRows === 1) {
       return {
@@ -1669,4 +1670,156 @@ Deno.test('pro/elite tiers still run the real persisted-result path', async () =
     assertEquals(h.rpc.to('settle_analysis').length, 1, `${tier} must still persist the result`);
     assert(!('isSample' in res.body), `${tier} response must never carry isSample`);
   }
+});
+
+// ===========================================================================
+// ONE FRAME IS ONE INSTANT, whatever produced it. Free's frame cap is 1, so a VIDEO submission
+// routinely arrives as a single frame — the path these three tests police, and the one the
+// multi-frame prompt rules and the photo-worded limitation copy both used to get wrong.
+// ===========================================================================
+
+const ONE_FRAME_VIDEO_BODY = {
+  mediaType: 'video',
+  frames: ['AAAA'],
+  timestamps: [0],
+  idempotencyKey: 'one-frame-video',
+};
+
+function freeReserve() {
+  return {
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'free' },
+    error: null,
+  };
+}
+
+/** A frame's CONTENTS never reach the system prompt (`buildSystemPrompt` reads only `media`), so
+ * any well-formed frame is enough to build the two candidate prompts to compare against. */
+const PROMPT_PROBE_FRAME = { base64: 'AAAA', mediaType: 'image/jpeg' as const, requestedTimestampMs: 0 };
+
+Deno.test('a video clipped to ONE frame is given the single-frame medium rules, not the cross-frame ones', async () => {
+  const h = harness([ok()]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  await run(h, ONE_FRAME_VIDEO_BODY);
+
+  const singleFrameSystem = buildAnalyzeFormRequest({
+    tier: 'free',
+    media: 'photo',
+    frames: [PROMPT_PROBE_FRAME],
+  }).system;
+  const crossFrameSystem = buildAnalyzeFormRequest({
+    tier: 'pro',
+    media: 'video',
+    frames: [PROMPT_PROBE_FRAME, { ...PROMPT_PROBE_FRAME, requestedTimestampMs: 400 }],
+  }).system;
+
+  assertEquals(h.model.requests.length, 1);
+  assertEquals(
+    h.model.requests[0].system,
+    singleFrameSystem,
+    'one attached frame must get the one-instant rules, whatever mediaType the client declared'
+  );
+  assertNotEquals(
+    h.model.requests[0].system,
+    crossFrameSystem,
+    'the cross-frame rules invite an arm-swing arc/symmetry comparison that never existed'
+  );
+
+  // The multi-frame path is unchanged: two frames still get the cross-frame rules.
+  const multi = harness([ok()]);
+  await run(multi, VIDEO_BODY);
+  assertEquals(multi.model.requests[0].system, crossFrameSystem);
+});
+
+/** A one-frame submission in which the model reported a stop-running signal on Elasticity, in the
+ * same breath as an assessment claim a single frame cannot support. Normalization must drop the
+ * second and keep the first. */
+function safetySignalOnElasticity(): ModelCallResult {
+  return ok({
+    pillars: {
+      posture: scoredPillar(78, 'good'),
+      armSwing: scoredPillar(66, 'mid'),
+      cadence: scoredPillar(70, 'good'),
+      elasticity: {
+        score: 71,
+        band: 'good',
+        feedback:
+          'Visible swelling around the right ankle, and the runner is clearly favouring that side — get it looked at before running on it. Left ground contact runs longer than right.',
+        flags: [],
+        drills: [],
+      },
+    },
+    overall: { score: 71, band: 'good' },
+  });
+}
+
+Deno.test('a stop-running safety signal survives the single-frame strip, and leads the pillar feedback', async () => {
+  const h = harness([safetySignalOnElasticity()]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_VIDEO_BODY);
+
+  assertEquals(res.status, 200);
+  const result = res.body.result as {
+    pillars: Record<string, { score: number | null; band: string | null; feedback: string | null; notAssessedReason?: string }>;
+  };
+  const elasticity = result.pillars.elasticity;
+
+  // The ASSESSMENT CLAIM is gone — a single frame cannot show a bounce cycle or a left/right
+  // ground-contact comparison.
+  assertEquals(elasticity.score, null);
+  assertEquals(elasticity.band, null);
+  assertEquals(elasticity.notAssessedReason, 'needsVideo');
+  assertEquals(
+    (elasticity.feedback ?? '').includes('Left ground contact runs longer than right'),
+    false,
+    'a claim the media cannot support must not survive normalization'
+  );
+
+  // The SAFETY SIGNAL is not gone, and it is FIRST (SAFETY_RULES: undroppable at every tier,
+  // never buried under form feedback).
+  assert(
+    (elasticity.feedback ?? '').startsWith(
+      'Visible swelling around the right ankle, and the runner is clearly favouring that side — get it looked at before running on it.'
+    ),
+    `the stop-running signal must lead the feedback; got: ${elasticity.feedback}`
+  );
+
+  // And it reaches the PERSISTED row, not just the response.
+  const settled = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
+  assertEquals(settled.pillars.elasticity.feedback, elasticity.feedback);
+});
+
+Deno.test('the single-frame limitation copy describes what was actually submitted', async () => {
+  const fromVideo = harness([ok()]);
+  fromVideo.rpc.handlers.reserve_analysis = () => freeReserve();
+  const videoRes = await run(fromVideo, ONE_FRAME_VIDEO_BODY);
+  const videoFeedback = (videoRes.body.result as {
+    pillars: Record<string, { feedback: string | null }>;
+  }).pillars.cadence.feedback ?? '';
+
+  assert(
+    /one frame of this video/i.test(videoFeedback),
+    `a video clipped to one frame must be described as such; got: ${videoFeedback}`
+  );
+  assertEquals(
+    /submit a short video/i.test(videoFeedback),
+    false,
+    'never tell a runner who submitted a video to submit a video'
+  );
+
+  const fromPhoto = harness([ok()]);
+  fromPhoto.rpc.handlers.reserve_analysis = () => freeReserve();
+  const photoRes = await run(fromPhoto, {
+    mediaType: 'photo',
+    frames: ['AAAA'],
+    timestamps: [0],
+    idempotencyKey: 'one-frame-photo',
+  });
+  const photoFeedback = (photoRes.body.result as {
+    pillars: Record<string, { feedback: string | null }>;
+  }).pillars.cadence.feedback ?? '';
+
+  assert(/single photo/i.test(photoFeedback), `got: ${photoFeedback}`);
+  assert(/submit a short video/i.test(photoFeedback), `a photo submitter is told what would help; got: ${photoFeedback}`);
 });

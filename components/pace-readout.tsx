@@ -343,7 +343,14 @@ function PillarRow({
           score's visual now, and drawing both would encode it twice in two competing shapes.
           M1 (v23-ux-audit-r1)'s requirement that a not-assessed pillar be structurally distinct
           from "filled at 0%" moved with it, into `<ArcRing>`'s dashed empty track. */}
-      {pillar.score === null || pillar.band === null ? (
+      {/* ONE explanation per pillar, never two. When the server sent this not-assessed pillar its
+          own sentence (`analyze-form/flow.ts`'s normalization always does for a one-frame
+          submission, and it is media-aware — "a single photo" vs "one frame of this video"), that
+          sentence IS the explanation and renders below. The canned reason line only appears when
+          there is no feedback to render, so the runner never reads two overlapping assertions
+          about what they submitted. The a11y announcement is unaffected: `pillarA11yLabel` speaks
+          the reason from `notAssessedReason` either way. */}
+      {(pillar.score === null || pillar.band === null) && !pillar.feedback ? (
         <Text
           testID={`pillar-not-assessed-${pillarId}`}
           style={styles.notAssessedText}

@@ -23,6 +23,7 @@ import {
   proTierVideoResult,
 } from '@/lib/pace-fixtures';
 import { pillarDetailA11yLabel, pillarLabel } from '@/lib/pace-readout';
+import type { PaceResult } from '@shared/pace';
 
 /** The `<ArcRing>` geometry `<PaceReadout>` renders a pillar at, re-derived here rather than
  *  copied from a render: the sweep must be the score as a fraction of the full circle. */
@@ -98,6 +99,35 @@ describe('a not-assessed pillar never reads as a zero (photoResult: Cadence + El
     // stringified into a fabricated score rather than just checking the testID is absent.
     expect(screen.queryByText('0')).toBeNull();
   });
+});
+
+// ONE explanation per pillar. The server's normalization writes a media-aware sentence into a
+// not-assessed pillar's `feedback` ("Only one frame of this video ..."), and the canned reason line
+// ("Not assessed — needs video, not a photo.") asserts the opposite thing about the same
+// submission. Rendering both put two overlapping claims on screen; the feedback wins.
+it('renders only the server\'s own sentence for a not-assessed pillar that carries feedback', async () => {
+  const withFeedback: PaceResult = {
+    ...photoResult,
+    pillars: {
+      ...photoResult.pillars,
+      cadence: {
+        ...photoResult.pillars.cadence,
+        feedback: 'Only one frame of this video could be analysed on your plan.',
+      },
+    },
+  };
+
+  await render(<PaceReadout result={withFeedback} />);
+
+  expect(screen.queryByTestId('pillar-not-assessed-cadence', HIDDEN)).toBeNull();
+  expect(screen.getByTestId('pillar-feedback-cadence').props.accessibilityLabel).toBe(
+    'Only one frame of this video could be analysed on your plan.'
+  );
+  // The pillar beside it, with no feedback of its own, still gets the canned reason — the line is
+  // a fallback now, not a duplicate.
+  expect(screen.getByTestId('pillar-not-assessed-elasticity', HIDDEN).props.children).toBe(
+    Copy.result.pillar.notAssessed.needsVideo
+  );
 });
 
 it('renders the "angle" reason distinctly from "needsVideo" for a badly-framed pillar', async () => {
