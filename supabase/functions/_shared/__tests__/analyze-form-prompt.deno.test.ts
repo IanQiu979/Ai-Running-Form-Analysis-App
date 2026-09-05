@@ -17,6 +17,7 @@
  * `assertNonEmptyKnowledge()` at module load, so an empty knowledge bundle fails the suite before
  * a single test body executes.
  */
+import { assertEquals } from 'jsr:@std/assert@1';
 import {
   ANALYZE_FORM_EFFORT,
   ANALYZE_FORM_MODEL,
@@ -980,22 +981,15 @@ Deno.test('the tool remains constructible for #42 to eval, and forcing it is now
 });
 
 Deno.test('effort is an explicit, named constant — not a magic value or a silent default', () => {
-  const request = buildAnalyzeFormRequest(videoInput('elite'));
+  const request = buildAnalyzeFormRequest(videoInput('pro'));
 
-  assert(
-    request.output_config.effort === ANALYZE_FORM_EFFORT,
-    'The request must carry the named effort constant.'
-  );
-  assert(
-    ANALYZE_FORM_EFFORT === 'medium',
-    'Effort is `medium`: thinking stays ON, but max_tokens is a tight 4-8k that thinking counts ' +
-      'against, and Anthropic names "drop to medium effort" as the direct remedy for a ' +
-      'mostly-thinking, truncated answer. Sonnet 5 at medium ~= Sonnet 4.6 at high, so this is ' +
-      'not a weak setting. Raising it is #42\'s call, against a real eval — and raise ' +
-      'MAX_OUTPUT_TOKENS_BY_TIER in the same commit or you just buy truncations.'
-  );
+  assertEquals(ANALYZE_FORM_EFFORT, 'low');
+  assertEquals(request.thinking, { type: 'adaptive' });
+  assertEquals(request.output_config.effort, 'low');
+  assertEquals(request.max_tokens, MAX_OUTPUT_TOKENS_BY_TIER.pro);
+
   // #42 sweeps it by passing an override; the seam must exist.
-  const swept = buildAnalyzeFormRequest(videoInput('elite'), { effort: 'high' });
+  const swept = buildAnalyzeFormRequest(videoInput('pro'), { effort: 'high' });
   assert(swept.output_config.effort === 'high', 'Effort must be overridable for #42 to sweep it.');
 });
 

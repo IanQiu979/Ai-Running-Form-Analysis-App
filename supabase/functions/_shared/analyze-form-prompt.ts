@@ -65,7 +65,7 @@
  *      `MAX_OUTPUT_TOKENS_BY_TIER` (`ai-pricing.ts`), the SAME constant `gate_ai_call` reserved
  *      output budget against, so the reservation is a true upper bound on billed output even
  *      with thinking on; and because the budget is tight (4-8k), `ANALYZE_FORM_EFFORT` is set to
- *      `medium` rather than the default `high` — see that constant. #44 MUST treat
+ *      `low` rather than the default `high` — see that constant. #44 MUST treat
  *      `stop_reason: 'max_tokens'` as a truncation (a mostly-thinking, cut-off answer), not as a
  *      usable response. That was Echo V1's 1024/1500-ceiling failure, and Sonnet 5's new
  *      tokenizer (~30% more tokens for the same text) makes it easier to hit, not harder.
@@ -200,31 +200,12 @@ export type PaceEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /**
  * THE EFFORT DIAL — a named constant, not a magic value, so #42 can sweep it.
  *
- * Chosen: `medium`. This is a real trade-off and the reasoning matters:
- *
- * FOR `high` (the API default): this call IS the product, and a hard multi-step vision-reasoning
- * task over up to 8 frames is exactly the kind of work thinking helps with.
- *
- * FOR `medium` (chosen), which wins on three concrete grounds:
- *   1. `medium` is not a weak setting. Anthropic's own cross-model mapping: "Claude Sonnet 5 at
- *      medium is comparable in intelligence to Claude Sonnet 4.6 at high." We are not shipping a
- *      degraded analyzer; we are shipping last-generation-flagship-at-high.
- *   2. Our `max_tokens` is deliberately tight (4-8k, `MAX_OUTPUT_TOKENS_BY_TIER`) and thinking
- *      tokens COUNT AGAINST IT. The docs name this exact failure — "if the budget is tight, you
- *      may see a response that is almost entirely thinking followed by a truncated answer and
- *      `stop_reason: max_tokens`" — and name the exact remedy: "Raising `max_tokens` or dropping
- *      to `medium` effort resolves this." A truncated response is not a cheap failure: it fails
- *      validation, triggers #45's retry, and bills TWICE.
- *   3. Thinking bills as OUTPUT ($15/Mtok, 5x input), so effort is the single biggest lever on
- *      real spend — and Ian's credits are a hard ceiling with auto-reload off.
- *
- * The docs' own guidance if this proves too low: "If you observe shallow reasoning on complex
- * problems, raise effort to `high` or `xhigh` rather than prompting around it." That is #42's
- * call to make against a real eval, not one to guess at here. Raising it is a one-line change —
- * but raise `MAX_OUTPUT_TOKENS_BY_TIER` (and with it the gate's reservation) in the same commit,
- * or you will simply buy truncations.
+ * Chosen: `low`. Adaptive thinking stays on, while low effort reduces the latency and output-token
+ * pressure that previously consumed the useful model window. The 4-8k tier ceilings remain the
+ * spend contract; changing those is a separate decision that must move the AI gate reservation
+ * with them.
  */
-export const ANALYZE_FORM_EFFORT: PaceEffort = 'medium';
+export const ANALYZE_FORM_EFFORT = 'low' as const;
 
 // -------------------------------------------------------------------------------------------
 // The structured-output contract — `input_schema` IS `PaceResult` (./pace.ts, #43)
@@ -994,7 +975,7 @@ export interface BuildRequestOptions {
    * is Bedrock-only (see the note above).
    */
   forceToolCall?: boolean;
-  /** Defaults to `ANALYZE_FORM_EFFORT` (`medium`) — see that constant for the reasoning. */
+  /** Defaults to `ANALYZE_FORM_EFFORT` (`low`) — see that constant for the reasoning. */
   effort?: PaceEffort;
   /** Defaults to `ANALYZE_FORM_MODEL`. */
   model?: string;
