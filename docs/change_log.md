@@ -52,10 +52,16 @@ branch.
   wraps its own gradient wash in a `<BlurTargetView>` and hands that ref to every `<GlassFrost>`
   nested under it via context, so `SurfaceCard`/`PillButton`/`CircleIconButton` don't need
   individual wiring. `components/aperture.tsx`'s rack-focus blur wraps its own `children` directly
-  (no context needed there — it already owns what it blurs). **Not verified on a real device or
-  simulator** — this branch's own constraints ruled that out (no simulator, no macOS focus).
-  `theme-contrast.test.ts` proves the `Glass` token alone, not a rendered blur, so a real "does
-  this actually look frosted" check on iOS and Android is still owed before this ships.
+  (no context needed there — it already owns what it blurs). **Partially verified headlessly on an
+  iOS simulator, without taking macOS focus:** Expo Go 57.0.9 (self-reporting SDK 57.0.0) launched
+  the branch and reached the genuine signed-out landing screen; Glass surfaces remained
+  translucent/tinted in both light and dark mode instead of becoming flat or opaque. The landing
+  screen's backdrop is a flat/subtle gradient, however, so its screenshots cannot conclusively
+  distinguish native backdrop blur from the token-tint-only fallback described in
+  `components/ui/glass-frost.tsx`. A textured backdrop, Android rendering, and the full
+  camera -> frame-extraction path remain unverified. `theme-contrast.test.ts` proves the `Glass`
+  token alone, not a rendered blur, and Reanimated motion does not advance under Jest here, so the
+  green suite cannot close those visual/runtime gaps.
 - `docs/status.md` gets its own entry for the milestone/next-action state this upgrade leaves
   behind; not duplicated here.
 

@@ -1263,10 +1263,13 @@ still standing between here and a public/TestFlight release:
 - **The Expo SDK 54 -> 57 upgrade is unmerged** — `fm/v23-sdk57-upgrade` (2026-09-05), so the
   captain's Expo Go 57.0.0 still can't open what `main` ships until this merges. `expo-doctor`,
   typecheck, lint, and the full 1458 Jest + Deno test suite are green at every step; the
-  BlurView -> BlurTargetView migration (the change most likely to visibly regress) is **not yet
-  verified on a real device or simulator** — see `docs/change_log.md`'s 2026-09-05 entry for
-  exactly what that migration does and doesn't prove. Merging this unblocks nothing else; it's a
-  standalone infrastructure bump, not tied to any M1-M7 row above.
+  branch also launches in Expo Go 57.0.9 (which reports SDK 57.0.0) and reaches the genuine
+  signed-out landing screen. Glass surfaces stayed translucent/tinted in both light and dark mode,
+  but that screen's backdrop is too visually uniform to distinguish native backdrop blur from the
+  token-tint fallback conclusively; a textured backdrop and the camera/frame-extraction path still
+  need on-device checks. See `docs/change_log.md`'s 2026-09-05 entry for exactly what the migration
+  does and doesn't prove. Merging this unblocks nothing else; it's a standalone infrastructure
+  bump, not tied to any M1-M7 row above.
 
 Original text, kept for the record (accurate as of 2026-07-11, stale from 2026-07-12 onward once
 M2 shipped):
