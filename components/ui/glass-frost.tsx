@@ -10,8 +10,10 @@
  * TWO LAYERS, and the order is load-bearing for the contrast proof:
  *
  *   1. `<BlurView>` — the real backdrop blur, so this is frosted glass rather than a flat wash.
- *      Native on iOS, `dimezisBlurView` on Android (`experimentalBlurMethod`, which is what makes
- *      it do anything there at all), and a plain translucent layer on web.
+ *      Native on iOS, `dimezisBlurView` on Android (`blurMethod`, which is what makes it do
+ *      anything there at all — and, as of SDK 55, useless without `blurTarget` pointing at a
+ *      `<BlurTargetView>` too; see hooks/use-screen-blur-target.ts for where that ref comes
+ *      from), and a plain translucent layer on web.
  *   2. The `Glass[scheme][tone]` token, painted over it.
  *
  * WHY THE PROOF STILL HOLDS WITH A BLUR IN THE STACK. `constants/__tests__/theme-contrast.test.ts`
@@ -32,6 +34,7 @@ import { Platform, StyleSheet, View } from 'react-native';
 
 import { Glass, type GlassColors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useScreenBlurTarget } from '@/hooks/use-screen-blur-target';
 
 /**
  * Blur strength, 0-100. Deliberately mid-range: heavy enough that the wash behind a control reads
@@ -55,6 +58,7 @@ type GlassFrostProps = {
 
 export function GlassFrost({ tone, radius, testID }: GlassFrostProps) {
   const scheme = useColorScheme() ?? 'light';
+  const blurTarget = useScreenBlurTarget();
 
   return (
     <View
@@ -68,8 +72,11 @@ export function GlassFrost({ tone, radius, testID }: GlassFrostProps) {
         // Pinned to the scheme — see this file's header for why that is what keeps the composite
         // on the safe side of every proven ratio.
         tint={scheme}
-        // Android draws nothing at all without this; iOS and web ignore it.
-        experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+        // Android draws nothing at all without both of these — blurTarget undefined (no
+        // <ScreenGradient> ancestor, e.g. chrome rendered by a navigator) degrades gracefully to
+        // no blur there rather than crashing; iOS and web ignore both props.
+        blurTarget={blurTarget}
+        blurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
         style={StyleSheet.absoluteFill}
       />
       <View style={[StyleSheet.absoluteFill, { backgroundColor: Glass[scheme][tone] }]} />

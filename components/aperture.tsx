@@ -42,8 +42,8 @@
  * overlaid: the caller delays the wireframe's draw until the iris has opened, so the beat is
  * "aperture opens onto a sharp photo, then the analysis is drawn onto it" — not both at once.
  */
-import { BlurView } from 'expo-blur';
-import { useEffect, type ReactNode } from 'react';
+import { BlurTargetView, BlurView } from 'expo-blur';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
@@ -120,6 +120,11 @@ export function Aperture({ children, open = false, onOpened, testID }: ApertureP
   const canvas = Colors[scheme].background;
   const reduceMotion = useReducedMotion();
   const animate = open && !reduceMotion;
+  // What the rack focus blurs, on Android: expo-blur's dimezisBlurView method needs an explicit
+  // target view to snapshot (unlike iOS's compositor-level blur, which needs nothing extra) —
+  // without one it silently falls back to no blur at all. `children` (the photo/video frame) is
+  // exactly that target; it's rendered inside this ref below instead of bare.
+  const blurTarget = useRef<View>(null);
 
   // One driver, two readers: the blades' radius and the blur's opacity are the same gesture.
   const progress = useSharedValue(animate ? 0 : 1);
@@ -146,7 +151,7 @@ export function Aperture({ children, open = false, onOpened, testID }: ApertureP
 
   return (
     <View style={styles.root} testID={testID}>
-      {children}
+      <BlurTargetView ref={blurTarget}>{children}</BlurTargetView>
 
       {/* THE RACK FOCUS. Mounted only while there is an opening to play — a permanently mounted
           blur at opacity 0 is a native view the compositor still has to walk on every frame, for
@@ -161,7 +166,8 @@ export function Aperture({ children, open = false, onOpened, testID }: ApertureP
           <BlurView
             intensity={RACK_FOCUS_INTENSITY}
             tint={scheme}
-            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+            blurTarget={blurTarget}
+            blurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
             style={StyleSheet.absoluteFill}
           />
         </Animated.View>

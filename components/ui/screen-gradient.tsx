@@ -39,8 +39,9 @@
  * deleted here; a decoration was. If a screen ever needs something in that corner again, it should
  * be something that MEASURES, not something that decorates.
  */
+import { BlurTargetView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { StyleSheet, useWindowDimensions, View, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, {
   Easing,
@@ -54,6 +55,7 @@ import Animated, {
 import { Colors, Gradient, Motion } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { ScreenBlurTargetContext } from '@/hooks/use-screen-blur-target';
 
 /** How far past the viewport the gradient is drawn, so drift never exposes an unpainted edge. */
 const OVERDRAW = 1.2;
@@ -75,6 +77,11 @@ export function ScreenGradient({ children, drift = true, style, testID }: Screen
   const animate = drift && !reduceMotion;
 
   const t = useSharedValue(0);
+  // What every GlassFrost on this screen blurs against, on Android — see
+  // hooks/use-screen-blur-target.ts. Targets the wash itself, not this whole subtree: a card's
+  // BlurView renders as a sibling of {children} below, never a descendant of this ref, so there
+  // is no self-referential snapshot to reason about.
+  const blurTarget = useRef<View>(null);
 
   useEffect(() => {
     if (!animate) {
@@ -123,19 +130,21 @@ export function ScreenGradient({ children, drift = true, style, testID }: Screen
         pointerEvents="none"
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants">
-        <LinearGradient
-          testID={testID ? `${testID}-wash` : undefined}
-          // Spread to a mutable array: LinearGradient's prop type is not readonly, and the token is
-          // `as const`. Copying is also what keeps a consumer from mutating the shared token array.
-          colors={[...Gradient.page[scheme]] as [string, string, ...string[]]}
-          // Slightly off-vertical. A perfectly vertical wash reads as a CSS default; the reference's
-          // own is subtly raked, which is what makes it read as light rather than as a fill.
-          start={{ x: 0.15, y: 0 }}
-          end={{ x: 0.85, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
+        <BlurTargetView ref={blurTarget} style={StyleSheet.absoluteFill}>
+          <LinearGradient
+            testID={testID ? `${testID}-wash` : undefined}
+            // Spread to a mutable array: LinearGradient's prop type is not readonly, and the token is
+            // `as const`. Copying is also what keeps a consumer from mutating the shared token array.
+            colors={[...Gradient.page[scheme]] as [string, string, ...string[]]}
+            // Slightly off-vertical. A perfectly vertical wash reads as a CSS default; the reference's
+            // own is subtly raked, which is what makes it read as light rather than as a fill.
+            start={{ x: 0.15, y: 0 }}
+            end={{ x: 0.85, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </BlurTargetView>
       </Animated.View>
-      {children}
+      <ScreenBlurTargetContext.Provider value={blurTarget}>{children}</ScreenBlurTargetContext.Provider>
     </View>
   );
 }
