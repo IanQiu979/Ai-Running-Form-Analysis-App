@@ -466,14 +466,18 @@ pure/client split as `ai-guard.ts`. 28 Deno tests.
   medical boundary, the #112 timestamp rules, and the input-channel rules are assembled **outside**
   the dial (`INVARIANT_RULES`) and are byte-identical for Free, Pro, and Elite. A test asserts every
   certainty rule appears at all three tiers. Higher tier ⇒ more words, never more confidence.
-- **Issue #112 is handled at the prompt layer.** Timestamps are typed and named
-  `requestedTimestampMs`, every rendered time carries `~`/"requested", every interval is
-  "approximately … (NOT an exact interval)", and the model is told the error bar (hundreds of ms,
-  Android keyframe snapping). Precise SPM / GCT-in-ms / VO-in-cm figures are **forbidden at every
-  tier including Elite**. The escape hatch that keeps the product useful: Cadence and Elasticity are
-  steered onto **timestamp-independent** evidence — the overstriding signature and the visible
-  quality of the landing, which `pace_framework.md` already calls the most important thing you can
-  see, and which need no clock.
+- **Issue #112 is handled at the prompt layer, and #199 widened what it has to cover.** Timestamps
+  are typed and named `requestedTimestampMs`, every rendered time carries `~`/"requested", every
+  interval is "approximately … (NOT an exact interval)", and the model is told the error bar
+  (hundreds of ms). Since the server cannot tell an updated client's decoder-reported `actualTime`
+  from an old client's merely-requested time (see step 6 above and `TIMESTAMP_RULES` in
+  `analyze-form-prompt.ts`), the prompt no longer names one specific mechanism (the old "Android
+  keyframe snapping" framing) as the cause — it tells the model the value could be either, always
+  approximate, never a measurement. Precise SPM / GCT-in-ms / VO-in-cm figures are **forbidden at
+  every tier including Elite**. The escape hatch that keeps the product useful: Cadence and
+  Elasticity are steered onto **timestamp-independent** evidence — the overstriding signature and
+  the visible quality of the landing, which `pace_framework.md` already calls the most important
+  thing you can see, and which need no clock.
 - **`pace_framework.md`'s two timing clauses are amended at the prompt layer, not edited** (#112,
   the same mechanism as the note-conditional clauses below). The certified file — which ships
   byte-for-byte and is not editable without Ian's certification review — says *"**Only if frame
@@ -513,7 +517,8 @@ pure/client split as `ai-guard.ts`. 28 Deno tests.
   ("Solid"), `ScoreBand` speaks in codes (`'good'`). `SCORE_BAND_RUBRIC` maps them, and a test
   asserts every label it claims actually appears in `pace_framework.md`. Without this the model
   guesses, and a correctly-scored pillar renders in the wrong colour.
-- **Thinking is ON (adaptive), effort is `medium`, and — as of 2026-07-13 (#44) — there is no
+- **Thinking is ON (adaptive), effort is `low`** (lowered from `medium` 2026-09-06, issue #199 —
+  see the "Timing" note near the end of this section) **, and — as of 2026-07-13 (#44) — there is no
   `tool_choice` at all**: the output contract moved to structured outputs (`output_config.format`).
   The "unresolved forced-tool/thinking compatibility question" this bullet used to point at is
   RESOLVED and was based on a false premise — the restriction is **Amazon Bedrock only** and never
@@ -1313,17 +1318,24 @@ the original video (see "Media pipeline" below).
    atomically, before the model is ever called. Over quota → structured `402`, and — same as
    step 4 — settle the gate's reservation as `'cancelled'` before returning, since the model is
    never going to be called for this request either.
-6. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames with the timestamps
-   the client **requested** from the extractor. **These are NOT the actual decoded times** —
-   `expo-video-thumbnails` cannot report those on either platform (Android snaps to the nearest
-   keyframe and exposes no PTS; iOS discards `AVAssetImageGenerator`'s `actualTime`), so the real
-   intervals can differ by hundreds of ms and are not necessarily evenly spaced (issue #112; this
-   paragraph previously claimed the opposite). Cadence and Elasticity are both derived from motion
-   over time, so the prompt (step 7) is required to present these intervals as approximate — see
-   "Current — the `analyze-form` prompt" below. The frames ride in the request body as base64 and
-   are **not** uploaded by the client — the server writes them to the bucket itself, after the
-   model call (#88). Frame count per tier: Free 1 / Pro 5 / Elite 8 — the client learns which
-   applies to a given caller from `quota-status`'s authoritative `frameCap` field
+6. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames sampled as ONE
+   centered ~700ms burst (issue #199, replacing the old "evenly across 5%-95% of the whole clip"
+   spacing — see "Current — media pipeline" below for why that spacing was a structural ceiling),
+   with the timestamps the client **requested** from the extractor **and** the decoder's own
+   `actualTime` for each frame. `actualTime` is frame-accurate on iOS
+   (`AVAssetImageGenerator`, zero time tolerance) and an average-frame-duration ESTIMATE on Android
+   (`MediaMetadataRetriever`'s frame-count-derived rounding, falling back to the requested time
+   when frame-count metadata isn't available) — see `lib/frames.ts`'s "TIMESTAMP ACCURACY" header
+   for the full platform split. Neither is independently verified, so the real intervals can still
+   differ from the stated ones and are not necessarily evenly spaced (issue #112). Cadence and
+   Elasticity are both derived from motion over time, so the prompt (step 7) is required to present
+   these intervals as approximate regardless — see "Current — the `analyze-form` prompt" below —
+   and to distinguish, server-side, a genuine stride burst from any pre-#199 sparse manifest a
+   not-yet-updated client build might still send (`MAX_STRIDE_BURST_SPAN_MS`,
+   `analyze-form-prompt.ts`). The frames ride in the request body as base64 and are **not**
+   uploaded by the client — the server writes them to the bucket itself, after the model call
+   (#88). Frame count per tier: Free 1 / Pro 5 / Elite 8 — the client learns which applies to a
+   given caller from `quota-status`'s authoritative `frameCap` field
    (`lib/extraction-frame-cap.ts`), never by indexing its own per-tier table, and
    `reserve_analysis` re-checks the real cap server-side regardless.
 7. **Build the grounded prompt** — **built, issue #41**: `supabase/functions/_shared/analyze-form-prompt.ts`.
@@ -1336,7 +1348,7 @@ the original video (see "Media pipeline" below).
    moves depth and **only** depth: the scoring, not-assessed, medical-boundary, and
    timestamp-approximation rules are assembled outside it and are identical at every tier.
 8. **One vision call** — `claude-sonnet-5`, **adaptive thinking ON** (`thinking: {type:
-   'adaptive'}`, set explicitly), `output_config: {effort: 'medium'}`, `max_tokens` 4–8k (from
+   'adaptive'}`, set explicitly), `output_config: {effort: 'low'}`, `max_tokens` 4–8k (from
    `MAX_OUTPUT_TOKENS_BY_TIER`, the same constant the spend gate reserved against), and a
    `strict: true` `submit_pace_analysis` tool returning structured JSON for the 4 PACE pillars,
    each scored with feedback, plus injury flags and (paid) drills. **The tool schema IS
@@ -1362,11 +1374,15 @@ the original video (see "Media pipeline" below).
 
    **`max_tokens` is a hard limit on thinking + response text together**, so the gate's *output*
    reservation (`MAX_OUTPUT_TOKENS_BY_TIER`, the same number sent as `max_tokens`) remains a true
-   upper bound on billed output even with thinking on. But the budget is tight, which is why
-   `effort` is **`medium`**, not the default `high`: Anthropic names "drop to `medium` effort" as
-   the direct remedy for a mostly-thinking, truncated answer, and Sonnet 5 at `medium` is
-   comparable in intelligence to Sonnet 4.6 at `high`. **#44 must treat `stop_reason: 'max_tokens'`
-   as a truncation**, never as a usable response.
+   upper bound on billed output even with thinking on. **`effort` was lowered from `medium` to
+   `low` on 2026-09-06** (issue #199's reliability pass, following the core-purpose audit): real
+   video calls at `medium` spent 2,800-5,000+ of their 4-8k token budget on thinking alone, which is
+   what drove both the truncated-at-`max_tokens` failures and several timeouts past the old 65s
+   per-attempt ceiling. `low` keeps adaptive thinking ON — Anthropic names dropping effort, not
+   disabling thinking, as the remedy for a mostly-thinking truncated answer — while leaving
+   `MAX_OUTPUT_TOKENS_BY_TIER` untouched; raising that ceiling instead remains a separate decision
+   that must move the AI spend gate's reservation with it. **#44 must treat `stop_reason:
+   'max_tokens'` as a truncation**, never as a usable response.
 
    Also: this model **rejects any non-default `temperature`/`top_p`/`top_k` with a 400**, so the
    request sets none of them. Do not add `temperature: 0` for determinism — that buys a 400, not
@@ -1425,7 +1441,20 @@ function was told to upload media it never receives).
   frame-strip display list, not the deletion authority. #47/#57/#58 all inherit this rule.
 - **The original full-resolution video is never uploaded or stored** — it stays on the device.
   This keeps the free-plan 1GB bucket viable (a few hundred KB per analysis instead of
-  60–130MB) and needs no video player (`expo-video` is not installed).
+  60–130MB). **As of 2026-09-06 (issue #199), `expo-video ~57.0.3` IS installed** —
+  `expo-video-thumbnails`'s replacement for on-device frame decoding, not a video player: the app
+  never plays back, previews, or renders the clip itself, and the full-resolution file still never
+  leaves the device.
+- **Video frame sampling is ONE centered ~700ms burst, not a spread across the whole clip**
+  (issue #199, replacing the pre-2026-09-06 "evenly across 5%-95% of the whole clip" spacing that
+  put 1.3-2.2s between Pro/Elite frames against a ~0.7s recreational stride — the core-purpose
+  audit's structural-ceiling finding: no two of those frames ever belonged to the same stride, so
+  Cadence and Elasticity were single-frame guesses). `lib/frames.ts`'s `sampleTimestamps` and
+  `extractVideoFrames` (see that file's header for the full detail, including the iOS-vs-Android
+  `actualTime` accuracy split and the new fail-closed rejection of an untrustworthy burst) are the
+  authority; `supabase/functions/_shared/analyze-form-prompt.ts` separately classifies each
+  request's frames server-side (`MAX_STRIDE_BURST_SPAN_MS`) rather than trusting the client, since
+  the edge function deploys before every native app install has picked up the new sampling.
 - Past Analyses shows the stored frames as a frame strip via short-TTL (~1h, regenerated on
   open) signed URLs.
 - Caps: max clip length 15s; max upload 50MB pre-compress; frames downscaled to ≤1568px long
@@ -1892,9 +1921,10 @@ killed (timeout/OOM/deploy) before its own `finally` block can reach `release_an
   credential for a `pg_net`-invoked edge function from a migration file isn't something this
   migration attempts.
 - **The 15-minute threshold is derived, not guessed**: `analyze-form`'s own self-imposed
-  `ANALYZE_FORM_DEADLINE_MS` (105s, `flow.ts`) and Supabase Edge Functions' 150s platform
-  wall-clock kill bound how long a *legitimate*, still-running reservation can stay `'reserved'`;
-  15 minutes is 6x the platform limit, ~7.5x the self-imposed one.
+  `ANALYZE_FORM_DEADLINE_MS` (85s as of 2026-09-06's #199 reliability pass, was 105s — `flow.ts`)
+  and Supabase Edge Functions' 150s platform wall-clock kill bound how long a *legitimate*,
+  still-running reservation can stay `'reserved'`; 15 minutes is 6x the platform limit, ~10.6x the
+  self-imposed one.
 - **Extends `analyses_release_reason_known_values`** (the CHECK constraint the anti-farming fix
   below introduces) with a fifth value, `'stale_sweep'` — superset-only, so this is safe
   regardless of the table's row count. Deliberately kept OUT of `pace_is_farming_signal`'s
@@ -2731,9 +2761,9 @@ function flow" above wherever the two disagree.
 | File | Role | Tested |
 |---|---|---|
 | `analyze-form/index.ts` | HTTP + auth glue only. Verifies the JWT via `auth.getUser()`. | — |
-| `analyze-form/flow.ts` | The whole orchestration, against injected deps. No npm/Deno import. | 50 Deno tests |
+| `analyze-form/flow.ts` | The whole orchestration, against injected deps. No npm/Deno import. | 80 Deno tests |
 | `analyze-form/deps.ts` | Deno wiring: service-role Supabase client, Storage, the Anthropic `fetch`. | — (thin factory) |
-| `_shared/analyze-form-validation.ts` | #45: read the response, validate structurally, salvage, classify. | 34 Deno tests |
+| `_shared/analyze-form-validation.ts` | #45: read the response, validate structurally, salvage, classify. | 43 Deno tests |
 
 The model is a **fake queue** in every test. The suite makes **zero Anthropic calls** and costs $0.
 
@@ -2804,11 +2834,18 @@ were uploading — the function purges the prefix it just wrote.
    own gate** — it is a second billed call, and the daily cap and breaker must see it. Each gated
    call is settled with **its own** outcome, so an attempt that failed and was rescued by a retry
    still settles as `'validation_failed'`/`'model_error'`, not as `'success'` — otherwise a model
-   that had stopped calling tools correctly would be invisible to the circuit breaker while
-   silently doubling spend on every request.
+   that had stopped responding correctly would be invisible to the circuit breaker while silently
+   doubling spend on every request. **As of 2026-09-06 (issue #199), only a RETRY-ELIGIBLE failure
+   kind is retried at all** — `model_error` (a transport blip) or a content/shape failure
+   (`no_tool_use`/`invalid_shape`); `provider_timeout`, `max_tokens` truncation, and a policy
+   `refusal` are terminal. Content failures had to stay retry-eligible, not just transport errors,
+   because a repeated content failure is the only signal `classifyReleaseReason` has for
+   deliberate prompt-injection farming; see the "Timing" note below for the full reasoning and the
+   regression this avoided.
 
-**The model call — verified against the live Anthropic docs on 2026-07-13, not recalled.**
-`claude-sonnet-5`, `thinking: {type: 'adaptive'}`, `output_config: {effort: 'medium', format:
+**The model call — verified against the live Anthropic docs on 2026-07-13, not recalled; `effort`
+lowered from `medium` to `low` 2026-09-06 (issue #199, see "Timing" below).**
+`claude-sonnet-5`, `thinking: {type: 'adaptive'}`, `output_config: {effort: 'low', format:
 {type: 'json_schema', schema: PACE_RESULT_SCHEMA}}`, `max_tokens` 4–8k from
 `MAX_OUTPUT_TOKENS_BY_TIER`. **No `tools`. No `tool_choice`.**
 
@@ -2850,11 +2887,36 @@ were uploading — the function purges the prefix it just wrote.
   output (thinking + response text)"). `stop_reason: 'max_tokens'` is therefore treated as a
   **truncation and is never usable**, whatever the content looks like — Echo V1's exact bug.
 
-**Timing.** Total model budget `ANALYZE_FORM_DEADLINE_MS` = 105s, per-attempt cap 65s; the retry is
-skipped when under `MIN_RETRY_BUDGET_MS` (20s) remains, because a call we start and abort is a call
-we pay for and cannot use. 105s sits under the client's own `ANALYZING_TIMEOUT_MS` (120s), so a
+**Timing — revised 2026-09-06 (issue #199), following the core-purpose audit's live-call
+evidence.** Three of six real video calls exceeded the old 65s per-attempt limit (one truncated by
+thinking tokens instead), so a Pro user could wait nearly two minutes for a `provider_timeout`. The
+audit traced this to genuine work time — `effort: 'medium'`'s thinking spent 2,800-5,000+ of the
+4-8k output-token budget before any answer text — not to a number that merely needed raising, so
+the fix is two changes together: `ANALYZE_FORM_EFFORT` dropped to `'low'` (adaptive thinking stays
+ON; see step 8 above) to shrink how much of the window thinking consumes, and the timing constants
+were re-derived around one full attempt rather than a first-attempt-plus-retry split. Current
+values: total model budget `ANALYZE_FORM_DEADLINE_MS` = 85s, per-attempt cap `MODEL_CALL_TIMEOUT_MS`
+= 80s. **The retry is no longer "whatever's left after attempt 1"** — it now requires BOTH a
+first-attempt failure of a RETRY-ELIGIBLE KIND (`model_error` — a transport blip — OR a
+content/shape failure, `no_tool_use`/`invalid_shape`) AND a full, fresh 80s (`MIN_RETRY_BUDGET_MS`)
+still remaining in the window. A `provider_timeout`, a `max_tokens` truncation, and a policy
+`refusal` are all TERMINAL and never retried — the first two because attempt 1 already spent
+most/all of the window, so retrying would very likely repeat the same failure and only double the
+wait and the spend; `refusal` because it is unlikely to change on the same frames and carries no
+anti-farming signal either way. **Content failures MUST stay retry-eligible, not just transport
+errors** — this is load-bearing for `decideOutcome`'s farming classification
+(`analyze-form-validation.ts`'s `classifyReleaseReason`), which recognizes deliberate
+prompt-injection farming ONLY when both attempts are content failures AND the retry genuinely ran.
+Restricting retry eligibility to `model_error` alone would make that condition structurally
+unreachable and silently disable the 3-strike anti-farming cap for the one failure class it exists
+to catch — caught by a security-auditor/code-reviewer pass on this exact issue before merge (see
+`docs/status.md` Known Issue #42), not shipped. 85s sits under the client's own
+`ANALYZING_TIMEOUT_MS` (120s), so a
 doomed request fails as our structured `{ error, code }` — reservation released, ledger settled —
 rather than as the client's blind timeout, which would leave the row `'reserved'` until #47's sweep.
+No client-visible progress indicator was added in this pass — the audit's remit was root-causing
+and fixing the timeout itself, not the wait UI; `lib/analyzing-machine.ts`'s existing animated wait
+state is unchanged.
 
 **Status codes** (every non-2xx body is `{ error, code }`):
 

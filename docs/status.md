@@ -1219,6 +1219,75 @@ milestone "done" criteria.
     `expect(STANCE.from).toBeCloseTo(0, 2)` test guards a regression here, so this is a fidelity
     note rather than a fragility one.
 
+42. **Video analysis timeouts and single-frame-guess sampling — fixed, issue #199, 2026-09-06.**
+    Root-caused from `v23-core-purpose-audit-r1`'s eleven live-model-call evidence set (not
+    guessed at): three of six real video calls exceeded the old 65s per-attempt timeout (one more
+    truncated at `max_tokens` with 5,032 of 6,000 tokens spent on thinking), and frames were
+    sampled 1.3-2.2s apart against a ~0.7s recreational stride, so Cadence and Elasticity were
+    single-frame guesses from unrelated instants dressed up as motion evidence — a structural
+    ceiling the audit found no prompt change could lift.
+
+    **Timeouts, root cause and fix.** The real driver was thinking-token spend under
+    `effort: 'medium'`, not an unreasonably tight number: `ANALYZE_FORM_EFFORT` moved to `'low'`
+    (adaptive thinking stays on; `MAX_OUTPUT_TOKENS_BY_TIER` untouched), `MODEL_CALL_TIMEOUT_MS`
+    rose 65s → 80s and `ANALYZE_FORM_DEADLINE_MS` fell 105s → 85s (more client headroom, not less,
+    since the retry policy changed at the same time), and the retry is no longer "whatever time is
+    left" — `provider_timeout` and a `max_tokens` truncation are now terminal (attempt 1 already
+    spent most/all of the window, so retrying would very likely repeat the same failure and only
+    double the wait and the spend), and so is a policy `refusal` (unlikely to change on the same
+    frames, and carries no anti-farming signal). A transport blip (`model_error`) or a
+    content/shape failure (`no_tool_use`/`invalid_shape`) still gets exactly one retry whenever a
+    full fresh 80s remains. **This distinction is load-bearing, not cosmetic**: a REPEATED content
+    failure is the only signal `classifyReleaseReason` (`analyze-form-validation.ts`) has for
+    deliberate prompt-injection farming — it requires both attempts to be content failures AND the
+    retry to have genuinely run. An earlier version of this fix restricted retry eligibility to
+    `model_error` alone, which makes that condition structurally unreachable and silently disables
+    the 3-strike anti-farming cap for the one failure class it exists to catch; this was caught by
+    a security-auditor and code-reviewer pass before merge (not shipped) and is now covered by
+    `flow.deno.test.ts`'s restored "rule 3 / finding 1(c)" reachability test. No client-visible
+    progress indicator was added — `app/analyzing.tsx`'s existing step-caption + "Still
+    analyzing..." dwell sequence (`lib/analyzing-machine.ts`) was judged to already answer "does
+    the user see progress, not a silent wait," and building a new one was out of this pass's scope.
+
+    **Frame sampling, root cause and fix.** `lib/frames.ts` moved off the discontinued
+    `expo-video-thumbnails` onto `expo-video ~57.0.3`'s batch `generateThumbnailsAsync`, which (a)
+    decodes the real frame at each requested instant on both platforms (`OPTION_CLOSEST` on
+    Android, zero-tolerance `AVAssetImageGenerator` on iOS — neither snaps to the nearest keyframe
+    the way the old extractor did) and (b) reports a decoder `actualTime` back — frame-accurate on
+    iOS, an average-frame-duration ESTIMATE on Android (not a true PTS; falls back to the requested
+    time when frame-count metadata is unavailable). `sampleTimestamps` now asks for ONE centered
+    ~700ms burst instead of spreading requests across the whole clip, and extraction fails closed
+    (`FrameExtractionError`) rather than silently degrading when the returned burst cannot be
+    trusted — wrong thumbnail count, a non-finite or out-of-clip reported time, two times that are
+    not strictly increasing, or two byte-identical re-encoded frames. That last group trades a rare
+    extraction failure on unusually low-frame-rate footage for never handing the model two frames
+    mislabeled with the same "time" — see `lib/frames.ts`'s file header for the full reasoning.
+
+    **Why the prompt also had to change, not just the sampler.** The edge function deploys
+    instantly to every client; a native app update reaches devices over days to weeks through
+    app-store rollout. `analyze-form` will keep receiving requests built by the OLD sparse sampler
+    for as long as any un-updated install exists, so trusting a request's tier or frame count to
+    imply "this is a real burst" would silently revert every straggling client to the pre-#199
+    failure mode with nobody noticing. `supabase/functions/_shared/analyze-form-prompt.ts` now
+    classifies each request's OWN frames server-side (`isStrideBurst`,
+    `MAX_STRIDE_BURST_SPAN_MS` = 900ms): a genuine burst unlocks all four pillars from real motion
+    evidence; anything else (a single video frame, or a request whose timestamps reveal the old
+    sampler built it) is LEGACY/SPARSE and forces Cadence/Elasticity to `score: null`,
+    `notAssessedReason: "needsVideo"` — exactly the honest photo-tier treatment, never silently
+    narrowed claims dressed up as depth.
+
+    **Verification.** No real Anthropic calls were made in this pass (the audit's eleven live calls
+    already established the root causes; this pass is pure engineering against that evidence) —
+    `flow.deno.test.ts` (80 tests, including new virtual-clock timeout/retry cases that reproduce
+    the pre-fix failure before asserting the fix), `analyze-form-prompt.deno.test.ts` (43 tests,
+    including seven new burst/legacy-classification cases and a mutation-tested `isStrideBurst`),
+    and `lib/__tests__/frames.test.ts` (36 tests, rewritten around `expo-video` mocks, with the four
+    new fail-closed cases mutation-tested against the production code to confirm they are not
+    vacuous). `npm run typecheck && npm run lint && npm test` all green. Not yet verified: a real
+    device/simulator pass showing an actual reduction in video-analysis wall-clock time or a
+    real burst's effect on Cadence/Elasticity scoring — the audit's live-call evidence is the only
+    model-output evidence for this fix, same limitation the audit itself operated under.
+
 ## Next action
 
 **RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the

@@ -5,6 +5,51 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-06 (analysis reliability: model window, retry policy, stride-burst sampling)
+
+**On `fm/v23-reliability-timeouts`, not yet merged to `main`.** Root-caused from
+`v23-core-purpose-audit-r1`'s eleven live-model-call evidence set — no real Anthropic calls made in
+this pass. Full account: `docs/status.md` Known Issue #42.
+
+- **Timeouts.** `ANALYZE_FORM_EFFORT` (`analyze-form-prompt.ts`) dropped `'medium'` -> `'low'`
+  (adaptive thinking stays on, `MAX_OUTPUT_TOKENS_BY_TIER` unchanged) — real video calls at
+  `medium` spent 2,800-5,000+ of a 4-8k token budget on thinking alone, which is what drove both
+  truncated-at-`max_tokens` responses and timeouts past the old 65s per-attempt ceiling.
+  `MODEL_CALL_TIMEOUT_MS` 65s -> 80s, `ANALYZE_FORM_DEADLINE_MS` 105s -> 85s (`flow.ts`). The
+  retry policy also changed: `provider_timeout` and a `max_tokens` truncation are now terminal
+  (attempt 1 already spent most/all of the window, so retrying would very likely repeat the same
+  failure and only double the wait and the spend), and so is a policy `refusal` (unlikely to
+  change on the same frames, and carries no anti-farming signal). A transport blip (`model_error`)
+  or a content/shape failure (`no_tool_use`/`invalid_shape`) still gets exactly one retry whenever
+  a full fresh 80s (`MIN_RETRY_BUDGET_MS`) remains — content failures had to stay retry-eligible,
+  not just transport errors, because a REPEATED content failure is the only signal
+  `classifyReleaseReason` has for deliberate prompt-injection farming; an earlier version of this
+  fix restricted retries to `model_error` alone, which silently made the 3-strike anti-farming cap
+  unreachable (caught in review before merge, not shipped).
+- **Frame sampling.** `lib/frames.ts` migrated off the discontinued `expo-video-thumbnails` onto
+  `expo-video ~57.0.3`'s batch `generateThumbnailsAsync` (`package.json`/`package-lock.json`
+  updated to match). `sampleTimestamps` now asks for one centered ~700ms burst instead of spreading
+  requests across 5%-95% of the whole clip (1.3-2.2s apart against a ~0.7s recreational stride —
+  the core-purpose audit's structural-ceiling finding: no two frames of a "video" analysis ever
+  belonged to the same stride, so Cadence and Elasticity were single-frame guesses). Frames now
+  carry the decoder's own `actualTime` (frame-accurate on iOS, an average-frame-duration ESTIMATE
+  on Android) instead of only the requested time, and extraction fails closed
+  (`FrameExtractionError`) on a wrong thumbnail count, an out-of-range or non-finite reported time,
+  non-increasing timestamps, or two byte-identical re-encoded frames, rather than silently handing
+  the model mislabeled or duplicate evidence.
+- **Prompt.** `analyze-form-prompt.ts` now classifies each request's OWN frames server-side
+  (`isStrideBurst`, `MAX_STRIDE_BURST_SPAN_MS` = 900ms) instead of trusting the client's tier or
+  frame count — the edge function deploys instantly, a native app update does not, so a
+  not-yet-updated install can still submit pre-migration sparse frames for as long as it exists. A
+  genuine burst unlocks all four pillars; anything else (a single video frame, or a request whose
+  timestamps reveal the old sampler built it) is classified LEGACY/SPARSE and forces
+  Cadence/Elasticity to the same honest `notAssessedReason: "needsVideo"` treatment a photo gets.
+- **Coverage.** `flow.deno.test.ts` (80 tests, new virtual-clock timeout/retry cases reproducing
+  the pre-fix failure before asserting the fix), `analyze-form-prompt.deno.test.ts` (43 tests, seven
+  new burst/legacy-classification cases), `lib/__tests__/frames.test.ts` (36 tests, rewritten
+  around `expo-video` mocks) — all new fail-closed/classification assertions mutation-tested
+  against the production code to confirm they are not vacuous.
+
 ## 2026-09-05 (Expo SDK 54 -> 57)
 
 **On `fm/v23-sdk57-upgrade`, not yet merged to `main`.** One SDK major at a time (54->55->56->57),
