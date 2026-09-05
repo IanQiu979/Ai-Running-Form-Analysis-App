@@ -62,7 +62,7 @@ export function LaunchIntro({ onDone }: LaunchIntroProps) {
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 10,
   },
 });

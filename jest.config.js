@@ -34,7 +34,10 @@ module.exports = {
   // react-native against the wrong node_modules, and fails suites that pass in the real tree.
   modulePathIgnorePatterns: ['<rootDir>/.claude/worktrees/'],
   // Node resolves these packages as ESM; Jest needs them transformed like app code.
+  // `standard-navigation` is expo-router's own dependency as of SDK 56's react-navigation
+  // replacement (see `npx expo-codemod sdk-56-expo-router-react-navigation-replace`) — it
+  // ships ESM and needs the same treatment the old `@react-navigation/*` entries existed for.
   transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@supabase/.*|react-native-url-polyfill))',
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|standard-navigation|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@supabase/.*|react-native-url-polyfill))',
   ],
 };
