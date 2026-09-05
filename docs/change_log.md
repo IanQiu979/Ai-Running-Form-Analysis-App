@@ -28,6 +28,35 @@ deployed**, and zero real Anthropic calls were made anywhere in this work.
   tier) has Cadence and Elasticity forced to `notAssessedReason: 'needsVideo'`, replacing whatever
   the model claimed. Free additionally has flags/drills stripped from every pillar. `overall` is
   always recomputed from what survives, via the existing `deriveOverall()`.
+  - **Review follow-up 3, same day — a missing `safety` field is now INVALID, not "no signal".**
+    The structured field closed the classifier hole but left a fail-OPEN one: the output schema's
+    `required` list is a request to the model, not a grammar guarantee, so a pillar could arrive
+    with no declaration (or one whose declared signal carried a blank note) and normalization would
+    read that as "nothing to warn about" — dropping a warning that lived in the pillar's prose.
+    `analyze-form-validation.ts` now refuses to deliver any response whose pillars do not all carry
+    a usable declaration; absent, malformed, ungrounded, blank-noted, and "a real signal on a pillar
+    the salvage would drop" all take the same path (no salvage → retry → release, uncharged). The
+    narrowing is real and deliberate: an honest-partial salvage now also requires every readable
+    pillar to declare its safety state.
+  - **`overall` is no longer recomputed on paths that normalized nothing.** A multi-frame Pro/Elite
+    result keeps the model's own headline; only a one-frame submission or Free's flag/drill strip
+    (the paths that actually change pillars) re-derives it.
+  - **Copy and prompt no longer blame the runner's plan for a single frame.** The frame count is
+    decided on the device and `lib/extraction-frame-cap.ts` degrades to one frame whenever it cannot
+    read the caller's quota — so a paying user on a flaky connection was being told their plan
+    allowed one frame. Both surfaces now state only what we can vouch for ("only one frame of your
+    video could be analysed"), and `fetchVideoFrameCap` retries a retryable quota lookup once,
+    inside its existing timeout budget, before degrading.
+  - **Anti-farm lockout (raised in review): NOT a live defect, verified against the migration.**
+    The reviewer read `20260711150400`, which is superseded. The current `reserve_analysis`
+    (`20260712220000_anti_farm_release_reason_fix.sql`) already counts only reasons
+    `pace_is_farming_signal()` names — `validation_failed` alone, so `model_error`,
+    `provider_timeout`, `internal_error` and `zero_pillars_assessed` never count — and scopes
+    Free's counter to a rolling 24h window from `released_at`, not lifetime. Two integration cases
+    covering exactly this (three our-fault releases then a successful delivery; three
+    `validation_failed` releases throttling and then expiring) were added to
+    `supabase/functions/_shared/integration/quota-rpc.local.ts` and are **unrun** — that file needs
+    local Postgres, and Docker was unavailable, the same limitation already recorded for it.
   - **Review follow-up 2, same day — the safety signal is now structural, not lexical.** The first
     follow-up preserved a stop-running warning by keyword-matching the model's prose, which could
     both drop a warning phrased outside the pattern and preserve a fabricated cadence claim that

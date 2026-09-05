@@ -100,6 +100,34 @@ export function resolveVideoFrameCap(result: QuotaStatusResult): number {
   return Math.min(frameCap, GLOBAL_FRAME_CEILING);
 }
 
+/** One lookup, never rejecting — `QuotaStatusClient`'s contract already promises this, and the
+ * `.catch` is defence in depth against a caller that breaks it. */
+async function lookUpOnce(client: QuotaStatusClient): Promise<QuotaStatusResult> {
+  return client.fetch().catch((): QuotaStatusResult => ({
+    ok: false,
+    error: { error: 'The quota lookup failed unexpectedly.', code: 'unknown' },
+  }));
+}
+
+/**
+ * ONE RETRY BEFORE DEGRADING. Falling back to the free floor is safe (it can only under-request
+ * frames), but it is not free of consequence: a Pro user whose lookup blipped gets a single-frame
+ * analysis, and the result then honestly says only one frame could be analysed — a degraded
+ * product bought by one flaky request. A retryable failure gets a second attempt before we accept
+ * that, still inside the SAME `QUOTA_WAIT_TIMEOUT_MS` budget the caller already races against, so
+ * this can never make the extraction screen wait longer than it does today.
+ *
+ * `unauthorized` is NOT retried: it is a settled answer about the caller (no session), not a
+ * transient failure, and asking again cannot change it.
+ */
+async function lookUpWithOneRetry(client: QuotaStatusClient): Promise<QuotaStatusResult> {
+  const first = await lookUpOnce(client);
+  if (first.ok || first.error.code === 'unauthorized') {
+    return first;
+  }
+  return lookUpOnce(client);
+}
+
 /**
  * Asks the server how many frames this caller's video may contain, bounded by
  * `QUOTA_WAIT_TIMEOUT_MS`, and resolving to `FALLBACK_VIDEO_FRAME_CAP` rather than rejecting on
@@ -109,8 +137,12 @@ export function resolveVideoFrameCap(result: QuotaStatusResult): number {
  * separately from its `quotaStatusClient` binding: a test can hand in a fake without a live edge
  * function to call. Production callers pass nothing.
  *
- * The `.catch` is defence in depth, not a live path: `QuotaStatusClient`'s contract is that it
- * "resolves — NEVER REJECTS", and `lib/quota.ts`'s real implementation folds every transport
+ * A retryable failure gets ONE second attempt first (`lookUpWithOneRetry`) — degrading a paying
+ * user to a single frame on one flaky request is a real cost, and the honest result copy that
+ * follows ("only one frame of your video could be analysed") is the user living with it.
+ *
+ * The `.catch` inside is defence in depth, not a live path: `QuotaStatusClient`'s contract is that
+ * it "resolves — NEVER REJECTS", and `lib/quota.ts`'s real implementation folds every transport
  * failure into `{ ok: false }` itself. But a rejection escaping to the extraction screen's own
  * `.catch` would surface as `extractionFailed` — a dead-end error screen — when the honest
  * response to "we could not read your quota" is to extract at the free cap and let the analysis
@@ -125,13 +157,7 @@ export async function fetchVideoFrameCap(
   });
 
   try {
-    const outcome = await Promise.race([
-      client.fetch().catch((): QuotaStatusResult => ({
-        ok: false,
-        error: { error: 'The quota lookup failed unexpectedly.', code: 'unknown' },
-      })),
-      timeout,
-    ]);
+    const outcome = await Promise.race([lookUpWithOneRetry(client), timeout]);
 
     return outcome === TIMED_OUT ? FALLBACK_VIDEO_FRAME_CAP : resolveVideoFrameCap(outcome);
   } finally {

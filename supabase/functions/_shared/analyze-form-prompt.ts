@@ -776,8 +776,10 @@ const ROLE_PREAMBLE = [
  * The medium rules, assembled from TWO SEPARATE FACTS that must never be conflated:
  *
  *   1. WHAT THE RUNNER SENT — a photo, or a video. Their own upload; we do not get to rename it.
- *   2. WHAT REACHED YOU — how many frames are actually attached. A video whose plan allows one
- *      frame arrives here as one frame, and one frame is one instant whatever produced it.
+ *   2. WHAT REACHED YOU — how many frames are actually attached. A video can arrive here as a
+ *      single frame (the device decides the count, and it degrades to one when it cannot read the
+ *      caller's quota), and one frame is one instant whatever produced it. WHY only one arrived is
+ *      not something this builder knows, so it never says.
  *
  * Collapsing the two is how a runner who submitted a video gets told their upload is a photo and
  * advised to submit a video. So the one-frame rules below state fact 1 in the runner's terms and
@@ -789,7 +791,7 @@ function mediumRules(media: PaceMediaKind, frameCount: number): string {
     return [
       media === 'photo'
         ? 'WHAT THE RUNNER SENT: a photo.'
-        : 'WHAT THE RUNNER SENT: a video. Their plan allows one frame per analysis, so exactly one frame of it was extracted.',
+        : 'WHAT THE RUNNER SENT: a video, of which exactly one frame reached you. You are NOT told why only one arrived — do not speculate about it, and never state or imply that their plan allows only one.',
       'WHAT YOU RECEIVED: ONE FRAME. One instant, whatever produced it.',
       '- You CAN assess: Posture (trunk lean, head, shoulders, pelvis) and Arm swing POSITION',
       '  (elbow angle, where the hands are, whether they cross the midline).',
@@ -872,7 +874,7 @@ export function buildSystemPrompt(input: AnalyzeFormPromptInput): AnthropicTextB
 export function formatFrameManifest(frames: PaceFrame[], media: PaceMediaKind = 'photo'): string {
   if (frames.length === 1) {
     return media === 'video'
-      ? 'FRAME MANIFEST: 1 frame — the only frame extracted from the runner\'s video (their plan\'s cap). No timing information applies to a single frame.'
+      ? 'FRAME MANIFEST: 1 frame — the only frame of the runner\'s video that reached this analysis. No timing information applies to a single frame.'
       : 'FRAME MANIFEST: 1 frame (a single photo — no timing information applies).';
   }
 
