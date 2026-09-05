@@ -43,11 +43,6 @@ jest.mock('@/lib/pending-analysis', () => ({
   clearPendingAnalysisMarker: jest.fn(),
 }));
 
-const mockSetPendingSampleResult = jest.fn();
-jest.mock('@/lib/pending-sample-result', () => ({
-  setPendingSampleResult: (...args: unknown[]) => mockSetPendingSampleResult(...args),
-}));
-
 const mockSignOut = jest.fn();
 jest.mock('@/lib/sign-out', () => ({ signOut: (...args: unknown[]) => mockSignOut(...args) }));
 
@@ -139,28 +134,6 @@ describe('AnalyzingScreen terminal branches', () => {
         params: { id: analysisId, justAnalyzed: '1' },
       })
     );
-  });
-
-  // Free tier's zero-model-call sample preview (captain-approved 2026-07-26): the screen must
-  // route a `kind: 'sample'` response to the STATIC `/result/sample` route (never `/result/[id]`,
-  // which would try to fetch an `analyses` row that was never created), and stage exactly the
-  // result the client returned into the sample mailbox, with a hero URI built from the frame
-  // already in memory — proving what this screen actually passes downstream, not just that it
-  // navigates somewhere.
-  it('routes a kind: "sample" response to /result/sample and stages the result + hero photo', async () => {
-    const sampleResult = jest.requireActual('@/lib/pace-fixtures').proTierVideoResult;
-    mockSubmit.mockResolvedValue({
-      ok: true,
-      data: { kind: 'sample', result: sampleResult },
-    });
-
-    await render(<AnalyzingScreen />);
-
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/result/sample'));
-    expect(mockSetPendingSampleResult).toHaveBeenCalledWith({
-      result: sampleResult,
-      heroDataUri: 'data:image/jpeg;base64,base64',
-    });
   });
 
   // L7 follow-up (v23-ux-audit-r1, review-1): the `unauthorized` panel's primary CTA must sign the
