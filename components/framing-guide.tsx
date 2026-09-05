@@ -98,7 +98,7 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
   const glass = Glass[scheme];
   return StyleSheet.create({
     container: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       alignItems: 'center',
       justifyContent: 'center',
     },

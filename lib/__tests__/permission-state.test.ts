@@ -1,5 +1,5 @@
-import type { PermissionResponse } from 'expo-modules-core';
-import { PermissionStatus } from 'expo-modules-core';
+import type { PermissionResponse } from 'expo';
+import { PermissionStatus } from 'expo';
 
 import { classifyPermission, permissionRecoveryAction } from '../permission-state';
 

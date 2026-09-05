@@ -5,6 +5,66 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-05 (Expo SDK 54 -> 57)
+
+**On `fm/v23-sdk57-upgrade`, not yet merged to `main`.** One SDK major at a time (54->55->56->57),
+`expo-doctor` + `npm run typecheck && npm run lint && npm test` green after every step, per
+`docs/blocked-on-apple.md`-adjacent scout report `v22-v23-sdk57-upgrade-scout`. `AGENTS.md`'s
+pinned-SDK link at the top of `AGENTS.md` is updated to the SDK 57 versioned docs in the same
+branch.
+
+- **54->55**: routine `expo install --fix` (RN 0.81->0.83, React 19.1->19.2). Required three
+  compatibility fixes beyond version bumps: `hooks/use-color-scheme(.web).ts` normalizes RN
+  0.83's widened `ColorSchemeName` (`'unspecified'` is new) to `null` at the one shared hook
+  every screen already goes through, so the app's own `ColorScheme` type keeps holding
+  everywhere downstream; `components/ui/icon-symbol.tsx` keys its icon map off `expo-symbols`'
+  plain `SFSymbol` type instead of the now-widened `SymbolViewProps['name']` union;
+  `jest.config.js` maps the bare `react-native-worklets` import to the package's own jest mock,
+  since worklets 0.7's native-init path moved into `.native.ts`-suffixed files that RN's jest
+  haste resolver prefers over the plain file's `IS_JEST` bailout even under Jest — every
+  Reanimated-using component was crashing at import time under `npm test` without this.
+- **55->56**: routine bump (RN 0.83->0.85, TypeScript 5.9->6.0) plus its own fallout:
+  `StyleSheet.absoluteFillObject` -> `absoluteFill` (RN rename); `lib/permission-state.ts`
+  imports `PermissionResponse`/`PermissionStatus` from `expo` instead of `expo-modules-core`
+  directly (expo-doctor: "should not be installed directly," and `expo` re-exports both as of
+  SDK 56); `tsconfig.json` gained an explicit `"types": ["jest", "node"]` — TypeScript 6.0 quietly
+  stopped auto-including `@types/*` for this project's resolution setup, which had gone dark for
+  `supabase/migrations/__tests__/*.test.ts`; `eslint.config.js` turns off three new
+  `eslint-plugin-react-hooks` v7 React Compiler rules (`immutability`, `refs`,
+  `set-state-in-effect`) that are blanket false positives here — see that file's inline comments
+  for exactly which existing patterns each one misfires on. Landed as two commits:
+  the routine bump, and the `@react-navigation/*` -> `expo-router/*` codemod
+  (`npx expo-codemod sdk-56-expo-router-react-navigation-replace .`) separately, since expo-router
+  forked away from react-navigation this step and the codemod is the one part that can silently
+  change how navigation renders.
+- **56->57**: routine bump (RN 0.85->0.86, no source changes needed — matches Expo's own "0.86 has
+  no breaking changes from 0.85" note). The one wrinkle: `expo install --fix`'s underlying
+  `npm install` hit a real `ERESOLVE` conflict (`jest-expo@56.0.5`'s `@react-native/jest-preset`
+  peer range couldn't satisfy RN 0.86's own `@react-native/jest-preset@0.86.3` peer) that needed
+  `jest-expo`/`eslint-config-expo` bumped by hand plus a full lockfile regeneration — a stale
+  `package-lock.json` resolution graph from the failed attempt was part of the problem, not just
+  the version gap.
+- **The BlurView -> BlurTargetView migration** (its own commit, `b5d957d`): `expo-blur`'s
+  `experimentalBlurMethod` prop is renamed `blurMethod`, and Android's `dimezisBlurView` method now
+  needs an explicit `blurTarget` ref to a `<BlurTargetView>` — without one it silently falls back
+  to no blur at all on Android (iOS's compositor blur is unaffected). New
+  `hooks/use-screen-blur-target.ts`: `<ScreenGradient>` (the one backdrop every screen sits on)
+  wraps its own gradient wash in a `<BlurTargetView>` and hands that ref to every `<GlassFrost>`
+  nested under it via context, so `SurfaceCard`/`PillButton`/`CircleIconButton` don't need
+  individual wiring. `components/aperture.tsx`'s rack-focus blur wraps its own `children` directly
+  (no context needed there — it already owns what it blurs). **Partially verified headlessly on an
+  iOS simulator, without taking macOS focus:** Expo Go 57.0.9 (self-reporting SDK 57.0.0) launched
+  the branch and reached the genuine signed-out landing screen; Glass surfaces remained
+  translucent/tinted in both light and dark mode instead of becoming flat or opaque. The landing
+  screen's backdrop is a flat/subtle gradient, however, so its screenshots cannot conclusively
+  distinguish native backdrop blur from the token-tint-only fallback described in
+  `components/ui/glass-frost.tsx`. A textured backdrop, Android rendering, and the full
+  camera -> frame-extraction path remain unverified. `theme-contrast.test.ts` proves the `Glass`
+  token alone, not a rendered blur, and Reanimated motion does not advance under Jest here, so the
+  green suite cannot close those visual/runtime gaps.
+- `docs/status.md` gets its own entry for the milestone/next-action state this upgrade leaves
+  behind; not duplicated here.
+
 ## 2026-09-04 ("Cold Read" — the near-monochrome visual redesign)
 
 **UNRELEASED.** All of this lives on `fm/v23-redesign-theme-onboarding` and has **not** been merged

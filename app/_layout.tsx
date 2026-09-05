@@ -16,7 +16,7 @@ import {
   Newsreader_400Regular_Italic,
   Newsreader_600SemiBold,
 } from '@expo-google-fonts/newsreader';
-import { DarkTheme, DefaultTheme, ThemeProvider, type Theme } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider, type Theme } from 'expo-router/react-navigation';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';

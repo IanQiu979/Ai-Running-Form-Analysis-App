@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "paceanalysisai",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.ian.paceanalysisai"
@@ -18,7 +17,6 @@
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.ian.paceanalysisai"
     },
@@ -58,7 +56,10 @@
           "cameraPermission": "Used to record a video or photo of your running form for analysis. Recording is muted — Pace Analysis AI never accesses your microphone.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-image",
+      "expo-secure-store",
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -5,9 +5,11 @@
  * `app/capture/index.tsx` (photo library) and `app/capture/record.tsx` (camera) derive the same
  * states from the same rules instead of two independently hand-rolled `if` chains that could
  * drift — both screens' permissions come from Expo's shared `PermissionResponse` shape
- * (`expo-modules-core`, re-exported by both `expo-camera` and `expo-image-picker`).
+ * (`expo-modules-core`, re-exported by both `expo-camera` and `expo-image-picker`, and by `expo`
+ * itself as of SDK 56 — expo-doctor flags `expo-modules-core` as a direct dependency, so import
+ * the type through `expo` instead).
  */
-import type { PermissionResponse } from 'expo-modules-core';
+import type { PermissionResponse } from 'expo';
 
 export type MediaPermissionState =
   /** The hook's `get: true` default check hasn't resolved yet — `useXPermissions()` returns

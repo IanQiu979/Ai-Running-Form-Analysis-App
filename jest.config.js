@@ -19,12 +19,25 @@ module.exports = {
   // other's globals. See `supabase/functions/deno.json`'s `exclude` for the opposite direction
   // (Jest-only `*.test.ts` files Deno must not try to check/run).
   testPathIgnorePatterns: ['<rootDir>/.*\\.canary\\.test\\.ts$', '<rootDir>/.*\\.deno\\.test\\.ts$'],
+  // react-native-worklets 0.7's native init path lives in platform-suffixed files
+  // (initializers.native.ts, NativeWorklets.native.ts, ...) that RN's jest haste resolver
+  // prefers over the plain .ts sibling even under Jest — so the package's own `IS_JEST`
+  // bailout (in the plain, non-suffixed file) never runs and module-scope code throws
+  // "Native part of Worklets doesn't seem to be initialized." Redirect the bare import to
+  // the package's own self-contained jest mock, which every reanimated import of
+  // react-native-worklets picks up transparently.
+  moduleNameMapper: {
+    '^react-native-worklets$': '<rootDir>/node_modules/react-native-worklets/src/mock.ts',
+  },
   // Agent worktrees live in .claude/worktrees/ and carry their own node_modules and a full
   // copy of the test suite. Without this, `npm test` discovers those copies, resolves their
   // react-native against the wrong node_modules, and fails suites that pass in the real tree.
   modulePathIgnorePatterns: ['<rootDir>/.claude/worktrees/'],
   // Node resolves these packages as ESM; Jest needs them transformed like app code.
+  // `standard-navigation` is expo-router's own dependency as of SDK 56's react-navigation
+  // replacement (see `npx expo-codemod sdk-56-expo-router-react-navigation-replace`) — it
+  // ships ESM and needs the same treatment the old `@react-navigation/*` entries existed for.
   transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@supabase/.*|react-native-url-polyfill))',
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|standard-navigation|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@supabase/.*|react-native-url-polyfill))',
   ],
 };

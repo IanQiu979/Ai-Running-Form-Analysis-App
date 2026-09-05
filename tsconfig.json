@@ -2,6 +2,11 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    // TypeScript 6.0 (pulled in by the SDK 56 `expo install --fix` bump) stopped
+    // auto-including @types/* packages from node_modules/@types for this project's
+    // resolution setup — supabase/migrations/__tests__/*.test.ts (Jest globals) and
+    // superseded_not_applied.test.ts (Node globals) went dark without this.
+    "types": ["jest", "node"],
     "paths": {
       "@/*": [
         "./*"
