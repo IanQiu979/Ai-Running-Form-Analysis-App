@@ -55,13 +55,22 @@ function scoredPillar(score: number, band: string): Record<string, unknown> {
     score,
     band,
     feedback: 'Trunk stays tall through mid-stance.',
+    safety: { signal: 'none', note: '' },
     flags: [],
     drills: [],
   };
 }
 
 function notAssessedPillar(reason: string): Record<string, unknown> {
-  return { score: null, band: null, feedback: 'Needs a video.', notAssessedReason: reason, flags: [], drills: [] };
+  return {
+    score: null,
+    band: null,
+    feedback: 'Needs a video.',
+    notAssessedReason: reason,
+    safety: { signal: 'none', note: '' },
+    flags: [],
+    drills: [],
+  };
 }
 
 /** A complete, structurally valid tool input — all four pillars scored. */
@@ -146,6 +155,7 @@ Deno.test('never fabricates: a score with no band (or a band with no score) is d
     score: 80,
     band: null,
     feedback: 'x',
+    safety: { signal: 'none', note: '' },
     flags: [],
     drills: [],
   };
@@ -156,6 +166,7 @@ Deno.test('never fabricates: a score with no band (or a band with no score) is d
     score: null,
     band: 'good',
     feedback: 'x',
+    safety: { signal: 'none', note: '' },
     flags: [],
     drills: [],
   };
@@ -166,8 +177,8 @@ Deno.test('never fabricates: not-assessed pillars are NOT counted as zeros in th
   // The prompt forbids the model from counting a not-assessed pillar as a zero ("that would
   // silently punish the runner for a camera angle"). The fallback path must not do it either.
   const input = fullToolInput();
-  (input.pillars as Record<string, unknown>).cadence = { junk: true };
-  (input.pillars as Record<string, unknown>).elasticity = { junk: true };
+  (input.pillars as Record<string, unknown>).cadence = { junk: true, safety: { signal: 'none', note: '' } };
+  (input.pillars as Record<string, unknown>).elasticity = { junk: true, safety: { signal: 'none', note: '' } };
   delete input.overall;
 
   const attempt = readAttempt(toolResponse(input));
@@ -265,6 +276,7 @@ Deno.test('structural not strict: flags and drills are accepted as-is, never che
     score: 55,
     band: 'mid',
     feedback: 'x',
+    safety: { signal: 'none', note: '' },
     flags: [{ pattern: 'A pattern not in injury_flags.md', detail: 'prose' }],
     drills: [{ name: 'A drill not in drills.md', instructions: 'prose' }],
   };
@@ -308,7 +320,7 @@ Deno.test('structured outputs: a malformed JSON payload still salvages its reada
   // explicitly "may not match your schema", and numerical constraints (score 0-100) are not even in
   // the supported JSON Schema subset. #45's fallback path is not dead code.
   const input = fullToolInput();
-  (input.pillars as Record<string, unknown>).cadence = { garbage: true };
+  (input.pillars as Record<string, unknown>).cadence = { garbage: true, safety: { signal: 'none', note: '' } };
   delete input.overall;
 
   const attempt = readAttempt(structuredResponse(input));
@@ -517,7 +529,7 @@ Deno.test('usage is carried through on every attempt shape', () => {
 function partialResponse(parsed: PacePillarId[]): AttemptOutcome {
   const pillars: Record<string, unknown> = {};
   for (const id of PACE_PILLARS) {
-    pillars[id] = parsed.includes(id) ? scoredPillar(80, 'good') : { garbage: true };
+    pillars[id] = parsed.includes(id) ? scoredPillar(80, 'good') : { garbage: true, safety: { signal: 'none', note: '' } };
   }
   // No `overall` at all — so the response cannot validate in full and must go through salvage.
   return readAttempt(toolResponse({ pillars }));

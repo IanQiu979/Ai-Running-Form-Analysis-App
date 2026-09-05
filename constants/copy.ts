@@ -469,11 +469,15 @@ export const Copy = {
       notAssessed: {
         angle: 'Not assessed — film side-on for this.',
         needsVideo: 'Not assessed — needs video, not a photo.',
-        // NEW key, not in the deck (2026-09-06). The runner DID send a video; their plan's frame
-        // cap clipped it to one frame, so neither `needsVideo` ("not a photo") nor `angle` is a
-        // true sentence about their upload. Written only by `analyze-form/flow.ts`'s
+        // NEW key, not in the deck (2026-09-06). The runner DID send a video and exactly one
+        // frame of it reached the analysis, so neither `needsVideo` ("not a photo") nor `angle` is
+        // a true sentence about their upload. Written only by `analyze-form/flow.ts`'s
         // normalization, via `PaceNotAssessedReason`'s server-authored `singleFrameFromVideo`.
-        singleFrameFromVideo: 'Not assessed — only one frame of your video could be analysed on your plan.',
+        // States WHAT happened and not WHY: the frame count is decided on the device, and
+        // `lib/extraction-frame-cap.ts` falls back to a single frame whenever it cannot read the
+        // caller's quota — so "your plan only allowed one" would be a guess, and a false one for a
+        // paying user whose lookup failed.
+        singleFrameFromVideo: 'Not assessed — only one frame of your video could be analysed.',
         // NEW key, not in the deck. `supabase/functions/_shared/pace.ts`'s own doc comment on
         // `PaceNotAssessedReason` says a model response is NOT structurally required to report
         // exactly 'angle' | 'needsVideo' — an honest "couldn't assess this" that names some

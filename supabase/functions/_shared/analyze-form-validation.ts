@@ -77,6 +77,7 @@ import {
   hasSafetySignal,
   isPaceResult,
   isPaceSafety,
+  type PaceSafety,
   type PacePillarId,
   type PacePillarResult,
   type PaceResult,
@@ -337,7 +338,7 @@ export function readAttempt(response: AnthropicMessageResponse): AttemptOutcome 
     return { result: null, failure: 'no_tool_use', salvage: null, usage, stopReason };
   }
 
-  if (isPaceResult(payload)) {
+  if (isPaceResult(payload) && everyPillarSafetyIsDeliverable(payload)) {
     return { result: payload, failure: null, salvage: null, usage, stopReason };
   }
 
@@ -426,26 +427,45 @@ function parseJsonPayload(text: string): unknown {
  * array, or a null.
  */
 /**
- * FAIL CLOSED ON SAFETY. Salvage exists to rescue the readable pillars of a response that failed
- * full validation — but a rescue that quietly discards a stop-running declaration is worse than no
- * rescue at all, because the runner receives a plausible, complete-looking analysis with the one
- * thing they needed removed from it. So a raw pillar whose `safety` field is unreadable, and a
- * pillar carrying a real signal that this salvage is about to DROP, both abort the salvage
- * entirely: the attempt yields nothing, the retry runs, and a second failure releases the
- * reservation without charging the user. A missing analysis is recoverable; a missing warning is
- * not.
+ * FAIL CLOSED ON SAFETY — ABSENT IS INVALID, NEVER "no signal".
+ *
+ * `PACE_RESULT_SCHEMA` marks `safety` `required`, but a schema is a request to the model, not a
+ * grammar guarantee we can lean on: an older deployment, a tool-use envelope, or a model having a
+ * bad day can all hand us a pillar with no `safety` key at all. Reading that absence as "no
+ * stop-running signal was seen" is the single worst available default — a pillar whose PROSE
+ * carries a real warning would then have that warning discarded with more confidence than the
+ * keyword classifier this design replaced ever had.
+ *
+ * So all four unusable states — ABSENT, malformed, ungrounded `signal`, and a declared signal with
+ * a blank `note` — take the identical path: the response is not deliverable, the salvage is
+ * abandoned, the retry runs, and a second failure releases the reservation without charging the
+ * user. A missing analysis is recoverable; a missing warning is not.
  */
+function isDeliverableSafety(raw: unknown): raw is PaceSafety {
+  if (!isPaceSafety(raw)) {
+    return false;
+  }
+  return raw.signal === 'none' || hasSafetySignal(raw);
+}
+
+/** Every pillar of a fully-valid payload must carry a usable declaration — otherwise `readAttempt`
+ * cannot call the response deliverable, however well-formed the rest of it is. */
+function everyPillarSafetyIsDeliverable(payload: PaceResult): boolean {
+  return PACE_PILLARS.every((id) => isDeliverableSafety(payload.pillars[id].safety));
+}
+
 function safetyBlocksSalvage(rawPillar: unknown, kept: boolean): boolean {
   if (typeof rawPillar !== 'object' || rawPillar === null || Array.isArray(rawPillar)) {
+    // Not even an object: there is no `feedback` here either, so there is no warning this salvage
+    // could be discarding. The pillar is dropped on its own merits by `isStructurallyValidPillar`.
     return false;
   }
   const raw = (rawPillar as { safety?: unknown }).safety;
-  if (raw === undefined || raw === null) {
-    return false;
-  }
-  if (!isPaceSafety(raw)) {
+  if (!isDeliverableSafety(raw)) {
     return true;
   }
+  // A usable declaration that says something — on a pillar this salvage is about to replace with
+  // the all-null dropped constant. Dropping it would take the warning with it.
   return !kept && hasSafetySignal(raw);
 }
 

@@ -826,8 +826,12 @@ const SINGLE_FRAME_VIDEO_RULES = [
   '  from a single pose, however suggestive it looks.',
   '  => Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
   '     "needsVideo"`. This is not a failure — it is the correct, honest result for a single',
-  '     frame. Tell the runner a short multi-frame video would unlock those two pillars.',
+  '     frame.',
   '- Arm swing RANGE (the arc) is also motion over time. Judge position only, and say so.',
+  '- They ALREADY sent a video. NEVER tell them to submit one, and never describe their',
+  '  submission as a photo. You are NOT told why only one frame arrived — do not speculate about',
+  '  it, and never state or imply that their plan allows only one. If you mention the limitation',
+  '  at all, say only that one frame of their video could be analysed.',
 ].join('\n');
 
 const STRIDE_BURST_VIDEO_RULES = [

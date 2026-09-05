@@ -87,6 +87,7 @@ function pillar(over: Partial<PacePillarResult> = {}): PacePillarResult {
     score: 70,
     band: 'good',
     feedback: 'Trunk is tall and stable through the stride.',
+    safety: { signal: 'none', note: '' },
     flags: [],
     drills: [],
     ...over,
@@ -98,6 +99,7 @@ const NOT_ASSESSED: PacePillarResult = {
   band: null,
   feedback: 'Not assessed — a single photo cannot show motion over time. A short side-on video would unlock this.',
   notAssessedReason: 'needsVideo',
+  safety: { signal: 'none', note: '' },
   flags: [],
   drills: [],
 };

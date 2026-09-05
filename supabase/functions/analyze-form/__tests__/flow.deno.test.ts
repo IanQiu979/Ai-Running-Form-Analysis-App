@@ -187,8 +187,13 @@ class VirtualClockModel {
 // Fixtures
 // ---------------------------------------------------------------------------
 
+/** `safety` is part of the contract now, not an optional extra: `analyze-form-validation.ts`
+ * refuses to deliver a response whose pillar cannot declare one, so every fixture here declares
+ * the ordinary answer — nothing of the kind is visible. */
+const NO_SAFETY_SIGNAL = { signal: 'none', note: '' };
+
 function scoredPillar(score: number, band: string) {
-  return { score, band, feedback: 'Tall through mid-stance.', flags: [], drills: [] };
+  return { score, band, feedback: 'Tall through mid-stance.', safety: NO_SAFETY_SIGNAL, flags: [], drills: [] };
 }
 
 function validToolInput() {
@@ -251,7 +256,7 @@ function refusal(): ModelCallResult {
 function partial(parsed: string[]): ModelCallResult {
   const pillars: Record<string, unknown> = {};
   for (const id of ['posture', 'armSwing', 'cadence', 'elasticity']) {
-    pillars[id] = parsed.includes(id) ? scoredPillar(80, 'good') : { garbage: true };
+    pillars[id] = parsed.includes(id) ? scoredPillar(80, 'good') : { garbage: true, safety: NO_SAFETY_SIGNAL };
   }
   return ok({ pillars });
 }
@@ -264,6 +269,7 @@ function notAssessedPillar(reason: 'angle' | 'needsVideo') {
     band: null,
     feedback: null,
     notAssessedReason: reason,
+    safety: NO_SAFETY_SIGNAL,
     flags: [],
     drills: [],
   };
@@ -937,12 +943,13 @@ function allNotAssessedWithStrayContent(): ModelCallResult {
         band: null,
         feedback: null,
         notAssessedReason: 'angle',
+        safety: NO_SAFETY_SIGNAL,
         flags: [{ pattern: 'Overstriding', detail: 'Cannot confirm from this angle.' }],
         drills: [{ name: 'Wall Forward-Lean Drill', instructions: 'Lean from the ankles.' }],
       },
-      armSwing: { score: null, band: null, feedback: null, notAssessedReason: 'angle', flags: [], drills: [] },
-      cadence: { score: null, band: null, feedback: null, notAssessedReason: 'needsVideo', flags: [], drills: [] },
-      elasticity: { score: null, band: null, feedback: null, notAssessedReason: 'needsVideo', flags: [], drills: [] },
+      armSwing: notAssessedPillar('angle'),
+      cadence: notAssessedPillar('needsVideo'),
+      elasticity: notAssessedPillar('needsVideo'),
     },
     overall: { score: null, band: null },
   });
@@ -2069,6 +2076,7 @@ function adversarialFreePhotoResult(): ModelCallResult {
         score: 78,
         band: 'good',
         feedback: 'Tall through mid-stance.',
+        safety: NO_SAFETY_SIGNAL,
         flags: [{ pattern: 'Overstriding', detail: 'Foot lands ahead of the hip.' }],
         drills: [{ name: 'Wall Forward-Lean Drill', instructions: 'Lean from the ankles.' }],
       },
@@ -2076,6 +2084,7 @@ function adversarialFreePhotoResult(): ModelCallResult {
         score: 66,
         band: 'mid',
         feedback: 'Some cross-body swing.',
+        safety: NO_SAFETY_SIGNAL,
         flags: [],
         drills: [{ name: 'Elbow Drive Drill', instructions: 'Drive elbows straight back.' }],
       },
@@ -2085,6 +2094,7 @@ function adversarialFreePhotoResult(): ModelCallResult {
         score: 62,
         band: 'mid',
         feedback: 'Cadence looks to be in the mid-170s spm, on the low side.',
+        safety: NO_SAFETY_SIGNAL,
         flags: [{ pattern: 'Low cadence', detail: 'Overstriding risk.' }],
         drills: [{ name: 'Metronome Drill', instructions: 'Run to a 180bpm click.' }],
       },
@@ -2093,6 +2103,7 @@ function adversarialFreePhotoResult(): ModelCallResult {
         score: 58,
         band: 'mid',
         feedback: 'Left ground contact runs longer than right.',
+        safety: NO_SAFETY_SIGNAL,
         flags: [],
         drills: [],
       },
@@ -2325,7 +2336,7 @@ function pillarWithSafety(
 }
 
 function safeSignal() {
-  return { signal: 'none', note: '' };
+  return NO_SAFETY_SIGNAL;
 }
 
 for (const testCase of SAFETY_CASES) {
@@ -2501,4 +2512,131 @@ Deno.test('the prompt states what the runner SENT and what we RECEIVED as two se
     systemText(multiFrame.model.requests[0]).includes('Across frames you can assess all four pillars'),
     'the multi-frame path is unchanged'
   );
+});
+
+// ===========================================================================
+// ABSENT IS INVALID. `PACE_RESULT_SCHEMA` marks `safety` required, but a schema is a request to
+// the model, not a guarantee — so a pillar that arrives without one, or with one we cannot use,
+// takes the same fail-closed path as an ungrounded signal. Reading "absent" as "no signal" would
+// discard a warning written in the prose with more confidence than any classifier ever did.
+// ===========================================================================
+
+const WARNING_IN_THE_PROSE =
+  'She is favouring the left leg and it looks swollen — get it looked at before running again.';
+
+/** Fully valid in every respect EXCEPT the safety declaration on Cadence, which is `broken`.
+ * Its prose carries a real warning, which is precisely what must not be silently dropped. */
+function cadenceSafety(broken: Record<string, unknown>): ModelCallResult {
+  return ok({
+    pillars: {
+      posture: scoredPillar(78, 'good'),
+      armSwing: scoredPillar(66, 'mid'),
+      cadence: {
+        score: 70,
+        band: 'good',
+        feedback: WARNING_IN_THE_PROSE,
+        flags: [],
+        drills: [],
+        ...broken,
+      },
+      elasticity: scoredPillar(71, 'good'),
+    },
+    overall: { score: 71, band: 'good' },
+  });
+}
+
+const UNUSABLE_SAFETY: { label: string; broken: Record<string, unknown> }[] = [
+  { label: 'the field is absent entirely', broken: {} },
+  { label: 'the field is malformed (wrong shape)', broken: { safety: 'she is limping' } },
+  { label: 'the field is null', broken: { safety: null } },
+  {
+    label: 'the signal is outside injury_flags.md',
+    broken: { safety: { signal: 'runnersKnee', note: 'Stop running.' } },
+  },
+  {
+    label: 'a declared signal carries a blank note',
+    broken: { safety: { signal: 'swellingLimpOrFavouringOneSide', note: '   ' } },
+  },
+];
+
+for (const { label, broken } of UNUSABLE_SAFETY) {
+  Deno.test(`fail closed when ${label}: retry, release, deliver nothing`, async () => {
+    const h = harness([cadenceSafety(broken), cadenceSafety(broken)]);
+    h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+    const res = await run(h, ONE_FRAME_VIDEO_BODY);
+
+    assertEquals(res.status, 422, 'an unusable safety declaration is never deliverable');
+    assertEquals(res.body.code, 'validation_failed');
+    assertEquals(h.model.sent.length, 2, 'the model gets its full second chance');
+    assertEquals(h.rpc.to('settle_analysis').length, 0, 'nothing is delivered and nothing is persisted');
+    assertEquals(h.rpc.to('release_analysis').length, 1, 'the quota slot is handed back, uncharged');
+  });
+}
+
+Deno.test('a well-formed "none" declaration on every pillar is the ordinary, deliverable case', async () => {
+  const h = harness([cadenceSafety({ safety: { signal: 'none', note: '' } })]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_VIDEO_BODY);
+
+  assertEquals(res.status, 200, 'the fail-closed rule must not reject an honest response');
+  assertEquals(h.rpc.to('settle_analysis').length, 1);
+});
+
+// ===========================================================================
+// `overall` belongs to the model unless WE changed the pillars it was computed over.
+// ===========================================================================
+
+Deno.test('a multi-frame paid analysis keeps the model\'s own overall, untouched', async () => {
+  for (const tier of ['pro', 'elite'] as const) {
+    const h = harness([
+      ok({
+        pillars: {
+          posture: scoredPillar(80, 'good'),
+          armSwing: scoredPillar(72, 'good'),
+          cadence: scoredPillar(60, 'mid'),
+          elasticity: scoredPillar(90, 'strong'),
+        },
+        // Deliberately NOT the mean of the four (which is 75.5 -> 76): if this survives, the
+        // model's headline was kept; if it becomes 76, we silently replaced it.
+        overall: { score: 71, band: 'good' },
+      }),
+    ]);
+    h.rpc.handlers.reserve_analysis = () => ({
+      data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
+      error: null,
+    });
+
+    const res = await run(h, VIDEO_BODY);
+    const result = res.body.result as { overall: { score: number | null; band: string | null } };
+
+    assertEquals(result.overall, { score: 71, band: 'good' }, `${tier}: the model's overall is not ours to rewrite`);
+    assertEquals(
+      (h.rpc.to('settle_analysis')[0].args.p_result as typeof result).overall,
+      { score: 71, band: 'good' }
+    );
+  }
+});
+
+Deno.test('a one-frame analysis DOES recompute overall — the model computed it over pillars we removed', async () => {
+  const h = harness([
+    ok({
+      pillars: {
+        posture: scoredPillar(78, 'good'),
+        armSwing: scoredPillar(66, 'mid'),
+        cadence: scoredPillar(60, 'mid'),
+        elasticity: scoredPillar(90, 'strong'),
+      },
+      overall: { score: 73, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_PHOTO_BODY);
+  const result = res.body.result as { overall: { score: number | null } };
+
+  // mean(78, 66) = 72 — Cadence and Elasticity were zeroed, so the model's 73 no longer describes
+  // anything that survived.
+  assertEquals(result.overall.score, 72);
 });

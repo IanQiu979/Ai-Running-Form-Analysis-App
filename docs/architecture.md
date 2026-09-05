@@ -2888,18 +2888,26 @@ and is never merely prompt-guided:
   stop-running list plus the calm `note` to show the runner — and it exists precisely so a
   stop-running warning is separated from assessment prose AT THE SOURCE rather than classified out
   of it afterwards. Normalization copies it across and promotes its `note` to the pillar's feedback;
-  no keyword matching is involved, in either direction. It is never tier-gated. A safety field that
-  is malformed (or a real signal on a pillar a salvage would drop) **fails closed** in
-  `analyze-form-validation.ts`: the salvage is abandoned, the retry runs, and a second failure
-  releases the reservation without charging the user — a missing analysis is recoverable, a missing
-  warning is not.
+  no keyword matching is involved, in either direction. It is never tier-gated.
+- **ABSENT IS INVALID, and that is what makes the sentence above true.** `PACE_RESULT_SCHEMA` marks
+  `safety` `required`, but a schema is a request to the model, not a guarantee we may lean on — so
+  `analyze-form-validation.ts` refuses to call a response deliverable unless EVERY pillar carries a
+  usable declaration. Absent, malformed, ungrounded `signal`, a declared signal with a blank `note`,
+  and a real signal on a pillar a salvage would drop all take the identical path: no salvage, the
+  retry runs, and a second failure releases the reservation without charging the user. Reading an
+  absent field as "no signal" would discard a warning written only in the prose with more confidence
+  than the keyword classifier this design replaced ever had. A missing analysis is recoverable; a
+  missing warning is not.
 - **The prompt states two separate facts**, never one merged one: what the runner SENT (photo or
   video, their own upload) and what REACHED the model (how many frames). One attached frame always
   gets the one-instant rules, whatever produced it.
 - **Free additionally strips flags/drills from every pillar**, assessed or not (`pace.ts`'s
   `PacePillarResult` doc comment marks these paid-tier content).
-- **`overall` is always recomputed** from whatever pillars survive, via the same `deriveOverall()`
-  the honest-partial fallback path already used — never the model's own `overall`.
+- **`overall` is recomputed ONLY when a pillar was actually normalized** (a one-frame submission, or
+  Free's flag/drill strip), via the same `deriveOverall()` the honest-partial fallback path already
+  used — because the model's own `overall` was then computed over pillars that no longer exist. A
+  multi-frame Pro/Elite result passes through with the model's headline intact; rewriting it there
+  would be an unrequested change to paid output.
 
 **A zero-pillar result splits by tier (captain decision,
 `audit-v23-r1-decision-zero-pillar-charge-policy`).** A structurally valid response that ends up

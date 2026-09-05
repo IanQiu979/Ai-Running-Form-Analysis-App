@@ -182,6 +182,37 @@ describe('fetchVideoFrameCap', () => {
     await expect(fetchVideoFrameCap(client)).resolves.toBe(FALLBACK_VIDEO_FRAME_CAP);
   });
 
+  // Degrading a paying user to one frame is not free: the result honestly reports that only one
+  // frame could be analysed, so a single flaky request costs them the analysis they paid for. A
+  // retryable failure gets one more attempt before we accept that.
+  it('retries once and honours the paid cap when the first lookup fails transiently', async () => {
+    const fetch = jest
+      .fn<Promise<QuotaStatusResult>, []>()
+      .mockResolvedValueOnce(errorResult('quota_status_unavailable'))
+      .mockResolvedValueOnce(okResult('pro', PACE_FRAME_CAP.pro));
+
+    await expect(fetchVideoFrameCap({ fetch })).resolves.toBe(PACE_FRAME_CAP.pro);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('still degrades to the free cap when BOTH attempts fail', async () => {
+    const fetch = jest
+      .fn<Promise<QuotaStatusResult>, []>()
+      .mockResolvedValue(errorResult('quota_status_unavailable'));
+
+    await expect(fetchVideoFrameCap({ fetch })).resolves.toBe(FALLBACK_VIDEO_FRAME_CAP);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  // `unauthorized` is a settled answer about the caller, not a blip — asking again cannot change
+  // it, and a second round trip would only delay the extraction screen.
+  it('does NOT retry an unauthorized lookup', async () => {
+    const fetch = jest.fn<Promise<QuotaStatusResult>, []>().mockResolvedValue(errorResult('unauthorized'));
+
+    await expect(fetchVideoFrameCap({ fetch })).resolves.toBe(FALLBACK_VIDEO_FRAME_CAP);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   // "Do not block the UI indefinitely on a network call." A hung quota-status must degrade the
   // frame count, not strand the screen on a spinner that never advances.
   it('stops waiting after QUOTA_WAIT_TIMEOUT_MS and falls back to the free cap', async () => {

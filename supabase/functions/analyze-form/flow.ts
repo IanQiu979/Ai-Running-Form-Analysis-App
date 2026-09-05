@@ -1207,14 +1207,20 @@ const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
  *   - THE ONE THING THAT DOES SURVIVE is the pillar's `safety` declaration, copied across
  *     STRUCTURALLY — no reading of the prose, no keyword matching, no judgement call. Its
  *     certified `note` becomes the pillar's feedback, so a stop-running signal leads what the
- *     runner reads (SAFETY_RULES: undroppable at every tier including Free). Separating the
- *     warning from the assessment prose AT THE SOURCE (`pace.ts`'s `PaceSafety`) is what makes
- *     "the warning cannot be dropped" a property of the shape rather than of a classifier.
- *   - The `notAssessedReason` names what actually happened: `'needsVideo'` for a photo, and
- *     `'singleFrameFromVideo'` when the runner DID send a video and their plan's cap clipped it
- *     to one frame. The client renders one sentence from that reason
- *     (`Copy.result.pillar.notAssessed.*`), so neither surface tells a video submitter to submit
- *     a video.
+ *     runner reads (SAFETY_RULES: undroppable at every tier including Free). This function may
+ *     assume the declaration is THERE: `analyze-form-validation.ts` refuses to call a response
+ *     deliverable unless every pillar carries a usable one, so an absent, malformed, ungrounded,
+ *     or blank-note `safety` never reaches this code — it fails closed into a retry and then a
+ *     release. `hasSafetySignal(null)` below is therefore only ever reached for a pillar WE
+ *     produced (a salvage drop), never for one whose warning we might be discarding.
+ *   - The `notAssessedReason` names what we can actually vouch for: `'needsVideo'` for a photo,
+ *     and `'singleFrameFromVideo'` when the runner sent a video and exactly one frame of it
+ *     arrived. It does NOT claim WHY only one frame arrived — the frame count is chosen on the
+ *     device (`lib/extraction-frame-cap.ts`, which degrades to one frame when it cannot read the
+ *     caller's quota at all), so "your plan only allows one" is a cause we have not verified and
+ *     is plainly false for a paying user whose quota lookup failed. The client renders one
+ *     sentence from this reason (`Copy.result.pillar.notAssessed.*`), so no surface tells a video
+ *     submitter to submit a video, and none blames a plan.
  *   - ALL FOUR pillars are guarded on a one-frame submission, not merely the two that are forced.
  *     Posture and Arm-swing POSITION do survive one frame, but a pillar the model itself did not
  *     score may not keep flags or drills it cannot support — guarding half of them was never a
@@ -1223,9 +1229,12 @@ const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
  *     content"). Stripped here on every pillar, not merely omitted from the prompt. `safety` is
  *     NOT tier-gated and is never stripped — it is the one field a cheap tier cannot cost you.
  *
- * `overall` is always recomputed from whatever survives, via the same `deriveOverall()` the
- * honest-partial fallback path already uses — never the model's own `overall`, which was computed
- * over pillars this function may have just zeroed out.
+ * `overall` is recomputed — via the same `deriveOverall()` the honest-partial fallback path
+ * already uses — ONLY when this function actually changed a pillar. A multi-frame Pro/Elite
+ * result passes through untouched, model `overall` included: recomputing it there would silently
+ * replace the model's headline with our mean on a paid path this change has no business altering.
+ * When pillars WERE normalized, the model's `overall` was computed over pillars that no longer
+ * exist, so it cannot be kept.
  */
 function normalizeForEvidenceAndTier(
   result: PaceResult,
@@ -1233,6 +1242,7 @@ function normalizeForEvidenceAndTier(
 ): PaceResult {
   const { frameCount, mediaType, tier } = input;
   const pillars: Record<string, PacePillarResult> = { ...result.pillars };
+  const normalizesPillars = frameCount === 1 || tier === 'free';
 
   if (frameCount === 1) {
     for (const id of PACE_PILLARS) {
@@ -1265,7 +1275,10 @@ function normalizeForEvidenceAndTier(
   }
 
   const normalizedPillars = pillars as PaceResult['pillars'];
-  return { pillars: normalizedPillars, overall: deriveOverall(normalizedPillars) };
+  return {
+    pillars: normalizedPillars,
+    overall: normalizesPillars ? deriveOverall(normalizedPillars) : result.overall,
+  };
 }
 
 async function callModel(
