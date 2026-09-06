@@ -56,7 +56,10 @@ const mockCreateVideoPlayer = createVideoPlayer as jest.Mock;
  * real API's `resize(): ImageManipulatorContext` chaining. Both the manipulator context and the
  * rendered image expose a `release` mock so tests can assert the video path's cleanup contract.
  */
-function queueManipulateResult(base64: string | undefined, opts?: { width?: number; height?: number }) {
+function queueManipulateResult(
+  base64: string | undefined,
+  opts?: { width?: number; height?: number; renderError?: Error },
+) {
   const width = opts?.width ?? 100;
   const height = opts?.height ?? 100;
   const saveAsync = jest.fn().mockResolvedValue({ uri: 'file://out.jpg', width, height, base64 });
@@ -64,7 +67,9 @@ function queueManipulateResult(base64: string | undefined, opts?: { width?: numb
   const contextRelease = jest.fn();
   const context: { resize: jest.Mock; renderAsync: jest.Mock; release: jest.Mock } = {
     resize: jest.fn(),
-    renderAsync: jest.fn().mockResolvedValue({ width, height, saveAsync, release: renderedRelease }),
+    renderAsync: opts?.renderError
+      ? jest.fn().mockRejectedValue(opts.renderError)
+      : jest.fn().mockResolvedValue({ width, height, saveAsync, release: renderedRelease }),
     release: contextRelease,
   };
   context.resize.mockReturnValue(context);
@@ -391,16 +396,21 @@ describe('extractFrames — video input', () => {
 });
 
 describe('extractFrames — video input — fail-closed on untrustworthy bursts (issue #199)', () => {
-  it('throws FrameExtractionError when expo-video returns fewer thumbnails than requested', async () => {
+  it('releases every returned thumbnail before rejecting a partial batch', async () => {
     const durationMs = 10_000;
-    const timestamps = sampleTimestamps(durationMs, 2);
-    mockCreateVideoPlayer.mockReturnValueOnce(
-      createFakePlayer({ thumbnailsResult: [fakeThumbnail(timestamps[0], timestamps[0])] }),
-    );
+    const cap = 3;
+    const timestamps = sampleTimestamps(durationMs, cap);
+    const thumbnails = timestamps.slice(0, 2).map((ms) => fakeThumbnail(ms, ms));
+    const player = createFakePlayer({ thumbnailsResult: thumbnails });
+    mockCreateVideoPlayer.mockReturnValueOnce(player);
 
-    await expect(extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, 2)).rejects.toThrow(
+    await expect(extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, cap)).rejects.toThrow(
       FrameExtractionError,
     );
+
+    thumbnails.forEach((thumbnail) => expect(thumbnail.release).toHaveBeenCalledTimes(1));
+    expect(player.release).toHaveBeenCalledTimes(1);
+    expect(mockManipulate).not.toHaveBeenCalled();
   });
 
   it('throws FrameExtractionError when two decoder-reported timestamps are not strictly increasing', async () => {
@@ -453,6 +463,46 @@ describe('extractFrames — video input — fail-closed on untrustworthy bursts 
       FrameExtractionError,
     );
 
+    thumbnails.forEach((thumbnail) => expect(thumbnail.release).toHaveBeenCalledTimes(1));
+    expect(player.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the manipulator context, every thumbnail, and the player when renderAsync rejects', async () => {
+    const durationMs = 10_000;
+    const timestamps = sampleTimestamps(durationMs, 2);
+    const thumbnails = timestamps.map((ms) => fakeThumbnail(ms, ms));
+    const player = createFakePlayer({ thumbnailsResult: thumbnails });
+    mockCreateVideoPlayer.mockReturnValueOnce(player);
+    const manipulation = queueManipulateResult(undefined, { renderError: new Error('render failed') });
+
+    await expect(extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, 2)).rejects.toThrow(
+      'render failed',
+    );
+
+    expect(manipulation.contextRelease).toHaveBeenCalledTimes(1);
+    expect(manipulation.renderedRelease).not.toHaveBeenCalled();
+    thumbnails.forEach((thumbnail) => expect(thumbnail.release).toHaveBeenCalledTimes(1));
+    expect(player.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases each thumbnail and the player exactly once when onProgress throws', async () => {
+    const durationMs = 10_000;
+    const timestamps = sampleTimestamps(durationMs, 2);
+    const thumbnails = timestamps.map((ms) => fakeThumbnail(ms, ms));
+    const player = createFakePlayer({ thumbnailsResult: thumbnails });
+    mockCreateVideoPlayer.mockReturnValueOnce(player);
+    const manipulation = queueManipulateResult('QQ==');
+    const onProgress = jest.fn(() => {
+      throw new Error('progress failed');
+    });
+
+    await expect(
+      extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, 2, onProgress),
+    ).rejects.toThrow('progress failed');
+
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    expect(manipulation.contextRelease).toHaveBeenCalledTimes(1);
+    expect(manipulation.renderedRelease).toHaveBeenCalledTimes(1);
     thumbnails.forEach((thumbnail) => expect(thumbnail.release).toHaveBeenCalledTimes(1));
     expect(player.release).toHaveBeenCalledTimes(1);
   });

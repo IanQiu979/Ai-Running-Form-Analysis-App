@@ -330,17 +330,20 @@ async function downscaleThumbnailToJpegBase64(thumbnail: VideoThumbnail): Promis
         : context.resize({ height: Math.round(thumbnail.height * scale) });
   }
 
-  const rendered = await context.renderAsync();
   try {
-    const saved = await rendered.saveAsync({ compress: JPEG_QUALITY, format: SaveFormat.JPEG, base64: true });
+    const rendered = await context.renderAsync();
+    try {
+      const saved = await rendered.saveAsync({ compress: JPEG_QUALITY, format: SaveFormat.JPEG, base64: true });
 
-    if (!saved.base64) {
-      throw new Error('expo-image-manipulator did not return base64 data for a frame');
+      if (!saved.base64) {
+        throw new Error('expo-image-manipulator did not return base64 data for a frame');
+      }
+
+      return saved.base64;
+    } finally {
+      rendered.release();
     }
-
-    return saved.base64;
   } finally {
-    rendered.release();
     context.release();
   }
 }
@@ -369,22 +372,23 @@ async function extractVideoFrames(
       { maxWidth: MAX_LONG_EDGE_PX, maxHeight: MAX_LONG_EDGE_PX },
     );
 
-    if (thumbnails.length !== timestamps.length) {
-      throw new FrameExtractionError(
-        `expo-video returned ${thumbnails.length} thumbnail(s) for ${timestamps.length} requested time(s)`,
-      );
-    }
-
     const frames: PaceFrame[] = [];
     const seenBase64 = new Set<string>();
     let previousTimestampMs = -Infinity;
-    // Tracks how far the loop got so the `finally` below can release exactly the thumbnails this
-    // loop never got to release itself — every thumbnail up to (not including) `settledCount` is
-    // released inline on success; a throw leaves the rest, from `settledCount` on, un-released.
+    // Tracks the next thumbnail whose release has not been attempted, so the `finally` below can
+    // release exactly the remaining thumbnails. It advances immediately before the current
+    // thumbnail's release call, preventing either that call or `onProgress` throwing afterward
+    // from making `finally` release the same native reference twice.
     let settledCount = 0;
 
     try {
-      for (; settledCount < thumbnails.length; settledCount++) {
+      if (thumbnails.length !== timestamps.length) {
+        throw new FrameExtractionError(
+          `expo-video returned ${thumbnails.length} thumbnail(s) for ${timestamps.length} requested time(s)`,
+        );
+      }
+
+      for (; settledCount < thumbnails.length; ) {
         const thumbnail = thumbnails[settledCount];
 
         // See the file header's "TIMESTAMP ACCURACY" section: frame-accurate on iOS, an
@@ -413,8 +417,9 @@ async function extractVideoFrames(
         seenBase64.add(base64);
 
         frames.push({ base64, timestampMs });
+        settledCount++;
         thumbnail.release();
-        onProgress?.(settledCount + 1, thumbnails.length);
+        onProgress?.(settledCount, thumbnails.length);
       }
     } finally {
       for (let j = settledCount; j < thumbnails.length; j++) {

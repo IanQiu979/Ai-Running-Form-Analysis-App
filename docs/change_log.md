@@ -8,35 +8,53 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 ## 2026-09-06 (analysis reliability: model window, retry policy, stride-burst sampling)
 
 **On `fm/v23-reliability-timeouts`, not yet merged to `main`.** Root-caused from
-`v23-core-purpose-audit-r1`'s eleven live-model-call evidence set — no real Anthropic calls made in
-this pass. Full account: `docs/status.md` Known Issue #42.
+`v23-core-purpose-audit-r1`'s eleven live-model-call evidence set. 0 real model calls, so offline
+behaviour is proven and the live path is not. This fix round did not deploy or invoke the live
+function. Full account: `docs/status.md` Known Issue #42.
 
 - **Timeouts.** `ANALYZE_FORM_EFFORT` (`analyze-form-prompt.ts`) dropped `'medium'` -> `'low'`
   (adaptive thinking stays on, `MAX_OUTPUT_TOKENS_BY_TIER` unchanged) — real video calls at
   `medium` spent 2,800-5,000+ of a 4-8k token budget on thinking alone, which is what drove both
   truncated-at-`max_tokens` responses and timeouts past the old 65s per-attempt ceiling.
-  `MODEL_CALL_TIMEOUT_MS` 65s -> 80s, `ANALYZE_FORM_DEADLINE_MS` 105s -> 85s (`flow.ts`). The
-  retry policy also changed: `provider_timeout` and a `max_tokens` truncation are now terminal
+  `MODEL_CALL_TIMEOUT_MS` rose 65s -> 80s. The handler now captures `requestStartedAt` at
+  `Deno.serve` entry, before auth and body parsing. `ANALYZE_FORM_REQUEST_DEADLINE_MS` bounds the
+  model deadline at 105s from that point, while `ANALYZE_FORM_DEADLINE_MS` supplies a maximum 85s
+  window after preflight: the effective deadline is `min(model start + 85s, request start + 105s)`.
+  Preflight through 20s preserves the full 85s window/80s first-attempt cap; slower preflight
+  consumes model time rather than extending it, leaving 15s nominal headroom before the client's
+  120s timeout for settle/upload/response. Individual auth/DB/Storage/RPC calls still have no local
+  wall-clock cancellation, so one stalled dependency can outlive the client timeout; no unsafe
+  `Promise.race` was added around side effects. The retry policy also changed: `provider_timeout`
+  and a `max_tokens` truncation are now terminal
   (attempt 1 already spent most/all of the window, so retrying would very likely repeat the same
   failure and only double the wait and the spend), and so is a policy `refusal` (unlikely to
   change on the same frames, and carries no anti-farming signal). A transport blip (`model_error`)
-  or a content/shape failure (`no_tool_use`/`invalid_shape`) still gets exactly one retry whenever
-  a full fresh 80s (`MIN_RETRY_BUDGET_MS`) remains — content failures had to stay retry-eligible,
-  not just transport errors, because a REPEATED content failure is the only signal
+  requires a full fresh 80s (`MIN_RETRY_BUDGET_MS`) to retry; a content/shape failure
+  (`no_tool_use`/`invalid_shape`) requires 20s (`MIN_CONTENT_RETRY_BUDGET_MS`). Content failures had
+  to stay retry-reachable after a realistic completed call because a REPEATED content failure is
+  the only signal
   `classifyReleaseReason` has for deliberate prompt-injection farming; an earlier version of this
-  fix restricted retries to `model_error` alone, which silently made the 3-strike anti-farming cap
-  unreachable (caught in review before merge, not shipped).
+  fix's shared 80s floor made that path practically unreachable (caught in review before merge,
+  not shipped). If a smaller-budget content retry times out, it becomes `model_error` and cannot
+  count as a farming strike. Zero/negative model budget never dispatches the provider and leaves
+  the unused gate row to settle as `'cancelled'`. The applicable retry floor is rechecked after the
+  second spend gate too: an allowed-but-now-underfunded retry is skipped, its gate row is cancelled,
+  and `retry_skipped_insufficient_budget` logs whether the skip occurred before or after the gate.
+  Failure cleanup now runs `release_analysis` before `record_ai_call`, so ledger latency cannot
+  strand a user's quota reservation.
 - **Frame sampling.** `lib/frames.ts` migrated off the discontinued `expo-video-thumbnails` onto
   `expo-video ~57.0.3`'s batch `generateThumbnailsAsync` (`package.json`/`package-lock.json`
   updated to match). `sampleTimestamps` now asks for one centered ~700ms burst instead of spreading
   requests across 5%-95% of the whole clip (1.3-2.2s apart against a ~0.7s recreational stride —
   the core-purpose audit's structural-ceiling finding: no two frames of a "video" analysis ever
-  belonged to the same stride, so Cadence and Elasticity were single-frame guesses). Frames now
-  carry the decoder's own `actualTime` (frame-accurate on iOS, an average-frame-duration ESTIMATE
-  on Android) instead of only the requested time, and extraction fails closed
+  belonged to the same stride, so Cadence and Elasticity were single-frame guesses). The updated
+  client now carries the decoder's `actualTime` (frame-accurate on iOS, an average-frame-duration
+  ESTIMATE on Android) instead of only the requested time, and extraction fails closed
   (`FrameExtractionError`) on a wrong thumbnail count, an out-of-range or non-finite reported time,
   non-increasing timestamps, or two byte-identical re-encoded frames, rather than silently handing
-  the model mislabeled or duplicate evidence.
+  the model mislabeled or duplicate evidence. Native cleanup now also releases the manipulator
+  context when `renderAsync` rejects, and a throwing progress callback cannot double-release the
+  current thumbnail.
 - **Prompt.** `analyze-form-prompt.ts` now classifies each request's OWN frames server-side
   (`isStrideBurst`, `MAX_STRIDE_BURST_SPAN_MS` = 900ms) instead of trusting the client's tier or
   frame count — the edge function deploys instantly, a native app update does not, so a
@@ -44,11 +62,14 @@ this pass. Full account: `docs/status.md` Known Issue #42.
   genuine burst unlocks all four pillars; anything else (a single video frame, or a request whose
   timestamps reveal the old sampler built it) is classified LEGACY/SPARSE and forces
   Cadence/Elasticity to the same honest `notAssessedReason: "needsVideo"` treatment a photo gets.
-- **Coverage.** `flow.deno.test.ts` (80 tests, new virtual-clock timeout/retry cases reproducing
-  the pre-fix failure before asserting the fix), `analyze-form-prompt.deno.test.ts` (43 tests, seven
-  new burst/legacy-classification cases), `lib/__tests__/frames.test.ts` (36 tests, rewritten
-  around `expo-video` mocks) — all new fail-closed/classification assertions mutation-tested
-  against the production code to confirm they are not vacuous.
+  Manifest wording is provenance-neutral: the server receives one client-reported number and
+  cannot know whether an old client sent a requested time or the updated decoder estimate.
+- **Coverage.** `flow.deno.test.ts` (95 tests, new virtual-clock timeout/retry cases reproducing
+  the pre-fix failure before asserting the fix), `analyze-form-prompt.deno.test.ts` (44 tests, seven
+  new burst/legacy-classification cases), `lib/__tests__/frames.test.ts` (38 tests, rewritten
+  around `expo-video` mocks) — 177 tests across these three focused suites. All new fail-closed/
+  classification assertions were mutation-tested against production code to confirm they are not
+  vacuous.
 
 ## 2026-09-05 (Expo SDK 54 -> 57)
 

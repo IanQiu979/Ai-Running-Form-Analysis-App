@@ -528,16 +528,34 @@ Deno.test('stop-running safety signals reach Free, overriding the paid-tier flag
 });
 
 // -------------------------------------------------------------------------------------------
-// 5. ISSUE #112 — the timestamps are REQUESTED, not actual, and the prompt must say so
+// 5. ISSUE #112 — timestamps are approximate client-reported values, and the prompt must say so
 // -------------------------------------------------------------------------------------------
 
 Deno.test('every rendered timestamp is marked approximate — no bare, authoritative value', () => {
   const manifest = formatFrameManifest([frame(0), frame(400), frame(800)]);
 
-  assertIncludes(manifest, 'requested at ~0 ms', 'Frame 1 timestamp is not marked as requested/approx.');
+  assertIncludes(
+    manifest,
+    'client-reported timestamp ~0 ms',
+    'Frame 1 timestamp is not marked as client-reported/approximate.'
+  );
   assertIncludes(manifest, 'approximately 400 ms after frame 1', 'Interval is not marked approximate.');
   assertIncludes(manifest, 'NOT an exact interval', 'Interval is not explicitly disclaimed.');
-  assertIncludes(manifest, 'REQUESTED time, not a measured one', 'The manifest does not state the truth.');
+  assertIncludes(
+    manifest,
+    'APPROXIMATE CLIENT-REPORTED value',
+    'The manifest does not state the timestamp certainty truthfully.'
+  );
+  assertIncludes(
+    manifest,
+    'may be the time requested from the decoder or the decoder estimate returned to the client',
+    'The manifest does not explain the two possible timestamp provenances.'
+  );
+  assertIncludes(
+    manifest,
+    'the server cannot tell which',
+    'The manifest does not state that timestamp provenance is unknown.'
+  );
   assertIncludes(
     manifest,
     'hundreds of milliseconds',
@@ -558,6 +576,36 @@ Deno.test('every rendered timestamp is marked approximate — no bare, authorita
   );
 });
 
+Deno.test('an updated stride burst is labelled with provenance-neutral client-reported timestamps', () => {
+  const text = buildUserContent(videoInput('pro', 3))
+    .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n');
+
+  assertIncludes(
+    text,
+    'STRIDE BURST (approximate client-reported timestamps)',
+    'A burst manifest must describe what the server actually knows, not assert decoder provenance.'
+  );
+  assertIncludes(
+    text,
+    'client-reported timestamp ~350 ms (approximate)',
+    'Each frame label must use the same provenance-neutral timestamp description.'
+  );
+  assert(
+    !text.includes('decoder-reported'),
+    'Generated user content still makes a decoder-only provenance claim.'
+  );
+  assert(
+    !text.includes('requested at ~'),
+    'A generated frame label still makes a requested-only provenance claim.'
+  );
+  assert(
+    !text.includes('Every time above is a REQUESTED time'),
+    'The generated manifest still makes a requested-only provenance claim.'
+  );
+});
+
 Deno.test('a photo manifest claims no timing at all', () => {
   const manifest = formatFrameManifest([frame(0)]);
   assertIncludes(manifest, 'no timing information applies', 'A single photo should assert no timing.');
@@ -571,8 +619,16 @@ Deno.test('the image blocks themselves label their timestamps as approximate', (
     .map((b) => b.text)
     .join('\n');
 
-  assertIncludes(text, 'Frame 1 of 3 — requested at ~0 ms (approximate)', 'Frame label lost its hedge.');
-  assertIncludes(text, 'Frame 2 of 3 — requested at ~350 ms (approximate)', 'Frame label lost its hedge.');
+  assertIncludes(
+    text,
+    'Frame 1 of 3 — client-reported timestamp ~0 ms (approximate)',
+    'Frame label lost its neutral provenance or hedge.'
+  );
+  assertIncludes(
+    text,
+    'Frame 2 of 3 — client-reported timestamp ~350 ms (approximate)',
+    'Frame label lost its neutral provenance or hedge.'
+  );
 
   // Ordering (docs/architecture.md step 7): manifest, then each label immediately before its
   // image, then the scoring instruction LAST.
@@ -649,7 +705,7 @@ Deno.test('the certified timing clauses the prompt amends still EXIST in the cer
       clause,
       'TIMESTAMP_RULES quotes this clause from pace_framework.md and amends how it is read, but ' +
         'the clause is no longer in the certified file. Re-aim the amendment (do NOT delete it): ' +
-        'the timestamps are still requested-not-measured, so whatever replaced this clause still ' +
+        'the timestamps are still approximate and not measured, so whatever replaced this clause still ' +
         'needs neutralising.'
     );
   }
@@ -752,8 +808,13 @@ Deno.test('a genuine stride burst unlocks all four pillars and is labelled STRID
   );
   assertIncludes(
     prompt,
-    'STRIDE BURST (decoder-reported times, approximate)',
+    'STRIDE BURST (approximate client-reported timestamps)',
     'The frame manifest header does not classify a tight burst as a stride burst.'
+  );
+  assertIncludes(
+    prompt,
+    'Compare them to each other — that comparison, not any single frame, is the analysis.',
+    'A stride burst is not explicitly treated as motion evidence across frames.'
   );
 });
 
@@ -777,8 +838,13 @@ Deno.test('frames spread across a whole clip are classified LEGACY/SPARSE and lo
   );
   assertIncludes(
     prompt,
-    '`notAssessedReason:',
-    'Legacy/sparse frames are not instructed toward the not-assessed path.'
+    'Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
+    'Legacy/sparse frames do not explicitly null both motion-derived pillars.'
+  );
+  assertIncludes(
+    prompt,
+    '"needsVideo"',
+    'Legacy/sparse frames do not use the required needsVideo reason.'
   );
   assert(
     !prompt.includes('Across these frames you can assess all four pillars'),
@@ -822,7 +888,7 @@ Deno.test('the burst/legacy split is a server-side property of the frames, not t
     const burstPrompt = fullPromptText(videoInput(tier));
     assertIncludes(
       burstPrompt,
-      'STRIDE BURST (decoder-reported times, approximate)',
+      'STRIDE BURST (approximate client-reported timestamps)',
       `Tier "${tier}" with a tight burst is not classified as a stride burst.`
     );
   }
@@ -877,7 +943,7 @@ Deno.test('the stride-burst span boundary is exact: 900ms is a burst, 901ms is l
 
   assertIncludes(
     fullPromptText(atBoundary),
-    'STRIDE BURST (decoder-reported times, approximate)',
+    'STRIDE BURST (approximate client-reported timestamps)',
     'A 900ms span (the documented MAX_STRIDE_BURST_SPAN_MS) must classify as a stride burst.'
   );
   assertIncludes(

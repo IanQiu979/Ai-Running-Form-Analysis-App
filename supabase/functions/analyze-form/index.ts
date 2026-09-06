@@ -55,6 +55,9 @@ async function resolveCallerUserId(authHeader: string): Promise<string> {
 }
 
 Deno.serve(async (req) => {
+  // Capture the envelope start before auth and body parsing: those are part of what the client's
+  // 120-second timeout observes, even though flow.ts begins only after both complete.
+  const requestStartedAt = Date.now();
   // Issue #85 — minted once per invocation, before auth even runs, so it can correlate this
   // request's log lines regardless of how early it fails. Threaded into `runAnalyzeForm` below so
   // `flow.ts`'s own structured events (`ai_gate_denied`, `retry_gated_out`,
@@ -116,7 +119,12 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { status, body } = await runAnalyzeForm(deps, { callerUserId, rawBody, requestId });
+    const { status, body } = await runAnalyzeForm(deps, {
+      callerUserId,
+      rawBody,
+      requestId,
+      requestStartedAt,
+    });
     return jsonResponse(status, body);
   } catch (err) {
     // `runAnalyzeForm` catches everything internally and always resolves — this is the belt to that

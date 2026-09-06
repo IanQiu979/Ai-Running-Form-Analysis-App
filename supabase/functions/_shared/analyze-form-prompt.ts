@@ -629,7 +629,8 @@ const TIMESTAMP_RULES = [
   '- It says: "**Only if frame timestamps are known** may you estimate a cadence *range* from',
   '  steps-per-second across frames — and label it approximate." READ "known" AS "KNOWN',
   '  APPROXIMATELY". The condition is met only in that weak sense — the timestamps below are',
-  '  requested, not measured — so what the clause licenses is a WIDE range, labelled approximate,',
+  '  approximate client-reported values of unknown provenance, not measurements — so what the',
+  '  clause licenses is a WIDE range, labelled approximate,',
   '  and NEVER a point figure. Where a steps-per-second count off these frames disagrees with what',
   '  the geometry plainly shows, believe the geometry.',
   '- It says: "Across evenly-spaced frames you can estimate ... vertical bounce (torso height',
@@ -881,9 +882,11 @@ export function buildSystemPrompt(input: AnalyzeFormPromptInput): AnthropicTextB
 }
 
 /**
- * The frame manifest. Every timestamp is rendered with `~` and the word "requested", and every
- * interval with "approximately" — there is no code path that prints a bare, authoritative-looking
- * millisecond value (issue #112). For a multi-frame video, the header names which of the two
+ * The frame manifest. Every timestamp is rendered with `~` and described as an approximate
+ * client-reported value, and every interval with "approximately" — there is no code path that
+ * prints a bare, authoritative-looking millisecond value (issue #112). The neutral wording is
+ * required because this server cannot distinguish an old client's requested timestamp from an
+ * updated client's decoder estimate. For a multi-frame video, the header names which of the two
  * "THE STRIDE-BURST / LEGACY-SPARSE SPLIT" branches (see `isStrideBurst`) applies to THIS request,
  * so the classification driving `videoMediaRules` is visible in the manifest text too, not only
  * inferred silently from which rules got included above it.
@@ -894,25 +897,27 @@ export function formatFrameManifest(frames: PaceFrame[]): string {
   }
 
   const lines = frames.map((frame, i) => {
-    const requested = Math.round(frame.requestedTimestampMs);
+    const reported = Math.round(frame.requestedTimestampMs);
     if (i === 0) {
-      return `- Frame ${i + 1}: requested at ~${requested} ms (start of the sampled window).`;
+      return `- Frame ${i + 1}: client-reported timestamp ~${reported} ms (start of the sampled window; approximate).`;
     }
     const gap = Math.round(frame.requestedTimestampMs - frames[i - 1].requestedTimestampMs);
-    return `- Frame ${i + 1}: requested at ~${requested} ms — approximately ${gap} ms after frame ${i} (NOT an exact interval).`;
+    return `- Frame ${i + 1}: client-reported timestamp ~${reported} ms — approximately ${gap} ms after frame ${i} (NOT an exact interval).`;
   });
 
   const classification = isStrideBurst(frames)
-    ? 'STRIDE BURST (decoder-reported times, approximate)'
+    ? 'STRIDE BURST (approximate client-reported timestamps)'
     : 'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)';
 
   return [
     `FRAME MANIFEST: ${frames.length} frames, in capture order — ${classification}.`,
     ...lines,
     '',
-    'Every time above is a REQUESTED time, not a measured one. The real intervals may differ by',
-    'hundreds of milliseconds and may not be evenly spaced. Use them only as a rough ordering and',
-    'a rough sense of elapsed time — never as the basis for a precise rate.',
+    'Every timestamp above is an APPROXIMATE CLIENT-REPORTED value. Depending on app version, it',
+    'may be the time requested from the decoder or the decoder estimate returned to the client;',
+    'the server cannot tell which. The real intervals may differ by hundreds of milliseconds and',
+    'may not be evenly spaced. Use them only as a rough ordering and a rough sense of elapsed time',
+    '— never as the basis for a precise rate.',
   ].join('\n');
 }
 
@@ -960,8 +965,9 @@ function buildOutputContract(input: AnalyzeFormPromptInput): string {
 }
 
 /**
- * The user turn: the frame manifest, then the image blocks each labelled with its (approximate)
- * requested time, then the output contract last. This is `docs/architecture.md` step 7's ordering
+ * The user turn: the frame manifest, then the image blocks each labelled with its approximate
+ * client-reported timestamp, then the output contract last. This is `docs/architecture.md` step
+ * 7's ordering
  * — "system message = the certified PACE knowledge..., then the image block(s) plus their
  * timestamps, then the PACE scoring instruction."
  */
@@ -985,7 +991,7 @@ export function buildUserContent(input: AnalyzeFormPromptInput): AnthropicConten
       text:
         input.media === 'photo'
           ? 'The photo:'
-          : `Frame ${i + 1} of ${input.frames.length} — requested at ~${Math.round(
+          : `Frame ${i + 1} of ${input.frames.length} — client-reported timestamp ~${Math.round(
               frame.requestedTimestampMs
             )} ms (approximate):`,
     });

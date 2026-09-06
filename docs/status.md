@@ -11,7 +11,7 @@ milestone "done" criteria.
 |---|---|
 | M1 — Foundation (sign-up creates an account → empty Home) | **Done 2026-07-11** — security audit (no Critical/High) + code review (5 findings fixed), gate passed with Ian's on-phone sign-up test; merged via PR from `feat/m1-spine` |
 | M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Screens built (issue #36, `fix/36`, 2026-07-12) — source picker, in-app muted record + framing guide, permission-denied states, and honest extraction progress; see `docs/architecture.md`'s "Current — capture screens (issue #36)". Not fully closed: issue #37 (frames.ts test coverage) and issue #112 (frame timestamp accuracy) are still open, and Home's CTA isn't wired to `/capture` yet (a deliberately flagged gap, not this issue's scope — see the same architecture.md section). Issue #35 (direct-to-bucket upload) is superseded by #88's live contract and should not be built as originally scoped. **FIXED 2026-07-26 — extraction was capping paying users at the free tier.** `app/capture/extracting.tsx` hardcoded `EXTRACTION_TIER = 'free'`, so every Pro/Elite **video** was extracted to Free's 1 frame; Cadence and Elasticity cannot be scored from a single still, so a paying user's analysis was silently degraded to the free product. The cap now comes from `quota-status`'s authoritative `frameCap` via new `lib/extraction-frame-cap.ts` (never a client-side `PACE_FRAME_CAP[tier]` lookup — CLAUDE.md: the client is never the authority for a frame cap), `extractFrames` takes a resolved `videoFrameCap: number` instead of a tier, and a failed/unauthorized/slow lookup degrades to the free cap deliberately, never upward. Photos are unaffected (always 1 frame, no quota call). Covered by `lib/__tests__/extraction-frame-cap.test.ts` plus end-to-end screen locks in `app/capture/__tests__/extracting.test.tsx`. |
-| M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | **In progress** — the grounded prompt, tier verbosity dial, and structured-output contract landed 2026-07-12 (issue #41, `supabase/functions/_shared/analyze-form-prompt.ts`, 28 Deno tests, **no live model call made**), unblocking M4's #44/#45. The milestone's own gate — "prompt *provably* includes the framework text" — is proven statically today (the three certified files are asserted present **byte-for-byte** in the assembled prompt); proving the *output* references the PACE pillars still needs #42's live-call eval harness. Still open: **GitHub issue #39** (Ian certifies Elasticity + the pillar refinements — the prompt ships his name) and **#40** (the runner's-note guidance in `injury_flags.md`) — **re-verified 2026-07-25: #40's functional requirement is fully met and tested.** `INPUT_CHANNEL_RULES` in `analyze-form-prompt.ts` is wired into the assembled prompt and explicitly tells the model there is no runner's note and to treat every note-conditional clause in the certified files as inactive; `analyze-form-prompt.deno.test.ts` asserts the "There is NO runner's note" text is present. No prompt content instructs the model to weight a runner's note for the MVP path. What remains open is cosmetic only: the certified `injury_flags.md` file itself still reads "if the note reports…" in its own prose — editing that wording is a certified-content change per GitHub issue #39's constraint and needs Ian's sign-off, not an agent's; the file is otherwise inert on this point because the prompt layer already overrides it. |
+| M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | **In progress** — the grounded prompt, tier verbosity dial, and structured-output contract landed 2026-07-12 (issue #41, `supabase/functions/_shared/analyze-form-prompt.ts`, now 44 Deno tests, **no live model call made**), unblocking M4's #44/#45. The milestone's own gate — "prompt *provably* includes the framework text" — is proven statically today (the three certified files are asserted present **byte-for-byte** in the assembled prompt); proving the *output* references the PACE pillars still needs #42's live-call eval harness. Still open: **GitHub issue #39** (Ian certifies Elasticity + the pillar refinements — the prompt ships his name) and **#40** (the runner's-note guidance in `injury_flags.md`) — **re-verified 2026-07-25: #40's functional requirement is fully met and tested.** `INPUT_CHANNEL_RULES` in `analyze-form-prompt.ts` is wired into the assembled prompt and explicitly tells the model there is no runner's note and to treat every note-conditional clause in the certified files as inactive; `analyze-form-prompt.deno.test.ts` asserts the "There is NO runner's note" text is present. No prompt content instructs the model to weight a runner's note for the MVP path. What remains open is cosmetic only: the certified `injury_flags.md` file itself still reads "if the note reports…" in its own prose — editing that wording is a certified-content change per GitHub issue #39's constraint and needs Ian's sign-off, not an agent's; the file is otherwise inert on this point because the prompt layer already overrides it. |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | **In progress — the full path ran end to end against the live project 2026-07-26 (issue #128).** The AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. **The Analyzing screen (issue #80) shipped 2026-07-12**, built entirely against the documented `analyze-form` contract via an injectable `AnalyzeFormClient` seam (`lib/analyze-form.ts`). **UPDATED 2026-07-26 (issue #128):** the `analyze-form` edge function (#44) is built AND **deployed** to the live project, and that seam is now bound to the **real** client — the dev mock is kept but `__DEV__`-guarded so it throws in a release bundle, mirroring `lib/delete-account.ts`. Verified live end to end: `public.analyses` went from zero rows ever to a `delivered` row with a valid PACE result and one frame in the private bucket. See `docs/architecture.md`'s corresponding section and Known Issue #35. |
 | M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed — and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. **Hardened 2026-07-13 after a security audit (PR #123): the function is gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — see Known Issue #21, a release blocker.** See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. **Every M5 screen now exists (2026-07-13)**: `app/paywall.tsx` + `lib/subscription.ts` (issue #52) is the dummy paywall, display-only by construction — no tier limit or frame cap is hardcoded, every count is read fresh off `quota-status`, locked by a regression test — and Home's quota-aware CTAs are real (issues #54/#15: the client-side quota mirror is deleted, replaced by one `lib/quota.ts` call to `quota-status`; exhausted CTAs now open the real Paywall route). See `docs/architecture.md`'s "Current — `app/paywall.tsx`" and "Current — Home quota" sections. **UPDATED 2026-07-26:** `purchase-tier` and `quota-status` are now **deployed** to the live project, and both `pace_quota_status` and `pace_purchase_tier` were found **already applied** to the live database (this row's earlier "not applied to any database" claim was stale — all 24 repo migrations are present). `PURCHASE_TIER_DUMMY_ENABLED=true` was set by captain decision — see Known Issue #21, now **RESOLVED 2026-08-06**: both `PURCHASE_TIER_DUMMY_ENABLED` and `PURCHASE_TIER_ALLOWED_USER_IDS` are unset on the live project. A second root cause found the same day — every authenticated edge function returning `401` to valid JWTs — was **the shared key parser misreading the platform's JSON-object key format** (`{"default":"sb_..."}`) as an array and falling through to the raw JSON string; **fixed in `_shared/supabase-keys.ts` and verified live**: a dummy purchase now grants pro (10/5) then elite (30/8), confirmed through `quota-status` and the `subscriptions` row, with `purchased_at` unmoved on repurchase. See Known Issue #35. |
 | M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | **In progress — gained a real screen 2026-07-13.** `DELETE /functions/v1/analysis/:id` (issue #57, closing #3) is written, Deno-tested, and **confirmed DEPLOYED** (corrected 2026-07-13 — every earlier note here and in `docs/architecture.md` calling it "not deployed" was stale; see Known Issue #27 for the drift and why it matters). **It now also purges Storage a second time after the row is marked deleted (issue #132, 2026-07-13)**, closing the delete-during-upload orphan window issue #130 narrowed — see the (resolved) Known Issue #26 below; **redeployed 2026-07-26, so that code is live** (Known Issue #27). See Known Issue #19 for the residual gap #57 narrows but does not close. **`app/(tabs)/history.tsx` (issues #55/#12, 2026-07-13)** is the Past Analyses screen itself — list, per-row not-assessed/no-thumbnail states, delete, and a tab-bar chrome fix (partial — see Known Issue #28). Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **deployed and verified live 2026-07-26** — see Known Issues #22 and #35. Its account-level storage sweep is bounded-concurrency and resumable (issue #125, 2026-07-13), and it now also requires recent reauthentication (issue #124, 2026-07-13) — see Known Issue #22's updated sub-bullets. The client (`lib/delete-account.ts`) has been bound to the real function since PR #122 (2026-07-13) — see Known Issue #23. The Elite Compare screen (issue #60) was built but unreachable from navigation until the 2026-08-07 comprehensive audit wired a "Compare two analyses" entry point into History — see `docs/architecture.md`'s "Current — Past Analyses" section. |
@@ -1230,24 +1230,33 @@ milestone "done" criteria.
     **Timeouts, root cause and fix.** The real driver was thinking-token spend under
     `effort: 'medium'`, not an unreasonably tight number: `ANALYZE_FORM_EFFORT` moved to `'low'`
     (adaptive thinking stays on; `MAX_OUTPUT_TOKENS_BY_TIER` untouched), `MODEL_CALL_TIMEOUT_MS`
-    rose 65s → 80s and `ANALYZE_FORM_DEADLINE_MS` fell 105s → 85s (more client headroom, not less,
-    since the retry policy changed at the same time), and the retry is no longer "whatever time is
-    left" — `provider_timeout` and a `max_tokens` truncation are now terminal (attempt 1 already
-    spent most/all of the window, so retrying would very likely repeat the same failure and only
-    double the wait and the spend), and so is a policy `refusal` (unlikely to change on the same
-    frames, and carries no anti-farming signal). A transport blip (`model_error`) or a
-    content/shape failure (`no_tool_use`/`invalid_shape`) still gets exactly one retry whenever a
-    full fresh 80s remains. **This distinction is load-bearing, not cosmetic**: a REPEATED content
-    failure is the only signal `classifyReleaseReason` (`analyze-form-validation.ts`) has for
-    deliberate prompt-injection farming — it requires both attempts to be content failures AND the
-    retry to have genuinely run. An earlier version of this fix restricted retry eligibility to
-    `model_error` alone, which makes that condition structurally unreachable and silently disables
-    the 3-strike anti-farming cap for the one failure class it exists to catch; this was caught by
-    a security-auditor and code-reviewer pass before merge (not shipped) and is now covered by
-    `flow.deno.test.ts`'s restored "rule 3 / finding 1(c)" reachability test. No client-visible
+    rose 65s → 80s, and the handler now captures `requestStartedAt` at `Deno.serve` entry before
+    auth and body parsing. A 105s request-start envelope bounds the effective model deadline:
+    `min(model start + 85s, request start + 105s)`. Preflight through 20s preserves the full 85s
+    window and 80s first-attempt cap; slower preflight consumes model time rather than extending
+    work past request-start + 105s. That leaves 15s nominal headroom before the client's 120s
+    timeout for settlement, upload, and a structured response. It is not a hard cancellation
+    deadline: individual auth/DB/Storage/RPC calls have no local wall-clock cancellation, so one
+    stalled dependency can still outlive the client timeout. No unsafe `Promise.race` was added
+    around side-effecting work.
+
+    `provider_timeout`, `max_tokens` truncation, and policy `refusal` are terminal. A transport
+    `model_error` requires a full fresh 80s (`MIN_RETRY_BUDGET_MS`) to retry; a completed
+    content/shape failure (`no_tool_use`/`invalid_shape`) requires 20s
+    (`MIN_CONTENT_RETRY_BUDGET_MS`). **The smaller content floor is load-bearing, not cosmetic**: a
+    repeated content failure is the only signal `classifyReleaseReason`
+    (`analyze-form-validation.ts`) has for deliberate prompt-injection farming, and the shared 80s
+    floor made that path practically unreachable after realistic model latency. The fix is locked
+    by a non-zero-duration virtual-clock test. If the smaller retry times out, it becomes
+    `model_error`, refunds quota, and does not count as a farming strike. A zero/negative model
+    budget never dispatches the provider; its unused gate row settles `'cancelled'`. The flow also
+    rechecks the applicable floor after the retry's spend gate, so gate latency cannot create an
+    underfunded call: an allowed-but-now-underfunded retry is skipped, cancelled, and logged as
+    `retry_skipped_insufficient_budget` with `stage: 'after_retry_gate'` (the earlier skip records
+    `'before_retry_gate'`). Failure cleanup prioritizes `release_analysis` before
+    `record_ai_call`, preventing a delayed ledger RPC from stranding quota. No client-visible
     progress indicator was added — `app/analyzing.tsx`'s existing step-caption + "Still
-    analyzing..." dwell sequence (`lib/analyzing-machine.ts`) was judged to already answer "does
-    the user see progress, not a silent wait," and building a new one was out of this pass's scope.
+    analyzing..." dwell sequence (`lib/analyzing-machine.ts`) is unchanged.
 
     **Frame sampling, root cause and fix.** `lib/frames.ts` moved off the discontinued
     `expo-video-thumbnails` onto `expo-video ~57.0.3`'s batch `generateThumbnailsAsync`, which (a)
@@ -1261,7 +1270,10 @@ milestone "done" criteria.
     trusted — wrong thumbnail count, a non-finite or out-of-clip reported time, two times that are
     not strictly increasing, or two byte-identical re-encoded frames. That last group trades a rare
     extraction failure on unusually low-frame-rate footage for never handing the model two frames
-    mislabeled with the same "time" — see `lib/frames.ts`'s file header for the full reasoning.
+    mislabeled with the same "time". The native cleanup path releases the manipulator context even
+    when `renderAsync` rejects, and advances thumbnail ownership before release/progress callbacks
+    so a throwing `onProgress` cannot double-release the current thumbnail — see `lib/frames.ts`'s
+    file header for the full reasoning.
 
     **Why the prompt also had to change, not just the sampler.** The edge function deploys
     instantly to every client; a native app update reaches devices over days to weeks through
@@ -1274,17 +1286,19 @@ milestone "done" criteria.
     evidence; anything else (a single video frame, or a request whose timestamps reveal the old
     sampler built it) is LEGACY/SPARSE and forces Cadence/Elasticity to `score: null`,
     `notAssessedReason: "needsVideo"` — exactly the honest photo-tier treatment, never silently
-    narrowed claims dressed up as depth.
+    narrowed claims dressed up as depth. The manifest calls these approximate client-reported
+    timestamps because the server cannot distinguish an old client's requested times from an
+    updated client's decoder-reported estimates.
 
-    **Verification.** No real Anthropic calls were made in this pass (the audit's eleven live calls
-    already established the root causes; this pass is pure engineering against that evidence) —
-    `flow.deno.test.ts` (80 tests, including new virtual-clock timeout/retry cases that reproduce
-    the pre-fix failure before asserting the fix), `analyze-form-prompt.deno.test.ts` (43 tests,
-    including seven new burst/legacy-classification cases and a mutation-tested `isStrideBurst`),
-    and `lib/__tests__/frames.test.ts` (36 tests, rewritten around `expo-video` mocks, with the four
-    new fail-closed cases mutation-tested against the production code to confirm they are not
-    vacuous). `npm run typecheck && npm run lint && npm test` all green. Not yet verified: a real
-    device/simulator pass showing an actual reduction in video-analysis wall-clock time or a
+    **Verification.** 0 real model calls, so offline behaviour is proven and the live path is not.
+    The audit's eleven live calls established the root causes; this fix round made no deployment
+    and no live function invocation. Focused current suites: `flow.deno.test.ts` (95 tests,
+    including non-zero-duration virtual-clock timeout/retry cases),
+    `analyze-form-prompt.deno.test.ts` (44 tests, including seven new burst/legacy-classification
+    cases and a mutation-tested `isStrideBurst`), and `lib/__tests__/frames.test.ts` (38 tests,
+    rewritten around `expo-video` mocks, with fail-closed and native-cleanup cases mutation-tested
+    against production code). These three focused suites are green: 177 tests. Not yet verified: a
+    real device/simulator pass showing an actual reduction in video-analysis wall-clock time or a
     real burst's effect on Cadence/Elasticity scoring — the audit's live-call evidence is the only
     model-output evidence for this fix, same limitation the audit itself operated under.
 

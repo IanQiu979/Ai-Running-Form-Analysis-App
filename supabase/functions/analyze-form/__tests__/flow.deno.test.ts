@@ -47,7 +47,8 @@ interface RpcCall {
   args: Record<string, unknown>;
 }
 
-type RpcHandler = (args: Record<string, unknown>) => { data: unknown; error: { message: string } | null };
+type RpcResult = { data: unknown; error: { message: string } | null };
+type RpcHandler = (args: Record<string, unknown>) => RpcResult | Promise<RpcResult>;
 
 class FakeRpc implements RpcClient {
   readonly calls: RpcCall[] = [];
@@ -494,9 +495,92 @@ Deno.test('rule 3 / finding 1(c): TWO content failures after a REAL retry -> val
   assertEquals(h.model.sent.length, 2, 'the retry genuinely ran');
 });
 
+Deno.test('rule 3 / finding 1(c): a realistic 20s content failure still retries and reaches validation_failed', async () => {
+  // This is the production-reachable anti-farming path. The instant FakeModel above protects the
+  // classification contract, while this clock proves a real content failure can still reach it
+  // after consuming meaningful model time. With one shared 80s retry floor, the remaining 65s
+  // incorrectly suppresses attempt 2 and turns the repeated content failure into a 503.
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [
+    { durationMs: 20_000, result: prose() },
+    { durationMs: 0, result: prose() },
+  ]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+
+  const res = await run(h);
+
+  assertEquals(res.status, 422);
+  assertEquals(res.body.code, 'validation_failed');
+  assertEquals(releaseReasonFrom(h.rpc), 'validation_failed');
+  assertEquals(model.timeoutBudgets, [80_000, 65_000]);
+});
+
+Deno.test('rule 3 / finding 1(c): a realistic 20s invalid-shape partial uses the content retry floor too', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [
+    { durationMs: 20_000, result: partial(['posture', 'armSwing']) },
+    { durationMs: 0, result: partial(['posture', 'armSwing']) },
+  ]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(res.body.isFallback, true);
+  assertEquals(model.timeoutBudgets, [80_000, 65_000]);
+});
+
+Deno.test('content retry timeout: a truncated second-attempt budget self-corrects to model_error', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [
+    { durationMs: 20_000, result: prose() },
+    // Attempt 1 leaves a 65s retry budget. Reaching that exact ceiling is a provider timeout, but
+    // the smaller budget is OUR retry policy after a content failure — not a provider-wide outage.
+    { durationMs: 65_000, result: ok() },
+  ]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+
+  const res = await run(h);
+
+  assertEquals(res.status, 503);
+  assertEquals(res.body.code, 'model_error');
+  assertEquals(releaseReasonFrom(h.rpc), 'model_error');
+  assertEquals(model.timeoutBudgets, [80_000, 65_000], 'both provider attempts were genuinely dispatched');
+  assertEquals(h.rpc.to('gate_ai_call').length, 2, 'each dispatched provider call had its own spend gate');
+  const records = h.rpc.to('record_ai_call');
+  assertEquals(records.length, 2);
+  assertEquals(records.find((call) => call.args.p_call_id === 'call-1')?.args.p_status, 'validation_failed');
+  assertEquals(records.find((call) => call.args.p_call_id === 'call-2')?.args.p_status, 'model_error');
+  assertEquals(h.rpc.to('settle_analysis').length, 0);
+});
+
+Deno.test('transport retry timeout: a full-budget second attempt remains provider_timeout', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [
+    { durationMs: 5_000, result: { ok: false, kind: 'error', message: 'quick transport error' } },
+    { durationMs: 80_000, result: ok() },
+  ]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+
+  const res = await run(h);
+
+  assertEquals(res.status, 503);
+  assertEquals(res.body.code, 'provider_timeout');
+  assertEquals(releaseReasonFrom(h.rpc), 'provider_timeout');
+  assertEquals(model.timeoutBudgets, [80_000, 80_000]);
+  assertEquals(h.rpc.to('gate_ai_call').length, 2);
+  const records = h.rpc.to('record_ai_call');
+  assertEquals(records.length, 2);
+  assertEquals(records.every((call) => call.args.p_status === 'model_error'), true);
+});
+
 Deno.test('rule 3: a lone content failure with insufficient retry budget -> model_error, no strike', async () => {
   // Attack-shaped-but-not-an-attack: the model degrades to prose AND attempt 1 used most of the
-  // model window, so `remaining < MIN_RETRY_BUDGET_MS` and we skip the retry. Only one attempt
+  // model window, so less than the 20s content-retry floor remains and we skip the retry. One attempt
   // exists, and WE cut the second — so this is OUR degradation, released as `model_error` (503,
   // refunds quota, does NOT tick the 3-strike cap), never `validation_failed`.
   const clock = new VirtualClock();
@@ -509,7 +593,39 @@ Deno.test('rule 3: a lone content failure with insufficient retry budget -> mode
   assertEquals(res.status, 503, 'server fault is a 503, not the 422 a farming signal gets');
   assertEquals(res.body.code, 'model_error');
   assertEquals(releaseReasonFrom(h.rpc), 'model_error');
-  assertEquals(model.timeoutBudgets, [80_000], 'the retry was skipped without a full 80s remaining');
+  assertEquals(model.timeoutBudgets, [80_000], 'the retry was skipped with only 15s remaining');
+});
+
+Deno.test('content retry budget: exactly 20 seconds remaining still runs the retry', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [
+    { durationMs: 65_000, result: prose() },
+    { durationMs: 0, result: prose() },
+  ]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+
+  const res = await run(h);
+
+  assertEquals(res.status, 422);
+  assertEquals(res.body.code, 'validation_failed');
+  assertEquals(model.timeoutBudgets, [80_000, 20_000]);
+});
+
+Deno.test('content retry budget: 19,999 milliseconds remaining skips the retry', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [
+    { durationMs: 65_001, result: prose() },
+    { durationMs: 0, result: ok() },
+  ]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+
+  const res = await run(h);
+
+  assertEquals(res.status, 503);
+  assertEquals(res.body.code, 'model_error');
+  assertEquals(model.timeoutBudgets, [80_000]);
 });
 
 Deno.test('finding 1(a): a transport error with too little full-attempt budget skips retry', async () => {
@@ -526,6 +642,72 @@ Deno.test('finding 1(a): a transport error with too little full-attempt budget s
   assertEquals(res.body.code, 'model_error');
   assertEquals(releaseReasonFrom(h.rpc), 'model_error');
   assertEquals(model.timeoutBudgets, [80_000], 'the retry was skipped without a full 80s remaining');
+});
+
+Deno.test('retry budget TOCTOU: a delayed retry gate can consume the transport retry floor', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [
+    {
+      durationMs: 2_000,
+      result: { ok: false, kind: 'error', message: 'quick transport error' },
+    },
+    { durationMs: 0, result: ok() },
+  ]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+  let gateCalls = 0;
+  h.rpc.handlers.gate_ai_call = () => {
+    gateCalls += 1;
+    if (gateCalls === 2) {
+      clock.advance(4_000);
+    }
+    return {
+      data: { allowed: true, call_id: `call-${gateCalls}`, estimated_usd: 0.09 },
+      error: null,
+    };
+  };
+
+  const res = await run(h);
+
+  assertEquals(res.status, 503);
+  assertEquals(res.body.code, 'model_error');
+  assertEquals(model.timeoutBudgets, [80_000], 'the provider must not receive an underfunded retry');
+  assertEquals(releaseReasonFrom(h.rpc), 'model_error');
+  const records = h.rpc.to('record_ai_call');
+  assertEquals(records.find((call) => call.args.p_call_id === 'call-1')?.args.p_status, 'model_error');
+  assertEquals(records.find((call) => call.args.p_call_id === 'call-2')?.args.p_status, 'cancelled');
+});
+
+Deno.test('retry budget TOCTOU: a delayed retry gate can consume the content retry floor', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [
+    { durationMs: 20_000, result: partial(['posture', 'armSwing']) },
+    { durationMs: 0, result: ok() },
+  ]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+  let gateCalls = 0;
+  h.rpc.handlers.gate_ai_call = () => {
+    gateCalls += 1;
+    if (gateCalls === 2) {
+      clock.advance(46_000);
+    }
+    return {
+      data: { allowed: true, call_id: `call-${gateCalls}`, estimated_usd: 0.09 },
+      error: null,
+    };
+  };
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(res.body.isFallback, true, 'attempt 1 remains the delivered partial');
+  assertEquals(model.timeoutBudgets, [80_000], 'the provider must not receive an underfunded retry');
+  assertEquals(h.rpc.to('release_analysis').length, 0, 'the delivered partial consumes quota');
+  assertEquals(h.rpc.to('settle_analysis')[0].args.p_is_fallback, true);
+  const records = h.rpc.to('record_ai_call');
+  assertEquals(records.find((call) => call.args.p_call_id === 'call-1')?.args.p_status, 'fallback');
+  assertEquals(records.find((call) => call.args.p_call_id === 'call-2')?.args.p_status, 'cancelled');
 });
 
 Deno.test('finding 1(b): retry gate DENIED after a transport error -> model_error, no strike', async () => {
@@ -565,6 +747,39 @@ Deno.test('rule 3: a timeout releases with provider_timeout (NOT a farming signa
   assertEquals(res.status, 503);
   assertEquals(res.body.code, 'provider_timeout');
   assertEquals(releaseReasonFrom(h.rpc), 'provider_timeout');
+  assertEquals(h.model.sent.length, 1, 'a timed-out first attempt is terminal');
+  assertEquals(h.rpc.to('record_ai_call')[0].args.p_status, 'model_error');
+});
+
+Deno.test('rule 3: reservation cleanup runs before ledger recording on a failed request', async () => {
+  const h = harness([{ ok: false, kind: 'timeout', message: 'too slow' }]);
+  let finishRelease!: () => void;
+  let markReleaseStarted!: () => void;
+  const releaseStarted = new Promise<void>((resolve) => {
+    markReleaseStarted = resolve;
+  });
+  h.rpc.handlers.release_analysis = () => {
+    markReleaseStarted();
+    return new Promise<RpcResult>((resolve) => {
+      finishRelease = () => resolve({ data: { ok: true }, error: null });
+    });
+  };
+
+  const pendingResponse = run(h);
+  await releaseStarted;
+
+  assertEquals(h.rpc.to('release_analysis').length, 1, 'the failed reservation was never released');
+  assertEquals(
+    h.rpc.to('record_ai_call').length,
+    0,
+    'ledger recording must wait until quota release has completed, not merely started'
+  );
+
+  finishRelease();
+  const res = await pendingResponse;
+
+  assertEquals(res.status, 503);
+  assertEquals(h.rpc.to('record_ai_call').length, 1, 'ledger recording runs after release resolves');
 });
 
 Deno.test('rule 3: a truncated response (max_tokens) releases with model_error, never validation_failed', async () => {
@@ -917,6 +1132,36 @@ Deno.test('rule 5: a partial delivered from the RETRY marks the retry as the fal
   const records = h.rpc.to('record_ai_call');
   assertEquals(records.find((r) => r.args.p_call_id === 'call-1')?.args.p_status, 'validation_failed');
   assertEquals(records.find((r) => r.args.p_call_id === 'call-2')?.args.p_status, 'fallback');
+});
+
+Deno.test('rule 5: a DENIED retry gate does not fail the request — attempt 1\'s partial is still delivered', async () => {
+  let gateCalls = 0;
+  const h = harness([partial(['posture', 'armSwing', 'cadence'])]);
+  h.rpc.handlers.gate_ai_call = () => {
+    gateCalls += 1;
+    if (gateCalls === 1) {
+      return { data: { allowed: true, call_id: 'call-1', estimated_usd: 0.09 }, error: null };
+    }
+    return { data: { allowed: false, reason: 'daily_cap' }, error: null };
+  };
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(res.body.isFallback, true);
+  assertEquals(gateCalls, 2, 'the partial was eligible for a retry and reached its gate');
+  assertEquals(h.model.sent.length, 1, 'the denied retry gate prevented a second model call');
+
+  const settles = h.rpc.to('settle_analysis');
+  assertEquals(settles.length, 1, 'the delivered partial consumes and settles the reservation');
+  assertEquals(settles[0].args.p_is_fallback, true);
+
+  const records = h.rpc.to('record_ai_call');
+  assertEquals(records.length, 1, 'a denied retry gate creates no call ledger row to settle');
+  assertEquals(records[0].args.p_call_id, 'call-1');
+  assertEquals(records[0].args.p_status, 'fallback');
+  assertEquals(records[0].args.p_analysis_id, ANALYSIS_ID);
+  assertEquals(h.rpc.to('release_analysis').length, 0, 'a delivered partial must not refund quota');
 });
 
 Deno.test('rule 5: a clean validation failure is recorded as validation_failed', async () => {
@@ -1290,13 +1535,13 @@ Deno.test('model window: a full timeout does not launch an underfunded retry', a
   assertEquals(response.status, 503);
 });
 
-Deno.test('model window: reserve and gate time do not consume the first attempt', async () => {
+Deno.test('model window: 20 seconds of preflight still leaves the full 80-second first attempt', async () => {
   const clock = new VirtualClock();
   const model = new VirtualClockModel(clock, [{ durationMs: 0, result: ok() }]);
   const h = harness([], { now: clock.now });
   h.deps.model = model;
   h.rpc.handlers.reserve_analysis = () => {
-    clock.advance(50_000);
+    clock.advance(20_000);
     return {
       data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'pro' },
       error: null,
@@ -1306,8 +1551,72 @@ Deno.test('model window: reserve and gate time do not consume the first attempt'
   const response = await run(h);
 
   assertEquals(response.status, 200);
-  // Reserve/gate time does not consume the model window.
-  assertEquals(model.timeoutBudgets[0], 80_000);
+  assertEquals(model.timeoutBudgets, [80_000]);
+});
+
+Deno.test('request envelope: 30 seconds of preflight caps model work at the remaining 75 seconds', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [{ durationMs: 76_000, result: ok() }]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+  h.rpc.handlers.reserve_analysis = () => {
+    clock.advance(30_000);
+    return {
+      data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'pro' },
+      error: null,
+    };
+  };
+
+  const response = await run(h);
+
+  assertEquals(model.timeoutBudgets, [75_000]);
+  assertEquals(response.status, 503);
+  assertEquals(response.body.code, 'provider_timeout');
+  assertEquals(releaseReasonFrom(h.rpc), 'provider_timeout');
+});
+
+Deno.test('request envelope: flow honors a handler-supplied start time from before auth/body parsing', async () => {
+  const clock = new VirtualClock();
+  clock.advance(30_000);
+  const model = new VirtualClockModel(clock, [{ durationMs: 76_000, result: ok() }]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+
+  const response = await runAnalyzeForm(h.deps, {
+    callerUserId: CALLER,
+    rawBody: VIDEO_BODY,
+    requestStartedAt: 0,
+  });
+
+  assertEquals(model.timeoutBudgets, [75_000]);
+  assertEquals(response.status, 503);
+  assertEquals(response.body.code, 'provider_timeout');
+  assertEquals(releaseReasonFrom(h.rpc), 'provider_timeout');
+});
+
+Deno.test('request envelope: exhausted preflight never issues a zero-budget provider call', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [{ durationMs: 0, result: ok() }]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+  h.rpc.handlers.reserve_analysis = () => {
+    clock.advance(106_000);
+    return {
+      data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'pro' },
+      error: null,
+    };
+  };
+
+  const response = await run(h);
+
+  assertEquals(model.timeoutBudgets, [], 'an expired request must not invoke the provider at all');
+  assertEquals(response.status, 503);
+  assertEquals(response.body.code, 'provider_timeout');
+  assertEquals(releaseReasonFrom(h.rpc), 'provider_timeout');
+  const records = h.rpc.to('record_ai_call');
+  assertEquals(records.length, 1);
+  assertEquals(records[0].args.p_call_id, 'call-1');
+  assertEquals(records[0].args.p_status, 'cancelled', 'the unused gate reservation was not billable');
 });
 
 Deno.test('model window: a quick transport error retries only with a full attempt remaining', async () => {
@@ -1327,6 +1636,43 @@ Deno.test('model window: a quick transport error retries only with a full attemp
   assertEquals(response.status, 200);
   // A quick model transport error may retry only while a full attempt remains.
   assertEquals(model.timeoutBudgets, [80_000, 80_000]);
+});
+
+Deno.test('transport retry budget: exactly 80 seconds remaining still runs the retry', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [
+    {
+      durationMs: 5_000,
+      result: { ok: false, kind: 'error', message: 'transport error at the retry boundary' },
+    },
+    { durationMs: 0, result: ok() },
+  ]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+
+  const response = await run(h);
+
+  assertEquals(response.status, 200);
+  assertEquals(model.timeoutBudgets, [80_000, 80_000]);
+});
+
+Deno.test('transport retry budget: 79,999 milliseconds remaining skips the retry', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [
+    {
+      durationMs: 5_001,
+      result: { ok: false, kind: 'error', message: 'transport error just below the retry floor' },
+    },
+    { durationMs: 0, result: ok() },
+  ]);
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+
+  const response = await run(h);
+
+  assertEquals(response.status, 503);
+  assertEquals(response.body.code, 'model_error');
+  assertEquals(model.timeoutBudgets, [80_000]);
 });
 
 Deno.test('retry policy: max_tokens is terminal after one model call', async () => {
