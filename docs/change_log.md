@@ -10,11 +10,9 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 **Captain's ruling: Free now runs through the exact same `analyze-form` path as Pro/Elite,
 capped server-side at one lifetime delivered analysis** — enforced by `reserve_analysis`'s
 existing per-user advisory lock and lifetime cap for Free, not a new counter or new schema.
-Code-complete and tested (the edge suite measured at 407 Deno tests
-after this round's additions; the app suite's 93 Jest suites / 1439 tests figure was measured
-BEFORE the 2026-09-06 review rounds and does not include the Jest tests they added — the
-pipeline's own test step is the authoritative count; full typecheck+lint clean); **not yet
-deployed**, and zero real Anthropic calls were made anywhere in this work.
+Code-complete with focused automated regression coverage; **not yet deployed**, this entry does
+not claim a completed full validation run, and zero real Anthropic calls were made anywhere in
+this work.
 
 - **The `pace_current_tier` pre-lookup and the Free short-circuit are gone from
   `supabase/functions/analyze-form/flow.ts`.** Every tier now runs auth → consent → AI spend gate
@@ -23,19 +21,25 @@ deployed**, and zero real Anthropic calls were made anywhere in this work.
   sample fabricated a cadence figure and a left/right ground-contact comparison that no certified
   knowledge file supports, and — because it was never persisted — no Free signup in five weeks
   ever produced a real `analyses` row.
-- **New server-side normalization step, `normalizeForEvidenceAndTier()`, unconditional and never
-  prompt-only trust.** Any one-frame submission (Free's only allowance, and any photo from any
-  tier) has Cadence and Elasticity forced to `notAssessedReason: 'needsVideo'`, replacing whatever
-  the model claimed. Free additionally has flags/drills stripped from every pillar. `overall` is
-  always recomputed from what survives, via the existing `deriveOverall()`.
+- **New server-side normalization step, `normalizeForEvidenceAndTier()`, invoked for every result
+  and never prompt-only trust.** Any one-frame submission (Free's only allowance, and any photo
+  from any tier) has Cadence and Elasticity forced to not-assessed, replacing whatever the model
+  claimed. A photo records `notAssessedReason: 'needsVideo'`; a video records
+  `'singleFrameFromVideo'`, meaning exactly one frame of that video reached the analysis, without
+  guessing why. Free additionally has flags/drills stripped from every pillar. `overall` is
+  recomputed via the existing `deriveOverall()` only when one of those paths normalizes pillars;
+  an unchanged multi-frame Pro/Elite result keeps the model's own headline.
   - **Review follow-up 3, same day — a missing `safety` field is now INVALID, not "no signal".**
     The structured field closed the classifier hole but left a fail-OPEN one: the output schema's
     `required` list is a request to the model, not a grammar guarantee, so a pillar could arrive
-    with no declaration (or one whose declared signal carried a blank note) and normalization would
-    read that as "nothing to warn about" — dropping a warning that lived in the pillar's prose.
+    with no declaration (or one whose declared non-`none` signal carried a blank note) and
+    normalization would read that as "nothing to warn about" — dropping a warning that lived in
+    the pillar's prose.
     `analyze-form-validation.ts` now refuses to deliver any response whose pillars do not all carry
-    a usable declaration; absent, malformed, ungrounded, blank-noted, and "a real signal on a pillar
-    the salvage would drop" all take the same path (no salvage → retry → release, uncharged). The
+    a usable declaration; absent, malformed, ungrounded, a non-`none` signal with a blank note, and
+    "a real signal on a pillar the salvage would drop" all take the same fail-closed path (no
+    salvage → retry → release, uncharged). These model/schema-contract failures are our fault and
+    release as non-farming `model_error`; they cannot tick the runner's anti-farming counter. The
     narrowing is real and deliberate: an honest-partial salvage now also requires every readable
     pillar to declare its safety state.
   - **`overall` is no longer recomputed on paths that normalized nothing.** A multi-frame Pro/Elite
@@ -50,7 +54,8 @@ deployed**, and zero real Anthropic calls were made anywhere in this work.
   - **Anti-farm lockout (raised in review): NOT a live defect, verified against the migration.**
     The reviewer read `20260711150400`, which is superseded. The current `reserve_analysis`
     (`20260712220000_anti_farm_release_reason_fix.sql`) already counts only reasons
-    `pace_is_farming_signal()` names — `validation_failed` alone, so `model_error`,
+    `pace_is_farming_signal()` names — `validation_failed` alone, so model/schema-contract
+    failures (`model_error`),
     `provider_timeout`, `internal_error` and `zero_pillars_assessed` never count — and scopes
     Free's counter to a rolling 24h window from `released_at`, not lifetime. Two integration cases
     covering exactly this (three our-fault releases then a successful delivery; three
@@ -64,17 +69,20 @@ deployed**, and zero real Anthropic calls were made anywhere in this work.
     ADDITIVE per-pillar `safety` field — `{ signal, note }`, where `signal` is an id from
     `knowledge/injury_flags.md`'s certified stop-running list (`PACE_SAFETY_SIGNALS`) — and
     `PACE_RESULT_SCHEMA` requires it, so the model declares the warning SEPARATELY from its
-    assessment prose. Normalization copies that field across structurally and promotes its `note`
-    to the pillar's feedback; nothing else the model wrote about an unassessable pillar survives.
+    assessment prose. Normalization copies that field across structurally and makes a certified
+    non-`none` signal's `note` the visible feedback on every tier, frame path, and pillar; nothing
+    else the model wrote about an unassessable pillar survives.
     An ungrounded or unreadable `safety` value, and a real signal on a pillar a salvage would drop,
-    both FAIL CLOSED in `analyze-form-validation.ts` (no salvage, retry, then release without
-    charging). `SYSTEM_PROMPT_TOKENS_ESTIMATE` rose 24000 → 25500 because the new schema
-    descriptions ride in the prompt once per pillar.
+    both FAIL CLOSED in `analyze-form-validation.ts` (no salvage, retry, then a non-farming
+    `model_error` release without charging). Certified safety notes are carried and surfaced
+    structurally; prose is never mined for them. `SYSTEM_PROMPT_TOKENS_ESTIMATE` rose 24000 →
+    25500 because the new schema descriptions ride in the prompt once per pillar.
   - **The prompt now states two facts, never one.** `analyze-form-prompt.ts` builds its medium
     rules from what the runner SENT (photo or video) and what REACHED the model (frame count), so a
-    video clipped to one frame by Free's cap gets the one-instant rules while still being described
-    as the video it is — and is never advised to submit a video. `flow.ts` passes the real
-    `mediaType` again rather than relabelling a one-frame video as a photo.
+    video with only one frame reaching the analysis gets the one-instant rules while still being
+    described as the video it is — and is never advised to submit a video or told why only one
+    frame arrived. `flow.ts` passes the real `mediaType` again rather than relabelling a one-frame
+    video as a photo.
   - **`notAssessedReason` gains the server-authored `'singleFrameFromVideo'`**, with its own copy
     string, so both render surfaces (`components/pace-readout.tsx` and
     `components/pillar-detail-modal.tsx`) and the VoiceOver announcement describe the runner's own
@@ -84,14 +92,15 @@ deployed**, and zero real Anthropic calls were made anywhere in this work.
   - **Review follow-up, same day.** The strip used to overwrite the pillar's `feedback` wholesale,
     which could silently delete a stop-running safety signal — the one class of content
     `analyze-form-prompt.ts`'s SAFETY_RULES make undroppable at every tier. Normalization now
-    strips the ASSESSMENT CLAIM only: any safety sentence the model wrote survives and LEADS the
-    replacement feedback. All four pillars are guarded on a one-frame submission (a pillar the
-    model did not score cannot keep flags or drills), and the limitation sentence is media-aware —
-    a video clipped to one frame by Free's cap is no longer told to submit a video.
+    discards the unsupported assessment prose and carries only the certified structured safety
+    declaration across; when it contains a real signal, its `note` becomes the replacement
+    feedback. All four pillars are guarded on a one-frame submission (a pillar the model did not
+    score cannot keep flags or drills), and a video with one frame reaching analysis is no longer
+    told to submit a video or blamed on its plan.
   - **Medium rules now follow the frame count actually attached, not the client's declared
-    `mediaType`.** A video clipped to one frame was being handed the cross-frame rules ("across
-    frames you can assess all four pillars ... arm-swing arc and symmetry"), inviting a comparison
-    that never existed.
+    `mediaType`.** A video with only one frame attached was being handed the cross-frame rules
+    ("across frames you can assess all four pillars ... arm-swing arc and symmetry"), inviting a
+    comparison that never existed.
   - **`components/pace-readout.tsx` shows ONE explanation per not-assessed pillar.** The canned
     `notAssessed` line is now a fallback for a pillar with no feedback, instead of a second,
     overlapping sentence rendered above the server's own.
@@ -114,8 +123,9 @@ deployed**, and zero real Anthropic calls were made anywhere in this work.
   tests. `app/analyzing.tsx` now only ever routes to `/result/[id]`.
 - **Copy rewritten** (`constants/copy.ts`) to describe only what the product can actually certify
   — no promised pillar count, no "sample preview" framing. Free: one real analysis from a single
-  photo or frame, no flags/drills. Pro: additional analyses, multi-frame evidence, flags/drills
-  when supported. Elite: deeper per-pillar feedback plus comparison against past analyses.
+  photo or frame, no flags/drills. Pro: 10 analyses per period, multi-frame evidence, and certified
+  flags/drills when supported. Elite: 30 analyses per period, deeper per-pillar feedback, and
+  comparison against past analyses.
 - **Deployment ordering is binding**: `analyze-form` must be redeployed before or with the client
   release, since the simplified client rejects the retired `{ result, isSample: true }` shape by
   construction. Not deployed as of this entry.

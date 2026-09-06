@@ -109,8 +109,10 @@ export interface PaceDrill {
  * report (`docs/design/copy-deck.md`'s `result.pillar.notAssessed.angle` / `.needsVideo`).
  * `'singleFrameFromVideo'` is written only by the server's own normalization
  * (`analyze-form/flow.ts`), for the case the other two cannot describe honestly: the runner DID
- * submit a video, and exactly one frame of it was analysed because that is their plan's frame
- * cap — telling them to "submit a video" there would be advice about something they already did.
+ * submit a video, and exactly one frame of it reached the analysis. The reason deliberately says
+ * nothing about WHY only one arrived — telling them their plan caused it would be false whenever
+ * the device fell back after a quota lookup failure, while telling them to "submit a video" would
+ * be advice about something they already did.
  * Optional, and NOT structurally required to be one of these three (see `isPacePillarResult`) —
  * the model may report a reason the copy deck hasn't named a string for yet, and rejecting an
  * otherwise-honest response over that would be exactly the over-tight content validation

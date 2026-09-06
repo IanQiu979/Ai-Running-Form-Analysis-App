@@ -982,6 +982,8 @@ export const Copy = {
       // Every `detail` below is scoped to what this product can actually certify (2026-09-06
       // ruling): no promised pillar count, no cadence figure, no left/right ground-contact
       // comparison — only certified flags/drills, and only "when supported" by the evidence.
+      // Pro's 10 and Elite's 30 are display copies of the server-enforced per-period limits in
+      // `public.reserve_analysis`; the client still never computes or enforces quota.
       free: {
         name: 'Free',
         price: '$0',
@@ -991,13 +993,13 @@ export const Copy = {
         name: 'Pro',
         price: '$6.99 / month',
         detail:
-          'Additional analyses each period, plus multi-frame evidence when your footage supports it — certified injury-risk flags and drills when supported.',
+          '10 analyses per period, plus multi-frame evidence when your footage supports it — certified injury-risk flags and drills when supported.',
       },
       elite: {
         name: 'Elite',
         price: '$14.99 / month',
         detail:
-          'Everything in Pro, plus deeper feedback per pillar and a side-by-side comparison with your past analyses.',
+          '30 analyses per period. Everything in Pro, plus deeper feedback per pillar and a side-by-side comparison with your past analyses.',
       },
     },
     footnote: 'Elite adds a little more detail and comparison — not a different analysis.',
