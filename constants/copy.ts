@@ -311,6 +311,7 @@ export const Copy = {
       // unparsable, or already-past expiry — never a guessed or zeroed countdown.
       blocked: "You can't start a new analysis right now. Try again later.",
       blockedFor: "You can't start a new analysis for {remaining}.",
+      zeroPillarCooldown: 'Nothing in your last clip could be read. You can try again at {time}.',
       // --- issues #54/#15 additions end ---
       loading: 'Checking your plan…',
       error: {
@@ -440,6 +441,11 @@ export const Copy = {
         title: 'Analysis stopped',
         body: "An earlier attempt at this one stopped before it completed. It wasn't counted against your quota — start a new analysis to try again.",
       },
+      zeroPillarCooldown: {
+        title: 'Nothing to read yet',
+        body: '{message} You can try again at {time}.',
+        bodyUnknownTime: '{message} Give it a few minutes and try again.',
+      },
       cta: {
         // The deck says "Reuse shared.cta.retry" / "shared.cta.cancel" — no Copy.shared
         // namespace exists in this codebase yet. Every screen shipped so far (Home's
@@ -456,6 +462,7 @@ export const Copy = {
         // same expired session, so it needs its own label. Reuses `settings.signOut.cta`'s
         // wording rather than inventing new phrasing for the same action.
         signOut: 'Sign out',
+        backHome: 'Back to Home',
       },
     },
   },

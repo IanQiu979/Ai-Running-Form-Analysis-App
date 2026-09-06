@@ -192,10 +192,21 @@ export const MIN_RETRY_BUDGET_MS = 80_000;
 export const MIN_CONTENT_RETRY_BUDGET_MS = 20_000;
 
 /**
- * How long a Free account waits after a zero-pillar result before another submission is accepted.
- * This temporary TypeScript source is replaced by the DB-owned value in the next parked commit.
+ * THE FREE ZERO-PILLAR COOLDOWN — the replacement for the Free-specific charge that used to sit on
+ * the zero-pillars branch (see §9.5). That carve-out bounded the free-form-checking loop by TOTAL
+ * count — one blank result and Free's single lifetime analysis was gone — which punished the
+ * honest case (a badly framed clip) exactly as hard as the abusive one. A cooldown bounds the same
+ * loop by FREQUENCY instead, which is the axis the worry was actually about.
+ *
+ * THE INTERVAL IS NOT DECLARED HERE. It lives in `public.pace_zero_pillar_cooldown_seconds()`
+ * (`20260906140000_quota_status_zero_pillar_cooldown.sql`, 15 minutes, justified there) because
+ * two callers need it: this function, to refuse, and `pace_quota_status`, to warn Home BEFORE a
+ * runner extracts frames and uploads them. A TypeScript constant passed into one of them would be
+ * a second source of truth, and the drift it invites is Home saying "try again at 3:15" while the
+ * server refuses until 3:30.
+ *
+ * Free only. Pro/Elite pay per period and their zero-pillar refund is already bounded by quota.
  */
-export const FREE_ZERO_PILLAR_COOLDOWN_SECONDS = 900;
 
 /** The client sends raw base64 with no per-frame media type (`lib/analyze-form.ts`'s wire shape is
  * `frames: string[]`), and `lib/frames.ts` emits JPEG at q≈0.7. Both the vision call and the
@@ -461,7 +472,19 @@ async function reserveAnalysis(
   return data as ReserveResult;
 }
 
-/** Seconds still to wait before this user may resubmit after a zero-pillar result, or 0. */
+/**
+ * Seconds still to wait before this user may resubmit after a zero-pillar result, or 0.
+ *
+ * FAILS OPEN, deliberately. `pace_zero_pillar_cooldown_remaining`
+ * (`20260906130000_free_zero_pillar_cooldown.sql`, narrowed to one argument by
+ * `20260906140000_quota_status_zero_pillar_cooldown.sql`) is a read-only lookup over rows `release_
+ * analysis` already writes — it holds no state of its own and adds no counter. If it is missing
+ * (the function deployed ahead of its migration) or errors, this returns 0 and the request runs:
+ * a throttle is not worth failing a legitimate analysis over, and the un-throttled behaviour is
+ * exactly the blanket no-charge policy Pro/Elite already get. That also means the
+ * `'zero_pillar_cooldown'` release reason is never written before the migration that permits it
+ * exists — the reason and the function that produces it land in the same migration.
+ */
 async function zeroPillarCooldownRemaining(
   deps: AnalyzeFormDeps,
   userId: string,
@@ -471,7 +494,6 @@ async function zeroPillarCooldownRemaining(
   try {
     const { data, error } = await deps.rpc.rpc('pace_zero_pillar_cooldown_remaining', {
       p_user_id: userId,
-      p_cooldown_seconds: FREE_ZERO_PILLAR_COOLDOWN_SECONDS,
     });
     if (error) throw new Error(error.message);
     const seconds = typeof data === 'number' ? data : Number(data);
@@ -862,8 +884,11 @@ export async function runAnalyzeForm(
         return (response = {
           status: 429,
           body: {
-            error:
-              'Your last analysis could not read anything in that clip. Give it a few minutes, film side-on in good light, and try again — this has not been counted against your quota.',
+            // ONE SHORT SENTENCE, and no more (captain's standing style rule). The client owns
+            // saying WHEN — it renders this alongside a clock time derived from
+            // `retryAfterSeconds` — and neither surface explains the throttle's purpose: a runner
+            // whose clip could not be read is not an abuser and must not be addressed as one.
+            error: 'Nothing in that last clip could be read.',
             code: 'zero_pillar_cooldown',
             retryAfterSeconds: cooldownSeconds,
           },
@@ -1109,9 +1134,23 @@ export async function runAnalyzeForm(
     // actually shows the runner, OR a one-frame submission whose only assessed pillars were
     // Cadence/Elasticity before normalization forced them to `needsVideo`. That is a real,
     // well-formed result the user got zero usable information from, so `release_analysis` hands
-    // the quota slot back while the computed result is still returned to the caller. Free uses
-    // the pre-model cooldown above to bound resubmission frequency instead of consuming its one
-    // lifetime analysis. `'zero_pillars_assessed'` remains outside the anti-farming vocabulary.
+    // the quota slot back (the same mechanism `'validation_failed'`/`'model_error'` already use)
+    // while the computed `normalizedResult` — never persisted — is still returned to the caller
+    // below, so the request is NOT failed outright.
+    //
+    // THE POLICY IS BLANKET, WITH NO FREE EXCEPTION. It is cd8bf97 (PR #194, 2026-08-19,
+    // `20260819120000_zero_pillar_release_reason.sql`) — the decision that named
+    // `'zero_pillars_assessed'` — and that decision has never carved Free out. An earlier version
+    // of this branch settled Free's one lifetime slot on a blank result and attributed the carve-
+    // out to that same decision name under a 2026-09-06 date; that attribution was false, and
+    // charging a runner their ONLY analysis for a result carrying nothing is the harshest possible
+    // reading of a submission we could not read. The free-form-checking-loop worry the carve-out
+    // existed for is answered by frequency instead — see the zero-pillar cooldown above, enforced
+    // before the model is ever called and surfaced on Home before a frame is even extracted.
+    //
+    // `'zero_pillars_assessed'` is excluded from `pace_is_farming_signal` (20260712220000), so
+    // this never ticks the 3-strike anti-farm cap: an honest "nothing to see here" is not an
+    // attack.
     const assessedPillarCount = PACE_PILLARS.filter(
       (id) => normalizedResult.pillars[id].score !== null
     ).length;

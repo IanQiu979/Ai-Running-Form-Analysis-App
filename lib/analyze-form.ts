@@ -101,6 +101,10 @@ export type AnalyzeFormSuccess = { result: PaceResult; analysisId: string; isFal
 export interface AnalyzeFormError {
   error: string;
   code: string;
+  /** Only the 429 `zero_pillar_cooldown` sends one (`docs/architecture.md`'s status-code table).
+   * `app/analyzing.tsx` turns it into the clock time its panel states; every other code leaves it
+   * `undefined`, and no caller may invent one. */
+  retryAfterSeconds?: number;
 }
 
 export type AnalyzeFormClientResult =
@@ -217,7 +221,14 @@ async function submitToEdgeFunction(request: AnalyzeFormRequest): Promise<Analyz
   }
 
   if (result.error.kind === 'http') {
-    return { ok: false, error: { error: result.error.error, code: result.error.code } };
+    return {
+      ok: false,
+      error: {
+        error: result.error.error,
+        code: result.error.code,
+        retryAfterSeconds: result.error.retryAfterSeconds,
+      },
+    };
   }
 
   // 'network' (no response was ever produced or relayed) and 'malformed' (a response arrived with

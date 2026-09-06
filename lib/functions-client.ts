@@ -57,18 +57,33 @@ import { supabase } from './supabase';
  *                 `'http'` because there is no `code` to read from it.
  */
 export type InvokeFunctionError =
-  | { kind: 'http'; error: string; code: string }
+  | {
+      kind: 'http';
+      error: string;
+      code: string;
+      /** Present only when the endpoint sent one (today: `analyze-form`'s 429
+       * `zero_pillar_cooldown`). Carried through because a throttle that cannot say WHEN forces
+       * every caller to guess, and a guessed time is worse than none. Never synthesised — a body
+       * without a finite numeric `retryAfterSeconds` leaves this `undefined`. */
+      retryAfterSeconds?: number;
+    }
   | { kind: 'network' }
   | { kind: 'malformed' };
 
 export type InvokeFunctionResult<T> = { ok: true; data: T } | { ok: false; error: InvokeFunctionError };
 
 /** Narrow, defensive parse of a non-2xx JSON body — never trusts the shape blindly. */
-function parseHttpErrorBody(body: unknown): { error: string; code: string } | null {
+function parseHttpErrorBody(
+  body: unknown
+): { error: string; code: string; retryAfterSeconds?: number } | null {
   if (!body || typeof body !== 'object') return null;
   const record = body as Record<string, unknown>;
   if (typeof record.error !== 'string' || typeof record.code !== 'string') return null;
-  return { error: record.error, code: record.code };
+  const retryAfterSeconds =
+    typeof record.retryAfterSeconds === 'number' && Number.isFinite(record.retryAfterSeconds)
+      ? record.retryAfterSeconds
+      : undefined;
+  return { error: record.error, code: record.code, retryAfterSeconds };
 }
 
 /**
