@@ -2984,7 +2984,7 @@ we pay for and cannot use. 105s sits under the client's own `ANALYZING_TIMEOUT_M
 doomed request fails as our structured `{ error, code }` — reservation released, ledger settled —
 rather than as the client's blind timeout, which would leave the row `'reserved'` until #47's sweep.
 
-**Status codes** (every non-2xx body is `{ error, code }`):
+**Status codes** (every non-2xx body is `{ error, code }`, plus `retryAfterSeconds` on the one row that says so):
 
 | Status | Code | When |
 |---|---|---|
@@ -2997,6 +2997,7 @@ rather than as the client's blind timeout, which would leave the row `'reserved'
 | 410 | `analysis_deleted` | Replay of a key whose analysis was soft-deleted (its `result` is redacted). |
 | 422 | `validation_failed` | Clean failure after the retry. Quota refunded. |
 | 429 | `too_many_failed_attempts` | Anti-farming throttle. Deliberately not a 402 — it clears on its own. |
+| 429 | `zero_pillar_cooldown` | Free only, and the one body that carries an extra field: `{ error, code, retryAfterSeconds }`. A free resubmission arrived inside `FREE_ZERO_PILLAR_COOLDOWN_SECONDS` (15 min) of that account's last zero-pillar result. Refused before the prompt is built, so no model call is made, and the reservation it took is released uncharged with the non-farming `'zero_pillar_cooldown'` reason. Like the throttle above it, not a 402 — nothing here is for sale, it clears on its own, and `retryAfterSeconds` says exactly when. |
 | 503 | `killed`/`breaker_open`/`daily_cap` · `model_error`/`provider_timeout` | Our brake, or the provider. Never the caller's fault. |
 | 500 | `internal_error` / `misconfigured` | Our bug, or a missing secret. |
 
