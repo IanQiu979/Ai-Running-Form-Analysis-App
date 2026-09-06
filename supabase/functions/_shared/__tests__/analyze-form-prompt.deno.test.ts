@@ -502,7 +502,7 @@ Deno.test('stop-running safety signals reach Free, overriding the paid-tier flag
 // -------------------------------------------------------------------------------------------
 
 Deno.test('every rendered timestamp is marked approximate — no bare, authoritative value', () => {
-  const manifest = formatFrameManifest([frame(0), frame(400), frame(800)]);
+  const manifest = formatFrameManifest([frame(0), frame(400), frame(800)], 'video');
 
   assertIncludes(manifest, 'requested at ~0 ms', 'Frame 1 timestamp is not marked as requested/approx.');
   assertIncludes(manifest, 'approximately 400 ms after frame 1', 'Interval is not marked approximate.');
@@ -529,7 +529,7 @@ Deno.test('every rendered timestamp is marked approximate — no bare, authorita
 });
 
 Deno.test('a photo manifest claims no timing at all', () => {
-  const manifest = formatFrameManifest([frame(0)]);
+  const manifest = formatFrameManifest([frame(0)], 'photo');
   assertIncludes(manifest, 'no timing information applies', 'A single photo should assert no timing.');
   assert(!manifest.includes('after frame'), 'A single photo cannot have an inter-frame interval.');
 });

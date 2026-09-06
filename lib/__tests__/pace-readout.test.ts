@@ -14,6 +14,7 @@ import {
   pillarDetailA11yLabel,
   pillarLabel,
   pillarLetter,
+  safetyNote,
 } from '../pace-readout';
 import { Copy } from '@/constants/copy';
 import {
@@ -22,6 +23,8 @@ import {
   photoResult,
   poorFramingPhotoResult,
   proTierVideoResult,
+  safetySignalPhotoResult,
+  SAFETY_NOTE_FIXTURE,
 } from '@/lib/pace-fixtures';
 
 describe('countAssessedPillars', () => {
@@ -168,5 +171,31 @@ describe('isRevealTriggered (Phase 2 plan Task 5 — moment 3 sequencing)', () =
 
   it('triggers once both layout has happened and revealReady is true', () => {
     expect(isRevealTriggered(true, true)).toBe(true);
+  });
+});
+
+describe('safetyNote — the ONE read of a pillar\'s stop-running declaration', () => {
+  it('returns the certified note from the structured field, never from feedback', () => {
+    expect(safetyNote(safetySignalPhotoResult.pillars.posture)).toBe(SAFETY_NOTE_FIXTURE);
+    // And the note is genuinely not in the coaching prose — the two are separate fields, which is
+    // the whole reason the UI can render them as separate elements.
+    expect(safetySignalPhotoResult.pillars.posture.feedback).not.toContain(SAFETY_NOTE_FIXTURE);
+  });
+
+  it('returns null for a declaration of `none` — no signal, no banner', () => {
+    expect(safetyNote(safetySignalPhotoResult.pillars.armSwing)).toBeNull();
+  });
+
+  it('returns null for a pillar with no declaration at all', () => {
+    expect(safetyNote(photoResult.pillars.cadence)).toBeNull();
+  });
+
+  it('returns null for a declared signal whose note is blank — never an empty warning', () => {
+    expect(
+      safetyNote({
+        ...photoResult.pillars.posture,
+        safety: { signal: 'sharpOrWorseningPain', note: '   ' },
+      })
+    ).toBeNull();
   });
 });

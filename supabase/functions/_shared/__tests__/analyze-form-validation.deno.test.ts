@@ -747,6 +747,76 @@ Deno.test('a PRESENT pillar that declared something but no usable safety still f
   assertEquals(attempt.salvage, null);
 });
 
+Deno.test('an off-contract pillar carrying REAL PROSE is a declaration, not an empty slot', () => {
+  // Review r6-3. The old rule asked "does this pillar carry one of the six schema key names?", so
+  // a pillar that wrote a real sentence under a key the schema never named counted as an empty
+  // slot: its safety obligation vanished, and `salvagePillars` replaced the whole thing with the
+  // all-null dropped constant — discarding prose that could have been a warning while the other
+  // three pillars were delivered as an honest partial. Presence of substantive TEXT now decides
+  // it, structurally: no keywords are read and no meaning is judged.
+  const input = fullToolInput();
+  const pillars = input.pillars as Record<string, unknown>;
+  pillars.cadence = {
+    summary: 'The left leg cannot take even weight and she is guarding it — see someone before your next run.',
+  };
+
+  const attempt = readAttempt(toolResponse(input));
+
+  assertEquals(attempt.failure, 'invalid_safety', 'a declaration with no usable safety fails closed');
+  assertEquals(attempt.salvage, null, 'and it is never salvaged around');
+  assertEquals(
+    classifyReleaseReason([attempt, attempt], true),
+    'invalid_safety',
+    'our own contract failing is our fault, and is released uncharged rather than counted as farming'
+  );
+});
+
+Deno.test('a pillar with no substantive text anywhere stays ordinary schema drift', () => {
+  // The other half of r6-3, and the r4-1 ruling it must not overturn. `{garbage: true}`, empty
+  // strings, nulls and short schema-shaped tokens assert nothing a runner could be harmed by
+  // missing, so they stay `invalid_shape` — the anti-farming signal — and salvage away.
+  const meaningless: unknown[] = [
+    { garbage: true },
+    { note: '   ' },
+    { summary: '', detail: null },
+    { status: 'ok' },
+  ];
+
+  for (const candidate of meaningless) {
+    const input = fullToolInput();
+    (input.pillars as Record<string, unknown>).cadence = candidate;
+
+    const attempt = readAttempt(toolResponse(input));
+
+    assertEquals(attempt.failure, 'invalid_shape', JSON.stringify(candidate));
+    assertEquals(
+      classifyReleaseReason([attempt, attempt], true),
+      'validation_failed',
+      `${JSON.stringify(candidate)}: schema drift after a real retry stays the farming signal`
+    );
+    const salvage = attempt.salvage;
+    if (!salvage) {
+      throw new Error(`${JSON.stringify(candidate)}: an empty slot must not abort the salvage`);
+    }
+    assertEquals(salvage.result.pillars.cadence.score, null);
+    assertEquals(salvage.result.pillars.posture.score, 80);
+  }
+});
+
+Deno.test('substantive text is found at DEPTH, not only on the pillar\'s own keys', () => {
+  // The check is recursive on purpose: a model that wraps its prose one level down
+  // (`{observations: {left: '...'}}`) has still declared something about the runner.
+  const input = fullToolInput();
+  (input.pillars as Record<string, unknown>).cadence = {
+    observations: { left: 'She is favouring that side through every contact in this clip.' },
+  };
+
+  const attempt = readAttempt(toolResponse(input));
+
+  assertEquals(attempt.failure, 'invalid_safety');
+  assertEquals(attempt.salvage, null);
+});
+
 Deno.test('release_reason: a LONE content failure with the retry SUPPRESSED is model_error, not a strike', () => {
   // THE FINDING-1 CASE. When #44's flow suppresses the retry — too little deadline left, or the
   // retry's spend gate denied it (daily cap / open breaker) — only one attempt exists. A prose

@@ -29,6 +29,44 @@ this work.
   guessing why. Free additionally has flags/drills stripped from every pillar. `overall` is
   recomputed via the existing `deriveOverall()` only when one of those paths normalizes pillars;
   an unchanged multi-frame Pro/Elite result keeps the model's own headline.
+  - **Review follow-up 4, same day — the safety note is now a UI ELEMENT, not a composed string.**
+    The server used to concatenate `"note\n\ncoaching"` into a pillar's `feedback` so the warning
+    would lead. It did not: `<PillarRow>` hands `feedback` to `<KineticText>`, which splits on
+    whitespace and lays the words out in a wrapping row, so the blank line the composition relied
+    on never reached the screen — the warning wrapped into the coaching as one paragraph, while the
+    detail modal (a plain `<Text>`) kept the break. Two surfaces, two readings, one string.
+    `composeSafetyLedFeedback()` is gone; `feedback` now carries coaching prose and nothing else,
+    and both surfaces read the structured `pillar.safety` field through one helper
+    (`lib/pace-readout.ts`'s `safetyNote()`), rendering the note as its own labelled, `Semantic.
+    error`-coloured element ABOVE the coaching. Locked by component-level tests that render the
+    real readout — a server-string assertion could not see this class of defect, which is how it
+    reached review.
+  - **Review follow-up 4 — Free no longer pays for a zero-pillar result, and a cooldown replaces
+    the charge.** The zero-pillars-assessed branch carried a Free-only carve-out that settled (and
+    therefore spent) Free's one lifetime analysis on a valid all-null result, attributed in a
+    comment to a ruling that does not exist. The real decision is cd8bf97 / PR #194
+    (`20260819120000_zero_pillar_release_reason.sql`, 2026-08-19) — a blanket no-charge policy with
+    no tier exception — and Free now follows it. The free-form-checking-loop worry the carve-out
+    existed for is answered by FREQUENCY instead: a new
+    `pace_zero_pillar_cooldown_remaining()` lookup
+    (`20260906130000_free_zero_pillar_cooldown.sql`, read-only over rows `release_analysis` already
+    writes — no counter, no new schema) makes a free account wait **15 minutes** after a zero-pillar
+    result before another submission is accepted. Enforced after the reserve and before the prompt,
+    so a throttled resubmission costs no Anthropic call and its reservation is handed straight back
+    with the new non-farming `'zero_pillar_cooldown'` reason. Fifteen minutes caps a scripted loop
+    at four model calls an hour per account while never blocking the honest fix, which is to film
+    again. The lookup FAILS OPEN, so a function deployed ahead of its migration simply does not
+    throttle and cannot write a reason the CHECK constraint would reject.
+  - **Review follow-up 4 — pillar salvage splits on substantive TEXT, not on recognised key
+    names.** `pillarDeclaresContent` tested only the six schema field names, so an off-contract
+    pillar carrying real prose under a key the schema never named (`{ summary: '…see someone
+    before your next run.' }`) counted as an empty slot: its safety obligation vanished and the
+    salvage discarded the prose while delivering the other three pillars as an honest partial. A
+    pillar is now a declaration if it names a schema content field OR carries any string of **12+
+    trimmed characters at any depth** — purely structural, no keywords read and no meaning judged.
+    Twelve is chosen so schema-shaped tokens (`'good'`, `'none'`, `'needsVideo'`) stay empty slots
+    while any real sentence does not; values between the two resolve to "declaration", which fails
+    closed into a retry and an uncharged release, which is the direction to be wrong in.
   - **Review follow-up 3, same day — a missing `safety` field is now INVALID, not "no signal".**
     The structured field closed the classifier hole but left a fail-OPEN one: the output schema's
     `required` list is a request to the model, not a grammar guarantee, so a pillar could arrive
@@ -39,7 +77,7 @@ this work.
     a usable declaration; absent, malformed, ungrounded, a non-`none` signal with a blank note, and
     "a real signal on a pillar the salvage would drop" all take the same fail-closed path (no
     salvage → retry → release, uncharged). These model/schema-contract failures are our fault and
-    release as non-farming `model_error`; they cannot tick the runner's anti-farming counter. The
+    release as non-farming `invalid_safety`; they cannot tick the runner's anti-farming counter. The
     narrowing is real and deliberate: an honest-partial salvage now also requires every readable
     pillar to declare its safety state.
   - **`overall` is no longer recomputed on paths that normalized nothing.** A multi-frame Pro/Elite

@@ -71,6 +71,8 @@ class FakeRpc implements RpcClient {
     settle_analysis: () => ({ data: { ok: true }, error: null }),
     attach_media_paths: () => ({ data: { ok: true }, error: null }),
     release_analysis: () => ({ data: { ok: true }, error: null }),
+    // No prior zero-pillar release, so nothing to wait for. The cooldown tests below override it.
+    pace_zero_pillar_cooldown_remaining: () => ({ data: 0, error: null }),
   };
 
   // deno-lint-ignore require-await
@@ -650,9 +652,10 @@ Deno.test('rule 3: the anti-farming refusal is a 429, not a paywall 402', async 
 });
 
 // ===========================================================================
-// A fully valid all-not-assessed result is still an honest model result. Free has only one
-// lifetime analysis, so settling it prevents repeated zero-evidence submissions from becoming an
-// unlimited model-spend bypass. Pro/Elite retain the existing refund policy.
+// A fully valid all-not-assessed result is still an honest model result, and it is charged to
+// NOBODY — cd8bf97 / PR #194's blanket no-charge-on-zero-pillars policy, with no tier exception.
+// Free's repeated-submission worry is answered by frequency instead: FREE_ZERO_PILLAR_COOLDOWN_
+// SECONDS, enforced before the model is called (see the cooldown tests below).
 // ===========================================================================
 
 /** A fully valid but ADVERSARIAL zero-pillar response: every pillar honestly not-assessed, yet the
@@ -679,10 +682,11 @@ function allNotAssessedWithStrayContent(): ModelCallResult {
   });
 }
 
-Deno.test('zero-pillar policy: Free SETTLES a fully valid result with zero assessed pillars', async () => {
+Deno.test('zero-pillar policy: Free RELEASES a fully valid result with zero assessed pillars', async () => {
   const h = harness([allNotAssessedWithStrayContent()]);
   // `reserve_analysis` is the ONLY source of tier — there is no pre-reserve lookup to disagree
-  // with it. Its 'free' is the value the settlement policy must use.
+  // with it. Its 'free' is the value the policy must use, and the policy is now the same one
+  // pro/elite get: nothing assessed, nothing charged.
   h.rpc.handlers.reserve_analysis = () => ({
     data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'free' },
     error: null,
@@ -696,9 +700,11 @@ Deno.test('zero-pillar policy: Free SETTLES a fully valid result with zero asses
   });
 
   assertEquals(res.status, 200);
-  assertEquals(res.body.analysisId, ANALYSIS_ID, 'Free must receive the persisted row id');
-  assertEquals(h.rpc.to('settle_analysis').length, 1, 'the one lifetime Free slot is consumed');
-  assertEquals(h.rpc.to('release_analysis').length, 0, 'Free zero-pillar results are not refunded');
+  assertEquals(h.rpc.to('settle_analysis').length, 0, "Free's one lifetime slot is NOT spent on a blank result");
+  const release = h.rpc.to('release_analysis');
+  assertEquals(release.length, 1, 'the quota slot is handed back on free exactly as on pro/elite');
+  assertEquals(release[0].args.p_reason, 'zero_pillars_assessed');
+  assertNotEquals(release[0].args.p_reason, 'validation_failed');
 
   const result = res.body.result as {
     pillars: Record<string, { score: number | null; flags: unknown[]; drills: unknown[] }>;
@@ -710,10 +716,99 @@ Deno.test('zero-pillar policy: Free SETTLES a fully valid result with zero asses
     assertEquals(result.pillars[id].drills, [], `${id}: Free strips drills even when the model attached them`);
   }
   assertEquals(result.overall, { score: null, band: null }, 'no pillar survived, so overall stays null');
+});
+
+// ---------------------------------------------------------------------------
+// THE COOLDOWN that replaced the Free charge. It bounds how OFTEN a free account may resubmit
+// after a zero-pillar result, never how many times ever, and it is enforced BEFORE the model call
+// so a throttled resubmission costs nothing — not a reservation, not an Anthropic request.
+// ---------------------------------------------------------------------------
+
+function cooldownHarness(remainingSeconds: unknown, tier = 'free') {
+  const h = harness([ok()]);
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
+    error: null,
+  });
+  h.rpc.handlers.pace_zero_pillar_cooldown_remaining = () => ({ data: remainingSeconds, error: null });
+  return h;
+}
+
+Deno.test('cooldown: a free resubmission inside the window is refused before any model call', async () => {
+  const h = cooldownHarness(420);
+
+  const res = await run(h, {
+    mediaType: 'photo',
+    frames: ['AAAA'],
+    timestamps: [0],
+    idempotencyKey: 'free-cooldown',
+  });
+
+  assertEquals(res.status, 429, 'a throttle, not a paywall — nothing here is for sale');
+  assertEquals(res.body.code, 'zero_pillar_cooldown');
+  assertEquals(res.body.retryAfterSeconds, 420);
+  assertEquals(h.model.requests.length, 0, 'the cooldown must fire BEFORE the model is called');
+  assertEquals(h.rpc.to('settle_analysis').length, 0, 'a throttled request is never charged');
+  const release = h.rpc.to('release_analysis');
+  assertEquals(release.length, 1, "the reservation it took is handed straight back");
+  assertEquals(release[0].args.p_reason, 'zero_pillar_cooldown');
+  assertNotEquals(release[0].args.p_reason, 'validation_failed');
+});
+
+Deno.test('cooldown: zero remaining lets the analysis run normally', async () => {
+  const h = cooldownHarness(0);
+
+  const res = await run(h, {
+    mediaType: 'photo',
+    frames: ['AAAA'],
+    timestamps: [0],
+    idempotencyKey: 'free-no-cooldown',
+  });
+
+  assertEquals(res.status, 200);
+  assertEquals(h.model.requests.length, 1);
+  assertEquals(h.rpc.to('settle_analysis').length, 1);
+});
+
+Deno.test('cooldown: it is FREE-only — pro is never even asked', async () => {
+  const h = cooldownHarness(600, 'pro');
+
+  const res = await run(h, {
+    mediaType: 'photo',
+    frames: ['AAAA'],
+    timestamps: [0],
+    idempotencyKey: 'pro-no-cooldown',
+  });
+
+  assertEquals(res.status, 200, 'a paid tier is bounded by its quota, not by this throttle');
+  assertEquals(h.rpc.to('pace_zero_pillar_cooldown_remaining').length, 0);
+});
+
+Deno.test('cooldown: an unavailable lookup FAILS OPEN rather than failing the analysis', async () => {
+  const h = harness([ok()]);
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'free' },
+    error: null,
+  });
+  // Exactly what a function deployed ahead of its migration sees.
+  h.rpc.handlers.pace_zero_pillar_cooldown_remaining = () => ({
+    data: null,
+    error: { message: 'function public.pace_zero_pillar_cooldown_remaining does not exist' },
+  });
+
+  const res = await run(h, {
+    mediaType: 'photo',
+    frames: ['AAAA'],
+    timestamps: [0],
+    idempotencyKey: 'free-cooldown-missing',
+  });
+
+  assertEquals(res.status, 200, 'a throttle is never worth failing a legitimate analysis over');
+  assertEquals(h.model.requests.length, 1);
   assertEquals(
-    h.rpc.to('settle_analysis')[0].args.p_result,
-    result,
-    'exactly what was returned is exactly what was persisted'
+    h.rpc.to('release_analysis').length,
+    0,
+    "and it must never write a release reason the DB's CHECK constraint does not yet permit"
   );
 });
 
@@ -1817,8 +1912,9 @@ for (const testCase of SAFETY_CASES) {
     };
     const elasticity = result.pillars.elasticity;
 
-    // THE WARNING IS THERE, in the runner's face, and unaltered.
-    assertEquals(elasticity.feedback, testCase.note);
+    // THE WARNING IS THERE, unaltered, on the STRUCTURED field the UI renders as its own element
+    // (`lib/pace-readout.ts`'s `safetyNote()`). It is never concatenated into `feedback` — a
+    // composed string is exactly what the readout's per-word reveal flattened.
     assertEquals(elasticity.safety, { signal: testCase.signal, note: testCase.note });
 
     // AND THE ASSESSMENT CLAIM IS GONE — score, band, and the model's prose about a bounce cycle
@@ -1828,20 +1924,16 @@ for (const testCase of SAFETY_CASES) {
     assertEquals(elasticity.notAssessedReason, 'singleFrameFromVideo');
     assertEquals(elasticity.flags, []);
     assertEquals(elasticity.drills, []);
-    assertEquals(
-      (elasticity.feedback ?? '').includes('mid-170s spm'),
-      false,
-      'a cadence figure must never survive on a pillar one frame cannot assess'
-    );
+    assertEquals(elasticity.feedback, null, 'prose one frame cannot support is discarded outright');
 
     // And it is what was PERSISTED, not just what was returned.
     const settled = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
-    assertEquals(settled.pillars.elasticity.feedback, testCase.note);
+    assertEquals(settled.pillars.elasticity.safety, { signal: testCase.signal, note: testCase.note });
     assertEquals(settled.pillars.elasticity.score, null);
   });
 }
 
-Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier and frame path', async () => {
+Deno.test('a certified safety note is carried STRUCTURALLY on every tier and frame path', async () => {
   const paths = [
     { tier: 'free', body: ONE_FRAME_VIDEO_BODY },
     { tier: 'pro', body: ONE_FRAME_VIDEO_BODY },
@@ -1856,8 +1948,9 @@ Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier 
     elasticity: 'Elasticity safety note from the certified declaration.',
   } as const;
   // The two motion pillars are forced not-assessed on a one-frame submission, which discards their
-  // prose outright; the warning then stands alone. Everywhere else the prose is supportable and
-  // must survive UNDER the warning.
+  // prose outright; the declaration rides along on the replacement pillar regardless. Everywhere
+  // else the prose is supportable and survives in `feedback` — beside the warning, never merged
+  // into it.
   const MOTION = ['cadence', 'elasticity'] as const;
 
   for (const { tier, body } of paths) {
@@ -1886,31 +1979,30 @@ Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier 
     const oneFrame = body.frames.length === 1;
     for (const id of ['posture', 'armSwing', 'cadence', 'elasticity'] as const) {
       const label = `${tier}/${body.frames.length} frame(s)/${id}`;
-      const feedback = result.pillars[id].feedback ?? '';
+      const feedback = result.pillars[id].feedback;
       const strippedByNormalization = oneFrame && (MOTION as readonly string[]).includes(id);
 
+      // THE WARNING IS ON ITS OWN FIELD, always — that is what the UI reads and renders above the
+      // coaching, and it is the one thing normalization may never take away.
       assertEquals(
-        feedback.startsWith(notes[id]),
-        true,
-        `${label}: the certified warning must come FIRST, not after the coaching`
+        result.pillars[id].safety?.note,
+        notes[id],
+        `${label}: the certified warning must survive structurally`
       );
+      // AND IT IS NOT SMUGGLED INTO THE COACHING. `feedback` holds surviving coaching prose and
+      // nothing else, so no surface has to split a string to tell the two apart.
       assertEquals(
-        feedback.includes(SAFETY_FIXTURE_COACHING),
-        !strippedByNormalization,
+        feedback,
+        strippedByNormalization ? null : SAFETY_FIXTURE_COACHING,
         strippedByNormalization
           ? `${label}: prose one frame cannot support must stay discarded`
-          : `${label}: supportable coaching must survive under the warning`
+          : `${label}: supportable coaching survives, unmerged with the warning`
       );
-      if (!strippedByNormalization) {
-        assertEquals(
-          feedback,
-          `${notes[id]}\n\n${SAFETY_FIXTURE_COACHING}`,
-          `${label}: warning, blank line, then the coaching`
-        );
-      } else {
-        assertEquals(feedback, notes[id], `${label}: the warning stands alone`);
-      }
-      assertEquals(result.pillars[id].safety?.note, notes[id]);
+      assertEquals(
+        (feedback ?? '').includes(notes[id]),
+        false,
+        `${label}: the warning must not be concatenated into the coaching`
+      );
     }
     assertEquals(
       h.rpc.to('settle_analysis')[0].args.p_result,

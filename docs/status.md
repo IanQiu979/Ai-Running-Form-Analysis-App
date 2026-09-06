@@ -1247,19 +1247,32 @@ milestone "done" criteria.
     from every pillar. `overall` is recomputed only on a path that normalizes pillars (one frame or
     Free's paid-content strip); a multi-frame Pro/Elite result keeps the model's own `overall`.
     A structurally valid response that ends up assessing nothing (a photo that never shows the
-    runner, or a one-frame submission normalized down to zero assessed pillars) now `SETTLE`s for
-    Free — consuming the one lifetime slot, a deliberate asymmetry, since refunding it would turn
-    that single slot into an unlimited free-form-checking loop — but still `RELEASE`s (refunds) for
-    Pro/Elite, unchanged.
+    runner, or a one-frame submission normalized down to zero assessed pillars) `RELEASE`s
+    (refunds) on EVERY tier — cd8bf97 / PR #194's blanket policy, with no Free exception. An
+    earlier revision of this branch carved Free out and charged its one lifetime slot for a blank
+    result; that carve-out is gone. The loop it existed to prevent is bounded by frequency
+    instead: `pace_zero_pillar_cooldown_remaining()`
+    (`20260906130000_free_zero_pillar_cooldown.sql`, read-only over existing `analyses` rows — no
+    counter, no new schema) makes a Free account wait 15 minutes after a zero-pillar result before
+    another submission is accepted, checked after the reserve and before the prompt so a throttled
+    resubmission costs no model call and releases its reservation with the new non-farming
+    `'zero_pillar_cooldown'` reason. The lookup fails open, so a function deployed ahead of its
+    migration does not throttle and cannot write a reason the CHECK constraint would reject.
 
     Safety is a required, per-pillar structured contract, not a prompt-only hope or a prose
     classifier. Every pillar must declare `{ signal, note }` using the certified stop-running
     signal vocabulary; normalization carries a certified signal's note across structurally and
-    makes it the visible feedback on every tier, frame path, and pillar, including when unsupported
-    assessment prose is discarded. Missing, malformed, ungrounded declarations, or a declared
+    carries it across structurally on the pillar's own `safety` field on every tier, frame path and
+    pillar, including when unsupported assessment prose is discarded. It is never composed into
+    `feedback`: the UI renders it as its own labelled element above the coaching, read by both
+    `components/pace-readout.tsx` and `components/pillar-detail-modal.tsx` through one helper
+    (`lib/pace-readout.ts`'s `safetyNote()`). A composed `"note\n\ncoaching"` string was tried and
+    withdrawn — the readout animates feedback word by word, which erased the separating blank line
+    and made the warning indistinguishable from the coaching on the results screen. Missing, malformed, ungrounded declarations, or a declared
     non-`none` signal with a blank note fail closed: no salvage is delivered, the retry runs, and
     a second contract failure releases the reservation. A model/schema-contract failure is our
-    fault, releases as non-farming `model_error`, and cannot tick the user's anti-farming counter.
+    fault, releases as non-farming `invalid_safety`, and cannot tick the user's anti-farming
+    counter.
     This does not redefine the existing `validation_failed` case: after a genuine retry, the
     existing content-failure condition remains the sole farming signal. The
     live `20260712220000_anti_farm_release_reason_fix.sql` migration and its rolling-24-hour Free

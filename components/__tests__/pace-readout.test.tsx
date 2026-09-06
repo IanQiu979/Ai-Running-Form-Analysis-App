@@ -14,13 +14,15 @@ import { StyleSheet } from 'react-native';
 
 import { PaceReadout } from '../pace-readout';
 import { Copy } from '@/constants/copy';
-import { FontFamily } from '@/constants/theme';
+import { FontFamily, Semantic } from '@/constants/theme';
 import {
   allNotAssessedResult,
   freeTierVideoResult,
   photoResult,
   poorFramingPhotoResult,
   proTierVideoResult,
+  safetySignalPhotoResult,
+  SAFETY_NOTE_FIXTURE,
 } from '@/lib/pace-fixtures';
 import { pillarDetailA11yLabel, pillarLabel } from '@/lib/pace-readout';
 import type { PaceResult } from '@shared/pace';
@@ -330,5 +332,68 @@ describe('coaching feedback typography', () => {
       : score.props.style;
 
     expect(style.fontFamily).toBe(FontFamily.mono.bold);
+  });
+});
+
+/**
+ * THE STOP-RUNNING NOTE, on the actual results screen (review r6-1 / r7-1).
+ *
+ * The regression these lock: the server used to compose `"note\n\ncoaching"` into `feedback`, and
+ * `<PillarRow>` hands `feedback` to `<KineticText>`, which splits on `/\s+/` and lays the words
+ * out in a wrapping row — so the blank line the composition relied on did not survive to the
+ * screen. The warning rendered as one continuous paragraph with the coaching, indistinguishable
+ * from it, while the detail modal (a plain `<Text>`) kept the break. Two surfaces, two readings,
+ * one string. A server-side assertion about that string could not see any of this, which is
+ * exactly how the defect reached review.
+ *
+ * So these render the real component and assert what a reader can actually tell apart: the note
+ * is its OWN node, it is NOT inside the animated feedback, and it is styled distinctly.
+ */
+describe('a certified stop-running note (safetySignalPhotoResult)', () => {
+  it('renders the note as its own element, not as part of the animated coaching', async () => {
+    await render(<PaceReadout result={safetySignalPhotoResult} />);
+
+    expect(screen.getByTestId('pillar-safety-note-posture').props.children).toBe(SAFETY_NOTE_FIXTURE);
+
+    // The coaching is still there, still animated, and carries NONE of the warning's words —
+    // whatever the reveal does to it cannot touch the note.
+    const words = screen.getAllByTestId(/^pillar-feedback-posture-word-\d+$/, HIDDEN);
+    // Each word node carries its own trailing space (that is how `<KineticText>` wraps), so the
+    // reassembled paragraph is compared on collapsed whitespace, not byte-for-byte.
+    const coaching = words.map((word) => word.props.children).join('').replace(/\s+/g, ' ').trim();
+    expect(coaching).toBe(safetySignalPhotoResult.pillars.posture.feedback);
+    expect(coaching).not.toContain('see someone');
+  });
+
+  it('sets the note apart from the coaching visually — a different colour and its own label', async () => {
+    await render(<PaceReadout result={safetySignalPhotoResult} />);
+
+    const note = StyleSheet.flatten(screen.getByTestId('pillar-safety-note-posture').props.style);
+    const firstCoachingWord = StyleSheet.flatten(
+      screen.getByTestId('pillar-feedback-posture-word-0', HIDDEN).props.style
+    );
+
+    expect(note.color).toBe(Semantic.error.light);
+    // THE ASSERTION THAT WOULD HAVE FAILED BEFORE: composed into `feedback`, the warning was drawn
+    // with the coaching's own style, so these two were necessarily equal.
+    expect(note.color).not.toBe(firstCoachingWord.color);
+    expect(screen.getByText(Copy.result.pillar.safetyLabel)).toBeTruthy();
+  });
+
+  it('renders nothing at all for a pillar whose declaration is `none`', async () => {
+    await render(<PaceReadout result={safetySignalPhotoResult} />);
+
+    expect(screen.queryByTestId('pillar-safety-armSwing')).toBeNull();
+    expect(screen.queryByTestId('pillar-safety-cadence')).toBeNull();
+  });
+
+  it('shows the SAME note in the detail modal, read from the same structured field', async () => {
+    await render(<PaceReadout result={safetySignalPhotoResult} />);
+
+    await fireEvent.press(screen.getByTestId('pillar-detail-button-posture'));
+
+    expect(screen.getByTestId('pillar-detail-safety-note-posture').props.children).toBe(
+      SAFETY_NOTE_FIXTURE
+    );
   });
 });

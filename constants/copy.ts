@@ -496,6 +496,14 @@ export const Copy = {
       // "Flags"/"Drills". `detail.*` covers the new per-pillar detail modal's own controls.
       flagsLabel: 'Watch for',
       drillsLabel: 'Try this',
+      // NEW key, not in the deck. The label above a pillar's certified stop-running note
+      // (`PaceSafety.note`, `supabase/functions/_shared/pace.ts`). The note itself is never
+      // written here — it is the model's certified sentence, carried structurally on
+      // `pillar.safety` and rendered verbatim. This label exists so the note cannot be mistaken
+      // for more coaching: it is the one thing on this screen that is not advice about form.
+      // Deliberately not "Warning"/"Danger" — the note already says what happened, and the app's
+      // register is caution, not alarm (`constants/theme.ts`).
+      safetyLabel: 'Before your next run',
       detail: {
         a11yLabel: '{pillar} details',
         a11yHint: 'Opens the full detail for this pillar.',

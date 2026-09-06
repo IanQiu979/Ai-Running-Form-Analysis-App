@@ -12,6 +12,7 @@ import { Copy } from '@/constants/copy';
 import { ScoreBandLabel } from '@/constants/theme';
 import {
   PACE_PILLARS,
+  hasSafetySignal,
   type PaceNotAssessedReason,
   type PaceOverall,
   type PacePillarId,
@@ -69,6 +70,27 @@ export function notAssessedCopy(reason: PaceNotAssessedReason | undefined): stri
   if (reason === 'needsVideo') return Copy.result.pillar.notAssessed.needsVideo;
   if (reason === 'singleFrameFromVideo') return Copy.result.pillar.notAssessed.singleFrameFromVideo;
   return Copy.result.pillar.notAssessed.generic;
+}
+
+/**
+ * THE ONE READ of a pillar's certified stop-running note, shared by every surface that shows it —
+ * `components/pace-readout.tsx`'s `PillarRow` and `components/pillar-detail-modal.tsx`. Both call
+ * this; neither parses prose, and neither re-derives the rule.
+ *
+ * It reads the STRUCTURED `safety` field (`@shared/pace`'s `PaceSafety`), never `feedback`. The
+ * server used to concatenate the note into `feedback` as `"note\n\ncoaching"`, and the readout
+ * animates that string word by word — `<KineticText>` splits on `/\s+/`, which erases the blank
+ * line, so the warning rendered as an unbroken paragraph with the coaching and was invisible AS a
+ * warning on the one screen that matters. A field cannot be flattened by a text animation; a
+ * separator can. Hence: structured field, own element, above the coaching, on both surfaces.
+ *
+ * Returns `null` when there is nothing to warn about — `hasSafetySignal` is `@shared/pace`'s own
+ * predicate (`signal !== 'none'` AND a non-blank note), so "no signal" and "a signal with no
+ * words" both render nothing rather than an empty banner.
+ */
+export function safetyNote(pillar: PacePillarResult): string | null {
+  const safety = pillar.safety ?? null;
+  return hasSafetySignal(safety) ? safety.note.trim() : null;
 }
 
 /**

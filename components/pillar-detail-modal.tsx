@@ -40,13 +40,14 @@ import {
   LineHeight,
   Score,
   ScoreBandLabel,
+  Semantic,
   Spacing,
   Tracking,
   type ColorScheme,
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { notAssessedCopy, pillarLabel, pillarLetter } from '@/lib/pace-readout';
+import { notAssessedCopy, pillarLabel, pillarLetter, safetyNote } from '@/lib/pace-readout';
 import type { PacePillarId, PacePillarResult } from '@shared/pace';
 
 type Props = {
@@ -62,6 +63,10 @@ export function PillarDetailModal({ visible, onDismiss, pillarId, pillar }: Prop
   const styles = useMemo(() => createStyles(colors), [colors]);
   const label = pillarLabel(pillarId);
   const hasFlagsOrDrills = pillar.flags.length > 0 || pillar.drills.length > 0;
+  // THE SAME READ the readout's `<PillarRow>` makes — one helper, one structured field
+  // (`pillar.safety`), so the two surfaces cannot disagree about what the warning is or whether
+  // there is one. Neither ever parses it back out of `feedback`.
+  const note = safetyNote(pillar);
 
   return (
     <Modal
@@ -113,6 +118,22 @@ export function PillarDetailModal({ visible, onDismiss, pillarId, pillar }: Prop
                     {notAssessedCopy(pillar.notAssessedReason)}
                   </Text>
                 )}
+
+                {/* The stop-running note, above the coaching and visibly not part of it — same
+                    element, same source field, same order as `<PillarRow>`. `Semantic.error` is
+                    proven as text against `surface.raised`, which is this card's tone. */}
+                {note ? (
+                  <View style={styles.safetyBlock} testID={`pillar-detail-safety-${pillarId}`}>
+                    <Text style={[styles.safetyLabel, { color: Semantic.error[scheme] }]}>
+                      {Copy.result.pillar.safetyLabel}
+                    </Text>
+                    <Text
+                      testID={`pillar-detail-safety-note-${pillarId}`}
+                      style={[styles.safetyNoteText, { color: Semantic.error[scheme] }]}>
+                      {note}
+                    </Text>
+                  </View>
+                ) : null}
 
                 {/* The coach's own writing — same `FontFamily.prose` convention as
                     `pace-readout.tsx`'s `feedbackText` (spec 2026-07-26 §3.2: coaching prose is
@@ -210,6 +231,22 @@ function createStyles(colors: ThemeColors) {
     notAssessedText: {
       color: colors.text.secondary,
       fontFamily: FontFamily.body.regular,
+      fontSize: FontSize.md,
+      lineHeight: FontSize.md * LineHeight.body,
+    },
+    // Colour is applied at the call site — `Semantic.error` is theme-keyed and this factory only
+    // receives the resolved `colors`. Mirrors `pace-readout.tsx`'s own safety block.
+    safetyBlock: {
+      gap: Spacing.xs,
+    },
+    safetyLabel: {
+      fontFamily: FontFamily.body.semiBold,
+      fontSize: FontSize.xs,
+      letterSpacing: Tracking.eyebrow,
+      textTransform: 'uppercase',
+    },
+    safetyNoteText: {
+      fontFamily: FontFamily.prose.regular,
       fontSize: FontSize.md,
       lineHeight: FontSize.md * LineHeight.body,
     },

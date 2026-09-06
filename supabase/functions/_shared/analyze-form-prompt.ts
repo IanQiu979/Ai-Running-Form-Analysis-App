@@ -871,7 +871,7 @@ export function buildSystemPrompt(input: AnalyzeFormPromptInput): AnthropicTextB
  * interval with "approximately" — there is no code path that prints a bare, authoritative-looking
  * millisecond value (issue #112).
  */
-export function formatFrameManifest(frames: PaceFrame[], media: PaceMediaKind = 'photo'): string {
+export function formatFrameManifest(frames: PaceFrame[], media: PaceMediaKind): string {
   if (frames.length === 1) {
     return media === 'video'
       ? 'FRAME MANIFEST: 1 frame — the only frame of the runner\'s video that reached this analysis. No timing information applies to a single frame.'

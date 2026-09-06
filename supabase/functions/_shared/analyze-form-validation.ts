@@ -174,7 +174,14 @@ export type ReleaseReason =
    * tell "the provider broke" from "our new field was not honoured", and deliberately outside
    * `pace_is_farming_signal`'s vocabulary — see
    * `20260906120000_invalid_safety_release_reason.sql`. */
-  | 'invalid_safety';
+  | 'invalid_safety'
+  /** A FREE resubmission refused by the zero-pillar cooldown (`flow.ts`'s
+   * `FREE_ZERO_PILLAR_COOLDOWN_SECONDS`), before any model call. The reservation this request took
+   * is handed straight back — a throttled request must not spend Free's one lifetime analysis —
+   * and, like every reason above except `'validation_failed'`, it is outside
+   * `pace_is_farming_signal`'s vocabulary: being early is not abuse. Added by
+   * `20260906130000_free_zero_pillar_cooldown.sql`, alongside the lookup that produces it. */
+  | 'zero_pillar_cooldown';
 
 // -------------------------------------------------------------------------------------------
 // Score bands — the ONE piece of arithmetic this module does, and why it is not fabrication
@@ -467,10 +474,41 @@ function isDeliverableSafety(raw: unknown): raw is PaceSafety {
   return raw.signal === 'none' || hasSafetySignal(raw);
 }
 
-/** Keys that make a raw pillar a DECLARATION rather than an empty slot. A pillar carrying any of
- * them asserted something about the runner, so its missing `safety` is a broken declaration; a
- * pillar carrying none of them (absent entirely, or `{}`) asserted nothing at all, and there is no
- * warning that could have been dropped from it. */
+/**
+ * Is this raw pillar a DECLARATION about the runner, or an empty slot?
+ *
+ * The distinction decides whether a MISSING `safety` field is a broken declaration (fail closed:
+ * retry, then release uncharged as `'invalid_safety'`) or ordinary schema drift with no warning
+ * that could have been lost (`'invalid_shape'`, salvage away — review r4-1).
+ *
+ * TWO INDEPENDENT TRIGGERS, and the second is why this is no longer a key list alone (review
+ * r6-3):
+ *
+ *   1. ANY SCHEMA-NAMED CONTENT FIELD is present and non-null. A pillar that reports a score, a
+ *      band, or a not-assessed reason has asserted something whether or not it wrote a sentence,
+ *      and it must not lose its safety obligation for being terse. This trigger is load-bearing on
+ *      its own: `isPaceResult` accepts an absent `safety`, so without it a fully-scored,
+ *      safety-less pillar would sail straight through as deliverable.
+ *   2. ANY SUBSTANTIVE FREE TEXT, under ANY key, at any depth. This is the gap the key list left:
+ *      an off-contract pillar like `{ summary: 'The left leg cannot take even weight and she is
+ *      guarding it — see someone before your next run.' }` names none of the six schema keys, so
+ *      the old rule called it an empty slot and salvaged the prose — and its warning — away.
+ *
+ * Trigger 2 is PURELY STRUCTURAL: it counts characters, and nothing else. It does not read the
+ * text, match keywords, or judge what the prose means — a classifier of that kind was proposed and
+ * rejected twice on this work, and it stays rejected. Text is text.
+ *
+ * THE THRESHOLD IS 12 TRIMMED CHARACTERS, and it is a trade with a stated direction. Schema-shaped
+ * scalars a model emits in place of prose are short tokens (`'good'`, `'none'`, `'photo'`,
+ * `'needsVideo'`); a sentence a runner could be harmed by not reading is far longer than twelve
+ * characters in any phrasing. Values between the two — a long off-contract enum id — resolve to
+ * "declaration", which fails CLOSED into a retry and an uncharged release. That is the direction we
+ * want to be wrong in: the cost of a false declaration is one retry, and the cost of a false empty
+ * slot is a discarded warning.
+ */
+const SUBSTANTIVE_TEXT_MIN_LENGTH = 12;
+
+/** Schema-named fields whose mere presence is an assertion, sentence or not. */
 const PILLAR_CONTENT_KEYS = [
   'score',
   'band',
@@ -480,8 +518,27 @@ const PILLAR_CONTENT_KEYS = [
   'drills',
 ] as const;
 
+/** Depth cap so a pathological nested payload cannot turn this into unbounded work. Five levels is
+ * far past anything `PACE_RESULT_SCHEMA` describes (a pillar's deepest legitimate value is a
+ * flag/drill object's string field, at two). */
+const SUBSTANTIVE_TEXT_MAX_DEPTH = 5;
+
+function hasSubstantiveText(value: unknown, depth = 0): boolean {
+  if (typeof value === 'string') {
+    return value.trim().length >= SUBSTANTIVE_TEXT_MIN_LENGTH;
+  }
+  if (depth >= SUBSTANTIVE_TEXT_MAX_DEPTH || typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const values = Array.isArray(value) ? value : Object.values(value as Record<string, unknown>);
+  return values.some((entry) => hasSubstantiveText(entry, depth + 1));
+}
+
 function pillarDeclaresContent(pillar: Record<string, unknown>): boolean {
-  return PILLAR_CONTENT_KEYS.some((key) => pillar[key] !== undefined && pillar[key] !== null);
+  if (PILLAR_CONTENT_KEYS.some((key) => pillar[key] !== undefined && pillar[key] !== null)) {
+    return true;
+  }
+  return hasSubstantiveText(pillar);
 }
 
 /**
@@ -526,17 +583,18 @@ function payloadHasUnusablePillarSafety(payload: unknown): boolean {
   return PACE_PILLARS.some((id) => pillarSafetyIsUnusable(pillars[id]));
 }
 
+/**
+ * ONE condition, because only one can fire (review r6-2). `salvagePillars` has exactly one caller —
+ * `readAttempt`'s `invalid_shape` return — which is reached only AFTER
+ * `payloadHasUnusablePillarSafety` returned false over these same pillars, so an unusable
+ * declaration cannot still be here. What can: a USABLE declaration carrying a real warning, on a
+ * pillar this salvage is about to replace with the all-null dropped constant. Dropping it would
+ * take the warning with it, so the salvage is abandoned instead and the retry runs.
+ */
 function safetyBlocksSalvage(rawPillar: unknown, kept: boolean): boolean {
-  if (pillarSafetyIsUnusable(rawPillar)) {
-    return true;
-  }
   if (typeof rawPillar !== 'object' || rawPillar === null || Array.isArray(rawPillar)) {
-    // Nothing was declared here — no prose, no safety, no pillar. There is no warning to lose, so
-    // this becomes `DROPPED_PILLAR` and the other pillars are still salvageable (#45).
     return false;
   }
-  // A usable declaration that says something — on a pillar this salvage is about to replace with
-  // the all-null dropped constant. Dropping it would take the warning with it.
   const raw = (rawPillar as { safety?: unknown }).safety;
   return !kept && isDeliverableSafety(raw) && hasSafetySignal(raw);
 }

@@ -2799,11 +2799,17 @@ and is never merely prompt-guided:
   `knowledge/injury_flags.md`'s certified stop-running list plus the calm `note` to show the
   runner — and it exists precisely so a
   stop-running warning is separated from assessment prose AT THE SOURCE rather than classified out
-  of it afterwards. Normalization copies it across and places a certified non-`none` signal's `note`
-  FIRST in that pillar's visible feedback on every tier, frame path, and pillar, keeping whatever
-  coaching prose survived normalization underneath it; no keyword matching is involved, in either
-  direction, and supportable coaching is never deleted because a warning fired. It is never
-  tier-gated.
+  of it afterwards. Normalization copies it across on the pillar's own `safety` field, on
+  every tier, frame path and pillar, and never concatenates it into `feedback` — which therefore
+  holds coaching prose and nothing else. The warning leads where it counts: the UI renders
+  `pillar.safety.note` as its own labelled element ABOVE the coaching, read by
+  `components/pace-readout.tsx` and `components/pillar-detail-modal.tsx` through the single helper
+  `lib/pace-readout.ts`'s `safetyNote()`, so the two surfaces cannot disagree and no UI layer ever
+  splits a string to recover a warning. A composed `"note\n\ncoaching"` string was tried and
+  withdrawn: the readout reveals feedback word by word (`<KineticText>` splits on whitespace),
+  which erased the separating blank line and made the warning read as one paragraph with the
+  coaching. No keyword matching is involved, in either direction; supportable coaching is never
+  deleted because a warning fired; and it is never tier-gated.
 - **ABSENT IS INVALID ON A PILLAR THAT DECLARED ANYTHING, and that is what makes the sentence above
   true.** `PACE_RESULT_SCHEMA` marks `safety` `required`, but a schema is a request to the model,
   not a guarantee we may lean on — so `analyze-form-validation.ts` refuses to call a response
@@ -2814,8 +2820,15 @@ and is never merely prompt-guided:
   as "no signal" would discard a warning written only in the prose with more confidence than the
   keyword classifier this design replaced ever had. A missing analysis is recoverable; a missing
   warning is not.
-  The one case scoped OUT is a pillar that is entirely absent, or not an object at all: it asserted
-  nothing about the runner, so there is no warning it could have dropped. That is ordinary schema
+  What counts as "declared anything" is decided structurally, on PRESENCE OF TEXT rather than on
+  recognised key names: a pillar naming any schema content field, or carrying any string of 12+
+  trimmed characters at any depth, has asserted something. That closes the hole a key list left —
+  an off-contract pillar writing real prose under a key the schema never named used to read as an
+  empty slot and have its prose salvaged away. No keyword is read and no meaning is judged; the
+  12-character floor keeps schema-shaped tokens (`'good'`, `'needsVideo'`) on the empty-slot side
+  and resolves anything longer toward "declaration", which fails closed.
+  The one case scoped OUT is a pillar that is entirely absent, not an object at all, or carrying
+  no substantive text anywhere (`{garbage: true}`): it asserted nothing about the runner, so there is no warning it could have dropped. That is ordinary schema
   drift, it stays `invalid_shape` (and, after the retry, `validation_failed`) exactly as it did
   before `safety` existed, and it does not abort the #45 honest-partial salvage of the pillars that
   ARE readable — which is the only thing that keeps that fallback reachable against real model
@@ -2844,15 +2857,29 @@ and is never merely prompt-guided:
   multi-frame Pro/Elite result passes through with the model's headline intact; rewriting it there
   would be an unrequested change to paid output.
 
-**A zero-pillar result splits by tier (captain decision,
-`audit-v23-r1-decision-zero-pillar-charge-policy`).** A structurally valid response that ends up
+**A zero-pillar result is charged to NOBODY (cd8bf97 / PR #194, 2026-08-19,
+`20260819120000_zero_pillar_release_reason.sql`).** A structurally valid response that ends up
 assessing nothing — a clip that never shows the runner, or a one-frame submission whose only
-"assessed" pillars were Cadence/Elasticity before normalization zeroed them — still `RELEASE`s (and
-refunds the quota slot) for Pro/Elite, exactly as `'validation_failed'`/`'model_error'` already did.
-For Free it instead `SETTLE`s and consumes the one lifetime slot: refunding a blank/unusable
-submission would turn Free's single slot into an unlimited free-form-checking loop.
-`'zero_pillars_assessed'` is excluded from `pace_is_farming_signal` either way, so it never ticks
-the 3-strike anti-farming cap.
+"assessed" pillars were Cadence/Elasticity before normalization zeroed them — `RELEASE`s (and
+refunds the quota slot) on every tier, exactly as `'validation_failed'`/`'model_error'` already did.
+That decision is blanket and has no Free exception; an earlier revision of the Free-tier work
+carved Free out, charged its one lifetime slot for a blank result, and misattributed the carve-out
+to this same decision name. `'zero_pillars_assessed'` is excluded from `pace_is_farming_signal`, so
+it never ticks the 3-strike anti-farming cap.
+
+**Free's resubmission frequency is what bounds the loop instead.**
+`public.pace_zero_pillar_cooldown_remaining(p_user_id, p_cooldown_seconds)`
+(`20260906130000_free_zero_pillar_cooldown.sql`) is a `stable`, `security definer`, service-role-only
+read over rows `release_analysis` already writes — no counter, no column, no state that can drift
+from the ledger. `flow.ts` owns the interval (`FREE_ZERO_PILLAR_COOLDOWN_SECONDS`, 15 minutes) and
+calls it AFTER the reserve (the only place tier is learned) and BEFORE the prompt is built, so a
+free resubmission inside the window costs no Anthropic call and has its reservation released with
+the non-farming `'zero_pillar_cooldown'` reason rather than spending the lifetime slot. Fifteen
+minutes caps a scripted loop at four model calls an hour per account while leaving the honest fix —
+film again, side-on — unblocked; it is deliberately far shorter than the 24h anti-farm window,
+because this is a throttle, not an abuse finding. The lookup FAILS OPEN: a missing or erroring
+function means "no cooldown", which also guarantees the new release reason is never written before
+the migration that permits it exists.
 
 See `supabase/functions/analyze-form/__tests__/flow.deno.test.ts` for the regression suite covering
 normalization and the zero-pillar split. **Deployment ordering matters**: `analyze-form` must be

@@ -76,6 +76,7 @@ import {
   Radius,
   Score,
   ScoreBandLabel,
+  Semantic,
   Spacing,
   Tracking,
   type ColorScheme,
@@ -91,6 +92,7 @@ import {
   pillarDetailA11yLabel,
   pillarLabel,
   pillarLetter,
+  safetyNote,
 } from '@/lib/pace-readout';
 import { PACE_PILLARS, type PacePillarId, type PacePillarResult, type PaceResult } from '@shared/pace';
 
@@ -278,6 +280,7 @@ function PillarRow({
   // row's own button at a time — no cross-row coordination needed).
   const [detailVisible, setDetailVisible] = useState(false);
   const hasFlagsOrDrills = pillar.flags.length > 0 || pillar.drills.length > 0;
+  const note = safetyNote(pillar);
 
   return (
     <View testID={`pillar-row-${pillarId}`} style={styles.pillarRow}>
@@ -358,6 +361,31 @@ function PillarRow({
           importantForAccessibility="no-hide-descendants">
           {notAssessedCopy(pillar.notAssessedReason)}
         </Text>
+      ) : null}
+
+      {/* THE STOP-RUNNING NOTE — its own element, above the coaching, and deliberately NOT inside
+          `<KineticText>`. This is the one piece of prose on this screen that is not advice about
+          form, and the reader has to be able to tell that at a glance: it gets its own label, its
+          own colour (`Semantic.error`, proven as text against `surface.base` — which is what
+          `pillarRow` is filled with), and a plain static `<Text>`. Routing it through the per-word
+          reveal is exactly how it was lost before: the server composed "note\n\ncoaching" into
+          `feedback`, and the reveal splits on whitespace, so the blank line separating the two
+          simply ceased to exist and the warning wrapped into the coaching as one paragraph. It
+          reads `pillar.safety` structurally via `safetyNote()` — the same call the detail modal
+          makes — so the two surfaces cannot disagree, and no UI layer ever splits a string to
+          recover a warning. Not hidden from the a11y tree: unlike the not-assessed line, nothing
+          else on this row announces it. */}
+      {note ? (
+        <View style={styles.safetyBlock} testID={`pillar-safety-${pillarId}`}>
+          <Text style={[styles.safetyLabel, { color: Semantic.error[scheme] }]}>
+            {Copy.result.pillar.safetyLabel}
+          </Text>
+          <Text
+            testID={`pillar-safety-note-${pillarId}`}
+            style={[styles.safetyNoteText, { color: Semantic.error[scheme] }]}>
+            {note}
+          </Text>
+        </View>
       ) : null}
 
       {/* THE COACH'S OWN WRITING, revealed word by word. This is the one element in the app where
@@ -533,6 +561,24 @@ function createStyles(colors: ThemeColors) {
       color: colors.text.secondary,
       fontFamily: FontFamily.body.regular,
       fontSize: FontSize.sm,
+    },
+    // The stop-running note's own block — see the JSX. Its colour is applied at the call site
+    // (`Semantic.error` is theme-keyed and this factory only receives the resolved `colors`), so
+    // these two rules carry everything else: the label reads as a label, the note reads as prose
+    // at the same size as the coaching it sits above, and the pair is spaced as one unit.
+    safetyBlock: {
+      gap: Spacing.xs,
+    },
+    safetyLabel: {
+      fontFamily: FontFamily.body.semiBold,
+      fontSize: FontSize.xs,
+      letterSpacing: Tracking.eyebrow,
+      textTransform: 'uppercase',
+    },
+    safetyNoteText: {
+      fontFamily: FontFamily.prose.regular,
+      fontSize: FontSize.md,
+      lineHeight: FontSize.md * LineHeight.body,
     },
     feedbackText: {
       color: colors.text.secondary,

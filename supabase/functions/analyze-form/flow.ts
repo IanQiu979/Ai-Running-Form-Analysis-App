@@ -62,8 +62,9 @@
  *    whatever the model claims: every one-frame submission (Free's only allowance, and any photo
  *    from any tier) has both pillars forced to `notAssessedReason: 'needsVideo'` here, and `overall`
  *    is recomputed from what is left. A stop-running SAFETY signal the model wrote into such a
- *    pillar survives the strip and leads the replacement feedback (SAFETY_RULES: undroppable at
- *    every tier). Free additionally never renders flags/drills (`pace.ts`'s `PacePillarResult` doc
+ *    pillar survives the strip on the replacement pillar's own `safety` field, and the UI renders
+ *    it above the coaching (SAFETY_RULES: undroppable at every tier). Free additionally never
+ *    renders flags/drills (`pace.ts`'s `PacePillarResult` doc
  *    comment) — stripped here, not merely omitted from the prompt. See
  *    `normalizeForEvidenceAndTier()`.
  *
@@ -125,7 +126,6 @@ import {
   PACE_FRAME_CAP,
   PACE_MAX_REQUEST_BODY_BYTES,
   PACE_PILLARS,
-  hasSafetySignal,
   isPaceResult,
   type PacePillarResult,
   type PaceResult,
@@ -167,6 +167,29 @@ export const MODEL_CALL_TIMEOUT_MS = 65_000;
  * mid-flight. A call we cut off at 8s is a call we pay for and cannot use — strictly worse than
  * falling back on what attempt 1 already gave us. */
 export const MIN_RETRY_BUDGET_MS = 20_000;
+
+/**
+ * How long a FREE account waits after a zero-pillar result before another submission is accepted.
+ *
+ * This is the replacement for the Free-specific charge that used to sit on the zero-pillars branch
+ * (see §9.5). That carve-out bounded the free-form-checking loop by TOTAL count — one blank result
+ * and Free's single lifetime analysis was gone — which punished the honest case (a badly framed
+ * clip) exactly as hard as the abusive one. A cooldown bounds the same loop by FREQUENCY instead,
+ * which is the axis the worry was actually about, and it costs an honest runner nothing they
+ * cannot get back.
+ *
+ * FIFTEEN MINUTES, and the number is a trade, not a default. A zero-pillar result means the clip
+ * showed us nothing, and the fix for that is to film again — which takes minutes, not seconds, so
+ * a runner following the honest path is rarely blocked by this at all. On the other side it caps a
+ * scripted loop at four model calls an hour per account, which is far below what would make
+ * free-tier form-checking-by-resubmission worth automating, while staying well short of a
+ * day-long lockout for someone whose first attempt was simply badly framed. It is deliberately
+ * shorter than the 24h anti-farm window (20260712220000): this is not an abuse finding, and it
+ * must not read like a punishment.
+ *
+ * Free only. Pro/Elite pay per period and their zero-pillar refund is already bounded by quota.
+ */
+export const FREE_ZERO_PILLAR_COOLDOWN_SECONDS = 900;
 
 /** The client sends raw base64 with no per-frame media type (`lib/analyze-form.ts`'s wire shape is
  * `frames: string[]`), and `lib/frames.ts` emits JPEG at q≈0.7. Both the vision call and the
@@ -430,6 +453,47 @@ async function reserveAnalysis(
     throw new Error(`${fn} failed: ${error.message}`);
   }
   return data as ReserveResult;
+}
+
+/**
+ * Seconds still to wait before this user may resubmit after a zero-pillar result, or 0.
+ *
+ * FAILS OPEN, deliberately. `pace_zero_pillar_cooldown_remaining`
+ * (`20260906130000_free_zero_pillar_cooldown.sql`) is a read-only lookup over rows `release_
+ * analysis` already writes — it holds no state of its own and adds no counter. If it is missing
+ * (the function deployed ahead of its migration) or errors, this returns 0 and the request runs:
+ * a throttle is not worth failing a legitimate analysis over, and the un-throttled behaviour is
+ * exactly the blanket no-charge policy Pro/Elite already get. That also means the
+ * `'zero_pillar_cooldown'` release reason is never written before the migration that permits it
+ * exists — the reason and the function that produces it land in the same migration.
+ */
+async function zeroPillarCooldownRemaining(
+  deps: AnalyzeFormDeps,
+  userId: string,
+  requestId: string,
+  userIdHash: string
+): Promise<number> {
+  try {
+    const { data, error } = await deps.rpc.rpc('pace_zero_pillar_cooldown_remaining', {
+      p_user_id: userId,
+      p_cooldown_seconds: FREE_ZERO_PILLAR_COOLDOWN_SECONDS,
+    });
+    if (error) {
+      throw new Error(error.message);
+    }
+    const seconds = typeof data === 'number' ? data : Number(data);
+    return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 0;
+  } catch (err) {
+    logEvent({
+      level: 'warn',
+      fn: 'analyze-form',
+      event: 'zero_pillar_cooldown_unavailable',
+      requestId,
+      userId: userIdHash,
+      errorClass: errorClassOf(err),
+    });
+    return 0;
+  }
 }
 
 async function settleAnalysis(
@@ -768,6 +832,30 @@ export async function runAnalyzeForm(
     // or fall-through — passes through the `finally`, which releases it unless it was settled.
     reservation = analysisId;
 
+    // ── 5.5. FREE ZERO-PILLAR COOLDOWN — the frequency bound that replaced a lifetime charge. ──
+    //
+    // Checked HERE: after the reserve (which is the only place tier is learned — there is no
+    // pre-reserve tier lookup by design) and BEFORE the prompt is built, so a cooled-down
+    // resubmission costs no Anthropic call at all. The reservation this request just took is
+    // released by the `finally` on the way out, so a refused resubmission does not consume Free's
+    // one lifetime slot either.
+    if (tier === 'free') {
+      const cooldownSeconds = await zeroPillarCooldownRemaining(deps, callerUserId, requestId, userIdHash);
+      if (cooldownSeconds > 0) {
+        releaseReason = 'zero_pillar_cooldown';
+        outcome = 'zero_pillar_cooldown';
+        return (response = {
+          status: 429,
+          body: {
+            error:
+              'Your last analysis could not read anything in that clip. Give it a few minutes, film side-on in good light, and try again — this has not been counted against your quota.',
+            code: 'zero_pillar_cooldown',
+            retryAfterSeconds: cooldownSeconds,
+          },
+        });
+      }
+    }
+
     // ── 6/7. The grounded prompt (#41). Server-derived tier; never the client's word for it. ──
     // Both facts go to the builder — what the runner SENT (`mediaType`) and what actually reached
     // us (`frames`) — and `analyze-form-prompt.ts` keeps them apart: one attached frame gets the
@@ -923,27 +1011,36 @@ export async function runAnalyzeForm(
       tier,
     });
 
-    // ── 9.5. Captain decision (audit-v23-r1-decision-zero-pillar-charge-policy). ────────────
+    // ── 9.5. No charge for a zero-pillar result — the SAME policy on every tier. ────────────
     //
     // A response can reach here fully structurally VALID (`decideOutcome` returned `kind:
     // 'valid'`, never even touching the >= 1-assessed-pillar bar that gates the 'partial' branch
     // above) and yet assess NOTHING — every pillar honestly `score: null`, e.g. a clip that never
     // actually shows the runner, OR a one-frame submission whose only assessed pillars were
     // Cadence/Elasticity before normalization forced them to `needsVideo`. That is a real,
-    // well-formed result the user got zero usable information from. For Pro/Elite,
-    // `release_analysis` hands the quota slot back (same mechanism `'validation_failed'`/
-    // `'model_error'` failures already use), while the computed `normalizedResult` — never
-    // persisted — is still returned to the caller below, so the request is NOT failed outright.
-    // Free instead SETTLES a zero-pillar result (2026-09-06 ruling): Free has exactly one lifetime
-    // delivered analysis, and refunding a blank/unusable submission would turn that single slot
-    // into an unlimited free-form-checking loop. `'zero_pillars_assessed'` is excluded from
-    // `pace_is_farming_signal` (20260712220000) either way, so this never ticks the 3-strike
-    // anti-farm cap: an honest "nothing to see here" is not an attack.
+    // well-formed result the user got zero usable information from, so `release_analysis` hands
+    // the quota slot back (the same mechanism `'validation_failed'`/`'model_error'` already use)
+    // while the computed `normalizedResult` — never persisted — is still returned to the caller
+    // below, so the request is NOT failed outright.
+    //
+    // THE POLICY IS BLANKET, WITH NO FREE EXCEPTION. It is cd8bf97 (PR #194, 2026-08-19,
+    // `20260819120000_zero_pillar_release_reason.sql`) — the decision that named
+    // `'zero_pillars_assessed'` — and that decision has never carved Free out. An earlier version
+    // of this branch settled Free's one lifetime slot on a blank result and attributed the carve-
+    // out to that same decision name under a 2026-09-06 date; that attribution was false, and
+    // charging a runner their ONLY analysis for a result carrying nothing is the harshest possible
+    // reading of a submission we could not read. The free-form-checking-loop worry the carve-out
+    // existed for is answered by frequency instead — see `FREE_ZERO_PILLAR_COOLDOWN_SECONDS`, the
+    // cooldown enforced before the model is ever called.
+    //
+    // `'zero_pillars_assessed'` is excluded from `pace_is_farming_signal` (20260712220000), so
+    // this never ticks the 3-strike anti-farm cap: an honest "nothing to see here" is not an
+    // attack.
     const assessedPillarCount = PACE_PILLARS.filter(
       (id) => normalizedResult.pillars[id].score !== null
     ).length;
 
-    if (assessedPillarCount === 0 && tier !== 'free') {
+    if (assessedPillarCount === 0) {
       releaseReason = 'zero_pillars_assessed';
       outcome = 'zero_pillars_assessed';
       return (response = {
@@ -1116,18 +1213,21 @@ const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
  *     feedback prose, flags, drills. That prose is exactly the failure mode the retired sample
  *     shipped (a hallucinated "mid-170s spm" and a left/right ground-contact comparison neither
  *     pillar's certified knowledge file supports), so none of it survives, however it is phrased.
- *   - A certified non-`none` `safety` declaration LEADS that pillar's feedback on EVERY path — all
- *     pillars, all tiers, one or many frames. No reading of prose, keyword matching, or judgement
- *     call: the certified `note` is placed first, unmissable, and whatever coaching prose SURVIVED
- *     the normalization above is kept underneath it (captain's ruling: a warning never deletes
- *     supportable coaching, and never trails behind it). Prose the normalization already discarded
- *     as unsupportable — a motion pillar on one frame — stays discarded, so the note stands alone
- *     there. This function may assume the declaration is THERE:
- *     `analyze-form-validation.ts` refuses to call a response
- *     deliverable unless every pillar carries a usable one, so an absent, malformed, ungrounded,
- *     or blank-note `safety` never reaches this code — it fails closed into a retry and then a
- *     release. `hasSafetySignal(null)` below is therefore only ever reached for a pillar WE
- *     produced (a salvage drop), never for one whose warning we might be discarding.
+ *   - A certified non-`none` `safety` declaration is carried STRUCTURALLY, on the pillar's own
+ *     `safety` field, on EVERY path — all pillars, all tiers, one or many frames. It is never
+ *     concatenated into `feedback`, and `feedback` therefore holds coaching prose and nothing
+ *     else. The warning leads at the point that decides what a runner actually sees: the UI
+ *     renders `pillar.safety.note` as its own element ABOVE the coaching (`lib/pace-readout.ts`'s
+ *     `safetyNote()`, read identically by `components/pace-readout.tsx` and
+ *     `components/pillar-detail-modal.tsx`). Composing the two into one string here is what an
+ *     earlier version did, and it made the warning indistinguishable from the coaching on the
+ *     results screen — the readout animates that string word by word, which collapsed the blank
+ *     line the composition relied on. A structural field cannot be flattened by a text animation.
+ *     Prose the normalization already discarded as unsupportable — a motion pillar on one frame —
+ *     stays discarded, and the declaration still rides along on the replacement pillar.
+ *     `analyze-form-validation.ts` refuses to call a response deliverable unless every pillar
+ *     carries a usable declaration, so an absent, malformed, ungrounded, or blank-note `safety`
+ *     never reaches this code — it fails closed into a retry and then a release.
  *   - The `notAssessedReason` names what we can actually vouch for: `'needsVideo'` for a photo,
  *     and `'singleFrameFromVideo'` when the runner sent a video and exactly one frame of it
  *     arrived. It does NOT claim WHY only one frame arrived — the frame count is chosen on the
@@ -1189,36 +1289,11 @@ function normalizeForEvidenceAndTier(
     }
   }
 
-  // The UI renders `feedback`, not the machine-readable `safety` sibling, so the certified note is
-  // composed into it here — in exactly ONE place, for every pillar, tier and frame count. The note
-  // is copied structurally (no keyword inference) and placed FIRST; any coaching prose still
-  // standing after the normalization above follows it, separated by a blank line.
-  for (const id of PACE_PILLARS) {
-    const pillar = pillars[id];
-    const safety = pillar.safety ?? null;
-    if (hasSafetySignal(safety)) {
-      pillars[id] = { ...pillar, feedback: composeSafetyLedFeedback(safety.note, pillar.feedback) };
-    }
-  }
-
   const normalizedPillars = pillars as PaceResult['pillars'];
   return {
     pillars: normalizedPillars,
     overall: normalizesPillars ? deriveOverall(normalizedPillars) : result.overall,
   };
-}
-
-/**
- * Warning first, coaching below. The certified `note` is never merged into, reworded around, or
- * appended after the model's prose — a runner who reads only the first line still reads the
- * warning — and supportable coaching is never deleted just because a warning fired.
- */
-function composeSafetyLedFeedback(note: string, feedback: string | null): string {
-  const coaching = feedback?.trim() ?? '';
-  if (coaching.length === 0 || coaching === note.trim()) {
-    return note;
-  }
-  return `${note}\n\n${coaching}`;
 }
 
 async function callModel(
