@@ -1265,15 +1265,26 @@ milestone "done" criteria.
     the way the old extractor did) and (b) reports a decoder `actualTime` back — frame-accurate on
     iOS, an average-frame-duration ESTIMATE on Android (not a true PTS; falls back to the requested
     time when frame-count metadata is unavailable). `sampleTimestamps` now asks for ONE centered
-    ~700ms burst instead of spreading requests across the whole clip, and extraction fails closed
-    (`FrameExtractionError`) rather than silently degrading when the returned burst cannot be
-    trusted — wrong thumbnail count, a non-finite or out-of-clip reported time, two times that are
-    not strictly increasing, or two byte-identical re-encoded frames. That last group trades a rare
-    extraction failure on unusually low-frame-rate footage for never handing the model two frames
-    mislabeled with the same "time". The native cleanup path releases the manipulator context even
-    when `renderAsync` rejects, and advances thumbnail ownership before release/progress callbacks
-    so a throwing `onProgress` cannot double-release the current thumbnail — see `lib/frames.ts`'s
-    file header for the full reasoning.
+    ~700ms burst instead of spreading requests across the whole clip. Trust in the returned burst
+    is enforced in two tiers, which are deliberately not the same severity. A DECODER DEFECT still
+    fails the whole extraction closed (`FrameExtractionError`): a wrong thumbnail count, or a
+    non-finite or out-of-clip reported time. A COLLISION does not — two reported times that are
+    not strictly increasing, or two byte-identical re-encoded frames, are the expected shape of
+    low-frame-rate source footage (Android's average-frame-duration estimate rounding two genuinely
+    different requests onto one instant), so the offending thumbnail is released and simply left
+    out of the accepted frame set while the rest of the burst proceeds. The ~700ms stride window is
+    never widened to chase the missing frames and there is no fallback to whole-clip sampling:
+    fewer honest frames from one stride beat more frames from unrelated strides, which is the exact
+    ceiling this issue removed. Extraction only fails when too few DISTINCT frames survive to
+    support a motion-based analysis at all (`MIN_USABLE_VIDEO_FRAMES` = 3 in `lib/frames.ts`,
+    applied as `min(that, frames requested)`) — thrown as `InsufficientFramesError`, a
+    `FrameExtractionError` subclass. That error is deterministic for a given clip, so
+    `app/capture/extracting.tsx` routes it to its own non-retryable
+    `Copy.upload.error.unsupportedFootage` state rather than the generic `extractionFailed` copy,
+    whose Retry button could never succeed for such footage. The native cleanup path releases the
+    manipulator context even when `renderAsync` rejects, and advances thumbnail ownership before
+    release/progress callbacks so a throwing `onProgress` cannot double-release the current
+    thumbnail — see `lib/frames.ts`'s file header for the full reasoning.
 
     **Why the prompt also had to change, not just the sampler.** The edge function deploys
     instantly to every client; a native app update reaches devices over days to weeks through
@@ -1292,13 +1303,15 @@ milestone "done" criteria.
 
     **Verification.** 0 real model calls, so offline behaviour is proven and the live path is not.
     The audit's eleven live calls established the root causes; this fix round made no deployment
-    and no live function invocation. Focused current suites: `flow.deno.test.ts` (95 tests,
+    and no live function invocation. Focused current suites: `flow.deno.test.ts` (96 tests,
     including non-zero-duration virtual-clock timeout/retry cases),
     `analyze-form-prompt.deno.test.ts` (44 tests, including seven new burst/legacy-classification
-    cases and a mutation-tested `isStrideBurst`), and `lib/__tests__/frames.test.ts` (38 tests,
-    rewritten around `expo-video` mocks, with fail-closed and native-cleanup cases mutation-tested
-    against production code). These three focused suites are green: 177 tests. Not yet verified: a
-    real device/simulator pass showing an actual reduction in video-analysis wall-clock time or a
+    cases and a mutation-tested `isStrideBurst`), `lib/__tests__/frames.test.ts` (42 tests,
+    rewritten around `expo-video` mocks, with fail-closed, collision-skip/floor and native-cleanup
+    cases mutation-tested against production code), and
+    `app/capture/__tests__/extracting.test.tsx` (15 tests, including the error-kind routing that
+    only a screen render can prove). These four focused suites are green: 197 tests. Not yet
+    verified: a real device/simulator pass showing an actual reduction in video-analysis wall-clock time or a
     real burst's effect on Cadence/Elasticity scoring — the audit's live-call evidence is the only
     model-output evidence for this fix, same limitation the audit itself operated under.
 

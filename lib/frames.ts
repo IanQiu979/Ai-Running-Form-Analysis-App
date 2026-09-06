@@ -205,10 +205,13 @@ export class FrameExtractionError extends Error {
  * anything about how a quantity is MOVING. Below three, a video is no better evidenced than a
  * photo for those two pillars, so it must not be presented as one.
  *
- * Applied as `min(this, timestamps.length)`: Free's video cap is a single frame
- * (`PACE_FRAME_CAP.free === 1`), and a caller that only ever asked for one or two frames has not
- * lost anything to collisions. The floor exists to catch a burst that DEGRADED below usefulness,
- * never to reject a cap that was small to begin with.
+ * Applied as `min(this, timestamps.length)`, so the floor can never demand more frames than were
+ * requested: it exists to catch a burst that DEGRADED below usefulness, never to reject a cap that
+ * was small to begin with. That exemption is total only for a genuinely SINGLE-frame request —
+ * Free's video cap (`PACE_FRAME_CAP.free === 1`), where the floor bottoms out at 1 and no
+ * collision can lose anything. A hypothetical 2-frame request would floor at 2, so one collision
+ * there would still reject; no shipped tier ever asks for exactly two
+ * (`PACE_FRAME_CAP` is free 1 / pro 5 / elite 8, `supabase/functions/_shared/pace.ts`).
  */
 const MIN_USABLE_VIDEO_FRAMES = 3;
 
