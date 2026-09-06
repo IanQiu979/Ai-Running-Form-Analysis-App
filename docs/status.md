@@ -1301,9 +1301,11 @@ milestone "done" criteria.
     timestamps because the server cannot distinguish an old client's requested times from an
     updated client's decoder-reported estimates.
 
-    **Verification.** 0 real model calls, so offline behaviour is proven and the live path is not.
-    The audit's eleven live calls established the root causes; this fix round made no deployment
-    and no live function invocation. Focused current suites: `flow.deno.test.ts` (96 tests,
+    **Verification.** 4 real Anthropic model calls were made, for the `ANALYZE_FORM_EFFORT`
+    low-vs-medium eval only (see "Effort eval" below); every other behaviour on this branch
+    (timeout/retry/deadline and frame sampling) is verified only offline. The audit's eleven live
+    calls established the root causes; this fix round made no deployment and no live function
+    invocation. Focused current suites: `flow.deno.test.ts` (96 tests,
     including non-zero-duration virtual-clock timeout/retry cases),
     `analyze-form-prompt.deno.test.ts` (44 tests, including seven new burst/legacy-classification
     cases and a mutation-tested `isStrideBurst`), `lib/__tests__/frames.test.ts` (42 tests,
@@ -1314,6 +1316,39 @@ milestone "done" criteria.
     verified: a real device/simulator pass showing an actual reduction in video-analysis wall-clock time or a
     real burst's effect on Cadence/Elasticity scoring — the audit's live-call evidence is the only
     model-output evidence for this fix, same limitation the audit itself operated under.
+
+    **Effort eval (2026-09-06, run manually outside the pipeline — the pipeline cannot make paid,
+    real Anthropic calls).** 4 real Anthropic Messages API calls, billed, made directly via the
+    production `buildAnalyzeFormRequest`/`readAttempt` code from `analyze-form-prompt.ts` and
+    `analyze-form-validation.ts` — never a re-implementation: 2 real, freely-licensed running clips
+    (NASA public-domain ISS treadmill footage; a CC-BY-4.0 Wikimedia Commons outdoor jogger near
+    the Arakawa river, Tokyo), each extracted into a genuine ~700ms/5-frame stride burst matching
+    production's real sampling, each sent twice — once with `effort='medium'`, once with
+    `effort='low'` — identical frames and tier (`'pro'`) both times, the only variable being
+    effort.
+
+    VERDICT: quality holds at 'low' on both real test cases. Latency: medium took 63-65s per call
+    (at the edge of the old 65s per-attempt timeout — directly reproducing the diagnosed cause),
+    low took 22-30s (2-3x faster). Quality: on both clips, low-effort output identified the SAME
+    specific, footage-grounded issues as medium — clip 1's visible harness/tether and one-hand-on-rail
+    (correctly marking Arm Swing not-assessed for the same reason, in both conditions), clip 2's
+    overstriding/heel-first landing and head-down posture, referenced by the same specific frame
+    numbers in both conditions — and preserved the same epistemic honesty (no fabricated precise
+    cadence/GCT figures, "approximate" language intact, appropriate confidence hedging given lens
+    distortion/harness confounds). The low-effort answers were materially more concise (roughly half
+    the output tokens and half the thinking-token budget: e.g. clip 1 thinking tokens 3349 (medium)
+    vs 1126 (low)) but not shallower or more generic in what they actually claimed.
+
+    CAVEAT, stated honestly: this is 2 real inputs, one run each per condition, no repeat — the
+    existing `grounding-eval.live.ts` harness's own header notes model output is stochastic enough
+    that a single run cannot rule out run-to-run variance smaller than what was observed here. This
+    is real evidence the effort drop does not obviously break coaching quality, not a large-sample
+    proof.
+
+    Exact call count: 4 real Anthropic API calls made (2 clips x 2 effort levels). Cost not
+    separately confirmed (no billing lookup performed) but consistent with the audit's prior
+    $1.07-for-11-calls rate, i.e. a few tens of cents. `ANALYZE_FORM_EFFORT` stays `'low'` as
+    implemented; this eval is the resolution of the merge prerequisite the intent named.
 
 ## Next action
 

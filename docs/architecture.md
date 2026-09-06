@@ -2939,7 +2939,7 @@ security-auditor/code-reviewer pass before merge and locked by non-zero-duration
 tests. The same floor is rechecked after the retry gate so gate latency cannot create an
 underfunded call; a skipped allowed gate row is cancelled and logged with its stage. No
 client-visible progress indicator was added; `lib/analyzing-machine.ts`'s existing animated wait
-state is unchanged. 0 real model calls, so offline behaviour is proven and the live path is not.
+state is unchanged. 4 real Anthropic model calls were made, for the `ANALYZE_FORM_EFFORT` low-vs-medium eval only (run manually outside the pipeline, 2026-09-06); every other behaviour on this branch (timeout/retry/deadline and frame sampling) is verified only offline.
 This fix round did not deploy or invoke the live function.
 
 **Status codes** (every non-2xx body is `{ error, code }`):

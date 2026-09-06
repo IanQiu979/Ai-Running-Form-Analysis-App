@@ -8,8 +8,7 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 ## 2026-09-06 (analysis reliability: model window, retry policy, stride-burst sampling)
 
 **On `fm/v23-reliability-timeouts`, not yet merged to `main`.** Root-caused from
-`v23-core-purpose-audit-r1`'s eleven live-model-call evidence set. 0 real model calls, so offline
-behaviour is proven and the live path is not. This fix round did not deploy or invoke the live
+`v23-core-purpose-audit-r1`'s eleven live-model-call evidence set. 4 real Anthropic model calls were made, for the `ANALYZE_FORM_EFFORT` low-vs-medium eval only (run manually outside the pipeline, 2026-09-06); every other behaviour on this branch (timeout/retry/deadline and frame sampling) is verified only offline. This fix round did not deploy or invoke the live
 function. Full account: `docs/status.md` Known Issue #42.
 
 - **Timeouts.** `ANALYZE_FORM_EFFORT` (`analyze-form-prompt.ts`) dropped `'medium'` -> `'low'`
