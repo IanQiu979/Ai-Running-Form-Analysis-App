@@ -22,10 +22,14 @@
  *   4. Video frames are decoded in ONE batch `generateThumbnailsAsync` call (not N sequential
  *      native calls), and `timestampMs` is the DECODER-REPORTED `actualTime`, not the requested
  *      time — see case group "decoder-reported timestamps" below.
- *   5. A burst that cannot be trusted as real motion evidence (wrong count, non-increasing or
- *      out-of-range reported times, duplicate re-encoded frames) fails closed as a
- *      `FrameExtractionError` rather than silently degrading — see "fail-closed on untrustworthy
- *      bursts".
+ *   5. A burst that cannot be trusted as real motion evidence fails closed rather than silently
+ *      degrading, in the two tiers `lib/frames.ts` distinguishes — see "fail-closed on
+ *      untrustworthy bursts". A DECODER DEFECT (wrong thumbnail count, non-finite/out-of-range
+ *      reported time) is a hard `FrameExtractionError`. A COLLISION (two requests rounding onto
+ *      the same reported instant, or two frames re-encoding to identical bytes) is the expected
+ *      shape of low-frame-rate footage: the offending frame is SKIPPED and the rest of the burst
+ *      still produces an analysis, and only a burst that collapses below the 3-distinct-frame
+ *      floor rejects, as `InsufficientFramesError`.
  *   6. The budget check never truncates: case group "budget check" asserts every frame was fully
  *      extracted (every thumbnail decoded and re-encoded) even when the result is over budget and
  *      gets thrown away.
@@ -35,7 +39,13 @@ import { createVideoPlayer } from 'expo-video';
 
 import { PACE_FRAME_CAP } from '@shared/pace';
 
-import { extractFrames, FrameBudgetExceededError, FrameExtractionError, sampleTimestamps } from '../frames';
+import {
+  extractFrames,
+  FrameBudgetExceededError,
+  FrameExtractionError,
+  InsufficientFramesError,
+  sampleTimestamps,
+} from '../frames';
 
 jest.mock('expo-image-manipulator', () => ({
   ImageManipulator: { manipulate: jest.fn() },
@@ -413,16 +423,19 @@ describe('extractFrames — video input — fail-closed on untrustworthy bursts 
     expect(mockManipulate).not.toHaveBeenCalled();
   });
 
-  it('throws FrameExtractionError when two decoder-reported timestamps are not strictly increasing', async () => {
+  // A two-frame request whose second decoded time collides with the first: the collision itself
+  // is skipped, not fatal, but that leaves ONE distinct frame out of the two requested — below
+  // `min(MIN_USABLE_VIDEO_FRAMES, requested)` — so the burst rejects at the floor check.
+  it('rejects with InsufficientFramesError when a collision leaves fewer distinct frames than requested', async () => {
     const durationMs = 10_000;
     const timestamps = sampleTimestamps(durationMs, 2);
     const thumbnails = [fakeThumbnail(timestamps[0], 5_000), fakeThumbnail(timestamps[1], 5_000)];
     mockCreateVideoPlayer.mockReturnValueOnce(createFakePlayer({ thumbnailsResult: thumbnails }));
     queueManipulateResult('QQ==');
 
-    await expect(extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, 2)).rejects.toThrow(
-      FrameExtractionError,
-    );
+    await expect(
+      extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, 2),
+    ).rejects.toThrow(InsufficientFramesError);
   });
 
   it('throws FrameExtractionError when a decoder-reported timestamp falls outside the clip', async () => {
@@ -437,7 +450,9 @@ describe('extractFrames — video input — fail-closed on untrustworthy bursts 
     );
   });
 
-  it('throws FrameExtractionError when two re-encoded frames are byte-for-byte identical', async () => {
+  // Same skip-then-floor semantics for the OTHER collision kind: the duplicate re-encode is
+  // dropped, and the single survivor is below the two frames this request asked for.
+  it('rejects with InsufficientFramesError when a byte-identical duplicate leaves too few frames', async () => {
     const durationMs = 10_000;
     const timestamps = sampleTimestamps(durationMs, 2);
     const thumbnails = timestamps.map((ms) => fakeThumbnail(ms, ms));
@@ -445,9 +460,9 @@ describe('extractFrames — video input — fail-closed on untrustworthy bursts 
     queueManipulateResult('U0FNRQ==');
     queueManipulateResult('U0FNRQ==');
 
-    await expect(extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, 2)).rejects.toThrow(
-      FrameExtractionError,
-    );
+    await expect(
+      extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, 2),
+    ).rejects.toThrow(InsufficientFramesError);
   });
 
   it('releases every thumbnail and the player even when the burst is rejected partway through', async () => {
@@ -505,6 +520,113 @@ describe('extractFrames — video input — fail-closed on untrustworthy bursts 
     expect(manipulation.renderedRelease).toHaveBeenCalledTimes(1);
     thumbnails.forEach((thumbnail) => expect(thumbnail.release).toHaveBeenCalledTimes(1));
     expect(player.release).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('extractFrames — video input — low-frame-rate footage still produces an analysis (issue #199 follow-up)', () => {
+  // THE headline case this block exists for. An ~8fps clip (re-encoded or screen-recorded) rounds
+  // several of the eight requested points inside the fixed ~700ms window onto the same decoded
+  // instant. Before this change the first such collision threw, and because the whole pipeline is
+  // deterministic per clip the offered "Retry" could never succeed. Now the colliding frames are
+  // dropped and the distinct survivors — four here — are returned as an ordinary success, with the
+  // burst span itself never widened to chase the missing four.
+  it('skips colliding frames and resolves with the distinct survivors instead of throwing', async () => {
+    const durationMs = 10_000;
+    const cap = 8;
+    const requested = sampleTimestamps(durationMs, cap);
+    // Four distinct decoded instants for eight requests — adjacent pairs land on the same frame.
+    const decoded = [4_650, 4_650, 4_850, 4_850, 5_050, 5_050, 5_250, 5_250];
+    const thumbnails = requested.map((ms, i) => fakeThumbnail(ms, decoded[i]));
+    const player = createFakePlayer({ thumbnailsResult: thumbnails });
+    mockCreateVideoPlayer.mockReturnValueOnce(player);
+    // Only the four accepted frames are ever re-encoded — a skipped frame is dropped before the
+    // downscale, so it costs nothing.
+    const manipulations = [0, 1, 2, 3].map((i) => queueManipulateResult(`ZnJhbWU${i}`));
+
+    const result = await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, cap);
+
+    expect(result.frames.map((frame) => frame.timestampMs)).toEqual([4_650, 4_850, 5_050, 5_250]);
+    expect(mockManipulate).toHaveBeenCalledTimes(4);
+    // Cleanup is unchanged by the skip: every thumbnail, accepted or skipped, is released exactly
+    // once, and so is the player.
+    thumbnails.forEach((thumbnail) => expect(thumbnail.release).toHaveBeenCalledTimes(1));
+    manipulations.forEach((manipulation) => {
+      expect(manipulation.contextRelease).toHaveBeenCalledTimes(1);
+      expect(manipulation.renderedRelease).toHaveBeenCalledTimes(1);
+    });
+    expect(player.release).toHaveBeenCalledTimes(1);
+  });
+
+  // The same skip treatment for the duplicate-bytes collision kind, above the floor this time.
+  it('skips a byte-identical duplicate and resolves with the remaining distinct frames', async () => {
+    const durationMs = 10_000;
+    const cap = 5;
+    const requested = sampleTimestamps(durationMs, cap);
+    const thumbnails = requested.map((ms) => fakeThumbnail(ms, ms));
+    const player = createFakePlayer({ thumbnailsResult: thumbnails });
+    mockCreateVideoPlayer.mockReturnValueOnce(player);
+    // The third re-encode duplicates the first's bytes; the other four are distinct.
+    ['QQ==', 'Qg==', 'QQ==', 'Qw==', 'RA=='].forEach((base64) => queueManipulateResult(base64));
+
+    const result = await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, cap);
+
+    expect(result.frames.map((frame) => frame.base64)).toEqual(['QQ==', 'Qg==', 'Qw==', 'RA==']);
+    expect(result.frames.map((frame) => frame.timestampMs)).toEqual([
+      requested[0],
+      requested[1],
+      requested[3],
+      requested[4],
+    ]);
+    thumbnails.forEach((thumbnail) => expect(thumbnail.release).toHaveBeenCalledTimes(1));
+    expect(player.release).toHaveBeenCalledTimes(1);
+  });
+
+  // The floor itself: too few distinct frames survive to read a cadence RANGE or a bounce TREND
+  // (two consecutive intervals need three frames), so this rejects rather than presenting a
+  // near-still as motion evidence.
+  it('rejects with InsufficientFramesError when collisions leave fewer than three distinct frames', async () => {
+    const durationMs = 10_000;
+    const cap = 8;
+    const requested = sampleTimestamps(durationMs, cap);
+    // Only two distinct decoded instants survive out of eight requests.
+    const decoded = [4_650, 4_650, 4_650, 4_650, 5_050, 5_050, 5_050, 5_050];
+    const thumbnails = requested.map((ms, i) => fakeThumbnail(ms, decoded[i]));
+    const player = createFakePlayer({ thumbnailsResult: thumbnails });
+    mockCreateVideoPlayer.mockReturnValueOnce(player);
+    queueManipulateResult('QQ==');
+    queueManipulateResult('Qg==');
+
+    const error = await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, cap).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(InsufficientFramesError);
+    // Subclassing matters: every pre-existing generic catch site keeps working.
+    expect(error).toBeInstanceOf(FrameExtractionError);
+    expect((error as InsufficientFramesError).framesExtracted).toBe(2);
+    expect((error as InsufficientFramesError).framesRequested).toBe(cap);
+    // Cleanup holds on the rejecting path too.
+    thumbnails.forEach((thumbnail) => expect(thumbnail.release).toHaveBeenCalledTimes(1));
+    expect(player.release).toHaveBeenCalledTimes(1);
+  });
+
+  // The floor is `min(3, requested)`, not a flat 3: Free's video cap is a single frame
+  // (`PACE_FRAME_CAP.free === 1`), and a caller that only asked for one has lost nothing to
+  // collisions. A flat floor would have made every free-tier video permanently unanalyzable.
+  it('still accepts a free-tier single-frame video, which can never reach three frames', async () => {
+    const durationMs = 10_000;
+    const timestamps = sampleTimestamps(durationMs, PACE_FRAME_CAP.free);
+    mockCreateVideoPlayer.mockReturnValueOnce(
+      createFakePlayer({ thumbnailsResult: [fakeThumbnail(timestamps[0], timestamps[0])] }),
+    );
+    queueManipulateResult('ZnJlZQ==');
+
+    const result = await extractFrames(
+      { mediaType: 'video', uri: 'file://clip.mp4', durationMs },
+      PACE_FRAME_CAP.free,
+    );
+
+    expect(result.frames).toHaveLength(1);
   });
 });
 

@@ -64,23 +64,32 @@
  * a real burst from any pre-migration/legacy sparse manifest and only lets Cadence/Elasticity read
  * motion evidence from the former.
  *
- * A real consequence of trusting the Android estimate is new, deliberate FAIL-CLOSED behavior:
- * `extractVideoFrames` now REJECTS a video whose reported timestamps are not strictly increasing,
- * out of the clip's own duration, or non-finite (`FrameExtractionError`), and separately rejects a
- * batch containing two byte-for-byte identical re-encoded frames. On a very-low-frame-rate source
- * the average-frame-duration estimate can round two genuinely different, closely-spaced requests
- * onto the same computed instant even though the underlying decode was frame-accurate; rather than
- * hand the model two frames falsely labeled with the same "time", extraction fails outright and
- * the runner is asked to retry (`app/capture/extracting.tsx`'s existing generic `extractionFailed`
- * path — this file does not special-case the new error there). This trades a rare extraction
- * failure on unusually low-frame-rate footage for never presenting mislabeled evidence to the
- * model; ordinary phone-camera footage (24fps+) is far above the ~10-14fps floor where the
- * 700ms/(N-1) burst spacing could plausibly collide.
+ * A real consequence of trusting the Android estimate is deliberate FAIL-CLOSED behavior, in two
+ * tiers that must not be confused:
+ *   - A DECODER DEFECT is fatal. `extractVideoFrames` rejects a batch whose thumbnail count does
+ *     not match the requested times, or whose reported `actualTime` is non-finite or lands outside
+ *     the clip's own duration (`FrameExtractionError`). None of those is a property a legitimate
+ *     source clip can have.
+ *   - A COLLISION IS SKIPPED. On a very-low-frame-rate source the average-frame-duration estimate
+ *     can round two genuinely different, closely-spaced requests onto the same computed instant
+ *     even though the underlying decode was frame-accurate, and a near-static pair can re-encode
+ *     to byte-identical output. Rather than hand the model two frames falsely labeled with the
+ *     same "time" — and rather than dead-ending a clip whose every retry would collide the same
+ *     way — the offending thumbnail is dropped and the rest of the burst is kept. The burst span
+ *     is NEVER widened to chase a frame quota: 5-6 honest frames from one stride window beat 8
+ *     spread across unrelated strides, which is the exact ceiling this migration removed.
+ * Only if fewer than `MIN_USABLE_VIDEO_FRAMES` distinct frames survive (and more than that were
+ * requested) does extraction fail, as `InsufficientFramesError` — a `FrameExtractionError`
+ * subclass the capture screen routes to its own non-retryable copy, because re-running the same
+ * deterministic pipeline over the same clip collides identically. Ordinary phone-camera footage
+ * (24fps+) is far above the ~10-14fps floor where the 700ms/(N-1) burst spacing could plausibly
+ * collide at all.
  *
  * WHAT THIS FILE DOES:
  *   - `photo` input: exactly one frame, always (`docs/architecture.md`: "a photo submission is
  *     always exactly 1 frame regardless of tier"), timestamped 0 (there is no clip to place it in).
- *   - `video` input: exactly `videoFrameCap` frames (the caller's server-resolved cap), sampled as
+ *   - `video` input: up to `videoFrameCap` frames (the caller's server-resolved cap — fewer only
+ *     when low-frame-rate footage collides two requests onto one instant, see above), sampled as
  *     one centered ~700ms burst via `sampleTimestamps`, decoded in ONE batch
  *     `generateThumbnailsAsync` call (not `videoFrameCap` sequential native calls), with
  *     `onProgress` reported per frame as each is re-encoded afterward.
@@ -170,16 +179,58 @@ export class FrameBudgetExceededError extends Error {
 
 /**
  * Thrown by `extractFrames` (video only) when `expo-video`'s batch decode did not produce a
- * trustworthy stride burst: the wrong number of thumbnails came back, a reported `actualTime` is
- * non-finite or falls outside the clip's own duration, two reported times are not strictly
- * increasing, or two re-encoded frames are byte-for-byte identical. See the file header's
- * "TIMESTAMP ACCURACY" section for why this fails closed instead of silently degrading — a
- * mislabeled or duplicated frame is worse than an extraction the runner has to retry.
+ * trustworthy stride burst: the wrong number of thumbnails came back, or a reported `actualTime`
+ * is non-finite or falls outside the clip's own duration. Both indicate a decoder defect, not an
+ * ordinary property of the source clip, so they fail closed — see the file header's "TIMESTAMP
+ * ACCURACY" section for why a mislabeled frame is worse than an extraction the runner has to
+ * retry. Colliding timestamps and duplicate re-encoded frames are NOT this error: they are the
+ * expected shape of low-frame-rate footage and are skipped, then bounded by
+ * `InsufficientFramesError` below.
  */
 export class FrameExtractionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'FrameExtractionError';
+  }
+}
+
+/**
+ * The fewest DISTINCT frames a video's burst may collapse to and still be analyzed as motion.
+ *
+ * Three, not two, and the number comes from `knowledge/pace_framework.md` rather than from taste:
+ * Elasticity is scored off "vertical bounce ... frame to frame" (plural transitions) and Cadence
+ * off a "steps-per-second across frames" RANGE, not a point value. Two frames yield exactly one
+ * interval — a single delta, which can be reported as a number but not as a trend or a range.
+ * Three frames yield two consecutive intervals, the minimum that lets the analyzer honestly say
+ * anything about how a quantity is MOVING. Below three, a video is no better evidenced than a
+ * photo for those two pillars, so it must not be presented as one.
+ *
+ * Applied as `min(this, timestamps.length)`: Free's video cap is a single frame
+ * (`PACE_FRAME_CAP.free === 1`), and a caller that only ever asked for one or two frames has not
+ * lost anything to collisions. The floor exists to catch a burst that DEGRADED below usefulness,
+ * never to reject a cap that was small to begin with.
+ */
+const MIN_USABLE_VIDEO_FRAMES = 3;
+
+/**
+ * Thrown by `extractFrames` (video only) when too few DISTINCT frames survived the burst — the
+ * decoder reported the same instant for several requested points, or re-encoded several of them
+ * to byte-identical output, and fewer than `MIN_USABLE_VIDEO_FRAMES` were left.
+ *
+ * A subclass of `FrameExtractionError` on purpose: every existing generic catch site keeps
+ * working, while `app/capture/extracting.tsx` can single this case out. It is deterministic per
+ * clip — the same source re-run through the same pipeline collides identically — so the screen
+ * routes it to copy that offers a different clip rather than a Retry button that cannot succeed.
+ */
+export class InsufficientFramesError extends FrameExtractionError {
+  constructor(
+    public readonly framesExtracted: number,
+    public readonly framesRequested: number,
+  ) {
+    super(
+      `Only ${framesExtracted} distinct frame(s) survived extraction from ${framesRequested} requested — below the ${MIN_USABLE_VIDEO_FRAMES}-frame floor a motion-based analysis needs. This looks like low-frame-rate source footage (e.g. re-encoded/screen-recorded); retrying the same clip will fail identically.`,
+    );
+    this.name = 'InsufficientFramesError';
   }
 }
 
@@ -237,14 +288,30 @@ function base64Bytes(base64: string): number {
  * Downscales one already-extracted frame to ≤`MAX_LONG_EDGE_PX` on its long edge (never
  * upscaled) and re-encodes it as JPEG at `JPEG_QUALITY`, returning raw base64.
  *
+ * ONE function for both inputs. `source` is a local file URI for a picked/captured photo, or an
+ * already-decoded `VideoThumbnail` (a `SharedRef<'image'>`, handed to `ImageManipulator.manipulate`
+ * directly — no intermediate file). `width`/`height` are the source's own reported dimensions;
+ * for video that is the thumbnail's own size, not anything the caller supplied for the clip. The
+ * video path already asks `generateThumbnailsAsync` to bound its output to `MAX_LONG_EDGE_PX`
+ * (see `extractVideoFrames`), so the resize below is usually a defensive no-op there.
+ *
  * Only one of `resize`'s `width`/`height` is ever passed — whichever matches the long edge — so
  * `expo-image-manipulator` computes the other dimension itself and the result stays exactly on
  * the source's aspect ratio, rather than this function rounding both independently and drifting
  * off-ratio.
+ *
+ * Releases the manipulator context and rendered image it creates, on EVERY exit including the
+ * no-base64 throw; the caller releases the `thumbnail` itself once this returns. The photo path
+ * used to leak both of those native references on every extraction — same manipulator API, same
+ * obligation, so it is discharged in one place rather than duplicated.
  */
-async function downscaleToJpegBase64(uri: string, width: number, height: number): Promise<string> {
+async function downscaleToJpegBase64(
+  source: string | VideoThumbnail,
+  width: number,
+  height: number,
+): Promise<string> {
   const longEdge = Math.max(width, height);
-  let context = ImageManipulator.manipulate(uri);
+  let context = ImageManipulator.manipulate(source);
 
   if (longEdge > MAX_LONG_EDGE_PX) {
     const scale = MAX_LONG_EDGE_PX / longEdge;
@@ -254,14 +321,22 @@ async function downscaleToJpegBase64(uri: string, width: number, height: number)
         : context.resize({ height: Math.round(height * scale) });
   }
 
-  const rendered = await context.renderAsync();
-  const saved = await rendered.saveAsync({ compress: JPEG_QUALITY, format: SaveFormat.JPEG, base64: true });
+  try {
+    const rendered = await context.renderAsync();
+    try {
+      const saved = await rendered.saveAsync({ compress: JPEG_QUALITY, format: SaveFormat.JPEG, base64: true });
 
-  if (!saved.base64) {
-    throw new Error('expo-image-manipulator did not return base64 data for a frame');
+      if (!saved.base64) {
+        throw new Error('expo-image-manipulator did not return base64 data for a frame');
+      }
+
+      return saved.base64;
+    } finally {
+      rendered.release();
+    }
+  } finally {
+    context.release();
   }
-
-  return saved.base64;
 }
 
 async function extractPhotoFrame(
@@ -306,46 +381,6 @@ function waitUntilPlayerReady(player: VideoPlayer): Promise<void> {
       }
     });
   });
-}
-
-/**
- * Downscales one already-decoded video thumbnail (a `SharedRef<'image'>`, passed directly to
- * `ImageManipulator.manipulate` — no intermediate file URI needed) to ≤`MAX_LONG_EDGE_PX` and
- * re-encodes it as JPEG at `JPEG_QUALITY`. `generateThumbnailsAsync` was already asked to bound
- * its output to `MAX_LONG_EDGE_PX` (see `extractVideoFrames`), so the resize below is a defensive
- * no-op in the common case, not the primary downscale path.
- *
- * Releases the manipulator context and rendered image it creates; the caller releases the
- * `thumbnail` itself once this returns.
- */
-async function downscaleThumbnailToJpegBase64(thumbnail: VideoThumbnail): Promise<string> {
-  const longEdge = Math.max(thumbnail.width, thumbnail.height);
-  let context = ImageManipulator.manipulate(thumbnail);
-
-  if (longEdge > MAX_LONG_EDGE_PX) {
-    const scale = MAX_LONG_EDGE_PX / longEdge;
-    context =
-      thumbnail.width >= thumbnail.height
-        ? context.resize({ width: Math.round(thumbnail.width * scale) })
-        : context.resize({ height: Math.round(thumbnail.height * scale) });
-  }
-
-  try {
-    const rendered = await context.renderAsync();
-    try {
-      const saved = await rendered.saveAsync({ compress: JPEG_QUALITY, format: SaveFormat.JPEG, base64: true });
-
-      if (!saved.base64) {
-        throw new Error('expo-image-manipulator did not return base64 data for a frame');
-      }
-
-      return saved.base64;
-    } finally {
-      rendered.release();
-    }
-  } finally {
-    context.release();
-  }
 }
 
 async function extractVideoFrames(
@@ -401,22 +436,28 @@ async function extractVideoFrames(
             `expo-video reported an out-of-range frame time (${timestampMs}ms) for a ${input.durationMs}ms clip`,
           );
         }
-        if (timestampMs <= previousTimestampMs) {
-          throw new FrameExtractionError(
-            'expo-video returned frame timestamps that are not strictly increasing — this burst cannot be trusted as a motion sequence',
-          );
+        // A COLLISION IS SKIPPED, NOT FATAL. On low-frame-rate footage Android's
+        // average-frame-duration estimate rounds two genuinely different requests inside the fixed
+        // ~700ms window onto one instant, and a static-ish pair can re-encode to identical bytes.
+        // Neither is a decoder defect — both simply mean this window holds fewer distinct frames
+        // than were asked for. Dropping the offender keeps the surviving frames honestly labeled
+        // and lets a 5-or-6-of-8 burst still produce a real analysis; the floor check after the
+        // loop is what decides whether enough survived. `previousTimestampMs` and `seenBase64`
+        // are only advanced for a frame that was actually accepted.
+        let accepted: PaceFrame | null = null;
+        if (timestampMs > previousTimestampMs) {
+          const base64 = await downscaleToJpegBase64(thumbnail, thumbnail.width, thumbnail.height);
+          if (!seenBase64.has(base64)) {
+            accepted = { base64, timestampMs };
+          }
         }
-        previousTimestampMs = timestampMs;
 
-        const base64 = await downscaleThumbnailToJpegBase64(thumbnail);
-        if (seenBase64.has(base64)) {
-          throw new FrameExtractionError(
-            'expo-video produced two identical frames for a stride burst — the clip may be static or too short to sample',
-          );
+        if (accepted) {
+          previousTimestampMs = accepted.timestampMs;
+          seenBase64.add(accepted.base64);
+          frames.push(accepted);
         }
-        seenBase64.add(base64);
 
-        frames.push({ base64, timestampMs });
         settledCount++;
         thumbnail.release();
         onProgress?.(settledCount, thumbnails.length);
@@ -425,6 +466,10 @@ async function extractVideoFrames(
       for (let j = settledCount; j < thumbnails.length; j++) {
         thumbnails[j].release();
       }
+    }
+
+    if (frames.length < Math.min(MIN_USABLE_VIDEO_FRAMES, timestamps.length)) {
+      throw new InsufficientFramesError(frames.length, timestamps.length);
     }
 
     return frames;

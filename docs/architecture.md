@@ -1452,7 +1452,8 @@ function was told to upload media it never receives).
   audit's structural-ceiling finding: no two of those frames ever belonged to the same stride, so
   Cadence and Elasticity were single-frame guesses). `lib/frames.ts`'s `sampleTimestamps` and
   `extractVideoFrames` (see that file's header for the full detail, including the iOS-vs-Android
-  `actualTime` accuracy split and the new fail-closed rejection of an untrustworthy burst) are the
+  `actualTime` accuracy split, the fail-closed rejection of a decoder defect, and the skip-then-
+  `MIN_USABLE_VIDEO_FRAMES`-floor handling of low-frame-rate timestamp/byte collisions) are the
   authority; `supabase/functions/_shared/analyze-form-prompt.ts` separately classifies each
   request's frames server-side (`MAX_STRIDE_BURST_SPAN_MS`) rather than trusting the client, since
   the edge function deploys before every native app install has picked up the new sampling.

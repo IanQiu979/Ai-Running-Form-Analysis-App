@@ -1619,6 +1619,33 @@ Deno.test('request envelope: exhausted preflight never issues a zero-budget prov
   assertEquals(records[0].args.p_status, 'cancelled', 'the unused gate reservation was not billable');
 });
 
+Deno.test('request envelope: a request that dispatched nothing logs zero attempts, not a phantom one', async () => {
+  const clock = new VirtualClock();
+  const model = new VirtualClockModel(clock, [{ durationMs: 0, result: ok() }]);
+  const logs: Record<string, unknown>[] = [];
+  const h = harness([], { now: clock.now });
+  h.deps.model = model;
+  h.deps.log = (event) => logs.push(event as unknown as Record<string, unknown>);
+  h.rpc.handlers.reserve_analysis = () => {
+    clock.advance(106_000);
+    return {
+      data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'pro' },
+      error: null,
+    };
+  };
+
+  await run(h);
+
+  assertEquals(model.timeoutBudgets, [], 'the provider was never invoked');
+  assertEquals(logs.length, 1);
+  // The summary line describes provider calls that HAPPENED. `callModel` still returns a synthetic
+  // failed attempt so the failure path has something to decide on, but counting it here would make
+  // every "attempts" dashboard over-report an expired request as one real call.
+  assertEquals(logs[0].attempts, 0);
+  assertEquals(logs[0].retried, false);
+  assertEquals(logs[0].stopReasons, []);
+});
+
 Deno.test('model window: a quick transport error retries only with a full attempt remaining', async () => {
   const clock = new VirtualClock();
   const model = new VirtualClockModel(clock, [

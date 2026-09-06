@@ -168,7 +168,7 @@ Deno.test('a FRESH reserved row (well under the threshold) is NOT swept', () => 
 
 Deno.test('a reserved row right at the 105s self-imposed deadline is NOT swept — the margin is real, not theoretical', () => {
   const db = new ModelAnalysesTable();
-  // ANALYZE_FORM_DEADLINE_MS (analyze-form/flow.ts) — a request finishing at its own self-imposed
+  // ANALYZE_FORM_REQUEST_DEADLINE_MS (analyze-form/flow.ts) — a request finishing at its own self-imposed
   // ceiling must never be mistaken for stale.
   db.seed('at-deadline', 'reserved', NOW - 105_000);
 

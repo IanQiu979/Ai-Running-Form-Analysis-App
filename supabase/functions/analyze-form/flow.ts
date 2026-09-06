@@ -675,6 +675,12 @@ export async function runAnalyzeForm(
 
   // --- Observability accumulators.
   const attempts: AttemptOutcome[] = [];
+  // The subset of `attempts` for which a provider request actually went out. `attempts` itself
+  // must keep every entry — including the synthetic one `callModel` returns when the envelope is
+  // already spent — because the failure/settle logic below indexes into it by attempt number.
+  // But the summary line describes what HAPPENED, and a request that dispatched nothing made zero
+  // calls: reporting `attempts: 1` there over-counts every dashboard built on this field.
+  const dispatchedAttempts: AttemptOutcome[] = [];
   let tier: PaceTier | null = null;
   let mediaType: PaceMediaKind | null = null;
   let frameCount: number | null = null;
@@ -823,6 +829,9 @@ export async function runAnalyzeForm(
       userIdHash
     );
     attempts.push(first.attempt);
+    if (first.dispatched) {
+      dispatchedAttempts.push(first.attempt);
+    }
     if (first.timedOut) {
       releaseReason = 'provider_timeout';
     }
@@ -900,6 +909,9 @@ export async function runAnalyzeForm(
               userIdHash
             );
             attempts.push(second.attempt);
+            if (second.dispatched) {
+              dispatchedAttempts.push(second.attempt);
+            }
             // The retry genuinely happened — the model was asked a second time.
             retryRan = true;
             if (second.timedOut) {
@@ -1131,12 +1143,12 @@ export async function runAnalyzeForm(
         tier,
         mediaType,
         frameCount,
-        attempts: attempts.length,
-        retried: attempts.length > 1,
+        attempts: dispatchedAttempts.length,
+        retried: dispatchedAttempts.length > 1,
         outcome,
         isFallback,
         releaseReason: reservation && !reservationSettled ? releaseReason : null,
-        stopReasons: attempts.map((attempt) => attempt.stopReason),
+        stopReasons: dispatchedAttempts.map((attempt) => attempt.stopReason),
         inputTokens: sumUsage(attempts, 'input_tokens'),
         outputTokens: sumUsage(attempts, 'output_tokens'),
         cacheReadInputTokens: sumUsage(attempts, 'cache_read_input_tokens'),
@@ -1183,7 +1195,7 @@ async function callModel(
   now: () => number,
   requestId: string,
   userIdHash: string
-): Promise<{ attempt: AttemptOutcome; timedOut: boolean }> {
+): Promise<{ attempt: AttemptOutcome; timedOut: boolean; dispatched: boolean }> {
   const budget = Math.min(MODEL_CALL_TIMEOUT_MS, Math.max(0, deadline - now()));
 
   if (budget <= 0) {
@@ -1198,7 +1210,10 @@ async function callModel(
       attemptIndex,
       budgetMs: budget,
     });
-    return { attempt: callFailedAttempt(), timedOut: true };
+    // `dispatched: false` — nothing was sent. The synthetic attempt below still drives the
+    // caller's failure handling (there is no result to decide on), but the observability line
+    // must not count it as a provider call that happened.
+    return { attempt: callFailedAttempt(), timedOut: true, dispatched: false };
   }
 
   // Bind this ledger row to this attempt BEFORE the request goes out. From here on the call is
@@ -1227,10 +1242,10 @@ async function callModel(
       attemptIndex,
       budgetMs: budget,
     });
-    return { attempt: callFailedAttempt(), timedOut: result.kind === 'timeout' };
+    return { attempt: callFailedAttempt(), timedOut: result.kind === 'timeout', dispatched: true };
   }
 
-  return { attempt: readAttempt(result.response), timedOut: false };
+  return { attempt: readAttempt(result.response), timedOut: false, dispatched: true };
 }
 
 /**

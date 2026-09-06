@@ -49,12 +49,24 @@ function. Full account: `docs/status.md` Known Issue #42.
   the core-purpose audit's structural-ceiling finding: no two frames of a "video" analysis ever
   belonged to the same stride, so Cadence and Elasticity were single-frame guesses). The updated
   client now carries the decoder's `actualTime` (frame-accurate on iOS, an average-frame-duration
-  ESTIMATE on Android) instead of only the requested time, and extraction fails closed
-  (`FrameExtractionError`) on a wrong thumbnail count, an out-of-range or non-finite reported time,
-  non-increasing timestamps, or two byte-identical re-encoded frames, rather than silently handing
-  the model mislabeled or duplicate evidence. Native cleanup now also releases the manipulator
-  context when `renderAsync` rejects, and a throwing progress callback cannot double-release the
-  current thumbnail.
+  ESTIMATE on Android) instead of only the requested time. Extraction fails closed
+  (`FrameExtractionError`) on a decoder DEFECT — a wrong thumbnail count, or an out-of-range or
+  non-finite reported time — rather than silently handing the model mislabeled evidence. A
+  COLLISION is treated differently: non-increasing timestamps and byte-identical re-encoded frames
+  are the expected shape of low-frame-rate footage, so the offending frame is skipped and the rest
+  of the burst still produces an analysis (the ~700ms span is never widened to chase the missing
+  frames). Only a burst that collapses below `MIN_USABLE_VIDEO_FRAMES = 3` distinct frames rejects,
+  as `InsufficientFramesError`; three is the floor because `knowledge/pace_framework.md` scores
+  Elasticity off bounce "frame to frame" and Cadence off a steps-per-second RANGE, and two frames
+  give only one interval — a single delta, not a trend or a range. That error is deterministic per
+  clip, so `app/capture/extracting.tsx` routes it to new non-retryable
+  `Copy.upload.error.unsupportedFootage` copy instead of the generic `extractionFailed` state,
+  whose Retry button could never succeed for such a clip. Native cleanup now also releases the
+  manipulator context when `renderAsync` rejects, a throwing progress callback cannot
+  double-release the current thumbnail, and the photo and video paths share ONE downscale function,
+  so the photo path no longer leaks its manipulator context and rendered image on every extraction.
+  The `analyze-form` summary log now reports only DISPATCHED provider attempts, so a request whose
+  envelope expired during preflight logs `attempts: 0` rather than a phantom `1`.
 - **Prompt.** `analyze-form-prompt.ts` now classifies each request's OWN frames server-side
   (`isStrideBurst`, `MAX_STRIDE_BURST_SPAN_MS` = 900ms) instead of trusting the client's tier or
   frame count — the edge function deploys instantly, a native app update does not, so a
@@ -64,10 +76,12 @@ function. Full account: `docs/status.md` Known Issue #42.
   Cadence/Elasticity to the same honest `notAssessedReason: "needsVideo"` treatment a photo gets.
   Manifest wording is provenance-neutral: the server receives one client-reported number and
   cannot know whether an old client sent a requested time or the updated decoder estimate.
-- **Coverage.** `flow.deno.test.ts` (95 tests, new virtual-clock timeout/retry cases reproducing
+- **Coverage.** `flow.deno.test.ts` (96 tests, new virtual-clock timeout/retry cases reproducing
   the pre-fix failure before asserting the fix), `analyze-form-prompt.deno.test.ts` (44 tests, seven
-  new burst/legacy-classification cases), `lib/__tests__/frames.test.ts` (38 tests, rewritten
-  around `expo-video` mocks) — 177 tests across these three focused suites. All new fail-closed/
+  new burst/legacy-classification cases), `lib/__tests__/frames.test.ts` (42 tests, rewritten
+  around `expo-video` mocks, including the low-frame-rate skip/floor cases), and
+  `app/capture/__tests__/extracting.test.tsx` (15 tests, including the error-kind routing that only
+  a screen render can prove) — 197 tests across these four focused suites. All new fail-closed/
   classification assertions were mutation-tested against production code to confirm they are not
   vacuous.
 

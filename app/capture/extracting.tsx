@@ -2,8 +2,9 @@
  * Extracting (design brief screen 5, "Uploading / Extracting" in the copy deck; issue #36) —
  * runs `lib/frames.ts`'s `extractFrames` against whatever `app/capture/index.tsx` (library pick)
  * or `app/capture/record.tsx` (in-app recording) handed off via route params, with a real,
- * honest progress readout (not theatre — `onProgress` reports the actual Nth of N sequential
- * `expo-video-thumbnails` calls).
+ * honest progress readout (not theatre). A video's frames are DECODED in one batch
+ * `expo-video` `generateThumbnailsAsync` call, so `onProgress` reports the actual Nth of N
+ * thumbnails re-encoded after that batch returns — a real count of completed work, not a timer.
  *
  * HOW MANY FRAMES A VIDEO GETS: the caller's own `frameCap`, read off the server. This screen
  * awaits `lib/extraction-frame-cap.ts`'s `fetchVideoFrameCap()` (one bounded `quota-status` call)
@@ -65,7 +66,13 @@ import {
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { setPendingAnalyzeFormRequest, toAnalyzeFormRequest } from '@/lib/analyze-form';
 import { FALLBACK_VIDEO_FRAME_CAP, fetchVideoFrameCap } from '@/lib/extraction-frame-cap';
-import { extractFrames, FrameBudgetExceededError, type PaceFrameSet, type PaceMediaInput } from '@/lib/frames';
+import {
+  extractFrames,
+  FrameBudgetExceededError,
+  InsufficientFramesError,
+  type PaceFrameSet,
+  type PaceMediaInput,
+} from '@/lib/frames';
 import { checkMediaCaps, type MediaCapViolation } from '@/lib/media-caps';
 import { readFileSizeBytes } from '@/lib/media-file-size';
 import { parseCaptureParams } from '@/lib/parse-capture-params';
@@ -98,6 +105,10 @@ type ExtractState =
   // build the AnalyzeFormRequest; frameCount for display is just `frameSet.frames.length`.
   | { status: 'ready'; frameSet: PaceFrameSet }
   | { status: 'error'; kind: 'budgetExceeded' }
+  // `lib/frames.ts`'s InsufficientFramesError — too few distinct frames survived the burst. Like
+  // budgetExceeded and unlike extractionFailed it is deterministic per clip, so it renders no
+  // Retry control: the same footage would collide the same way every time.
+  | { status: 'error'; kind: 'unsupportedFootage' }
   | { status: 'error'; kind: 'extractionFailed' }
   | { status: 'error'; kind: 'capViolation'; violation: MediaCapViolation };
 
@@ -194,6 +205,11 @@ export default function ExtractingScreen() {
           if (cancelled) return;
           if (error instanceof FrameBudgetExceededError) {
             setState({ status: 'error', kind: 'budgetExceeded' });
+          } else if (error instanceof InsufficientFramesError) {
+            // Checked BEFORE the generic branch: InsufficientFramesError IS a
+            // FrameExtractionError, and the generic branch's copy invites a retry that cannot
+            // succeed for this clip.
+            setState({ status: 'error', kind: 'unsupportedFootage' });
           } else {
             setState({ status: 'error', kind: 'extractionFailed' });
           }
@@ -372,6 +388,7 @@ export default function ExtractingScreen() {
 
 function errorCopy(state: Extract<ExtractState, { status: 'error' }>): { title: string; body: string } {
   if (state.kind === 'budgetExceeded') return Copy.upload.error.budgetExceeded;
+  if (state.kind === 'unsupportedFootage') return Copy.upload.error.unsupportedFootage;
   if (state.kind === 'extractionFailed') return Copy.upload.error.extractionFailed;
   return state.violation === 'clipTooLong' ? Copy.sourcePicker.error.clipTooLong : Copy.sourcePicker.error.fileTooLarge;
 }
