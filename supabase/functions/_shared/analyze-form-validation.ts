@@ -168,7 +168,13 @@ export type ReleaseReason =
   | 'provider_timeout'
   | 'internal_error'
   | 'validation_failed'
-  | 'zero_pillars_assessed';
+  | 'zero_pillars_assessed'
+  /** OUR OWN requirement, not the user's fault: the response failed the certified per-pillar
+   * `safety` contract this project added. Kept distinct from `'model_error'` so the ledger can
+   * tell "the provider broke" from "our new field was not honoured", and deliberately outside
+   * `pace_is_farming_signal`'s vocabulary — see
+   * `20260906120000_invalid_safety_release_reason.sql`. */
+  | 'invalid_safety';
 
 // -------------------------------------------------------------------------------------------
 // Score bands — the ONE piece of arithmetic this module does, and why it is not fabrication
@@ -348,7 +354,10 @@ export function readAttempt(response: AnthropicMessageResponse): AttemptOutcome 
     return { result: null, failure: 'invalid_safety', salvage: null, usage, stopReason };
   }
 
-  if (isPaceResult(payload) && everyPillarSafetyIsDeliverable(payload)) {
+  // No second safety check is needed here: `isPaceResult` guarantees all four pillars are present
+  // objects carrying `flags`/`drills`, and `payloadHasUnusablePillarSafety` above has already
+  // rejected every such pillar whose declaration was not usable.
+  if (isPaceResult(payload)) {
     return { result: payload, failure: null, salvage: null, usage, stopReason };
   }
 
@@ -458,17 +467,51 @@ function isDeliverableSafety(raw: unknown): raw is PaceSafety {
   return raw.signal === 'none' || hasSafetySignal(raw);
 }
 
-/** Every pillar of a fully-valid payload must carry a usable declaration — otherwise `readAttempt`
- * cannot call the response deliverable, however well-formed the rest of it is. */
-function everyPillarSafetyIsDeliverable(payload: PaceResult): boolean {
-  return PACE_PILLARS.every((id) => isDeliverableSafety(payload.pillars[id].safety));
+/** Keys that make a raw pillar a DECLARATION rather than an empty slot. A pillar carrying any of
+ * them asserted something about the runner, so its missing `safety` is a broken declaration; a
+ * pillar carrying none of them (absent entirely, or `{}`) asserted nothing at all, and there is no
+ * warning that could have been dropped from it. */
+const PILLAR_CONTENT_KEYS = [
+  'score',
+  'band',
+  'feedback',
+  'notAssessedReason',
+  'flags',
+  'drills',
+] as const;
+
+function pillarDeclaresContent(pillar: Record<string, unknown>): boolean {
+  return PILLAR_CONTENT_KEYS.some((key) => pillar[key] !== undefined && pillar[key] !== null);
 }
 
 /**
- * Does an otherwise payload-shaped response omit or corrupt any pillar's required safety
+ * Is THIS raw pillar's safety declaration present-but-unusable?
+ *
+ * Scoped deliberately narrowly (review r5-2/r5-3). A pillar that is entirely absent, or is not an
+ * object at all, is ordinary schema drift with nothing to validate — it must stay `invalid_shape`
+ * (and, after the retry, the `validation_failed` the anti-farming counter reads), exactly as it did
+ * before safety became a required field, and it must not abort the honest-partial salvage. Only a
+ * pillar that IS present and DOES assert something, yet whose `safety` is absent, malformed,
+ * ungrounded, or a declared signal with a blank note, is a safety failure.
+ */
+function pillarSafetyIsUnusable(rawPillar: unknown): boolean {
+  if (typeof rawPillar !== 'object' || rawPillar === null || Array.isArray(rawPillar)) {
+    return false;
+  }
+  const pillar = rawPillar as Record<string, unknown>;
+  const raw = pillar.safety;
+  if (raw === undefined || raw === null) {
+    return pillarDeclaresContent(pillar);
+  }
+  return !isDeliverableSafety(raw);
+}
+
+/**
+ * Does an otherwise payload-shaped response omit or corrupt any PRESENT pillar's required safety
  * declaration? We classify this before ordinary structural validation so the provider/model owns
  * the omission even when the same pillar's assessment fields are unreadable too. A completely
- * non-payload response remains `invalid_shape`; there is no pillar contract present to inspect.
+ * non-payload response, and a payload whose pillars are merely missing, remain `invalid_shape` —
+ * there is no safety contract present to inspect.
  */
 function payloadHasUnusablePillarSafety(payload: unknown): boolean {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
@@ -480,28 +523,22 @@ function payloadHasUnusablePillarSafety(payload: unknown): boolean {
   }
 
   const pillars = rawPillars as Record<string, unknown>;
-  return PACE_PILLARS.some((id) => {
-    const pillar = pillars[id];
-    if (typeof pillar !== 'object' || pillar === null || Array.isArray(pillar)) {
-      return true;
-    }
-    return !isDeliverableSafety((pillar as { safety?: unknown }).safety);
-  });
+  return PACE_PILLARS.some((id) => pillarSafetyIsUnusable(pillars[id]));
 }
 
 function safetyBlocksSalvage(rawPillar: unknown, kept: boolean): boolean {
-  if (typeof rawPillar !== 'object' || rawPillar === null || Array.isArray(rawPillar)) {
-    // ABSENT SAFETY IS ALWAYS INVALID, even when the rest of the pillar is unreadable. We cannot
-    // infer "no warning" from the absence of both a declaration and prose, so salvage fails closed.
+  if (pillarSafetyIsUnusable(rawPillar)) {
     return true;
   }
-  const raw = (rawPillar as { safety?: unknown }).safety;
-  if (!isDeliverableSafety(raw)) {
-    return true;
+  if (typeof rawPillar !== 'object' || rawPillar === null || Array.isArray(rawPillar)) {
+    // Nothing was declared here — no prose, no safety, no pillar. There is no warning to lose, so
+    // this becomes `DROPPED_PILLAR` and the other pillars are still salvageable (#45).
+    return false;
   }
   // A usable declaration that says something — on a pillar this salvage is about to replace with
   // the all-null dropped constant. Dropping it would take the warning with it.
-  return !kept && hasSafetySignal(raw);
+  const raw = (rawPillar as { safety?: unknown }).safety;
+  return !kept && isDeliverableSafety(raw) && hasSafetySignal(raw);
 }
 
 function salvagePillars(input: unknown): Salvage | null {
@@ -660,6 +697,9 @@ function bestSalvage(attempts: readonly AttemptOutcome[]): { salvage: Salvage; i
  * Whose fault was this failure? Read the header's `release_reason` section before changing a line
  * of this: the answer decides whether the user's 3-strike anti-farming counter ticks.
  *
+ * `'invalid_safety'` short-circuits ahead of everything else: if ANY attempt failed our own
+ * certified per-pillar safety contract, that is our requirement not being met, never user abuse.
+ *
  * `'validation_failed'` — the ONLY farming signal — requires ALL THREE of:
  *   1. at least one response was actually received (`attempts.length > 0`);
  *   2. EVERY response received was a content failure (a prose reply, or a tool/JSON payload we
@@ -681,6 +721,13 @@ export function classifyReleaseReason(
   attempts: readonly AttemptOutcome[],
   retryRan: boolean
 ): ReleaseReason {
+  // Our own safety contract failing is our fault, and it is a DIFFERENT fault from the provider
+  // erroring — it gets its own reason so neither the anti-farming counter nor the ledger conflates
+  // the two.
+  if (attempts.some((attempt) => attempt.failure === 'invalid_safety')) {
+    return 'invalid_safety';
+  }
+
   const responded = attempts.filter(
     (attempt) => attempt.failure === 'no_tool_use' || attempt.failure === 'invalid_shape'
   );

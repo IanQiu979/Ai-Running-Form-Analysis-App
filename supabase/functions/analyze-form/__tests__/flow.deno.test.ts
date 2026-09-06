@@ -2365,6 +2365,8 @@ const SAFETY_CASES = [
   },
 ] as const;
 
+const SAFETY_FIXTURE_COACHING = 'Contact time looks springy and the cadence sits in the mid-170s spm.';
+
 function pillarWithSafety(
   signal: string,
   note: string,
@@ -2373,7 +2375,7 @@ function pillarWithSafety(
   return {
     score: 71,
     band: 'good',
-    feedback: 'Contact time looks springy and the cadence sits in the mid-170s spm.',
+    feedback: SAFETY_FIXTURE_COACHING,
     safety: { signal, note },
     flags: [],
     drills: [],
@@ -2443,7 +2445,7 @@ for (const testCase of SAFETY_CASES) {
   });
 }
 
-Deno.test('every certified safety note is the visible feedback on every tier, frame path, and pillar', async () => {
+Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier and frame path', async () => {
   const paths = [
     { tier: 'free', body: ONE_FRAME_VIDEO_BODY },
     { tier: 'pro', body: ONE_FRAME_VIDEO_BODY },
@@ -2457,6 +2459,10 @@ Deno.test('every certified safety note is the visible feedback on every tier, fr
     cadence: 'Cadence safety note from the certified declaration.',
     elasticity: 'Elasticity safety note from the certified declaration.',
   } as const;
+  // The two motion pillars are forced not-assessed on a one-frame submission, which discards their
+  // prose outright; the warning then stands alone. Everywhere else the prose is supportable and
+  // must survive UNDER the warning.
+  const MOTION = ['cadence', 'elasticity'] as const;
 
   for (const { tier, body } of paths) {
     const h = harness([
@@ -2481,12 +2487,33 @@ Deno.test('every certified safety note is the visible feedback on every tier, fr
     const result = res.body.result as {
       pillars: Record<string, { feedback: string | null; safety?: { note: string } | null }>;
     };
+    const oneFrame = body.frames.length === 1;
     for (const id of ['posture', 'armSwing', 'cadence', 'elasticity'] as const) {
+      const label = `${tier}/${body.frames.length} frame(s)/${id}`;
+      const feedback = result.pillars[id].feedback ?? '';
+      const strippedByNormalization = oneFrame && (MOTION as readonly string[]).includes(id);
+
       assertEquals(
-        result.pillars[id].feedback,
-        notes[id],
-        `${tier}/${body.frames.length} frame(s)/${id}: only the certified safety note is surfaced`
+        feedback.startsWith(notes[id]),
+        true,
+        `${label}: the certified warning must come FIRST, not after the coaching`
       );
+      assertEquals(
+        feedback.includes(SAFETY_FIXTURE_COACHING),
+        !strippedByNormalization,
+        strippedByNormalization
+          ? `${label}: prose one frame cannot support must stay discarded`
+          : `${label}: supportable coaching must survive under the warning`
+      );
+      if (!strippedByNormalization) {
+        assertEquals(
+          feedback,
+          `${notes[id]}\n\n${SAFETY_FIXTURE_COACHING}`,
+          `${label}: warning, blank line, then the coaching`
+        );
+      } else {
+        assertEquals(feedback, notes[id], `${label}: the warning stands alone`);
+      }
       assertEquals(result.pillars[id].safety?.note, notes[id]);
     }
     assertEquals(
@@ -2547,7 +2574,11 @@ Deno.test('an UNGROUNDED safety signal fails closed: no salvage, no delivery, no
   assertEquals(res.status, 503);
   assertEquals(res.body.code, 'model_error');
   assertEquals(h.rpc.to('settle_analysis').length, 0, 'nothing may be delivered around a dropped warning');
-  assertEquals(releaseReasonFrom(h.rpc), 'model_error', 'an unusable model safety field is our fault');
+  assertEquals(
+    releaseReasonFrom(h.rpc),
+    'invalid_safety',
+    'an unusable safety field is OUR contract failing — its own reason, never a farming strike'
+  );
   assertEquals(h.model.sent.length, 2, 'the model got its full second chance first');
 });
 
@@ -2670,7 +2701,11 @@ for (const { label, broken } of UNUSABLE_SAFETY) {
     assertEquals(res.body.code, 'model_error');
     assertEquals(h.model.sent.length, 2, 'the model gets its full second chance');
     assertEquals(h.rpc.to('settle_analysis').length, 0, 'nothing is delivered and nothing is persisted');
-    assertEquals(releaseReasonFrom(h.rpc), 'model_error', 'the quota slot is handed back without a farming strike');
+    assertEquals(
+      releaseReasonFrom(h.rpc),
+      'invalid_safety',
+      'the quota slot is handed back under our own reason, without a farming strike'
+    );
     assertEquals(
       h.rpc.to('record_ai_call').map((call) => call.args.p_status),
       ['model_error', 'model_error'],

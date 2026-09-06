@@ -1492,9 +1492,14 @@ still standing between here and a public/TestFlight release:
   this branch merges, `main` ships that hero on espresso/clay. See the M7 row above and
   `docs/change_log.md`'s 2026-09-04 entry.
 - **Known Issue #43** — the Free-tier real-analysis rewrite of `analyze-form` is code-complete
-  and tested but **not deployed**. `analyze-form` needs `supabase functions deploy analyze-form`
+  with focused regression coverage but **not deployed**. It now also carries an unapplied
+  migration, `20260906120000_invalid_safety_release_reason.sql`, which adds `'invalid_safety'` to
+  `analyses_release_reason_known_values` — it must be applied BEFORE the function is deployed, or
+  every safety-contract release will be rejected by the CHECK constraint and strand the
+  reservation. `analyze-form` then needs `supabase functions deploy analyze-form`
   before or with the client release (the new client rejects the retired sample shape), and the
-  local Postgres integration proof for it could not be run this session (Docker was stopped).
+  local Postgres integration proof for it could not be run this session (Docker was stopped) —
+  report that proof as **unproven**, never as passing.
 - **Known Issue #31** — `.maestro/` E2E flows ran for the first time 2026-07-25 but are not yet a
   clean, repeatable pass.
 - **Known Issue #24/#34** — several blocks of uncertified copy across Settings, consent, paywall,

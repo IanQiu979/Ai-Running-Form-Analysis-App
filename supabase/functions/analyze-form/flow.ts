@@ -1010,7 +1010,11 @@ export async function runAnalyzeForm(
       }
       return (response = fail(
         503,
-        releaseReason,
+        // `'invalid_safety'` is a LEDGER distinction, not a wire one: it tells us apart "the
+        // provider erred" from "our own certified-safety requirement was not honoured". The caller
+        // can do exactly the same thing about either, so the client keeps seeing the stable
+        // `'model_error'` code rather than learning our internal vocabulary.
+        releaseReason === 'invalid_safety' ? 'model_error' : releaseReason,
         'The analysis service is having trouble right now. This one has not been counted against your quota — please try again shortly.'
       ));
     }
@@ -1221,12 +1225,14 @@ const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
  *     feedback prose, flags, drills. That prose is exactly the failure mode the retired sample
  *     shipped (a hallucinated "mid-170s spm" and a left/right ground-contact comparison neither
  *     pillar's certified knowledge file supports), so none of it survives, however it is phrased.
- *   - A certified non-`none` `safety` declaration is surfaced as that pillar's feedback on EVERY
- *     path — all pillars, all tiers, one or many frames. No reading of prose, keyword matching, or
- *     judgement call: the certified `note` replaces assessment prose so the warning leads what the
- *     runner reads without retaining an unsupported claim beside it (SAFETY_RULES: undroppable at
- *     every tier including Free). This function may
- *     assume the declaration is THERE: `analyze-form-validation.ts` refuses to call a response
+ *   - A certified non-`none` `safety` declaration LEADS that pillar's feedback on EVERY path — all
+ *     pillars, all tiers, one or many frames. No reading of prose, keyword matching, or judgement
+ *     call: the certified `note` is placed first, unmissable, and whatever coaching prose SURVIVED
+ *     the normalization above is kept underneath it (captain's ruling: a warning never deletes
+ *     supportable coaching, and never trails behind it). Prose the normalization already discarded
+ *     as unsupportable — a motion pillar on one frame — stays discarded, so the note stands alone
+ *     there. This function may assume the declaration is THERE:
+ *     `analyze-form-validation.ts` refuses to call a response
  *     deliverable unless every pillar carries a usable one, so an absent, malformed, ungrounded,
  *     or blank-note `safety` never reaches this code — it fails closed into a retry and then a
  *     release. `hasSafetySignal(null)` below is therefore only ever reached for a pillar WE
@@ -1271,7 +1277,7 @@ function normalizeForEvidenceAndTier(
         pillars[id] = {
           score: null,
           band: null,
-          feedback: hasSafetySignal(safety) ? safety.note : null,
+          feedback: null,
           notAssessedReason: mediaType === 'video' ? 'singleFrameFromVideo' : 'needsVideo',
           safety,
           flags: [],
@@ -1292,14 +1298,15 @@ function normalizeForEvidenceAndTier(
     }
   }
 
-  // The UI renders `feedback`, not the machine-readable `safety` sibling. Make the certified note
-  // the visible output unconditionally, including assessed Posture/Arm swing and multi-frame paid
-  // paths. Exact structural copying avoids both keyword inference and retention of an assessment
-  // claim that may not be supportable on the path being normalized.
+  // The UI renders `feedback`, not the machine-readable `safety` sibling, so the certified note is
+  // composed into it here — in exactly ONE place, for every pillar, tier and frame count. The note
+  // is copied structurally (no keyword inference) and placed FIRST; any coaching prose still
+  // standing after the normalization above follows it, separated by a blank line.
   for (const id of PACE_PILLARS) {
-    const safety = pillars[id].safety ?? null;
+    const pillar = pillars[id];
+    const safety = pillar.safety ?? null;
     if (hasSafetySignal(safety)) {
-      pillars[id] = { ...pillars[id], feedback: safety.note };
+      pillars[id] = { ...pillar, feedback: composeSafetyLedFeedback(safety.note, pillar.feedback) };
     }
   }
 
@@ -1308,6 +1315,19 @@ function normalizeForEvidenceAndTier(
     pillars: normalizedPillars,
     overall: normalizesPillars ? deriveOverall(normalizedPillars) : result.overall,
   };
+}
+
+/**
+ * Warning first, coaching below. The certified `note` is never merged into, reworded around, or
+ * appended after the model's prose — a runner who reads only the first line still reads the
+ * warning — and supportable coaching is never deleted just because a warning fired.
+ */
+function composeSafetyLedFeedback(note: string, feedback: string | null): string {
+  const coaching = feedback?.trim() ?? '';
+  if (coaching.length === 0 || coaching === note.trim()) {
+    return note;
+  }
+  return `${note}\n\n${coaching}`;
 }
 
 async function callModel(
@@ -1594,7 +1614,7 @@ async function safeRelease(
     const { error } = await rpc.rpc('release_analysis', {
       p_user_id: userId,
       p_analysis_id: analysisId,
-      // One of the four strings `analyses_release_reason_known_values` permits. Anything else is
+      // One of the strings `analyses_release_reason_known_values` permits. Anything else is
       // rejected by the CHECK constraint — and only `'validation_failed'` ticks the anti-farming
       // counter, so getting this wrong either brickes an innocent user or hands a farmer free
       // calls.

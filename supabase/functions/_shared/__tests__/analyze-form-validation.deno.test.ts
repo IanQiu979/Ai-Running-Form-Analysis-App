@@ -664,19 +664,87 @@ Deno.test('release_reason: two content failures AFTER A REAL RETRY = validation_
   assertEquals(classifyReleaseReason([prose, prose], true), 'validation_failed');
 });
 
-Deno.test('release_reason: provider/model omission of safety is model_error even after a full retry', () => {
+Deno.test('release_reason: a failure of OUR safety contract gets its own non-farming reason', () => {
+  // Review r4-4. Our own added requirement not being honoured is neither the user farming
+  // (`validation_failed`, the sole reason `pace_is_farming_signal` counts) nor the Anthropic call
+  // erroring (`model_error`) — the call returned a perfectly good response. It gets its own reason.
   const withoutSafety = fullToolInput();
   delete ((withoutSafety.pillars as Record<string, Record<string, unknown>>).posture).safety;
   const omission = readAttempt(toolResponse(withoutSafety));
   const noPayload = readAttempt({ content: [{ type: 'thinking' }], stop_reason: 'end_turn' });
+  const junk = readAttempt(toolResponse({ nonsense: true }));
 
   assertEquals(omission.failure, 'invalid_safety');
-  assertEquals(classifyReleaseReason([omission, omission], true), 'model_error');
+  assertEquals(classifyReleaseReason([omission, omission], true), 'invalid_safety');
   assertEquals(
     classifyReleaseReason([noPayload, omission], true),
-    'model_error',
-    'one provider/model omission makes the whole failure ours, not a farming strike'
+    'invalid_safety',
+    'one safety-contract omission makes the whole failure ours, not a farming strike'
   );
+  assertEquals(
+    classifyReleaseReason([junk, omission], true),
+    'invalid_safety',
+    'a safety-contract omission outranks a content failure — it must never become a strike'
+  );
+});
+
+Deno.test('a MISSING pillar is ordinary schema drift, not a safety failure', () => {
+  // Review r5-2. Before this scoping, any absent pillar was re-labelled `invalid_safety`, which
+  // pulled ordinary schema drift out of the anti-farming signal entirely. A pillar that is not
+  // there declared nothing about the runner — there is no warning it could have dropped.
+  for (const missing of [undefined, null, 'cadence went walkabout', 42]) {
+    const input = fullToolInput();
+    const pillars = input.pillars as Record<string, unknown>;
+    if (missing === undefined) {
+      delete pillars.cadence;
+    } else {
+      pillars.cadence = missing;
+    }
+
+    const attempt = readAttempt(toolResponse(input));
+
+    assertEquals(attempt.failure, 'invalid_shape', String(missing));
+    assertEquals(
+      classifyReleaseReason([attempt, attempt], true),
+      'validation_failed',
+      `${String(missing)}: schema drift after a real retry stays the farming signal it always was`
+    );
+  }
+});
+
+Deno.test('a MISSING pillar does not abort the honest-partial salvage of the readable ones', () => {
+  // Review r5-3. The #45 fallback has to survive real model output, where the pillar that failed
+  // is simply absent rather than carrying a well-formed `{signal: 'none', note: ''}` block.
+  const input = fullToolInput();
+  const pillars = input.pillars as Record<string, unknown>;
+  delete pillars.cadence;
+  pillars.elasticity = {};
+
+  const attempt = readAttempt(toolResponse(input));
+
+  assertEquals(attempt.failure, 'invalid_shape');
+  const salvage = attempt.salvage;
+  if (!salvage) {
+    throw new Error('an absent pillar must not abort the salvage of the readable ones');
+  }
+  assertEquals(salvage.parsedPillars.sort(), ['armSwing', 'posture']);
+  assertEquals(salvage.result.pillars.cadence.score, null);
+  assertEquals(salvage.result.pillars.elasticity.score, null);
+  assertEquals(salvage.result.pillars.posture.score, 80);
+});
+
+Deno.test('a PRESENT pillar that declared something but no usable safety still fails closed', () => {
+  // The other half of r5-2/r5-3: narrowing must not reopen the hole the captain closed. A pillar
+  // that asserted a score/prose about the runner, with no usable declaration, is still invalid.
+  const input = fullToolInput();
+  const pillars = input.pillars as Record<string, Record<string, unknown>>;
+  delete pillars.cadence.safety;
+  pillars.cadence.score = 'not a number';
+
+  const attempt = readAttempt(toolResponse(input));
+
+  assertEquals(attempt.failure, 'invalid_safety');
+  assertEquals(attempt.salvage, null);
 });
 
 Deno.test('release_reason: a LONE content failure with the retry SUPPRESSED is model_error, not a strike', () => {
