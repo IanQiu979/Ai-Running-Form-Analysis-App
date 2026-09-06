@@ -3128,7 +3128,7 @@ client-visible progress indicator was added; `lib/analyzing-machine.ts`'s existi
 state is unchanged. 4 real Anthropic model calls were made, for the `ANALYZE_FORM_EFFORT` low-vs-medium eval only (run manually outside the pipeline, 2026-09-06); every other behaviour on this branch (timeout/retry/deadline and frame sampling) is verified only offline.
 This fix round did not deploy or invoke the live function.
 
-**Status codes** (every non-2xx body is `{ error, code }`):
+**Status codes** (every non-2xx body is `{ error, code }`, plus `retryAfterSeconds` on the one row that says so):
 
 | Status | Code | When |
 |---|---|---|
@@ -3141,6 +3141,7 @@ This fix round did not deploy or invoke the live function.
 | 410 | `analysis_deleted` | Replay of a key whose analysis was soft-deleted (its `result` is redacted). |
 | 422 | `validation_failed` | Clean failure after the retry. Quota refunded. |
 | 429 | `too_many_failed_attempts` / `user_daily_cap` | Anti-farming throttle, or the caller's own per-tier daily $ allowance. Deliberately not a 402 (clears on its own) and deliberately not a 503 (the service is up for everyone else). |
+| 429 | `zero_pillar_cooldown` | Free only. The body also carries `retryAfterSeconds`. A resubmission arrived inside the 15-minute cooldown after an all-null result, so it is refused before the model call and its reservation is released without consuming the lifetime analysis. |
 | 503 | `killed`/`breaker_open`/`daily_cap` · `model_error`/`provider_timeout` | Our brake, or the provider. Never the caller's fault. |
 | 500 | `internal_error` / `misconfigured` | Our bug, or a missing secret. |
 
