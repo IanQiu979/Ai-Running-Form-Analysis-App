@@ -2880,24 +2880,35 @@ and is never merely prompt-guided:
   Elasticity forced to not-assessed, discarding EVERYTHING the model claimed about them — score,
   band, feedback prose, flags, drills — closing exactly the hallucinated-cadence failure mode the
   old sample shipped, this time for real model output too, not just the canned one. The reason
-  recorded is `'needsVideo'` for a photo and `'singleFrameFromVideo'` when the runner sent a video
-  their plan's cap clipped to one frame; the client renders one sentence from that reason, so no
-  surface tells a video submitter to submit a video.
-- **The pillar's `safety` declaration survives that strip, structurally.** `pace.ts`'s `PaceSafety`
-  is an ADDITIVE per-pillar field — a `signal` id from `knowledge/injury_flags.md`'s certified
-  stop-running list plus the calm `note` to show the runner — and it exists precisely so a
+  recorded is `'needsVideo'` for a photo and `'singleFrameFromVideo'` when exactly one frame of a
+  submitted video reached this analysis. That server-authored reason states the observable fact,
+  never an unverified cause such as the runner's plan; the client renders one sentence from it, so
+  no surface tells a video submitter to submit a video or blames their entitlement.
+- **The pillar's `safety` declaration is surfaced structurally on every path.** `pace.ts`'s
+  `PaceSafety` is an ADDITIVE per-pillar field — a `signal` id from
+  `knowledge/injury_flags.md`'s certified stop-running list plus the calm `note` to show the
+  runner — and it exists precisely so a
   stop-running warning is separated from assessment prose AT THE SOURCE rather than classified out
-  of it afterwards. Normalization copies it across and promotes its `note` to the pillar's feedback;
-  no keyword matching is involved, in either direction. It is never tier-gated.
+  of it afterwards. Normalization copies it across and makes a certified non-`none` signal's `note`
+  the visible pillar feedback on every tier, frame path, and pillar; no keyword matching is involved,
+  in either direction. It is never tier-gated.
 - **ABSENT IS INVALID, and that is what makes the sentence above true.** `PACE_RESULT_SCHEMA` marks
   `safety` `required`, but a schema is a request to the model, not a guarantee we may lean on — so
   `analyze-form-validation.ts` refuses to call a response deliverable unless EVERY pillar carries a
-  usable declaration. Absent, malformed, ungrounded `signal`, a declared signal with a blank `note`,
-  and a real signal on a pillar a salvage would drop all take the identical path: no salvage, the
-  retry runs, and a second failure releases the reservation without charging the user. Reading an
-  absent field as "no signal" would discard a warning written only in the prose with more confidence
-  than the keyword classifier this design replaced ever had. A missing analysis is recoverable; a
-  missing warning is not.
+  usable declaration. Absent, malformed, ungrounded `signal`, a declared non-`none` signal with a
+  blank `note`, and a real signal on a pillar a salvage would drop all take the identical path: no
+  salvage, the retry runs, and a second failure releases the reservation without charging the
+  user. Reading an absent field as "no signal" would discard a warning written only in the prose
+  with more confidence than the keyword classifier this design replaced ever had. A missing
+  analysis is recoverable; a missing warning is not.
+- **A model/schema-contract failure is ours, not a farming signal.** A response that omits or
+  violates the required structured safety declaration releases as `model_error`, so it refunds the
+  reservation and cannot increment the runner's anti-farming counter. This does not broaden or
+  rename `validation_failed`: its existing meaning — the model received a genuine retry and both
+  responses met the established content-failure condition — remains the sole farming signal. No DB
+  change accompanies this distinction; the already-live
+  `20260712220000_anti_farm_release_reason_fix.sql` migration, including Free's rolling 24-hour
+  window, remains the control of record unchanged.
 - **The prompt states two separate facts**, never one merged one: what the runner SENT (photo or
   video, their own upload) and what REACHED the model (how many frames). One attached frame always
   gets the one-instant rules, whatever produced it.
@@ -2927,6 +2938,11 @@ the new client fails closed, and a new function paired with the old client also 
 (the old client already treated `{ result, analysisId, isFallback }` as its primary case). As of
 this writing **this has not been deployed**, and 0 real Anthropic calls were made anywhere in this
 work — every model call in the test suite is a deterministic fake.
+
+**Local Postgres caveat:** the integration proof in
+`supabase/functions/_shared/integration/quota-rpc.local.ts` was not run because Docker Desktop was
+stopped, and this work did not start it. The database-backed proof remains unverified; the focused
+tests do not substitute for it.
 
 **This depends on `fm/v23-reliability-timeouts`** (a parallel, unmerged branch owning timeout/
 retry/frame-sampling/prompt semantics) for the eventual final frame-sampling and prompt behavior —
@@ -3190,12 +3206,14 @@ or Ian. See `docs/design/copy-deck.md`'s new-copy section.
 The M5 dummy paywall. `lib/subscription.ts` reads `GET /functions/v1/quota-status` and calls
 `POST /functions/v1/purchase-tier` (#51, deploy-gated behind `PURCHASE_TIER_DUMMY_ENABLED`,
 default OFF — unset on the live project as of 2026-08-06, `docs/status.md` Known Issue #21), both through
-issue #46's shared `invokeFunction()` wrapper. **No tier limit or frame
-cap is hardcoded anywhere in either file** — every count/limit shown is read fresh off the
-`quota-status` response, and a regression test fails if a numeric tier constant is ever added
-here; this is the exact trap `lib/subscription.ts`'s own header names by name, since Echo V1 once
-mistakenly believed enforcement lived in a file shaped like this one (it lived in the edge
-function, same as here). Registered inside `app/_layout.tsx`'s signed-in `Stack.Protected` block.
+issue #46's shared `invokeFunction()` wrapper. The tier cards state the paid allowances exactly —
+**Pro: 10 analyses per period; Elite: 30 analyses per period** — as cosmetic display copies of
+the server contract, never enforcement inputs. Account-specific remaining counts and renewal dates
+come only from `quota-status`, and no frame cap is stated here; `reserve_analysis` remains the sole
+quota authority. This is the exact trap `lib/subscription.ts`'s own header names by name, since
+Echo V1 once mistakenly believed enforcement lived in a file shaped like this one (it lived in the
+edge function, same as here). Registered inside `app/_layout.tsx`'s signed-in
+`Stack.Protected` block.
 New, uncertified purchase pending/success/failure copy (`paywall.alertDismiss`, `paywall.plan.*`,
 `paywall.purchase.*`) — the deck's Screen 10 table only ever specced the static tier cards and the
 two 402-gate banners, never what happens during/after tapping Upgrade.

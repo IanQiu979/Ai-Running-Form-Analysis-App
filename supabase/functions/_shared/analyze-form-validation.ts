@@ -136,15 +136,18 @@ export interface AnthropicMessageResponse {
 /**
  * Why one attempt did not yield a fully-valid `PaceResult`.
  *
- * `'truncated'` and `'refusal'` are OUR problem (a `max_tokens` budget the thinking ate, or a
- * policy refusal); `'no_tool_use'` and `'invalid_shape'` are content failures — the two that,
- * together and alone, mean `'validation_failed'`. See `classifyReleaseReason()`.
+ * `'truncated'`, `'refusal'`, and `'invalid_safety'` are OUR problem (a `max_tokens` budget the
+ * thinking ate, a policy refusal, or a provider/model omission of the certified safety contract);
+ * `'no_tool_use'` and `'invalid_shape'` are content failures — the two that, together and alone,
+ * mean `'validation_failed'`. See `classifyReleaseReason()`.
  */
 export type AttemptFailure =
   | 'truncated'
   | 'refusal'
   | 'no_tool_use'
   | 'invalid_shape'
+  /** The provider/model omitted or corrupted a required certified safety declaration. */
+  | 'invalid_safety'
   /** The call itself never produced a response body (HTTP error, network error, abort). */
   | 'call_failed';
 
@@ -338,6 +341,13 @@ export function readAttempt(response: AnthropicMessageResponse): AttemptOutcome 
     return { result: null, failure: 'no_tool_use', salvage: null, usage, stopReason };
   }
 
+  // Safety is a separate failure class from ordinary schema drift. Missing or unusable safety is
+  // a provider/model omission, not evidence that the caller is farming prompt-injection retries,
+  // and therefore must never become the anti-farming `validation_failed` release reason.
+  if (payloadHasUnusablePillarSafety(payload)) {
+    return { result: null, failure: 'invalid_safety', salvage: null, usage, stopReason };
+  }
+
   if (isPaceResult(payload) && everyPillarSafetyIsDeliverable(payload)) {
     return { result: payload, failure: null, salvage: null, usage, stopReason };
   }
@@ -454,11 +464,36 @@ function everyPillarSafetyIsDeliverable(payload: PaceResult): boolean {
   return PACE_PILLARS.every((id) => isDeliverableSafety(payload.pillars[id].safety));
 }
 
+/**
+ * Does an otherwise payload-shaped response omit or corrupt any pillar's required safety
+ * declaration? We classify this before ordinary structural validation so the provider/model owns
+ * the omission even when the same pillar's assessment fields are unreadable too. A completely
+ * non-payload response remains `invalid_shape`; there is no pillar contract present to inspect.
+ */
+function payloadHasUnusablePillarSafety(payload: unknown): boolean {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return false;
+  }
+  const rawPillars = (payload as { pillars?: unknown }).pillars;
+  if (typeof rawPillars !== 'object' || rawPillars === null || Array.isArray(rawPillars)) {
+    return false;
+  }
+
+  const pillars = rawPillars as Record<string, unknown>;
+  return PACE_PILLARS.some((id) => {
+    const pillar = pillars[id];
+    if (typeof pillar !== 'object' || pillar === null || Array.isArray(pillar)) {
+      return true;
+    }
+    return !isDeliverableSafety((pillar as { safety?: unknown }).safety);
+  });
+}
+
 function safetyBlocksSalvage(rawPillar: unknown, kept: boolean): boolean {
   if (typeof rawPillar !== 'object' || rawPillar === null || Array.isArray(rawPillar)) {
-    // Not even an object: there is no `feedback` here either, so there is no warning this salvage
-    // could be discarding. The pillar is dropped on its own merits by `isStructurallyValidPillar`.
-    return false;
+    // ABSENT SAFETY IS ALWAYS INVALID, even when the rest of the pillar is unreadable. We cannot
+    // infer "no warning" from the absence of both a declaration and prose, so salvage fails closed.
+    return true;
   }
   const raw = (rawPillar as { safety?: unknown }).safety;
   if (!isDeliverableSafety(raw)) {
@@ -628,7 +663,8 @@ function bestSalvage(attempts: readonly AttemptOutcome[]): { salvage: Salvage; i
  * `'validation_failed'` — the ONLY farming signal — requires ALL THREE of:
  *   1. at least one response was actually received (`attempts.length > 0`);
  *   2. EVERY response received was a content failure (a prose reply, or a tool/JSON payload we
- *      could not read) — no truncation, no refusal, no dead call in the mix; and
+ *      could not read) — no truncation, refusal, invalid safety declaration, or dead call in the
+ *      mix; and
  *   3. the retry ACTUALLY RAN (`retryRan`). If #44's flow suppressed the retry — too little of the
  *      deadline left, or the retry's spend gate denied it — a lone content failure is our
  *      degradation, not the user's attack.

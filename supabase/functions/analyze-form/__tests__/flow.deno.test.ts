@@ -1584,6 +1584,52 @@ Deno.test('a photo runs on the free tier at one frame, and the tier comes from t
   assertEquals(h.storage.uploads.map((u) => u.path), [`${CALLER}/${ANALYSIS_ID}/frame-01.jpg`]);
 });
 
+Deno.test('an allowed fresh reservation with an unknown tier fails closed before model work and is released', async () => {
+  // `toString` is intentionally a prototype key: without an explicit closed-union check it indexes
+  // both tier tables successfully enough to reach the model, then bypasses `tier === "free"`
+  // normalization. A random string merely crashes accidentally and would make this test toothless.
+  const h = harness([ok()]);
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: {
+      allowed: true,
+      existing: false,
+      id: ANALYSIS_ID,
+      status: 'reserved',
+      tier: 'toString',
+    },
+    error: null,
+  });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 500);
+  assertEquals(res.body.code, 'internal_error');
+  assertEquals(h.model.sent.length, 0, 'an untrusted tier must never reach prompt/token lookup');
+  assertEquals(h.rpc.to('settle_analysis').length, 0);
+  assertEquals(releaseReasonFrom(h.rpc), 'internal_error', 'the fresh reservation must not be stranded');
+});
+
+Deno.test('the retry is skipped when too little of the deadline is left to finish one', async () => {
+  // A call we start and then abort 8s later is a call we pay for and cannot use — strictly worse
+  // than falling back on what attempt 1 already gave us.
+  let clock = 0;
+  const h = harness([partial(['posture', 'armSwing'])], {
+    now: () => {
+      const value = clock;
+      // Jump the clock past the retry budget as soon as attempt 1 is done.
+      clock += 100_000;
+      return value;
+    },
+  });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(res.body.isFallback, true);
+  assertEquals(h.model.sent.length, 1, 'no retry was started with no time to finish it');
+  assert(MIN_RETRY_BUDGET_MS > 0);
+});
+
 Deno.test('the model gets a real timeout budget, never Infinity', async () => {
   const h = harness([ok()]);
   await run(h);
@@ -2397,6 +2443,60 @@ for (const testCase of SAFETY_CASES) {
   });
 }
 
+Deno.test('every certified safety note is the visible feedback on every tier, frame path, and pillar', async () => {
+  const paths = [
+    { tier: 'free', body: ONE_FRAME_VIDEO_BODY },
+    { tier: 'pro', body: ONE_FRAME_VIDEO_BODY },
+    { tier: 'elite', body: ONE_FRAME_VIDEO_BODY },
+    { tier: 'pro', body: VIDEO_BODY },
+    { tier: 'elite', body: VIDEO_BODY },
+  ] as const;
+  const notes = {
+    posture: 'Posture safety note from the certified declaration.',
+    armSwing: 'Arm-swing safety note from the certified declaration.',
+    cadence: 'Cadence safety note from the certified declaration.',
+    elasticity: 'Elasticity safety note from the certified declaration.',
+  } as const;
+
+  for (const { tier, body } of paths) {
+    const h = harness([
+      ok({
+        pillars: {
+          posture: pillarWithSafety('sharpOrWorseningPain', notes.posture),
+          armSwing: pillarWithSafety('swellingLimpOrFavouringOneSide', notes.armSwing),
+          cadence: pillarWithSafety('achillesOrHeelCordPain', notes.cadence),
+          elasticity: pillarWithSafety('sharpOrWorseningPain', notes.elasticity),
+        },
+        overall: { score: 71, band: 'good' },
+      }),
+    ]);
+    h.rpc.handlers.reserve_analysis = () => ({
+      data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
+      error: null,
+    });
+
+    const res = await run(h, body);
+
+    assertEquals(res.status, 200, `${tier}/${body.frames.length} frame(s)`);
+    const result = res.body.result as {
+      pillars: Record<string, { feedback: string | null; safety?: { note: string } | null }>;
+    };
+    for (const id of ['posture', 'armSwing', 'cadence', 'elasticity'] as const) {
+      assertEquals(
+        result.pillars[id].feedback,
+        notes[id],
+        `${tier}/${body.frames.length} frame(s)/${id}: only the certified safety note is surfaced`
+      );
+      assertEquals(result.pillars[id].safety?.note, notes[id]);
+    }
+    assertEquals(
+      h.rpc.to('settle_analysis')[0].args.p_result,
+      result,
+      `${tier}/${body.frames.length} frame(s): persisted output must match visible output`
+    );
+  }
+});
+
 Deno.test('a pillar with no stop-running signal keeps no prose at all after the one-frame strip', async () => {
   const h = harness([
     ok({
@@ -2444,10 +2544,10 @@ Deno.test('an UNGROUNDED safety signal fails closed: no salvage, no delivery, no
 
   const res = await run(h, ONE_FRAME_VIDEO_BODY);
 
-  assertEquals(res.status, 422);
-  assertEquals(res.body.code, 'validation_failed');
+  assertEquals(res.status, 503);
+  assertEquals(res.body.code, 'model_error');
   assertEquals(h.rpc.to('settle_analysis').length, 0, 'nothing may be delivered around a dropped warning');
-  assertEquals(h.rpc.to('release_analysis').length, 1, 'the quota slot is handed back');
+  assertEquals(releaseReasonFrom(h.rpc), 'model_error', 'an unusable model safety field is our fault');
   assertEquals(h.model.sent.length, 2, 'the model got its full second chance first');
 });
 
@@ -2566,11 +2666,16 @@ for (const { label, broken } of UNUSABLE_SAFETY) {
 
     const res = await run(h, ONE_FRAME_VIDEO_BODY);
 
-    assertEquals(res.status, 422, 'an unusable safety declaration is never deliverable');
-    assertEquals(res.body.code, 'validation_failed');
+    assertEquals(res.status, 503, 'an unusable safety declaration is never deliverable');
+    assertEquals(res.body.code, 'model_error');
     assertEquals(h.model.sent.length, 2, 'the model gets its full second chance');
     assertEquals(h.rpc.to('settle_analysis').length, 0, 'nothing is delivered and nothing is persisted');
-    assertEquals(h.rpc.to('release_analysis').length, 1, 'the quota slot is handed back, uncharged');
+    assertEquals(releaseReasonFrom(h.rpc), 'model_error', 'the quota slot is handed back without a farming strike');
+    assertEquals(
+      h.rpc.to('record_ai_call').map((call) => call.args.p_status),
+      ['model_error', 'model_error'],
+      'provider/model safety omissions must be observable as our fault in the call ledger too'
+    );
   });
 }
 

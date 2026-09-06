@@ -102,13 +102,15 @@ function toolResponse(
 // 1. THE RULE: never fabricate a score.
 // ---------------------------------------------------------------------------
 
-Deno.test('never fabricates: a pillar missing from the response comes back null, not 75', () => {
+Deno.test('never fabricates: an unreadable pillar assessment comes back null, not 75', () => {
   const input = fullToolInput();
-  delete (input.pillars as Record<string, unknown>).cadence;
+  (input.pillars as Record<string, unknown>).cadence = {
+    safety: { signal: 'none', note: '' },
+  };
 
   const attempt = readAttempt(toolResponse(input));
 
-  assertEquals(attempt.result, null, 'a response missing a pillar must not validate in full');
+  assertEquals(attempt.result, null, 'a response missing a pillar assessment must not validate in full');
   assert(attempt.salvage, 'the other three pillars are still salvageable');
   assertEquals(attempt.salvage.parsedPillars.sort(), ['armSwing', 'elasticity', 'posture']);
 
@@ -122,7 +124,10 @@ Deno.test('never fabricates: a pillar missing from the response comes back null,
 
 Deno.test('never fabricates: a dropped pillar claims no notAssessedReason it cannot know', () => {
   const input = fullToolInput();
-  (input.pillars as Record<string, unknown>).cadence = { totally: 'malformed' };
+  (input.pillars as Record<string, unknown>).cadence = {
+    totally: 'malformed',
+    safety: { signal: 'none', note: '' },
+  };
 
   const attempt = readAttempt(toolResponse(input));
 
@@ -501,6 +506,32 @@ Deno.test('a tool input that is not an object salvages nothing (and does not thr
   }
 });
 
+Deno.test('an unusable safety declaration is a provider/model failure, never generic invalid_shape', () => {
+  const cases: Array<[string, unknown, boolean]> = [
+    ['absent', undefined, true],
+    ['null', null, false],
+    ['malformed', 'she is limping', false],
+    ['uncertified signal', { signal: 'runnersKnee', note: 'Stop running.' }, false],
+    ['blank note', { signal: 'swellingLimpOrFavouringOneSide', note: '   ' }, false],
+  ];
+
+  for (const [label, safety, omit] of cases) {
+    const input = fullToolInput();
+    const posture = (input.pillars as Record<string, Record<string, unknown>>).posture;
+    if (omit) {
+      delete posture.safety;
+    } else {
+      posture.safety = safety;
+    }
+
+    const attempt = readAttempt(toolResponse(input));
+
+    assertEquals(attempt.failure, 'invalid_safety', label);
+    assertEquals(attempt.result, null, label);
+    assertEquals(attempt.salvage, null, `${label}: fail closed rather than dropping a warning`);
+  }
+});
+
 Deno.test('usage is carried through on every attempt shape', () => {
   const attempt = readAttempt(
     toolResponse(fullToolInput(), {
@@ -631,6 +662,21 @@ Deno.test('release_reason: two content failures AFTER A REAL RETRY = validation_
 
   assertEquals(classifyReleaseReason([prose, junk], true), 'validation_failed');
   assertEquals(classifyReleaseReason([prose, prose], true), 'validation_failed');
+});
+
+Deno.test('release_reason: provider/model omission of safety is model_error even after a full retry', () => {
+  const withoutSafety = fullToolInput();
+  delete ((withoutSafety.pillars as Record<string, Record<string, unknown>>).posture).safety;
+  const omission = readAttempt(toolResponse(withoutSafety));
+  const noPayload = readAttempt({ content: [{ type: 'thinking' }], stop_reason: 'end_turn' });
+
+  assertEquals(omission.failure, 'invalid_safety');
+  assertEquals(classifyReleaseReason([omission, omission], true), 'model_error');
+  assertEquals(
+    classifyReleaseReason([noPayload, omission], true),
+    'model_error',
+    'one provider/model omission makes the whole failure ours, not a farming strike'
+  );
 });
 
 Deno.test('release_reason: a LONE content failure with the retry SUPPRESSED is model_error, not a strike', () => {

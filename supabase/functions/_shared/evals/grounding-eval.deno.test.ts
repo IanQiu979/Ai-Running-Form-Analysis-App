@@ -566,8 +566,8 @@ Deno.test('an unsupportable input may fail CLEANLY — but never with an invente
     pillars: {
       posture: pillar({ score: 68, band: 'mid', feedback: 'Looks solid.' }),
       armSwing: pillar({ score: 70, band: 'good', feedback: 'Relaxed.' }),
-      cadence: 'not a pillar at all',
-      elasticity: 'not a pillar at all',
+      cadence: { safety: { signal: 'none', note: '' } },
+      elasticity: { safety: { signal: 'none', note: '' } },
     },
     overall: { score: 69, band: 'mid' },
   };

@@ -16,8 +16,9 @@
  * ⚠️ COSMETIC ONLY — CLAUDE.md / issue #52's non-negotiable rule: nothing on this screen enforces
  * anything. `getQuotaStatus()`/`purchaseTier()` (`lib/subscription.ts`) only ever read/request —
  * `reserve_analysis` and `pace_purchase_tier` are the only things that actually decide quota or
- * grant a tier. No limit/frame-cap number is hardcoded anywhere below; every number shown (the
- * gate banner's `{limit}`/renewal date) comes straight off the live `QuotaStatus` response.
+ * grant a tier. The tier cards' Pro 10 / Elite 30 totals are cosmetic display copies of the
+ * server contract, never enforcement inputs; the gate banner's account-specific `{limit}` and
+ * renewal date come straight off the live `QuotaStatus` response. No frame cap is stated here.
  *
  * STATES BUILT: plan loading / ready / error+retry (mirrors `app/settings.tsx`'s identical Plan
  * section); the optional gate banner; three tier cards, each independently able to show "Current

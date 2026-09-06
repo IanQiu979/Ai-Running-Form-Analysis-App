@@ -44,16 +44,22 @@ beforeEach(() => {
 });
 
 describe('PaywallScreen plan promises', () => {
-  it('describes only supported upgrades from the genuine Free analysis', async () => {
+  it('shows a Free user the exact paid limits and only supported upgrade capabilities', async () => {
     await render(<PaywallScreen />);
 
     await waitFor(() => expect(screen.getByText("You've used your free analysis")).toBeTruthy());
 
     expect(screen.getByText(/1 real analysis/i)).toBeTruthy();
-    expect(screen.getByText(/additional analyses/i)).toBeTruthy();
-    expect(screen.getByText(/multi-frame evidence when (?:your )?footage supports it/i)).toBeTruthy();
-    expect(screen.getByText(/certified.*flags.*drills.*when supported/i)).toBeTruthy();
-    expect(screen.getByText(/deeper feedback.*side-by-side comparison.*past analyses/i)).toBeTruthy();
+    expect(
+      screen.getByText(
+        '10 analyses per period, plus multi-frame evidence when your footage supports it — certified injury-risk flags and drills when supported.'
+      )
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        '30 analyses per period. Everything in Pro, plus deeper feedback per pillar and a side-by-side comparison with your past analyses.'
+      )
+    ).toBeTruthy();
 
     expect(screen.queryByText(/full 4-pillar read/i)).toBeNull();
     expect(screen.queryByText(/unlocks cadence and elasticity/i)).toBeNull();

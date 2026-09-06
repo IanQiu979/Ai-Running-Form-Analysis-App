@@ -420,6 +420,13 @@ interface ReserveResult {
   [key: string]: unknown;
 }
 
+/** `ReserveResult` crosses an RPC/JSON trust boundary; its compile-time tier annotation proves
+ * nothing at runtime. Keep this check closed and explicit so prototype keys cannot index the
+ * prompt/token tables or bypass `tier === 'free'` normalization. */
+function isPaceTier(value: unknown): value is PaceTier {
+  return value === 'free' || value === 'pro' || value === 'elite';
+}
+
 async function reserveAnalysis(
   rpc: RpcClient,
   args: {
@@ -778,7 +785,18 @@ export async function runAnalyzeForm(
       return (response = reserveDenialResponse(reserve));
     }
 
-    tier = reserve.tier ?? null;
+    const analysisId = reserve.id;
+    // A fresh row already exists once reserve_analysis returns allowed. Record it BEFORE validating
+    // the rest of the untrusted RPC payload so every malformed tier/id exit still reaches the one
+    // release_analysis call in `finally` whenever an id is available.
+    if (!reserve.existing && typeof analysisId === 'string') {
+      reservation = analysisId;
+    }
+
+    if (!isPaceTier(reserve.tier)) {
+      throw new Error('reserve_analysis returned an allowed reservation with an invalid tier.');
+    }
+    tier = reserve.tier;
 
     if (reserve.existing) {
       // CONTRACT RULE 2 lives here. `allowed: true` is not permission to deliver.
@@ -786,9 +804,8 @@ export async function runAnalyzeForm(
       return (response = handleExisting(reserve));
     }
 
-    const analysisId = reserve.id;
-    if (typeof analysisId !== 'string' || !tier) {
-      throw new Error('reserve_analysis returned an allowed reservation with no id or tier.');
+    if (typeof analysisId !== 'string') {
+      throw new Error('reserve_analysis returned an allowed reservation with no id.');
     }
     // From this line on, a row exists in state `'reserved'`. Every exit path below — return, throw,
     // or fall-through — passes through the `finally`, which releases it unless it was settled.
@@ -1204,10 +1221,11 @@ const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
  *     feedback prose, flags, drills. That prose is exactly the failure mode the retired sample
  *     shipped (a hallucinated "mid-170s spm" and a left/right ground-contact comparison neither
  *     pillar's certified knowledge file supports), so none of it survives, however it is phrased.
- *   - THE ONE THING THAT DOES SURVIVE is the pillar's `safety` declaration, copied across
- *     STRUCTURALLY — no reading of the prose, no keyword matching, no judgement call. Its
- *     certified `note` becomes the pillar's feedback, so a stop-running signal leads what the
- *     runner reads (SAFETY_RULES: undroppable at every tier including Free). This function may
+ *   - A certified non-`none` `safety` declaration is surfaced as that pillar's feedback on EVERY
+ *     path — all pillars, all tiers, one or many frames. No reading of prose, keyword matching, or
+ *     judgement call: the certified `note` replaces assessment prose so the warning leads what the
+ *     runner reads without retaining an unsupported claim beside it (SAFETY_RULES: undroppable at
+ *     every tier including Free). This function may
  *     assume the declaration is THERE: `analyze-form-validation.ts` refuses to call a response
  *     deliverable unless every pillar carries a usable one, so an absent, malformed, ungrounded,
  *     or blank-note `safety` never reaches this code — it fails closed into a retry and then a
@@ -1271,6 +1289,17 @@ function normalizeForEvidenceAndTier(
   if (tier === 'free') {
     for (const id of PACE_PILLARS) {
       pillars[id] = { ...pillars[id], flags: [], drills: [] };
+    }
+  }
+
+  // The UI renders `feedback`, not the machine-readable `safety` sibling. Make the certified note
+  // the visible output unconditionally, including assessed Posture/Arm swing and multi-frame paid
+  // paths. Exact structural copying avoids both keyword inference and retention of an assessment
+  // claim that may not be supportable on the path being normalized.
+  for (const id of PACE_PILLARS) {
+    const safety = pillars[id].safety ?? null;
+    if (hasSafetySignal(safety)) {
+      pillars[id] = { ...pillars[id], feedback: safety.note };
     }
   }
 
@@ -1502,6 +1531,7 @@ function statusForCall(
       return 'validation_failed';
     case 'truncated':
     case 'refusal':
+    case 'invalid_safety':
     case 'call_failed':
       return 'model_error';
     default:
