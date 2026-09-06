@@ -29,6 +29,30 @@ this work.
   guessing why. Free additionally has flags/drills stripped from every pillar. `overall` is
   recomputed via the existing `deriveOverall()` only when one of those paths normalizes pillars;
   an unchanged multi-frame Pro/Elite result keeps the model's own headline.
+  - **Review follow-up 5, same day — the cooldown is now PRE-FLIGHTED, and its 429 has a real
+    panel.** The Free zero-pillar cooldown shipped server-only, so a runner in the window extracted
+    frames on device, uploaded them, and only then hit a 429 that fell into the generic panel —
+    "Your analysis failed / the analysis service didn't return a usable result", false on every
+    count since no model call was made — under a Retry that reuses the idempotency key and can only
+    come back 409, followed by "start a new analysis" landing in the same cooldown. All three are
+    closed: `pace_quota_status` now reports the cooldown on the same
+    `blocked`/`blockedReason`/`blockedUntil` channel the anti-farm cap already used
+    (`20260906140000_quota_status_zero_pillar_cooldown.sql`), so Home's Analyze CTA is inert with
+    an honest sentence and a clock time before a frame is extracted; the 429 gets its own panel
+    carrying the server's own one-sentence message plus the time its `retryAfterSeconds` names; and
+    that panel offers no button that cannot work — leaving the screen is the only action. The
+    interval moved into `public.pace_zero_pillar_cooldown_seconds()` so the refusal and the warning
+    read one number, and the server's message was shortened to one sentence with no anti-abuse
+    framing: a runner whose clip could not be read is not an abuser.
+  - **Review follow-up 5 — the result screen renders the body the server sent.** A
+    zero-pillars-assessed 200 returns a complete all-null readout for a reservation that is
+    RELEASED, not settled, so re-querying `public.analyses` by the returned `analysisId` found a
+    released row with a null `result` and rendered "We couldn't find this analysis" — a real,
+    computed answer shown as a dead end, and about to become Free's default failure surface. The
+    analyzing screen now stages the outcome (`lib/pending-analysis-result.ts`, one-shot and
+    id-matched) and the result screen renders it, with the row lookup demoted to supplying the hero
+    frame: it can add an image, never take the result away. The blank row is still not persisted —
+    doing so would charge the very submission the no-charge policy exists to refund.
   - **Review follow-up 4, same day — the safety note is now a UI ELEMENT, not a composed string.**
     The server used to concatenate `"note\n\ncoaching"` into a pillar's `feedback` so the warning
     would lead. It did not: `<PillarRow>` hands `feedback` to `<KineticText>`, which splits on

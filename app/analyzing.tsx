@@ -86,7 +86,9 @@ import {
 } from '@/lib/analyzing-machine';
 import { onAppForeground } from '@/lib/app-state';
 import { checkConnectivity } from '@/lib/connectivity';
+import { cooldownEndsIn } from '@/lib/cooldown';
 import { clearPendingAnalysisMarker, setPendingAnalysisMarker } from '@/lib/pending-analysis';
+import { setPendingAnalysisResult } from '@/lib/pending-analysis-result';
 import { useSession } from '@/lib/session-provider';
 import { signOut, type SignOutResult } from '@/lib/sign-out';
 import { supabase } from '@/lib/supabase';
@@ -195,7 +197,13 @@ export default function AnalyzingScreen() {
             // Issue #136: carry the server's code through, so a 402 quota_exceeded can open the
             // paywall below instead of offering a Retry that would resubmit into the same
             // exhausted quota.
-            dispatch({ type: 'failed', attempt, code: result.error.code });
+            dispatch({
+              type: 'failed',
+              attempt,
+              code: result.error.code,
+              message: result.error.error,
+              retryAfterSeconds: result.error.retryAfterSeconds,
+            });
             return;
           }
 
@@ -343,11 +351,24 @@ export default function AnalyzingScreen() {
     // would leave a stale 'delivered' marker behind, and the next cold start — for any reason at
     // all — would silently reroute the user to this same, already-viewed result.
     clearPendingAnalysisMarker();
+    // Review r7-4: hand the result screen the body the server just sent, rather than making it
+    // re-query the row. A zero-pillars-assessed 200 carries a complete, honest all-null readout
+    // for a reservation that was RELEASED, not settled (nobody is charged for a result carrying
+    // nothing), so there is no readable row behind that id and a re-fetch dead-ends on "We
+    // couldn't find this analysis." Staged before the navigation, one-shot and id-matched, so a
+    // re-open from Past Analyses still reads the persisted row exactly as before.
+    if (request) {
+      setPendingAnalysisResult({
+        analysisId: state.analysisId,
+        outcome: state.outcome,
+        mediaType: request.mediaType,
+      });
+    }
     router.replace({
       pathname: '/result/[id]',
       params: { id: state.analysisId, justAnalyzed: '1' },
     } as Href);
-  }, [state, router]);
+  }, [state, router, request]);
 
   // Issue #136: a real 402 quota_exceeded opens the paywall rather than the generic retryable
   // error panel — a Retry there would only resubmit into the same exhausted quota, a dead-end
@@ -362,6 +383,15 @@ export default function AnalyzingScreen() {
   function handleRetry() {
     dispatch({ type: 'retry' });
   }
+
+  // The server's 429 `zero_pillar_cooldown` (review r8-1). Its own one-sentence message, plus the
+  // clock time its `retryAfterSeconds` names — and no time at all when that field was unreadable,
+  // because a guessed "try again at" is worse than none. Computed once per render off state the
+  // panel already has; nothing here counts down or re-derives the server's decision.
+  const cooldownBody =
+    state.phase === 'failed' && state.code === 'zero_pillar_cooldown'
+      ? buildCooldownBody(state.message, cooldownEndsIn(state.retryAfterSeconds))
+      : null;
 
   // L7 follow-up (v23-ux-audit-r1, review-1): the `unauthorized` panel's copy tells the user to
   // "sign in and try again", but the session that expired is still the one a plain Retry would
@@ -539,12 +569,30 @@ export default function AnalyzingScreen() {
           />
         )}
 
+        {/* The server's 429 `zero_pillar_cooldown` (review r8-1): the previous analysis assessed
+            nothing, so a resubmission is refused for a short window — BEFORE any model call, so
+            the generic "your analysis failed" this would otherwise render is simply false. NO
+            RETRY: a retry reuses this request's idempotency key, which `reserve_analysis` answers
+            with the already-released row and a 409, and "start a new analysis" only lands back in
+            the same cooldown. Neither button can work inside the window, so neither is offered —
+            the one honest way forward is out of this screen. Home states the same wait, from
+            `quota-status`'s `blockedUntil`, before a frame is ever extracted. */}
+        {state.phase === 'failed' && state.code === 'zero_pillar_cooldown' && cooldownBody && (
+          <ErrorPanel
+            styles={styles}
+            title={Copy.analyzing.error.zeroPillarCooldown.title}
+            body={cooldownBody}
+            primary={{ label: Copy.analyzing.error.cta.backHome, onPress: handleCancel }}
+          />
+        )}
+
         {/* Issue #136: `quota_exceeded` is excluded here — the effect above routes it to /paywall.
             Rendering a Retry for it would resubmit into the same exhausted quota. */}
         {state.phase === 'failed' &&
           state.code !== 'quota_exceeded' &&
           state.code !== 'previous_attempt_failed' &&
-          state.code !== 'unauthorized' && (
+          state.code !== 'unauthorized' &&
+          state.code !== 'zero_pillar_cooldown' && (
             <ErrorPanel
               styles={styles}
               title={Copy.analyzing.error.failed.title}
@@ -606,6 +654,24 @@ export default function AnalyzingScreen() {
   );
 }
 
+/**
+ * The cooldown panel's body: the server's own sentence, then when to come back.
+ *
+ * Kept as one pure function so the honest degradation is explicit rather than an inline ternary —
+ * with no readable `retryAfterSeconds` there is no time to state, and the copy says "give it a few
+ * minutes" instead of naming a clock time we would be inventing. `null` when the server sent no
+ * message at all, which is the caller's signal to render nothing rather than a sentence with a
+ * hole in it.
+ */
+function buildCooldownBody(message: string | undefined, time: string | null): string | null {
+  const sentence = message?.trim();
+  if (!sentence) return null;
+  const template = time
+    ? Copy.analyzing.error.zeroPillarCooldown.body.replace('{time}', time)
+    : Copy.analyzing.error.zeroPillarCooldown.bodyUnknownTime;
+  return template.replace('{message}', sentence);
+}
+
 function ScreenCenter({ styles, children }: { styles: Styles; children: ReactNode }) {
   return <View style={styles.centerBlock}>{children}</View>;
 }
@@ -623,7 +689,13 @@ type ErrorPanelProps = {
    * render a button whose wording promises something the handler cannot do.
    */
   primary?: { label: string; onPress: () => void };
-  onCancel: () => void;
+  /**
+   * The secondary exit. Omitted only where it would duplicate `primary` — the zero-pillar cooldown
+   * panel, whose single honest action already IS leaving this screen. A second ghost button
+   * labelled "Cancel" beside a "Back to Home" would offer the same destination twice and imply
+   * there is something here to cancel.
+   */
+  onCancel?: () => void;
 };
 
 /**
@@ -665,7 +737,9 @@ function ErrorPanel({ styles, title, body, primary, onCancel }: ErrorPanelProps)
       {primary && (
         <PillButton label={primary.label} onPress={primary.onPress} style={styles.errorAction} />
       )}
-      <PillButton variant="ghost" label={Copy.analyzing.error.cta.cancel} onPress={onCancel} />
+      {onCancel && (
+        <PillButton variant="ghost" label={Copy.analyzing.error.cta.cancel} onPress={onCancel} />
+      )}
     </View>
   );
 }

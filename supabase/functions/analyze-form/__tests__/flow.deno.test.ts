@@ -747,6 +747,9 @@ Deno.test('cooldown: a free resubmission inside the window is refused before any
   assertEquals(res.status, 429, 'a throttle, not a paywall — nothing here is for sale');
   assertEquals(res.body.code, 'zero_pillar_cooldown');
   assertEquals(res.body.retryAfterSeconds, 420);
+  // The INTERVAL is the database's, not ours: one argument, so an edge deploy can never throttle
+  // by a different number than `pace_quota_status` warns Home about.
+  assertEquals(h.rpc.to('pace_zero_pillar_cooldown_remaining')[0].args, { p_user_id: CALLER });
   assertEquals(h.model.requests.length, 0, 'the cooldown must fire BEFORE the model is called');
   assertEquals(h.rpc.to('settle_analysis').length, 0, 'a throttled request is never charged');
   const release = h.rpc.to('release_analysis');

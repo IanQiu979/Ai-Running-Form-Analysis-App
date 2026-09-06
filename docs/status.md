@@ -1261,9 +1261,9 @@ milestone "done" criteria.
 
     Safety is a required, per-pillar structured contract, not a prompt-only hope or a prose
     classifier. Every pillar must declare `{ signal, note }` using the certified stop-running
-    signal vocabulary; normalization carries a certified signal's note across structurally and
-    carries it across structurally on the pillar's own `safety` field on every tier, frame path and
-    pillar, including when unsupported assessment prose is discarded. It is never composed into
+    signal vocabulary; normalization carries a certified signal's note across on the pillar's own
+    `safety` field, on every tier, frame path and pillar, including when unsupported assessment
+    prose is discarded. It is never composed into
     `feedback`: the UI renders it as its own labelled element above the coaching, read by both
     `components/pace-readout.tsx` and `components/pillar-detail-modal.tsx` through one helper
     (`lib/pace-readout.ts`'s `safetyNote()`). A composed `"note\n\ncoaching"` string was tried and

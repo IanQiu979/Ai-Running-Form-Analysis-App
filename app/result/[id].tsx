@@ -88,6 +88,10 @@ import {
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { readAnalysisRow, type AnalysisRow } from '@/lib/analysis-result';
 import { countAssessedPillars } from '@/lib/pace-readout';
+import {
+  takePendingAnalysisResult,
+  type PendingAnalysisResult,
+} from '@/lib/pending-analysis-result';
 import { supabase } from '@/lib/supabase';
 import { useAnnounce } from '@/lib/use-announce';
 import type { PaceAnalysisOutcome } from '@shared/pace';
@@ -134,6 +138,28 @@ type ScreenState =
  * off on unmount/re-fetch, so a slow or stale request can never overwrite a newer one's state. */
 type ActiveFlag = { active: boolean };
 
+/**
+ * Ends a row lookup that produced no readable analysis (review r7-4).
+ *
+ * WITH a handoff, the failure only means there is no hero frame to add — the result itself is
+ * already on screen and stays there, because the server computed it and sent it to us. WITHOUT
+ * one, the fallback is unchanged: the screen says it could not load or could not find the
+ * analysis, which is still the whole truth for a re-open from Past Analyses.
+ */
+function settleWithoutHero(
+  handoff: PendingAnalysisResult | null,
+  setState: (updater: (current: ScreenState) => ScreenState) => void,
+  fallback: ScreenState
+): void {
+  if (!handoff) {
+    setState(() => fallback);
+    return;
+  }
+  setState((current) =>
+    current.status === 'ready' ? { ...current, heroUri: null, heroPending: false } : current
+  );
+}
+
 async function resolveHeroImageUri(path: string): Promise<string | null> {
   try {
     const { data, error } = await supabase.storage.from(MEDIA_BUCKET).createSignedUrl(path, HERO_SIGNED_URL_TTL_SECONDS);
@@ -172,6 +198,15 @@ export default function ResultScreen() {
 
   const [state, setState] = useState<ScreenState>({ status: 'loading' });
   const activeFlagRef = useRef<ActiveFlag>({ active: false });
+  // Review r7-4: the result `app/analyzing.tsx` was just handed, if this is that navigation.
+  // Claimed ONCE, on the first render of this mount (a `useRef` initialised lazily, not an
+  // effect — the very first `load()` has to already know whether it has an answer in hand), and
+  // one-shot at the source, so a later Retry or a re-open never replays it. `null` for every
+  // ordinary open from Past Analyses, which reads the persisted row exactly as it always has.
+  const handoffRef = useRef<PendingAnalysisResult | null | undefined>(undefined);
+  if (handoffRef.current === undefined) {
+    handoffRef.current = justAnalyzed && typeof id === 'string' ? takePendingAnalysisResult(id) : null;
+  }
   // Issue #11: the loading/error captions below carry `accessibilityLiveRegion="polite"`, which
   // is Android-only — this is the iOS complement, same pattern as app/(tabs)/index.tsx.
   useAnnounce(
@@ -191,7 +226,24 @@ export default function ResultScreen() {
         return;
       }
 
-      setState({ status: 'loading' });
+      // THE SERVER'S OWN ANSWER FIRST, when we have it. A zero-pillars-assessed 200 returns a
+      // complete, honest all-null readout for a reservation that was RELEASED rather than settled
+      // — nobody is charged for a result carrying nothing (cd8bf97 / PR #194) — so there is no
+      // readable row behind that id, and rendering the fetch's verdict would turn a real answer
+      // into "we couldn't find this analysis." The row lookup below still runs, but from here it
+      // can only ADD the hero frame; it can no longer take the result away.
+      const handoff = handoffRef.current ?? null;
+      if (handoff) {
+        setState({
+          status: 'ready',
+          outcome: handoff.outcome,
+          heroUri: null,
+          heroPending: true,
+          mediaType: handoff.mediaType,
+        });
+      } else {
+        setState({ status: 'loading' });
+      }
 
       let row: AnalysisRow | null;
       try {
@@ -202,12 +254,12 @@ export default function ResultScreen() {
           .maybeSingle();
 
         if (error) {
-          if (active.active) setState({ status: 'loadFailed' });
+          if (active.active) settleWithoutHero(handoff, setState, { status: 'loadFailed' });
           return;
         }
         row = data;
       } catch {
-        if (active.active) setState({ status: 'loadFailed' });
+        if (active.active) settleWithoutHero(handoff, setState, { status: 'loadFailed' });
         return;
       }
 
@@ -215,19 +267,22 @@ export default function ResultScreen() {
       if (!active.active) return;
 
       if (read.kind === 'notFound') {
-        setState({ status: 'unavailable' });
+        settleWithoutHero(handoff, setState, { status: 'unavailable' });
         return;
       }
       if (read.kind === 'invalid') {
         // Structurally malformed stored data is at least as "nothing to show" as a missing row —
         // collapsed into the same copy rather than a separate, more alarming message (the fetch
         // itself succeeded; the payload just isn't a valid PaceAnalysisOutcome).
-        setState({ status: 'unavailable' });
+        settleWithoutHero(handoff, setState, { status: 'unavailable' });
         return;
       }
 
       const heroPath = read.mediaPaths[0];
       setState({
+        // The persisted row and the handoff describe the same analysis; the handoff wins only
+        // where there is no row to read. Preferring the row for a delivered analysis keeps a
+        // fresh open and a re-open from Past Analyses rendering byte-identical content.
         status: 'ready',
         outcome: read.outcome,
         heroUri: null,

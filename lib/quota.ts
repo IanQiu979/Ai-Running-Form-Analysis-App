@@ -38,7 +38,9 @@
  */
 import { Copy } from '@/constants/copy';
 
+import { cooldownEndsAt } from './cooldown';
 import { invokeFunction } from './functions-client';
+import { isBlockedReason } from '@shared/quota-status';
 import type { BlockedReason, QuotaStatus, SubscriptionTier } from '@shared/quota-status';
 
 export type { BlockedReason, QuotaStatus, SubscriptionTier };
@@ -117,7 +119,7 @@ export function parseQuotaStatusResponse(body: unknown): QuotaStatus | null {
 
   const blocked = unlimited ? false : Boolean(record.blocked);
   const blockedReason: BlockedReason | null =
-    blocked && record.blockedReason === 'too_many_failed_attempts' ? 'too_many_failed_attempts' : null;
+    blocked && isBlockedReason(record.blockedReason) ? record.blockedReason : null;
 
   return {
     tier,
@@ -245,11 +247,11 @@ function describePrimaryCaption(quota: QuotaStatus): string {
  * from `docs/design/copy-deck.md` §Screen 2 (see `constants/copy.ts`'s `home.quota.*`). Pure
  * mapping only: `remaining`/`limit`/`periodEnd`/`blocked` all come straight from the server.
  */
-export function describeQuota(quota: QuotaStatus): QuotaCaption {
+export function describeQuota(quota: QuotaStatus, now: Date = new Date()): QuotaCaption {
   const primary = describePrimaryCaption(quota);
 
   if (quota.blocked) {
-    return { primary, secondary: Copy.home.quota.blocked };
+    return { primary, secondary: describeBlock(quota, now) };
   }
 
   if (!quota.unlimited && quota.tier !== 'free' && (quota.remaining ?? 0) > 0) {
@@ -258,6 +260,33 @@ export function describeQuota(quota: QuotaStatus): QuotaCaption {
   }
 
   return { primary, secondary: null };
+}
+
+/**
+ * The sentence explaining a `blocked` reading — the reason the server gave, with the time it gave,
+ * whenever both are readable (review r8-1).
+ *
+ * `Copy.home.quota.blocked`'s "try again later" is the fallback, not the default: it is what we
+ * say when the server reported a block it did not name, or named a `blockedUntil` we cannot parse
+ * or that has already passed. Naming a reason we were not given, or a time we could not read,
+ * would be exactly the fabrication `lib/quota.ts`'s header rules out — the client displays server
+ * state here, it never derives it.
+ *
+ * The zero-pillar cooldown gets its own sentence rather than the anti-farm one because the two
+ * mean opposite things about the runner: one is a throttle after an unreadable clip, the other is
+ * a cap on repeated failed attempts. Reading the second when the server said the first would
+ * accuse a user of farming for filming in bad light.
+ */
+export function describeBlock(quota: QuotaStatus, now: Date = new Date()): string {
+  const time = cooldownEndsAt(quota.blockedUntil, now);
+
+  if (quota.blockedReason === 'zero_pillar_cooldown' && time) {
+    return Copy.home.quota.zeroPillarCooldown.replace('{time}', time);
+  }
+  if (time) {
+    return Copy.home.quota.blockedUntil.replace('{time}', time);
+  }
+  return Copy.home.quota.blocked;
 }
 
 export type PrimaryCtaKind = 'analyze' | 'upgradeToAnalyze' | 'upgradeForMore' | 'analyzeDisabled';
@@ -315,13 +344,14 @@ export function primaryCtaLabel(kind: PrimaryCtaKind): string {
  * *why*). `null` when the CTA is enabled; every disabled branch gets its own honest, specific
  * reason rather than a generic "unavailable".
  */
-export function primaryCtaAccessibilityHint(quota: QuotaStatus): string | null {
+export function primaryCtaAccessibilityHint(quota: QuotaStatus, now: Date = new Date()): string | null {
   if (isPrimaryCtaEnabled(quota)) return null;
 
   const kind = primaryCtaKind(quota);
   if (kind === 'analyze') {
-    // remaining > 0 but blocked — the anti-farm cap is the reason, not quota or tier.
-    return Copy.home.quota.blocked;
+    // remaining > 0 but blocked — a temporary block is the reason, not quota or tier. Speaks the
+    // same sentence the caption shows, so a screen reader is never told less than the screen says.
+    return describeBlock(quota, now);
   }
   if (kind === 'analyzeDisabled') {
     // The exhausted-Elite caption already states the reason in full ("...renews {date}").

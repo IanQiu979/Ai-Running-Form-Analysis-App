@@ -147,6 +147,18 @@ describe('parseQuotaStatusResponse', () => {
     expect(parsed?.blockedUntil).toBeNull();
   });
 
+  it('parses the zero-pillar cooldown reason the same way as the anti-farm one', () => {
+    const parsed = parseQuotaStatusResponse({
+      ...FREE_AVAILABLE,
+      blocked: true,
+      blockedReason: 'zero_pillar_cooldown',
+      blockedUntil: '2026-09-06T15:15:00.000Z',
+    });
+    expect(parsed?.blocked).toBe(true);
+    expect(parsed?.blockedReason).toBe('zero_pillar_cooldown');
+    expect(parsed?.blockedUntil).toBe('2026-09-06T15:15:00.000Z');
+  });
+
   it('folds an unrecognized blockedReason into null rather than trusting it blindly', () => {
     const parsed = parseQuotaStatusResponse({
       ...ELITE_BLOCKED,
@@ -319,9 +331,53 @@ describe('describeQuota', () => {
   it('renders the anti-farm blocked notice as the secondary line even when quota remains', () => {
     // ELITE_BLOCKED: remaining: 28, blocked: true — the exact "quota left but currently
     // refused" combination issue #6 / `_shared/quota-status.ts`'s header calls out by name.
-    const caption = describeQuota(ELITE_BLOCKED);
+    const caption = describeQuota(ELITE_BLOCKED, new Date('2026-07-13T00:00:00.000Z'));
     expect(caption.primary).toBe('28 of 30 analyses left this period');
+    // Named with the time the server gave, since it gave one.
+    expect(caption.secondary).toMatch(/^You can't start a new analysis until /);
+    expect(caption.secondary).not.toBe(Copy.home.quota.zeroPillarCooldown);
+  });
+
+  it('falls back to the generic notice when the block names a time already past', () => {
+    // A `blockedUntil` behind `now` has nothing worth stating — better to say "later" than to
+    // name a moment that has been and gone.
+    const caption = describeQuota(ELITE_BLOCKED, new Date('2026-09-06T00:00:00.000Z'));
     expect(caption.secondary).toBe(Copy.home.quota.blocked);
+  });
+
+  /**
+   * Review r8-1's pre-flight. The zero-pillar cooldown reaches the client on the SAME
+   * `blocked`/`blockedReason`/`blockedUntil` channel the anti-farm cap already used, so Home
+   * refuses before a frame is extracted rather than after several megabytes are uploaded — and it
+   * gets its own sentence, because the two blocks say opposite things about the runner.
+   */
+  describe('the free zero-pillar cooldown', () => {
+    const FREE_COOLDOWN = {
+      ...FREE_AVAILABLE,
+      blocked: true,
+      blockedReason: 'zero_pillar_cooldown' as const,
+      blockedUntil: '2026-09-06T15:15:00.000Z',
+    };
+    const DURING = new Date('2026-09-06T15:05:00.000Z');
+
+    it('says the clip could not be read — never that the runner failed too many attempts', () => {
+      const caption = describeQuota(FREE_COOLDOWN, DURING);
+      expect(caption.secondary).toMatch(/^Nothing in your last clip could be read\. You can try again at /);
+      expect(caption.secondary).not.toBe(Copy.home.quota.blocked);
+    });
+
+    it('makes the Analyze CTA inert, and says why in the accessibility hint', () => {
+      expect(isPrimaryCtaEnabled(FREE_COOLDOWN)).toBe(false);
+      expect(primaryCtaAccessibilityHint(FREE_COOLDOWN, DURING)).toBe(
+        describeQuota(FREE_COOLDOWN, DURING).secondary
+      );
+    });
+
+    it('leaves the CTA enabled again once the cooldown has cleared server-side', () => {
+      // `blocked` is the server's word, not a countdown the client runs — a cleared cooldown
+      // simply stops being reported.
+      expect(isPrimaryCtaEnabled({ ...FREE_COOLDOWN, blocked: false, blockedReason: null })).toBe(true);
+    });
   });
 
   it('prioritizes the blocked notice over "Renews" when both would otherwise apply', () => {

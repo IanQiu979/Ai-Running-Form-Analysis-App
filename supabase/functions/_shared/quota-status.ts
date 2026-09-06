@@ -31,7 +31,27 @@
 
 export type SubscriptionTier = 'free' | 'pro' | 'elite';
 
-export type BlockedReason = 'too_many_failed_attempts';
+/**
+ * Why `reserve_analysis` (or, for the cooldown, `analyze-form` itself) would refuse another
+ * submission right now, independent of `remaining`.
+ *
+ *   - `'too_many_failed_attempts'` — issue #6's anti-farm cap. 24h rolling window on free, the
+ *     period on pro/elite.
+ *   - `'zero_pillar_cooldown'` — free only: this account's last analysis assessed nothing, and
+ *     `analyze-form` refuses a resubmission for `pace_zero_pillar_cooldown_seconds()` afterwards
+ *     (`20260906140000_quota_status_zero_pillar_cooldown.sql`). It is reported HERE, on the same
+ *     channel as the cap above, so a client can refuse before extracting frames and uploading
+ *     megabytes it is about to be told to discard.
+ *
+ * When both apply, `pace_quota_status` reports the anti-farm cap: it is the longer block, so its
+ * `blockedUntil` is the only one at which anything will actually work.
+ */
+export type BlockedReason = 'too_many_failed_attempts' | 'zero_pillar_cooldown';
+
+/** The one place a wire/DB `blocked_reason` string is narrowed to the union above. */
+export function isBlockedReason(value: unknown): value is BlockedReason {
+  return value === 'too_many_failed_attempts' || value === 'zero_pillar_cooldown';
+}
 
 export interface QuotaStatus {
   tier: SubscriptionTier;
@@ -114,7 +134,7 @@ export function parseQuotaStatusRow(raw: unknown): QuotaStatus {
 
   const blocked = unlimited ? false : Boolean(row.blocked);
   const blockedReason: BlockedReason | null =
-    blocked && row.blocked_reason === 'too_many_failed_attempts' ? 'too_many_failed_attempts' : null;
+    blocked && isBlockedReason(row.blocked_reason) ? row.blocked_reason : null;
 
   return {
     tier,

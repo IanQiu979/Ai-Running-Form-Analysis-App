@@ -169,27 +169,21 @@ export const MODEL_CALL_TIMEOUT_MS = 65_000;
 export const MIN_RETRY_BUDGET_MS = 20_000;
 
 /**
- * How long a FREE account waits after a zero-pillar result before another submission is accepted.
+ * THE FREE ZERO-PILLAR COOLDOWN — the replacement for the Free-specific charge that used to sit on
+ * the zero-pillars branch (see §9.5). That carve-out bounded the free-form-checking loop by TOTAL
+ * count — one blank result and Free's single lifetime analysis was gone — which punished the
+ * honest case (a badly framed clip) exactly as hard as the abusive one. A cooldown bounds the same
+ * loop by FREQUENCY instead, which is the axis the worry was actually about.
  *
- * This is the replacement for the Free-specific charge that used to sit on the zero-pillars branch
- * (see §9.5). That carve-out bounded the free-form-checking loop by TOTAL count — one blank result
- * and Free's single lifetime analysis was gone — which punished the honest case (a badly framed
- * clip) exactly as hard as the abusive one. A cooldown bounds the same loop by FREQUENCY instead,
- * which is the axis the worry was actually about, and it costs an honest runner nothing they
- * cannot get back.
- *
- * FIFTEEN MINUTES, and the number is a trade, not a default. A zero-pillar result means the clip
- * showed us nothing, and the fix for that is to film again — which takes minutes, not seconds, so
- * a runner following the honest path is rarely blocked by this at all. On the other side it caps a
- * scripted loop at four model calls an hour per account, which is far below what would make
- * free-tier form-checking-by-resubmission worth automating, while staying well short of a
- * day-long lockout for someone whose first attempt was simply badly framed. It is deliberately
- * shorter than the 24h anti-farm window (20260712220000): this is not an abuse finding, and it
- * must not read like a punishment.
+ * THE INTERVAL IS NOT DECLARED HERE. It lives in `public.pace_zero_pillar_cooldown_seconds()`
+ * (`20260906140000_quota_status_zero_pillar_cooldown.sql`, 15 minutes, justified there) because
+ * two callers need it: this function, to refuse, and `pace_quota_status`, to warn Home BEFORE a
+ * runner extracts frames and uploads them. A TypeScript constant passed into one of them would be
+ * a second source of truth, and the drift it invites is Home saying "try again at 3:15" while the
+ * server refuses until 3:30.
  *
  * Free only. Pro/Elite pay per period and their zero-pillar refund is already bounded by quota.
  */
-export const FREE_ZERO_PILLAR_COOLDOWN_SECONDS = 900;
 
 /** The client sends raw base64 with no per-frame media type (`lib/analyze-form.ts`'s wire shape is
  * `frames: string[]`), and `lib/frames.ts` emits JPEG at q≈0.7. Both the vision call and the
@@ -459,7 +453,8 @@ async function reserveAnalysis(
  * Seconds still to wait before this user may resubmit after a zero-pillar result, or 0.
  *
  * FAILS OPEN, deliberately. `pace_zero_pillar_cooldown_remaining`
- * (`20260906130000_free_zero_pillar_cooldown.sql`) is a read-only lookup over rows `release_
+ * (`20260906130000_free_zero_pillar_cooldown.sql`, narrowed to one argument by
+ * `20260906140000_quota_status_zero_pillar_cooldown.sql`) is a read-only lookup over rows `release_
  * analysis` already writes — it holds no state of its own and adds no counter. If it is missing
  * (the function deployed ahead of its migration) or errors, this returns 0 and the request runs:
  * a throttle is not worth failing a legitimate analysis over, and the un-throttled behaviour is
@@ -476,7 +471,6 @@ async function zeroPillarCooldownRemaining(
   try {
     const { data, error } = await deps.rpc.rpc('pace_zero_pillar_cooldown_remaining', {
       p_user_id: userId,
-      p_cooldown_seconds: FREE_ZERO_PILLAR_COOLDOWN_SECONDS,
     });
     if (error) {
       throw new Error(error.message);
@@ -847,8 +841,11 @@ export async function runAnalyzeForm(
         return (response = {
           status: 429,
           body: {
-            error:
-              'Your last analysis could not read anything in that clip. Give it a few minutes, film side-on in good light, and try again — this has not been counted against your quota.',
+            // ONE SHORT SENTENCE, and no more (captain's standing style rule). The client owns
+            // saying WHEN — it renders this alongside a clock time derived from
+            // `retryAfterSeconds` — and neither surface explains the throttle's purpose: a runner
+            // whose clip could not be read is not an abuser and must not be addressed as one.
+            error: 'Nothing in that last clip could be read.',
             code: 'zero_pillar_cooldown',
             retryAfterSeconds: cooldownSeconds,
           },
@@ -1030,8 +1027,8 @@ export async function runAnalyzeForm(
     // out to that same decision name under a 2026-09-06 date; that attribution was false, and
     // charging a runner their ONLY analysis for a result carrying nothing is the harshest possible
     // reading of a submission we could not read. The free-form-checking-loop worry the carve-out
-    // existed for is answered by frequency instead — see `FREE_ZERO_PILLAR_COOLDOWN_SECONDS`, the
-    // cooldown enforced before the model is ever called.
+    // existed for is answered by frequency instead — see the zero-pillar cooldown above, enforced
+    // before the model is ever called and surfaced on Home before a frame is even extracted.
     //
     // `'zero_pillars_assessed'` is excluded from `pace_is_farming_signal` (20260712220000), so
     // this never ticks the 3-strike anti-farm cap: an honest "nothing to see here" is not an

@@ -268,9 +268,11 @@ export async function signFrameStrip(mediaPaths: string[]): Promise<string[]> {
  * `docs/architecture.md`'s API table and `supabase/functions/_shared/delete-analysis.ts`'s
  * `responseBodyForOutcome`): `not_found` (404), `not_yours` (403), `in_progress` (409),
  * `purge_failed` (503). `in_progress` is the one that is retryable by simply waiting — the row is
- * still `'reserved'` while its model call is in flight, and deleting it then would refund spend
- * (`_shared/delete-analysis-core.ts`) — so its server message must reach the user instead of being
- * flattened into the generic failure.
+ * still `'reserved'` while its model call is in flight, and `deleteAnalysis()` refuses it
+ * (`supabase/functions/_shared/delete-analysis.ts`) because `analyze-form/flow.ts` owns that row
+ * until it settles or releases: racing a delete against the in-flight settle would leave a
+ * delivered result nobody can see or purge. So its server message must reach the user instead of
+ * being flattened into the generic failure.
  * `'unknown'` is this client's own bucket for anything the contract above doesn't name — a
  * relay/network error, a 401, a 404 from the ROUTE not existing at all versus the documented
  * `not_found` outcome, or a body that doesn't parse as documented — same reasoning

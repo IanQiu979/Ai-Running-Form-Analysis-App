@@ -304,6 +304,14 @@ export const Copy = {
       // refused right now. The deck has no copy for this state; kept short and generic rather
       // than inventing detailed anti-farm messaging the deck was never asked to write.
       blocked: "You can't start a new analysis right now. Try again later.",
+      // NEW keys, not in the deck. `blocked` above is the generic fallback; these two name the
+      // reason `pace_quota_status` actually gave, because "try again later" is useless when the
+      // server can say exactly when. The zero-pillar cooldown one is deliberately not an
+      // anti-abuse sentence — the runner did nothing wrong, their clip simply could not be read —
+      // and it exists so a Free user in cooldown learns it HERE, before filming and uploading
+      // again (review r8-1), rather than after.
+      blockedUntil: "You can't start a new analysis until {time}.",
+      zeroPillarCooldown: 'Nothing in your last clip could be read. You can try again at {time}.',
       // --- issues #54/#15 additions end ---
       loading: 'Checking your plan…',
       error: {
@@ -433,6 +441,19 @@ export const Copy = {
         title: 'Analysis stopped',
         body: "An earlier attempt at this one stopped before it completed. It wasn't counted against your quota — start a new analysis to try again.",
       },
+      // NEW — not in the deck. The server's 429 `zero_pillar_cooldown` (free tier): the previous
+      // analysis assessed nothing, so `analyze-form` refuses a resubmission for a short window.
+      // This is NOT `failed` — no model call was made and nothing failed — and it must not say
+      // so. `body` is completed at the call site with the server's own one-sentence message and a
+      // clock time from `retryAfterSeconds`; `bodyUnknownTime` is the honest degradation for a
+      // 429 whose `retryAfterSeconds` we could not read, which names no time rather than a wrong
+      // one. There is deliberately no Retry here: retrying reuses the same idempotency key, which
+      // `reserve_analysis` answers with the released row and a 409 — a button that cannot work.
+      zeroPillarCooldown: {
+        title: 'Nothing to read yet',
+        body: '{message} You can try again at {time}.',
+        bodyUnknownTime: '{message} Give it a few minutes and try again.',
+      },
       cta: {
         // The deck says "Reuse shared.cta.retry" / "shared.cta.cancel" — no Copy.shared
         // namespace exists in this codebase yet. Every screen shipped so far (Home's
@@ -449,6 +470,10 @@ export const Copy = {
         // same expired session, so it needs its own label. Reuses `settings.signOut.cta`'s
         // wording rather than inventing new phrasing for the same action.
         signOut: 'Sign out',
+        // NEW — not in the deck. The zero-pillar cooldown panel's only action: neither Retry nor
+        // "start a new analysis" can succeed inside the window, so the one honest way forward is
+        // out of this screen.
+        backHome: 'Back to Home',
       },
     },
   },
