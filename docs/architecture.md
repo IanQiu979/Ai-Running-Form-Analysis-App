@@ -454,7 +454,7 @@ verbosity dial, and the structured-output contract. M4's blocker: #44 (the edge 
 (validation/fallback) both build on it. **Pure and injectable** — no `Deno` global, no `fetch`, no
 env var, and it never calls Anthropic; it turns `(tier, media, frames)` into a request body, so the
 part most likely to change (prompt wording) is testable with zero network and zero API spend. Same
-pure/client split as `ai-guard.ts`. 28 Deno tests.
+pure/client split as `ai-guard.ts`. 44 Deno tests.
 
 - **Grounded, provably.** The three certified files are injected verbatim from
   `knowledge.generated.ts` (#90) — never inlined, never paraphrased. Importing that module runs
@@ -466,14 +466,18 @@ pure/client split as `ai-guard.ts`. 28 Deno tests.
   medical boundary, the #112 timestamp rules, and the input-channel rules are assembled **outside**
   the dial (`INVARIANT_RULES`) and are byte-identical for Free, Pro, and Elite. A test asserts every
   certainty rule appears at all three tiers. Higher tier ⇒ more words, never more confidence.
-- **Issue #112 is handled at the prompt layer.** Timestamps are typed and named
-  `requestedTimestampMs`, every rendered time carries `~`/"requested", every interval is
-  "approximately … (NOT an exact interval)", and the model is told the error bar (hundreds of ms,
-  Android keyframe snapping). Precise SPM / GCT-in-ms / VO-in-cm figures are **forbidden at every
-  tier including Elite**. The escape hatch that keeps the product useful: Cadence and Elasticity are
-  steered onto **timestamp-independent** evidence — the overstriding signature and the visible
-  quality of the landing, which `pace_framework.md` already calls the most important thing you can
-  see, and which need no clock.
+- **Issue #112 is handled at the prompt layer, and #199 widened what it has to cover.** The wire
+  field retains its compatibility name `requestedTimestampMs`, but every rendered value is called
+  an approximate **client-reported timestamp**, carries `~`, and every interval is
+  "approximately … (NOT an exact interval)". An updated client sends `expo-video`'s `actualTime`
+  estimate; an old client sends the time it requested from its decoder. The server receives one
+  number and cannot tell which provenance produced it, so `TIMESTAMP_RULES` and the frame manifest
+  deliberately claim neither. Precise SPM / GCT-in-ms / VO-in-cm figures are **forbidden at every
+  tier including Elite**. A verified stride burst may support cross-frame visual comparisons for
+  Cadence and Elasticity; a legacy/sparse sequence may not and forces both pillars to
+  `notAssessedReason: "needsVideo"`. Even for a burst, the prompt treats timing as approximate and
+  steers the model toward visible, timestamp-independent evidence such as the overstriding
+  signature and landing quality.
 - **`pace_framework.md`'s two timing clauses are amended at the prompt layer, not edited** (#112,
   the same mechanism as the note-conditional clauses below). The certified file — which ships
   byte-for-byte and is not editable without Ian's certification review — says *"**Only if frame
@@ -513,7 +517,8 @@ pure/client split as `ai-guard.ts`. 28 Deno tests.
   ("Solid"), `ScoreBand` speaks in codes (`'good'`). `SCORE_BAND_RUBRIC` maps them, and a test
   asserts every label it claims actually appears in `pace_framework.md`. Without this the model
   guesses, and a correctly-scored pillar renders in the wrong colour.
-- **Thinking is ON (adaptive), effort is `medium`, and — as of 2026-07-13 (#44) — there is no
+- **Thinking is ON (adaptive), effort is `low`** (lowered from `medium` 2026-09-06, issue #199 —
+  see the "Timing" note near the end of this section) **, and — as of 2026-07-13 (#44) — there is no
   `tool_choice` at all**: the output contract moved to structured outputs (`output_config.format`).
   The "unresolved forced-tool/thinking compatibility question" this bullet used to point at is
   RESOLVED and was based on a false premise — the restriction is **Amazon Bedrock only** and never
@@ -1158,7 +1163,10 @@ app/capture/
                 # window before it is known. A failed/unauthorized/slow lookup degrades to the
                 # free cap on purpose, never upward. A PHOTO is always exactly 1 frame and makes
                 # no quota call at all. Surfaces `FrameBudgetExceededError`
-                # (`upload.error.budgetExceeded`, no Retry — the same input would fail again) and
+                # (`upload.error.budgetExceeded`, no Retry — the same input would fail again),
+                # InsufficientFramesError (`upload.error.unsupportedFootage`, also no Retry —
+                # low-frame-rate footage collides identically every time; issue #199, checked
+                # BEFORE the generic branch since it is a FrameExtractionError subclass) and
                 # a generic extraction failure (`upload.error.extractionFailed`, Retry + Back)
                 # as distinct, real states, not a raw alert. On success: `upload.ready.*` (NEW
                 # copy — see below) and "Done" back to Home.
@@ -1177,7 +1185,8 @@ reusing the deck's Screen 5 key prefix even though the screen only implements th
 extraction half — see the #36 update note in `docs/design/copy-deck.md`'s Screen 5 section for
 why `upload.step.uploading`/`upload.error.*`/`upload.offline.*` are specced but not built). Most
 strings are lifted verbatim by key; a handful are genuinely new (`sourcePicker.error.*`,
-`upload.error.budgetExceeded.*`, `upload.error.extractionFailed.*`, `upload.ready.*`) because the
+`upload.error.budgetExceeded.*`, `upload.error.extractionFailed.*`, `upload.ready.*`, and
+#199's `upload.error.unsupportedFootage.*`) because the
 scenarios they cover — a library-picked clip over the cap, a local extraction failure, the
 no-next-screen-yet stopping point — were never specced. Each is marked "NEW key" at both its
 `constants/copy.ts` definition and its mirrored row in `docs/design/copy-deck.md`, the same
@@ -1313,17 +1322,25 @@ the original video (see "Media pipeline" below).
    atomically, before the model is ever called. Over quota → structured `402`, and — same as
    step 4 — settle the gate's reservation as `'cancelled'` before returning, since the model is
    never going to be called for this request either.
-6. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames with the timestamps
-   the client **requested** from the extractor. **These are NOT the actual decoded times** —
-   `expo-video-thumbnails` cannot report those on either platform (Android snaps to the nearest
-   keyframe and exposes no PTS; iOS discards `AVAssetImageGenerator`'s `actualTime`), so the real
-   intervals can differ by hundreds of ms and are not necessarily evenly spaced (issue #112; this
-   paragraph previously claimed the opposite). Cadence and Elasticity are both derived from motion
-   over time, so the prompt (step 7) is required to present these intervals as approximate — see
-   "Current — the `analyze-form` prompt" below. The frames ride in the request body as base64 and
-   are **not** uploaded by the client — the server writes them to the bucket itself, after the
-   model call (#88). Frame count per tier: Free 1 / Pro 5 / Elite 8 — the client learns which
-   applies to a given caller from `quota-status`'s authoritative `frameCap` field
+6. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames sampled as ONE
+   centered ~700ms burst (issue #199, replacing the old "evenly across 5%-95% of the whole clip"
+   spacing — see "Current — media pipeline" below for why that spacing was a structural ceiling).
+   The wire carries one client-reported timestamp per frame. The updated extractor populates it
+   from the decoder's `actualTime`; a pre-#199 client instead sends the time it requested, and the
+   server cannot distinguish the two. `actualTime` is frame-accurate on iOS
+   (`AVAssetImageGenerator`, zero time tolerance) and an average-frame-duration ESTIMATE on Android
+   (`MediaMetadataRetriever`'s frame-count-derived rounding, falling back to the requested time
+   when frame-count metadata isn't available) — see `lib/frames.ts`'s "TIMESTAMP ACCURACY" header
+   for the full platform split. Neither is independently verified, so the real intervals can still
+   differ from the stated ones and are not necessarily evenly spaced (issue #112). Cadence and
+   Elasticity are both derived from motion over time, so the prompt (step 7) is required to present
+   these intervals as approximate regardless — see "Current — the `analyze-form` prompt" below —
+   and to distinguish, server-side, a genuine stride burst from any pre-#199 sparse manifest a
+   not-yet-updated client build might still send (`MAX_STRIDE_BURST_SPAN_MS`,
+   `analyze-form-prompt.ts`). The frames ride in the request body as base64 and are **not**
+   uploaded by the client — the server writes them to the bucket itself, after the model call
+   (#88). Frame count per tier: Free 1 / Pro 5 / Elite 8 — the client learns which applies to a
+   given caller from `quota-status`'s authoritative `frameCap` field
    (`lib/extraction-frame-cap.ts`), never by indexing its own per-tier table, and
    `reserve_analysis` re-checks the real cap server-side regardless.
 7. **Build the grounded prompt** — **built, issue #41**: `supabase/functions/_shared/analyze-form-prompt.ts`.
@@ -1336,7 +1353,7 @@ the original video (see "Media pipeline" below).
    moves depth and **only** depth: the scoring, not-assessed, medical-boundary, and
    timestamp-approximation rules are assembled outside it and are identical at every tier.
 8. **One vision call** — `claude-sonnet-5`, **adaptive thinking ON** (`thinking: {type:
-   'adaptive'}`, set explicitly), `output_config: {effort: 'medium'}`, `max_tokens` 4–8k (from
+   'adaptive'}`, set explicitly), `output_config: {effort: 'low'}`, `max_tokens` 4–8k (from
    `MAX_OUTPUT_TOKENS_BY_TIER`, the same constant the spend gate reserved against), and a
    `strict: true` `submit_pace_analysis` tool returning structured JSON for the 4 PACE pillars,
    each scored with feedback, plus injury flags and (paid) drills. **The tool schema IS
@@ -1362,11 +1379,15 @@ the original video (see "Media pipeline" below).
 
    **`max_tokens` is a hard limit on thinking + response text together**, so the gate's *output*
    reservation (`MAX_OUTPUT_TOKENS_BY_TIER`, the same number sent as `max_tokens`) remains a true
-   upper bound on billed output even with thinking on. But the budget is tight, which is why
-   `effort` is **`medium`**, not the default `high`: Anthropic names "drop to `medium` effort" as
-   the direct remedy for a mostly-thinking, truncated answer, and Sonnet 5 at `medium` is
-   comparable in intelligence to Sonnet 4.6 at `high`. **#44 must treat `stop_reason: 'max_tokens'`
-   as a truncation**, never as a usable response.
+   upper bound on billed output even with thinking on. **`effort` was lowered from `medium` to
+   `low` on 2026-09-06** (issue #199's reliability pass, following the core-purpose audit): real
+   video calls at `medium` spent 2,800-5,000+ of their 4-8k token budget on thinking alone, which is
+   what drove both the truncated-at-`max_tokens` failures and several timeouts past the old 65s
+   per-attempt ceiling. `low` keeps adaptive thinking ON — Anthropic names dropping effort, not
+   disabling thinking, as the remedy for a mostly-thinking truncated answer — while leaving
+   `MAX_OUTPUT_TOKENS_BY_TIER` untouched; raising that ceiling instead remains a separate decision
+   that must move the AI spend gate's reservation with it. **#44 must treat `stop_reason:
+   'max_tokens'` as a truncation**, never as a usable response.
 
    Also: this model **rejects any non-default `temperature`/`top_p`/`top_k` with a 400**, so the
    request sets none of them. Do not add `temperature: 0` for determinism — that buys a 400, not
@@ -1425,7 +1446,24 @@ function was told to upload media it never receives).
   frame-strip display list, not the deletion authority. #47/#57/#58 all inherit this rule.
 - **The original full-resolution video is never uploaded or stored** — it stays on the device.
   This keeps the free-plan 1GB bucket viable (a few hundred KB per analysis instead of
-  60–130MB) and needs no video player (`expo-video` is not installed).
+  60–130MB). **As of 2026-09-06 (issue #199), `expo-video ~57.0.3` IS installed** —
+  `expo-video-thumbnails`'s replacement for on-device frame decoding, not a video player: the app
+  never plays back, previews, or renders the clip itself, and the full-resolution file still never
+  leaves the device.
+- **Video frame sampling is ONE centered ~700ms burst, not a spread across the whole clip**
+  (issue #199, replacing the pre-2026-09-06 "evenly across 5%-95% of the whole clip" spacing that
+  put 1.3-2.2s between Pro/Elite frames against a ~0.7s recreational stride — the core-purpose
+  audit's structural-ceiling finding: no two of those frames ever belonged to the same stride, so
+  Cadence and Elasticity were single-frame guesses). `lib/frames.ts`'s `sampleTimestamps` and
+  `extractVideoFrames` (see that file's header for the full detail, including the iOS-vs-Android
+  `actualTime` accuracy split, the fail-closed rejection of a decoder defect, and the skip-then-
+  `MIN_USABLE_VIDEO_FRAMES`-floor handling of low-frame-rate timestamp/byte collisions) are the
+  authority; `supabase/functions/_shared/analyze-form-prompt.ts` separately classifies each
+  request's frames server-side (`MAX_STRIDE_BURST_SPAN_MS`) rather than trusting the client, since
+  the edge function deploys before every native app install has picked up the new sampling.
+  Cleanup is fail-safe too: the manipulator context is released even when `renderAsync` rejects,
+  and a throwing `onProgress` callback cannot make the remaining cleanup release the current
+  thumbnail twice. `lib/__tests__/frames.test.ts` locks both native-resource paths.
 - Past Analyses shows the stored frames as a frame strip via short-TTL (~1h, regenerated on
   open) signed URLs.
 - Caps: max clip length 15s; max upload 50MB pre-compress; frames downscaled to ≤1568px long
@@ -1891,10 +1929,14 @@ killed (timeout/OOM/deploy) before its own `finally` block can reach `release_an
   scheduled edge function: pure DB bookkeeping needs no HTTP hop, and provisioning a Vault-stored
   credential for a `pg_net`-invoked edge function from a migration file isn't something this
   migration attempts.
-- **The 15-minute threshold is derived, not guessed**: `analyze-form`'s own self-imposed
-  `ANALYZE_FORM_DEADLINE_MS` (105s, `flow.ts`) and Supabase Edge Functions' 150s platform
-  wall-clock kill bound how long a *legitimate*, still-running reservation can stay `'reserved'`;
-  15 minutes is 6x the platform limit, ~7.5x the self-imposed one.
+- **The 15-minute threshold is derived, not guessed**: `analyze-form` caps its model deadline at
+  the request-start `ANALYZE_FORM_REQUEST_DEADLINE_MS` envelope (105s as of 2026-09-06's #199
+  reliability pass; the nested maximum post-preflight model window is 85s — `flow.ts`) and
+  Supabase Edge Functions have a 150s platform wall-clock kill. Those bounds constrain how long a
+  legitimate invocation should keep a reservation `'reserved'`; 15 minutes is 6x the platform
+  limit and ~8.6x the request-start cap applied to model work. The 105s value is not a hard local
+  cancellation of each auth, DB, Storage, RPC, or response operation; one stalled dependency can
+  still outlive the client timeout.
 - **Extends `analyses_release_reason_known_values`** (the CHECK constraint the anti-farming fix
   below introduces) with a fifth value, `'stale_sweep'` — superset-only, so this is safe
   regardless of the table's row count. Deliberately kept OUT of `pace_is_farming_signal`'s
@@ -2730,14 +2772,17 @@ function flow" above wherever the two disagree.
 
 | File | Role | Tested |
 |---|---|---|
-| `analyze-form/index.ts` | HTTP + auth glue only. Verifies the JWT via `auth.getUser()`. | — |
-| `analyze-form/flow.ts` | The whole orchestration, against injected deps. No npm/Deno import. | 50 Deno tests |
+| `analyze-form/index.ts` | HTTP + auth glue. Captures request start at `Deno.serve` entry, then verifies the JWT via `auth.getUser()` and passes the timestamp into the flow. | — |
+| `analyze-form/flow.ts` | The whole orchestration, against injected deps. No npm/Deno import. | 96 Deno tests |
 | `analyze-form/deps.ts` | Deno wiring: service-role Supabase client, Storage, the Anthropic `fetch`. | — (thin factory) |
-| `_shared/analyze-form-validation.ts` | #45: read the response, validate structurally, salvage, classify. | 34 Deno tests |
+| `_shared/analyze-form-validation.ts` | #45: read the response, validate structurally, salvage, classify. | 43 Deno tests |
 
 The model is a **fake queue** in every test. The suite makes **zero Anthropic calls** and costs $0.
 
 **The order, as built:**
+
+`index.ts` captures `requestStartedAt` before auth and JSON parsing so both count against the
+client-observed envelope, even though `runAnalyzeForm` begins afterward.
 
 ```
 auth → consent → tier lookup (free short-circuits here) → AI gate → idempotency + reserve
@@ -2795,7 +2840,9 @@ were uploading — the function purges the prefix it just wrote.
    and one `recordAiCall` call site in the whole function, both in a `finally`. The body never
    releases and never records — it only sets the intent (`releaseReason`, and each open call's
    attempt binding). A branch cannot forget an obligation it does not perform, and an unexpected
-   throw takes the same path.
+   throw takes the same path. The `finally` runs `release_analysis` **before** `recordAiCall`: a
+   delayed ledger write may temporarily retain daily-cap headroom, but it cannot strand the user's
+   reserved quota slot ahead of cleanup.
 4. **Consent (`upload.health.v1`), fail-closed.** Checked before the gate, the reserve, the model,
    and the bucket. A missing row, `granted = false`, AND a query error all refuse with 403. A test
    asserts that a refusal leaves *zero* RPC calls behind.
@@ -2804,11 +2851,22 @@ were uploading — the function purges the prefix it just wrote.
    own gate** — it is a second billed call, and the daily cap and breaker must see it. Each gated
    call is settled with **its own** outcome, so an attempt that failed and was rescued by a retry
    still settles as `'validation_failed'`/`'model_error'`, not as `'success'` — otherwise a model
-   that had stopped calling tools correctly would be invisible to the circuit breaker while
-   silently doubling spend on every request.
+   that had stopped responding correctly would be invisible to the circuit breaker while silently
+   doubling spend on every request. **As of 2026-09-06 (issue #199), only a RETRY-ELIGIBLE failure
+   kind is retried at all** — `model_error` (a transport blip) or a content/shape failure
+   (`no_tool_use`/`invalid_shape`); `provider_timeout`, `max_tokens` truncation, and a policy
+   `refusal` are terminal. Content failures had to stay retry-eligible, not just transport errors,
+   because a repeated content failure is the only signal `classifyReleaseReason` has for
+   deliberate prompt-injection farming; see the "Timing" note below for the full reasoning and the
+   regression this avoided. The flow checks the applicable 80s/20s floor both before and after the
+   retry's spend gate. If the gate allows but its network round trip consumes the floor, no provider
+   call is made, that unused gate row settles as `'cancelled'`, and
+   `retry_skipped_insufficient_budget` records `stage: 'after_retry_gate'` (the earlier check uses
+   `stage: 'before_retry_gate'`).
 
-**The model call — verified against the live Anthropic docs on 2026-07-13, not recalled.**
-`claude-sonnet-5`, `thinking: {type: 'adaptive'}`, `output_config: {effort: 'medium', format:
+**The model call — verified against the live Anthropic docs on 2026-07-13, not recalled; `effort`
+lowered from `medium` to `low` 2026-09-06 (issue #199, see "Timing" below).**
+`claude-sonnet-5`, `thinking: {type: 'adaptive'}`, `output_config: {effort: 'low', format:
 {type: 'json_schema', schema: PACE_RESULT_SCHEMA}}`, `max_tokens` 4–8k from
 `MAX_OUTPUT_TOKENS_BY_TIER`. **No `tools`. No `tool_choice`.**
 
@@ -2850,11 +2908,43 @@ were uploading — the function purges the prefix it just wrote.
   output (thinking + response text)"). `stop_reason: 'max_tokens'` is therefore treated as a
   **truncation and is never usable**, whatever the content looks like — Echo V1's exact bug.
 
-**Timing.** Total model budget `ANALYZE_FORM_DEADLINE_MS` = 105s, per-attempt cap 65s; the retry is
-skipped when under `MIN_RETRY_BUDGET_MS` (20s) remains, because a call we start and abort is a call
-we pay for and cannot use. 105s sits under the client's own `ANALYZING_TIMEOUT_MS` (120s), so a
-doomed request fails as our structured `{ error, code }` — reservation released, ledger settled —
-rather than as the client's blind timeout, which would leave the row `'reserved'` until #47's sweep.
+**Timing — revised 2026-09-06 (issue #199), following the core-purpose audit's live-call
+evidence.** Three of six real video calls exceeded the old 65s per-attempt limit (one truncated by
+thinking tokens instead), so a Pro user could wait nearly two minutes for a `provider_timeout`. The
+audit traced this to genuine work time — `effort: 'medium'`'s thinking spent 2,800-5,000+ of the
+4-8k output-token budget before any answer text — not to a number that merely needed raising.
+`ANALYZE_FORM_EFFORT` therefore dropped to `'low'` (adaptive thinking stays ON; see step 8 above)
+and the timing envelope was rebuilt around the client's 120s timeout.
+
+`ANALYZE_FORM_REQUEST_DEADLINE_MS` is 105s from request start. `index.ts` captures that start at
+`Deno.serve` entry before auth and body parsing and passes it to `runAnalyzeForm`; after parsing,
+consent, tier lookup, the first spend gate, and reservation, the effective model deadline is
+`min(now + ANALYZE_FORM_DEADLINE_MS, startedAt + ANALYZE_FORM_REQUEST_DEADLINE_MS)`, where the
+maximum post-preflight model window is 85s and each call is capped at 80s. Preflight through 20s
+therefore preserves the full 85s window and 80s first-attempt cap; slower preflight consumes model
+time instead of extending work beyond request-start + 105s. This leaves 15s of nominal headroom
+before `ANALYZING_TIMEOUT_MS` for settlement, upload, and returning a structured response. This is
+a cap on model dispatch, not a local wall-clock cancellation for auth, DB, Storage, or other RPCs:
+an individual stalled dependency can still outlive the client's timeout. No unsafe `Promise.race`
+was added around side-effecting work, because the losing operation could still commit after the
+response. Client-side frame extraction happens before this request, and preflight is outside
+provider latency even though it is inside the request envelope. If preflight exhausts the envelope,
+a zero/negative model budget never reaches the provider; the unused first-gate row settles as
+`'cancelled'` and the request follows the `provider_timeout` failure path.
+
+Retry admission is split by failure kind. A transport `model_error` requires a full fresh 80s
+(`MIN_RETRY_BUDGET_MS`); a completed content/shape failure (`no_tool_use`/`invalid_shape`) requires
+20s (`MIN_CONTENT_RETRY_BUDGET_MS`). `provider_timeout`, `max_tokens` truncation, and policy
+`refusal` are terminal. The smaller content floor keeps repeated-content anti-farming
+classification reachable after a realistic first call; if that smaller retry itself times out, it
+becomes `model_error`, refunds quota, and does not count as a farming strike. Restricting content
+retries to the transport floor made that production path practically unreachable — caught by the
+security-auditor/code-reviewer pass before merge and locked by non-zero-duration virtual-clock
+tests. The same floor is rechecked after the retry gate so gate latency cannot create an
+underfunded call; a skipped allowed gate row is cancelled and logged with its stage. No
+client-visible progress indicator was added; `lib/analyzing-machine.ts`'s existing animated wait
+state is unchanged. 4 real Anthropic model calls were made, for the `ANALYZE_FORM_EFFORT` low-vs-medium eval only (run manually outside the pipeline, 2026-09-06); every other behaviour on this branch (timeout/retry/deadline and frame sampling) is verified only offline.
+This fix round did not deploy or invoke the live function.
 
 **Status codes** (every non-2xx body is `{ error, code }`):
 

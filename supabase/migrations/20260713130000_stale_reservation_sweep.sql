@@ -23,15 +23,17 @@
 -- Two independent ceilings bound how long a LEGITIMATE (non-crashed) 'reserved' row can stay
 -- reserved, both read from the live code, not assumed:
 --
---   1. analyze-form's OWN self-imposed budget: `ANALYZE_FORM_DEADLINE_MS = 105_000` (105s),
---      `supabase/functions/analyze-form/flow.ts:122` — "Wall-clock budget for ALL model work in
---      one request, measured from the moment the reserve lands... sized to leave ~15s of
---      headroom under the client's timeout." The reservation itself lands slightly AFTER this
---      clock starts (consent + the AI spend gate run first), so a normally-completing request's
---      row age at settle/release time is bounded by ~105s, plus a further, unbounded-in-code but
---      empirically small tail for uploadFrames (capped by `PACE_MAX_REQUEST_BODY_BYTES` = 5MB
---      across at most `PACE_FRAME_CAP.elite` = 8 frames) + settle_analysis's one RPC round trip
---      + the `finally` block's own RPC calls. Call the realistic non-crashed ceiling ~120-125s.
+--   1. analyze-form's OWN self-imposed budget: `ANALYZE_FORM_REQUEST_DEADLINE_MS = 105_000`
+--      (105s), `supabase/functions/analyze-form/flow.ts` — the whole-request envelope, measured
+--      from the handler's entry and sized to leave ~15s of headroom under the client's timeout.
+--      (`ANALYZE_FORM_DEADLINE_MS` is a different, smaller constant: the maximum 85s model
+--      window carved out of that envelope after preflight.) The reservation itself lands
+--      slightly AFTER this clock starts (consent + the AI spend gate run first), so a
+--      normally-completing request's row age at settle/release time is bounded by ~105s, plus a
+--      further, unbounded-in-code but empirically small tail for uploadFrames (capped by
+--      `PACE_MAX_REQUEST_BODY_BYTES` = 5MB across at most `PACE_FRAME_CAP.elite` = 8 frames)
+--      + settle_analysis's one RPC round trip + the `finally` block's own RPC calls. Call the
+--      realistic non-crashed ceiling ~120-125s.
 --
 --   2. Supabase Edge Functions' PLATFORM wall-clock limit: 150 seconds for a Free/Pro-plan
 --      function to return its initial HTTP response (Supabase docs, "Edge Function 'wall clock

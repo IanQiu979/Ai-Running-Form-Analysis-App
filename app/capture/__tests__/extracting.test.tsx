@@ -20,16 +20,23 @@
  * caption's total agrees with it. Only the real `quotaStatusClient` is faked; `fetchVideoFrameCap`
  * and `resolveVideoFrameCap` run for real, so this exercises the whole chain end to end.
  *
- * `extractFrames` never resolves in any test here (deliberately) — for #147 the render count must
+ * `extractFrames` never resolves by default here (deliberately) — for #147 the render count must
  * stay bounded indefinitely while the screen sits in its "extracting" state, and for the frame-cap
  * cases the screen parks in "extracting" with the resolved total on display, which is exactly the
- * state under test.
+ * state under test. The error-routing block overrides that with a one-shot rejection per case,
+ * since which ERROR KIND a thrown extraction failure maps to — and therefore whether a Retry
+ * control is offered at all — is also wiring only a screen-level render can prove.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { Copy } from '@/constants/copy';
 import { takePendingAnalyzeFormRequest } from '@/lib/analyze-form';
-import { extractFrames, type PaceFrameSet } from '@/lib/frames';
+import {
+  extractFrames,
+  FrameExtractionError,
+  InsufficientFramesError,
+  type PaceFrameSet,
+} from '@/lib/frames';
 import { MAX_CLIP_DURATION_MS } from '@/lib/media-caps';
 import { quotaStatusClient, type QuotaStatus, type QuotaStatusResult } from '@/lib/quota';
 
@@ -97,6 +104,15 @@ jest.mock('expo-router', () => ({
     replace: jest.fn(),
     push: jest.fn(),
   }),
+}));
+
+// `jest.requireActual('@/lib/frames')` below re-executes the real module, whose top-level
+// `import ... from 'expo-video'` otherwise crashes at import time under Jest (no native module,
+// and jest-expo ships no built-in mock for it, unlike several other expo-* packages). This suite
+// never exercises real video decoding — `extractFrames` itself is fully mocked out below — so an
+// empty stub is enough to let the import resolve.
+jest.mock('expo-video', () => ({
+  createVideoPlayer: jest.fn(),
 }));
 
 // Never resolves: the screen must stay in its "extracting" state — and, critically, stay
@@ -331,6 +347,40 @@ describe('ExtractingScreen — photos are unaffected', () => {
     expect(mockQuotaFetch).not.toHaveBeenCalled();
     expect(extractedFrameCount()).toBe(1);
     expect(getByText(Copy.upload.step.extracting(0, 1))).toBeTruthy();
+  });
+});
+
+describe('ExtractingScreen — a clip that can never be analyzed says so, instead of offering a dead Retry', () => {
+  beforeEach(() => {
+    mockRouteParams = { ...VIDEO_PARAMS };
+    mockQuotaFetch.mockResolvedValue(quotaResult('elite', PACE_FRAME_CAP.elite));
+  });
+
+  // `lib/frames.ts` rejects low-frame-rate footage with `InsufficientFramesError` only after
+  // skipping every colliding frame — meaning the pipeline is deterministic for that clip and a
+  // second run collides identically. Offering "Retry" there is a lie, so this state gets its own
+  // copy and only a way back, the same shape as the budgetExceeded case.
+  it('routes InsufficientFramesError to its own copy with no Retry control', async () => {
+    mockExtractFrames.mockRejectedValueOnce(new InsufficientFramesError(2, PACE_FRAME_CAP.elite));
+
+    const { getByText, queryByText } = await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(getByText(Copy.upload.error.unsupportedFootage.title)).toBeTruthy(), WAIT);
+    expect(getByText(Copy.upload.error.unsupportedFootage.body)).toBeTruthy();
+    expect(queryByText('Retry')).toBeNull();
+    expect(getByText('Back')).toBeTruthy();
+  });
+
+  // The contrast case, and the reason the InsufficientFramesError check has to come FIRST: it IS
+  // a FrameExtractionError, so a plain `instanceof FrameExtractionError` branch would swallow it.
+  // A genuine one-off extraction failure keeps the retryable copy AND the Retry control.
+  it('still offers Retry for a generic extraction failure', async () => {
+    mockExtractFrames.mockRejectedValueOnce(new FrameExtractionError('a corrupt file'));
+
+    const { getByText } = await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(getByText(Copy.upload.error.extractionFailed.title)).toBeTruthy(), WAIT);
+    expect(getByText('Retry')).toBeTruthy();
   });
 });
 

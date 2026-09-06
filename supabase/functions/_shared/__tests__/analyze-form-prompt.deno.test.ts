@@ -17,6 +17,7 @@
  * `assertNonEmptyKnowledge()` at module load, so an empty knowledge bundle fails the suite before
  * a single test body executes.
  */
+import { assertEquals } from 'jsr:@std/assert@1';
 import {
   ANALYZE_FORM_EFFORT,
   ANALYZE_FORM_MODEL,
@@ -49,11 +50,41 @@ function frame(requestedTimestampMs: number): PaceFrame {
   return { base64: 'ZmFrZS1qcGVn', mediaType: 'image/jpeg', requestedTimestampMs };
 }
 
+/**
+ * A genuine stride burst — frames spanning `MAX_STRIDE_BURST_SPAN_MS`'s (900ms) safe zone,
+ * matching what `lib/frames.ts`'s post-#199 `sampleTimestamps` actually produces (a ~700ms window).
+ * `videoInput` uses this by default so every test exercising some OTHER property of the video
+ * prompt (tier depth, medical boundary, flag naming, ...) keeps getting the full four-pillar
+ * `STRIDE_BURST_VIDEO_RULES` text it was written against. Tests of the burst/legacy classification
+ * itself use `legacySparseVideoInput` below instead.
+ */
+function burstFrames(frameCount: number): PaceFrame[] {
+  if (frameCount <= 1) {
+    return Array.from({ length: Math.max(frameCount, 0) }, () => frame(0));
+  }
+  const step = 700 / (frameCount - 1);
+  return Array.from({ length: frameCount }, (_, i) => frame(Math.round(i * step)));
+}
+
 function videoInput(tier: PaceTier, frameCount = 5): AnalyzeFormPromptInput {
   return {
     tier,
     media: 'video',
-    frames: Array.from({ length: frameCount }, (_, i) => frame(i * 400)),
+    frames: burstFrames(frameCount),
+  };
+}
+
+/**
+ * Frames spread across a whole clip the way the pre-#199 sampler used to (1.3-2.2s apart) — wide
+ * enough that `isStrideBurst` must classify them as LEGACY/SPARSE. Exists so the classification
+ * itself, and `LEGACY_SPARSE_VIDEO_RULES`'s forced not-assessed treatment of Cadence/Elasticity,
+ * has dedicated coverage independent of every other video-prompt test's default burst input.
+ */
+function legacySparseVideoInput(tier: PaceTier, frameCount = 5): AnalyzeFormPromptInput {
+  return {
+    tier,
+    media: 'video',
+    frames: Array.from({ length: frameCount }, (_, i) => frame(i * 1_600)),
   };
 }
 
@@ -497,16 +528,34 @@ Deno.test('stop-running safety signals reach Free, overriding the paid-tier flag
 });
 
 // -------------------------------------------------------------------------------------------
-// 5. ISSUE #112 — the timestamps are REQUESTED, not actual, and the prompt must say so
+// 5. ISSUE #112 — timestamps are approximate client-reported values, and the prompt must say so
 // -------------------------------------------------------------------------------------------
 
 Deno.test('every rendered timestamp is marked approximate — no bare, authoritative value', () => {
   const manifest = formatFrameManifest([frame(0), frame(400), frame(800)]);
 
-  assertIncludes(manifest, 'requested at ~0 ms', 'Frame 1 timestamp is not marked as requested/approx.');
+  assertIncludes(
+    manifest,
+    'client-reported timestamp ~0 ms',
+    'Frame 1 timestamp is not marked as client-reported/approximate.'
+  );
   assertIncludes(manifest, 'approximately 400 ms after frame 1', 'Interval is not marked approximate.');
   assertIncludes(manifest, 'NOT an exact interval', 'Interval is not explicitly disclaimed.');
-  assertIncludes(manifest, 'REQUESTED time, not a measured one', 'The manifest does not state the truth.');
+  assertIncludes(
+    manifest,
+    'APPROXIMATE CLIENT-REPORTED value',
+    'The manifest does not state the timestamp certainty truthfully.'
+  );
+  assertIncludes(
+    manifest,
+    'may be the time requested from the decoder or the decoder estimate returned to the client',
+    'The manifest does not explain the two possible timestamp provenances.'
+  );
+  assertIncludes(
+    manifest,
+    'the server cannot tell which',
+    'The manifest does not state that timestamp provenance is unknown.'
+  );
   assertIncludes(
     manifest,
     'hundreds of milliseconds',
@@ -527,6 +576,36 @@ Deno.test('every rendered timestamp is marked approximate — no bare, authorita
   );
 });
 
+Deno.test('an updated stride burst is labelled with provenance-neutral client-reported timestamps', () => {
+  const text = buildUserContent(videoInput('pro', 3))
+    .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n');
+
+  assertIncludes(
+    text,
+    'STRIDE BURST (approximate client-reported timestamps)',
+    'A burst manifest must describe what the server actually knows, not assert decoder provenance.'
+  );
+  assertIncludes(
+    text,
+    'client-reported timestamp ~350 ms (approximate)',
+    'Each frame label must use the same provenance-neutral timestamp description.'
+  );
+  assert(
+    !text.includes('decoder-reported'),
+    'Generated user content still makes a decoder-only provenance claim.'
+  );
+  assert(
+    !text.includes('requested at ~'),
+    'A generated frame label still makes a requested-only provenance claim.'
+  );
+  assert(
+    !text.includes('Every time above is a REQUESTED time'),
+    'The generated manifest still makes a requested-only provenance claim.'
+  );
+});
+
 Deno.test('a photo manifest claims no timing at all', () => {
   const manifest = formatFrameManifest([frame(0)]);
   assertIncludes(manifest, 'no timing information applies', 'A single photo should assert no timing.');
@@ -540,8 +619,16 @@ Deno.test('the image blocks themselves label their timestamps as approximate', (
     .map((b) => b.text)
     .join('\n');
 
-  assertIncludes(text, 'Frame 1 of 3 — requested at ~0 ms (approximate)', 'Frame label lost its hedge.');
-  assertIncludes(text, 'Frame 2 of 3 — requested at ~400 ms (approximate)', 'Frame label lost its hedge.');
+  assertIncludes(
+    text,
+    'Frame 1 of 3 — client-reported timestamp ~0 ms (approximate)',
+    'Frame label lost its neutral provenance or hedge.'
+  );
+  assertIncludes(
+    text,
+    'Frame 2 of 3 — client-reported timestamp ~350 ms (approximate)',
+    'Frame label lost its neutral provenance or hedge.'
+  );
 
   // Ordering (docs/architecture.md step 7): manifest, then each label immediately before its
   // image, then the scoring instruction LAST.
@@ -618,7 +705,7 @@ Deno.test('the certified timing clauses the prompt amends still EXIST in the cer
       clause,
       'TIMESTAMP_RULES quotes this clause from pace_framework.md and amends how it is read, but ' +
         'the clause is no longer in the certified file. Re-aim the amendment (do NOT delete it): ' +
-        'the timestamps are still requested-not-measured, so whatever replaced this clause still ' +
+        'the timestamps are still approximate and not measured, so whatever replaced this clause still ' +
         'needs neutralising.'
     );
   }
@@ -703,6 +790,167 @@ Deno.test('the uncertainty must reach the RUNNER — hedged in `feedback`, not j
       `Tier "${tier}" gives no example of a correctly hedged cadence claim.`
     );
   }
+});
+
+// -------------------------------------------------------------------------------------------
+// 5b. ISSUE #199 — the stride-burst / legacy-sparse split (the core-purpose audit's structural
+//     ceiling finding: frames sampled far apart cannot show motion, no matter what the prompt says)
+// -------------------------------------------------------------------------------------------
+
+Deno.test('a genuine stride burst unlocks all four pillars and is labelled STRIDE BURST', () => {
+  const prompt = fullPromptText(videoInput('pro'));
+
+  assertIncludes(prompt, 'A STRIDE BURST', 'A tight burst is not described as a stride burst.');
+  assertIncludes(
+    prompt,
+    'Across these frames you can assess all four pillars',
+    'A stride burst does not unlock all four pillars.'
+  );
+  assertIncludes(
+    prompt,
+    'STRIDE BURST (approximate client-reported timestamps)',
+    'The frame manifest header does not classify a tight burst as a stride burst.'
+  );
+  assertIncludes(
+    prompt,
+    'Compare them to each other — that comparison, not any single frame, is the analysis.',
+    'A stride burst is not explicitly treated as motion evidence across frames.'
+  );
+});
+
+Deno.test('frames spread across a whole clip are classified LEGACY/SPARSE and lose Cadence/Elasticity', () => {
+  const prompt = fullPromptText(legacySparseVideoInput('pro'));
+
+  assertIncludes(
+    prompt,
+    'SEVERAL VIDEO FRAMES, SPREAD ACROSS THE CLIP — NOT A STRIDE BURST',
+    'Widely-spaced frames are not described as legacy/sparse.'
+  );
+  assertIncludes(
+    prompt,
+    'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)',
+    'The frame manifest header does not classify widely-spaced frames as legacy/sparse.'
+  );
+  assertIncludes(
+    prompt,
+    'not a motion sequence — it is a coincidence dressed up as one',
+    'Legacy/sparse frames are not told they cannot be read as motion.'
+  );
+  assertIncludes(
+    prompt,
+    'Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
+    'Legacy/sparse frames do not explicitly null both motion-derived pillars.'
+  );
+  assertIncludes(
+    prompt,
+    '"needsVideo"',
+    'Legacy/sparse frames do not use the required needsVideo reason.'
+  );
+  assert(
+    !prompt.includes('Across these frames you can assess all four pillars'),
+    'Legacy/sparse frames must not be told all four pillars are assessable.'
+  );
+});
+
+Deno.test('a single video frame is treated like a photo, not a burst and not legacy/sparse', () => {
+  const prompt = fullPromptText(videoInput('free', 1));
+
+  assertIncludes(
+    prompt,
+    'A SINGLE FRAME FROM A VIDEO',
+    'A one-frame video does not get the single-frame video rules.'
+  );
+  assertIncludes(
+    prompt,
+    '"needsVideo"',
+    'A one-frame video does not require the needsVideo not-assessed reason.'
+  );
+  assert(!prompt.includes('A STRIDE BURST'), 'A single frame cannot be a stride burst.');
+  assert(
+    !prompt.includes('SEVERAL VIDEO FRAMES, SPREAD ACROSS THE CLIP'),
+    'A single frame is not "several frames".'
+  );
+});
+
+Deno.test('the burst/legacy split is a server-side property of the frames, not the tier or count', () => {
+  // The whole point of #199's server-side classification (see `isStrideBurst`'s header): the edge
+  // function deploys instantly, a native app update does not, so a request built by an
+  // un-updated client with 5 widely-spaced frames must classify the same as any other 5
+  // widely-spaced frames — Elite's extra depth never buys back missing motion evidence.
+  for (const tier of TIERS) {
+    const sparsePrompt = fullPromptText(legacySparseVideoInput(tier));
+    assertIncludes(
+      sparsePrompt,
+      'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)',
+      `Tier "${tier}" with widely-spaced frames is not classified as legacy/sparse.`
+    );
+
+    const burstPrompt = fullPromptText(videoInput(tier));
+    assertIncludes(
+      burstPrompt,
+      'STRIDE BURST (approximate client-reported timestamps)',
+      `Tier "${tier}" with a tight burst is not classified as a stride burst.`
+    );
+  }
+});
+
+Deno.test('a non-increasing or NaN-spanning frame sequence is never classified as a stride burst', () => {
+  // Defense in depth: `lib/frames.ts` rejects a non-increasing sequence before it is ever sent
+  // (`FrameExtractionError`), but this file must not silently trust that a request arriving here
+  // was built by the current client — see `isStrideBurst`'s own header.
+  const nonIncreasing: AnalyzeFormPromptInput = {
+    tier: 'pro',
+    media: 'video',
+    frames: [frame(0), frame(0), frame(350)],
+  };
+  const prompt = fullPromptText(nonIncreasing);
+
+  assertIncludes(
+    prompt,
+    'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)',
+    'A non-increasing frame sequence must not be trusted as a stride burst.'
+  );
+});
+
+Deno.test('an infinite-spanning frame sequence is never classified as a stride burst', () => {
+  // The other half of "non-increasing or NaN/non-finite-spanning": strictly increasing but with a
+  // non-finite value still fails `Number.isFinite(span)` rather than being trusted as a burst.
+  const infiniteSpan: AnalyzeFormPromptInput = {
+    tier: 'pro',
+    media: 'video',
+    frames: [frame(0), frame(Number.POSITIVE_INFINITY)],
+  };
+  const prompt = fullPromptText(infiniteSpan);
+
+  assertIncludes(
+    prompt,
+    'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)',
+    'A non-finite frame span must not be trusted as a stride burst.'
+  );
+});
+
+Deno.test('the stride-burst span boundary is exact: 900ms is a burst, 901ms is legacy/sparse', () => {
+  const atBoundary: AnalyzeFormPromptInput = {
+    tier: 'pro',
+    media: 'video',
+    frames: [frame(0), frame(900)],
+  };
+  const overBoundary: AnalyzeFormPromptInput = {
+    tier: 'pro',
+    media: 'video',
+    frames: [frame(0), frame(901)],
+  };
+
+  assertIncludes(
+    fullPromptText(atBoundary),
+    'STRIDE BURST (approximate client-reported timestamps)',
+    'A 900ms span (the documented MAX_STRIDE_BURST_SPAN_MS) must classify as a stride burst.'
+  );
+  assertIncludes(
+    fullPromptText(overBoundary),
+    'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)',
+    'A 901ms span must classify as legacy/sparse, one millisecond over the documented ceiling.'
+  );
 });
 
 // -------------------------------------------------------------------------------------------
@@ -980,22 +1228,15 @@ Deno.test('the tool remains constructible for #42 to eval, and forcing it is now
 });
 
 Deno.test('effort is an explicit, named constant — not a magic value or a silent default', () => {
-  const request = buildAnalyzeFormRequest(videoInput('elite'));
+  const request = buildAnalyzeFormRequest(videoInput('pro'));
 
-  assert(
-    request.output_config.effort === ANALYZE_FORM_EFFORT,
-    'The request must carry the named effort constant.'
-  );
-  assert(
-    ANALYZE_FORM_EFFORT === 'medium',
-    'Effort is `medium`: thinking stays ON, but max_tokens is a tight 4-8k that thinking counts ' +
-      'against, and Anthropic names "drop to medium effort" as the direct remedy for a ' +
-      'mostly-thinking, truncated answer. Sonnet 5 at medium ~= Sonnet 4.6 at high, so this is ' +
-      'not a weak setting. Raising it is #42\'s call, against a real eval — and raise ' +
-      'MAX_OUTPUT_TOKENS_BY_TIER in the same commit or you just buy truncations.'
-  );
+  assertEquals(ANALYZE_FORM_EFFORT, 'low');
+  assertEquals(request.thinking, { type: 'adaptive' });
+  assertEquals(request.output_config.effort, 'low');
+  assertEquals(request.max_tokens, MAX_OUTPUT_TOKENS_BY_TIER.pro);
+
   // #42 sweeps it by passing an override; the seam must exist.
-  const swept = buildAnalyzeFormRequest(videoInput('elite'), { effort: 'high' });
+  const swept = buildAnalyzeFormRequest(videoInput('pro'), { effort: 'high' });
   assert(swept.output_config.effort === 'high', 'Effort must be overridable for #42 to sweep it.');
 });
 

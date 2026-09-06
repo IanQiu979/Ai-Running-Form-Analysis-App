@@ -17,7 +17,8 @@
  * downscaled, JPEG-encoded base64 the `analyze-form` request body actually carries, checked
  * AFTER extraction. This file caps the SOURCE video before extraction ever runs, so a clip that
  * would take a long time to process (or that the recorder should never have produced) is
- * rejected honestly and immediately instead of after N slow `expo-video-thumbnails` calls.
+ * rejected honestly and immediately instead of after a slow decode-and-downscale pass over its
+ * frames.
  */
 
 /** Max recorded/picked clip duration, in milliseconds. Also passed to `CameraView.recordAsync`'s

@@ -51,10 +51,11 @@ export const FALLBACK_VIDEO_FRAME_CAP = PACE_FRAME_CAP.free;
  * most permissive tier's cap (`supabase/functions/analyze-form/flow.ts`: `if (frames.length >
  * PACE_FRAME_CAP.elite)`). This mirrors that server-side rule locally for one reason only: a
  * `frameCap` of, say, 10_000 arriving from a misbehaving/rolled-forward server would otherwise
- * mean 10_000 sequential `expo-video-thumbnails` calls on the device before `analyze-form` got the
- * chance to reject the result. Clamping here fails toward a submission the server will actually
- * accept. For every honest value (1..8) this is a no-op, so it never lowers a cap the user paid
- * for.
+ * mean decoding and downscaling 10_000 frames on the device (one `expo-video`
+ * `generateThumbnailsAsync` batch, then one manipulator pass per thumbnail) before `analyze-form`
+ * got the chance to reject the result. Clamping here fails toward a submission the server will
+ * actually accept. For every honest value (1..8) this is a no-op, so it never lowers a cap the
+ * user paid for.
  */
 const GLOBAL_FRAME_CEILING = PACE_FRAME_CAP.elite;
 

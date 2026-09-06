@@ -1190,6 +1190,16 @@ export const Copy = {
         title: 'This clip is too large to analyze',
         body: 'Its extracted frames add up to more data than one analysis can send. Try a shorter clip or a lower-resolution recording.',
       },
+      // NEW — not in the deck. `lib/frames.ts`'s InsufficientFramesError: the clip decoded, but
+      // too few of its frames landed on genuinely different instants to read motion from. Like
+      // budgetExceeded and unlike extractionFailed, this is deterministic for a given clip — the
+      // same footage through the same pipeline collides identically — so there is no retry CTA,
+      // only a way back to choose different footage. Worded for a runner, not a decoder: no
+      // "frame rate", no "fps", no "decoder".
+      unsupportedFootage: {
+        title: "This clip won't work for a full analysis",
+        body: 'Its frames are too close to identical to show your body moving between them — that usually means the clip was re-recorded or exported from another app. Try a clip recorded straight from your camera at normal speed.',
+      },
       // NEW — not in the deck. Any other extraction failure (a corrupt file, a native-module
       // error) — distinct from budgetExceeded because retrying the same input CAN succeed here.
       extractionFailed: {

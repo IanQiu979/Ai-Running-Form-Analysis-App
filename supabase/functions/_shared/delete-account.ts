@@ -534,7 +534,8 @@ export const ACCOUNT_PURGE_CONCURRENCY = 8;
 
 /**
  * Soft wall-clock budget, in ms, for the STORAGE-PURGE PHASE (step 1) of an account delete —
- * issue #125. `analyze-form/flow.ts`'s `ANALYZE_FORM_DEADLINE_MS` (105s) is sized against a
+ * issue #125. `analyze-form/flow.ts`'s `ANALYZE_FORM_REQUEST_DEADLINE_MS` (105s from request
+ * entry; `ANALYZE_FORM_DEADLINE_MS` is the 85s model window inside it) is sized against a
  * documented external ceiling (the client's own polling timeout); this function has no equivalent
  * client-side constraint to size against, and this repo does not pin an exact number for the
  * Supabase edge runtime's own wall-clock limit. So this budget is deliberately conservative rather

@@ -26,13 +26,19 @@
  *    rules, the medical boundary, and the timestamp-approximation rules are assembled OUTSIDE
  *    the dial and are byte-identical at every tier. See `INVARIANT_RULES`.
  *
- * 3. THE #112 TIMESTAMP TRUTH. The timestamps this prompt receives are the times the client
- *    ASKED `expo-video-thumbnails` for, not the times it actually decoded. Android's
- *    `MediaMetadataRetriever` snaps to the nearest keyframe and exposes no PTS; iOS computes
- *    `actualTime` and throws it away. On Android the error can be HUNDREDS OF MILLISECONDS. Two
- *    of the four pillars — Cadence and Elasticity — are derived from motion over time, so a
- *    prompt that presents these intervals as exact would have the model reason about a rhythm
- *    the runner does not have and produce confident, wrong advice. It would not crash. See
+ * 3. THE #112 TIMESTAMP TRUTH (updated for #199). The timestamps this prompt receives could be
+ *    EITHER of two things and this server cannot tell which: the time an old client (still on
+ *    `expo-video-thumbnails`, which could report the decoded time on neither platform) merely
+ *    ASKED the extractor for, or the decoder's own reported `actualTime` an updated client
+ *    (`expo-video`) now sends — frame-accurate on iOS, an average-frame-duration ESTIMATE on
+ *    Android. The edge function deploys before every native install has updated, so both kinds of
+ *    request are live simultaneously and indefinitely. Either way the error can still be HUNDREDS
+ *    OF MILLISECONDS, and the burst/legacy classification (`isStrideBurst`,
+ *    `MAX_STRIDE_BURST_SPAN_MS`) only bounds how far apart the frames claim to be, not how
+ *    accurate that claim is. Two of the four pillars — Cadence and Elasticity — are derived from
+ *    motion over time, so a prompt that presents these intervals as exact would have the model
+ *    reason about a rhythm the runner does not have and produce confident, wrong advice. It would
+ *    not crash. See
  *    `TIMESTAMP_RULES` and `formatFrameManifest()`: intervals are always labelled approximate,
  *    the model is told the error bar, precise SPM/GCT/VO figures are forbidden at EVERY tier, and
  *    any Cadence/Elasticity judgement that leans on the timing must carry that uncertainty into
@@ -65,7 +71,7 @@
  *      `MAX_OUTPUT_TOKENS_BY_TIER` (`ai-pricing.ts`), the SAME constant `gate_ai_call` reserved
  *      output budget against, so the reservation is a true upper bound on billed output even
  *      with thinking on; and because the budget is tight (4-8k), `ANALYZE_FORM_EFFORT` is set to
- *      `medium` rather than the default `high` — see that constant. #44 MUST treat
+ *      `low` rather than the default `high` — see that constant. #44 MUST treat
  *      `stop_reason: 'max_tokens'` as a truncation (a mostly-thinking, cut-off answer), not as a
  *      usable response. That was Echo V1's 1024/1500-ceiling failure, and Sonnet 5's new
  *      tokenizer (~30% more tokens for the same text) makes it easier to hit, not harder.
@@ -102,15 +108,22 @@ export interface PaceFrame {
   base64: string;
   mediaType: PaceFrameMediaType;
   /**
-   * The timestamp the client REQUESTED from the frame extractor — deliberately NOT named
-   * `timestampMs`, because it is not the time of the frame you are looking at.
+   * A timestamp for this frame, in milliseconds from the start of the clip — deliberately NOT
+   * named `timestampMs`, because it is not guaranteed to be a measured time. Named
+   * `requestedTimestampMs` from `expo-video-thumbnails`'s era (issue #112), when it always was
+   * the time the client asked the extractor for, since neither platform's native module could
+   * report the decoded time back at all (Android snapped to the nearest keyframe and exposed no
+   * PTS; iOS discarded `AVAssetImageGenerator`'s `actualTime` out-parameter).
    *
-   * `expo-video-thumbnails` cannot report the decoded time on either platform (issue #112):
-   * Android snaps to the nearest keyframe (error can be hundreds of ms) and exposes no PTS; iOS
-   * discards `AVAssetImageGenerator`'s `actualTime` out-parameter. Every consumer of this field
-   * — above all the prompt text built from it — must treat it as approximate and say so. Do NOT
-   * "fix" this by evenly spacing values and calling them actual: that looks precise, is wrong,
-   * and signals nothing.
+   * Since the #199 migration to `expo-video`, an UPDATED client instead sends the decoder's own
+   * `actualTime` here — frame-accurate on iOS, an average-frame-duration ESTIMATE on Android (see
+   * `lib/frames.ts`'s "TIMESTAMP ACCURACY" header) — but this server has no version flag and
+   * cannot tell an updated client's request from one built by an app that has not picked up the
+   * new sampler yet. **Treat this field as EITHER a requested time or a decoder estimate,
+   * unknown which, always approximate.** Every consumer — above all the prompt text built from it
+   * (`TIMESTAMP_RULES`) — must say so rather than asserting one provenance. Do NOT "fix" this by
+   * evenly spacing values and calling them actual: that looks precise, is wrong, and signals
+   * nothing.
    */
   requestedTimestampMs: number;
 }
@@ -119,7 +132,7 @@ export interface AnalyzeFormPromptInput {
   /** Server-derived, from `reserve_analysis`'s return — NEVER taken from the client (#41). */
   tier: PaceTier;
   media: PaceMediaKind;
-  /** In capture order. Photo: exactly 1. Video: >= 2, up to `PACE_FRAME_CAP[tier]`. */
+  /** In capture order. Photo: exactly 1. Video: 1 (Free) up to `PACE_FRAME_CAP[tier]`. */
   frames: PaceFrame[];
 }
 
@@ -200,31 +213,12 @@ export type PaceEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /**
  * THE EFFORT DIAL — a named constant, not a magic value, so #42 can sweep it.
  *
- * Chosen: `medium`. This is a real trade-off and the reasoning matters:
- *
- * FOR `high` (the API default): this call IS the product, and a hard multi-step vision-reasoning
- * task over up to 8 frames is exactly the kind of work thinking helps with.
- *
- * FOR `medium` (chosen), which wins on three concrete grounds:
- *   1. `medium` is not a weak setting. Anthropic's own cross-model mapping: "Claude Sonnet 5 at
- *      medium is comparable in intelligence to Claude Sonnet 4.6 at high." We are not shipping a
- *      degraded analyzer; we are shipping last-generation-flagship-at-high.
- *   2. Our `max_tokens` is deliberately tight (4-8k, `MAX_OUTPUT_TOKENS_BY_TIER`) and thinking
- *      tokens COUNT AGAINST IT. The docs name this exact failure — "if the budget is tight, you
- *      may see a response that is almost entirely thinking followed by a truncated answer and
- *      `stop_reason: max_tokens`" — and name the exact remedy: "Raising `max_tokens` or dropping
- *      to `medium` effort resolves this." A truncated response is not a cheap failure: it fails
- *      validation, triggers #45's retry, and bills TWICE.
- *   3. Thinking bills as OUTPUT ($15/Mtok, 5x input), so effort is the single biggest lever on
- *      real spend — and Ian's credits are a hard ceiling with auto-reload off.
- *
- * The docs' own guidance if this proves too low: "If you observe shallow reasoning on complex
- * problems, raise effort to `high` or `xhigh` rather than prompting around it." That is #42's
- * call to make against a real eval, not one to guess at here. Raising it is a one-line change —
- * but raise `MAX_OUTPUT_TOKENS_BY_TIER` (and with it the gate's reservation) in the same commit,
- * or you will simply buy truncations.
+ * Chosen: `low`. Adaptive thinking stays on, while low effort reduces the latency and output-token
+ * pressure that previously consumed the useful model window. The 4-8k tier ceilings remain the
+ * spend contract; changing those is a separate decision that must move the AI gate reservation
+ * with them.
  */
-export const ANALYZE_FORM_EFFORT: PaceEffort = 'medium';
+export const ANALYZE_FORM_EFFORT = 'low' as const;
 
 // -------------------------------------------------------------------------------------------
 // The structured-output contract — `input_schema` IS `PaceResult` (./pace.ts, #43)
@@ -592,12 +586,13 @@ const NOT_ASSESSED_RULES = [
  */
 const TIMESTAMP_RULES = [
   'FRAME TIMESTAMPS ARE APPROXIMATE — READ THIS BEFORE SCORING CADENCE OR ELASTICITY:',
-  '- The times given with the frames below are the times the app ASKED the video decoder for.',
-  '  They are NOT the times of the frames you are actually looking at. The decoder returns the',
-  '  nearest frame it can (on Android, the nearest keyframe) and does not report which one it',
-  '  gave back. The true gap between two frames can differ from the stated gap by HUNDREDS OF',
-  '  MILLISECONDS, and the frames are not necessarily evenly spaced in time even when the stated',
-  '  times are.',
+  '- The times given with the frames below are NOT a laboratory measurement. Depending on which',
+  '  version of the app captured them, each one is either the instant the app ASKED the video',
+  '  decoder for, or the decoder\'s own best estimate of the instant it actually decoded — you are',
+  '  never told which, and even a genuine decoder estimate is typically derived from an assumed',
+  '  constant frame rate, not a true per-frame readout. The true gap between two frames can differ',
+  '  from the stated gap by HUNDREDS OF MILLISECONDS, and the frames are not necessarily evenly',
+  '  spaced in time even when the stated times are.',
   '- Cadence and Elasticity are both motion over time, so both are exposed to this. Therefore:',
   '  * Score them PRIMARILY from evidence that does not depend on timing at all — which is also',
   '    the evidence pace_framework.md calls the most important thing you can see. For Cadence:',
@@ -634,7 +629,8 @@ const TIMESTAMP_RULES = [
   '- It says: "**Only if frame timestamps are known** may you estimate a cadence *range* from',
   '  steps-per-second across frames — and label it approximate." READ "known" AS "KNOWN',
   '  APPROXIMATELY". The condition is met only in that weak sense — the timestamps below are',
-  '  requested, not measured — so what the clause licenses is a WIDE range, labelled approximate,',
+  '  approximate client-reported values of unknown provenance, not measurements — so what the',
+  '  clause licenses is a WIDE range, labelled approximate,',
   '  and NEVER a point figure. Where a steps-per-second count off these frames disagrees with what',
   '  the geometry plainly shows, believe the geometry.',
   '- It says: "Across evenly-spaced frames you can estimate ... vertical bounce (torso height',
@@ -737,30 +733,109 @@ const ROLE_PREAMBLE = [
   'thing this system can produce, because nobody can tell it is wrong.',
 ].join('\n');
 
-const MEDIUM_RULES: Record<PaceMediaKind, string> = {
-  photo: [
-    'THE MEDIA: A SINGLE PHOTO. One frame, one instant.',
-    '- You CAN assess: Posture (trunk lean, head, shoulders, pelvis) and Arm swing POSITION',
-    '  (elbow angle, where the hands are, whether they cross the midline).',
-    '- You CANNOT assess Cadence or Elasticity from one frame. Both are motion over time; a still',
-    '  cannot show step rate, vertical oscillation, or contact quality. Do not infer them from a',
-    '  single pose, however suggestive it looks.',
-    '  => Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
-    '     "needsVideo"`. This is not a failure — it is the correct, honest result for a photo.',
-    '     Tell the runner a short video would unlock those two pillars.',
-    '- Arm swing RANGE (the arc) is also motion over time. Judge position only, and say so.',
-  ].join('\n'),
-  video: [
-    'THE MEDIA: FRAMES FROM A SHORT VIDEO, in capture order.',
-    '- Across frames you can assess all four pillars: trunk/pelvis alignment, arm-swing arc and',
-    '  symmetry, where the foot lands relative to the centre of mass, and how much the torso',
-    '  rises and falls.',
-    '- Read the frames as a sequence: the same runner, moments apart. Compare them to each other',
-    '  — that comparison, not any single frame, is the analysis.',
-    '- The timing between them is approximate. Read the FRAME TIMESTAMPS section before you use',
-    '  it for anything.',
-  ].join('\n'),
-};
+/**
+ * THE STRIDE-BURST / LEGACY-SPARSE SPLIT (issue #199, the core-purpose audit's structural-ceiling
+ * finding). `lib/frames.ts` used to spread video frames evenly across 5%-95% of the WHOLE clip —
+ * 1.3-2.2s apart against a ~0.7s recreational stride — so no two frames of a "video" analysis ever
+ * belonged to the same stride, and Cadence/Elasticity were single-frame guesses dressed up as
+ * motion evidence. The client now samples one centered ~700ms burst instead, but THIS FILE cannot
+ * simply trust that: the edge function deploys instantly to every client, while a native app
+ * update reaches devices over days to weeks through app-store rollout, so `analyze-form` will keep
+ * receiving requests built by the OLD sparse sampler for as long as any un-updated install exists.
+ * Trusting a request's frame count or tier to imply "this is a real burst" would silently revert
+ * every straggling client to the pre-#199 failure mode with nobody noticing.
+ *
+ * So this is a SERVER-SIDE classification of the frames actually in hand, not a client contract:
+ * a multi-frame video counts as a genuine stride burst only when its own `requestedTimestampMs`
+ * values are strictly increasing and span no more than `MAX_STRIDE_BURST_SPAN_MS` end to end.
+ * Anything else — a single video frame, or a request whose span reveals it was built by the old
+ * sampler — is LEGACY/SPARSE: Posture and Arm swing POSITION may still be read from whichever
+ * frame shows them best, but Cadence and Elasticity get no motion evidence and must stay
+ * not-assessed, exactly as a photo does. This can only ever narrow what a request is allowed to
+ * claim; it never grants motion evidence a request's own timestamps do not support.
+ */
+export const MAX_STRIDE_BURST_SPAN_MS = 900;
+
+function isStrideBurst(frames: PaceFrame[]): boolean {
+  if (frames.length < 2) {
+    return false;
+  }
+  for (let i = 1; i < frames.length; i++) {
+    if (!(frames[i].requestedTimestampMs > frames[i - 1].requestedTimestampMs)) {
+      return false;
+    }
+  }
+  const span = frames[frames.length - 1].requestedTimestampMs - frames[0].requestedTimestampMs;
+  return Number.isFinite(span) && span <= MAX_STRIDE_BURST_SPAN_MS;
+}
+
+const PHOTO_RULES = [
+  'THE MEDIA: A SINGLE PHOTO. One frame, one instant.',
+  '- You CAN assess: Posture (trunk lean, head, shoulders, pelvis) and Arm swing POSITION',
+  '  (elbow angle, where the hands are, whether they cross the midline).',
+  '- You CANNOT assess Cadence or Elasticity from one frame. Both are motion over time; a still',
+  '  cannot show step rate, vertical oscillation, or contact quality. Do not infer them from a',
+  '  single pose, however suggestive it looks.',
+  '  => Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
+  '     "needsVideo"`. This is not a failure — it is the correct, honest result for a photo.',
+  '     Tell the runner a short video would unlock those two pillars.',
+  '- Arm swing RANGE (the arc) is also motion over time. Judge position only, and say so.',
+].join('\n');
+
+const SINGLE_FRAME_VIDEO_RULES = [
+  'THE MEDIA: A SINGLE FRAME FROM A VIDEO. One instant, same as a photo would give you.',
+  '- You CAN assess: Posture (trunk lean, head, shoulders, pelvis) and Arm swing POSITION',
+  '  (elbow angle, where the hands are, whether they cross the midline).',
+  '- You CANNOT assess Cadence or Elasticity from one frame. Both are motion over time; a single',
+  '  instant cannot show step rate, vertical oscillation, or contact quality. Do not infer them',
+  '  from a single pose, however suggestive it looks.',
+  '  => Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
+  '     "needsVideo"`. This is not a failure — it is the correct, honest result for a single',
+  '     frame. Tell the runner a short multi-frame video would unlock those two pillars.',
+  '- Arm swing RANGE (the arc) is also motion over time. Judge position only, and say so.',
+].join('\n');
+
+const STRIDE_BURST_VIDEO_RULES = [
+  'THE MEDIA: A STRIDE BURST — several frames from one short window of running, close enough',
+  'together to plausibly belong to the same stride cycle, in capture order.',
+  '- Across these frames you can assess all four pillars: trunk/pelvis alignment, arm-swing arc',
+  '  and symmetry, where the foot lands relative to the centre of mass, and how much the torso',
+  '  rises and falls.',
+  '- Read the frames as a sequence: the same runner, moments apart within roughly one stride.',
+  '  Compare them to each other — that comparison, not any single frame, is the analysis.',
+  '- The timing between them is still approximate, not measured. Read the FRAME TIMESTAMPS',
+  '  section before you use it for anything, and never turn "close together" into a precise',
+  '  interval.',
+].join('\n');
+
+const LEGACY_SPARSE_VIDEO_RULES = [
+  'THE MEDIA: SEVERAL VIDEO FRAMES, SPREAD ACROSS THE CLIP — NOT A STRIDE BURST.',
+  '- These frames are spaced far enough apart that they cannot be trusted to belong to the same',
+  '  stride cycle. Two frames a full stride or more apart show two different, unrelated instants —',
+  '  not a motion sequence.',
+  '- You CAN still assess Posture (trunk lean, head, shoulders, pelvis) and Arm swing POSITION',
+  '  (elbow angle, where the hands are, whether they cross the midline) from whichever single',
+  '  frame shows them most clearly.',
+  '- You CANNOT assess Cadence or Elasticity from frames like these, for the same reason you',
+  '  cannot from one photo: both are motion over time, and comparing frames from different,',
+  '  unrelated strides is not a motion sequence — it is a coincidence dressed up as one.',
+  '  => Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
+  '     "needsVideo"`. This is not a failure — it is the correct, honest result for frames this',
+  '     far apart. Tell the runner a short, single continuous clip would unlock those two',
+  '     pillars.',
+  '- Arm swing RANGE (the arc) is also motion over time and depends on frames belonging to one',
+  '  stride — do not judge it from frames this far apart. Judge position only, and say so.',
+].join('\n');
+
+/** Picks the right operating rules for a video request from the frames actually in hand — see
+ * "THE STRIDE-BURST / LEGACY-SPARSE SPLIT" above for why this cannot simply trust the tier or
+ * frame count. `buildSystemPrompt` uses `PHOTO_RULES` directly for `media === 'photo'`. */
+function videoMediaRules(frames: PaceFrame[]): string {
+  if (frames.length <= 1) {
+    return SINGLE_FRAME_VIDEO_RULES;
+  }
+  return isStrideBurst(frames) ? STRIDE_BURST_VIDEO_RULES : LEGACY_SPARSE_VIDEO_RULES;
+}
 
 /**
  * The system message: role, then the three certified documents verbatim, then the operating
@@ -798,7 +873,7 @@ export function buildSystemPrompt(input: AnalyzeFormPromptInput): AnthropicTextB
     'OPERATING RULES FOR THIS ANALYSIS',
     '='.repeat(88),
     '',
-    MEDIUM_RULES[input.media],
+    input.media === 'photo' ? PHOTO_RULES : videoMediaRules(input.frames),
     '',
     INVARIANT_RULES,
   ].join('\n');
@@ -807,31 +882,42 @@ export function buildSystemPrompt(input: AnalyzeFormPromptInput): AnthropicTextB
 }
 
 /**
- * The frame manifest. Every timestamp is rendered with `~` and the word "requested", and every
- * interval with "approximately" — there is no code path that prints a bare, authoritative-looking
- * millisecond value (issue #112).
+ * The frame manifest. Every timestamp is rendered with `~` and described as an approximate
+ * client-reported value, and every interval with "approximately" — there is no code path that
+ * prints a bare, authoritative-looking millisecond value (issue #112). The neutral wording is
+ * required because this server cannot distinguish an old client's requested timestamp from an
+ * updated client's decoder estimate. For a multi-frame video, the header names which of the two
+ * "THE STRIDE-BURST / LEGACY-SPARSE SPLIT" branches (see `isStrideBurst`) applies to THIS request,
+ * so the classification driving `videoMediaRules` is visible in the manifest text too, not only
+ * inferred silently from which rules got included above it.
  */
 export function formatFrameManifest(frames: PaceFrame[]): string {
   if (frames.length === 1) {
-    return 'FRAME MANIFEST: 1 frame (a single photo — no timing information applies).';
+    return 'FRAME MANIFEST: 1 frame (a single photo or video frame — no timing information applies).';
   }
 
   const lines = frames.map((frame, i) => {
-    const requested = Math.round(frame.requestedTimestampMs);
+    const reported = Math.round(frame.requestedTimestampMs);
     if (i === 0) {
-      return `- Frame ${i + 1}: requested at ~${requested} ms (start of the sampled window).`;
+      return `- Frame ${i + 1}: client-reported timestamp ~${reported} ms (start of the sampled window; approximate).`;
     }
     const gap = Math.round(frame.requestedTimestampMs - frames[i - 1].requestedTimestampMs);
-    return `- Frame ${i + 1}: requested at ~${requested} ms — approximately ${gap} ms after frame ${i} (NOT an exact interval).`;
+    return `- Frame ${i + 1}: client-reported timestamp ~${reported} ms — approximately ${gap} ms after frame ${i} (NOT an exact interval).`;
   });
 
+  const classification = isStrideBurst(frames)
+    ? 'STRIDE BURST (approximate client-reported timestamps)'
+    : 'LEGACY/SPARSE VIDEO FRAMES (not a motion sequence)';
+
   return [
-    `FRAME MANIFEST: ${frames.length} frames, in capture order.`,
+    `FRAME MANIFEST: ${frames.length} frames, in capture order — ${classification}.`,
     ...lines,
     '',
-    'Every time above is a REQUESTED time, not a measured one. The real intervals may differ by',
-    'hundreds of milliseconds and may not be evenly spaced. Use them only as a rough ordering and',
-    'a rough sense of elapsed time — never as the basis for a precise rate.',
+    'Every timestamp above is an APPROXIMATE CLIENT-REPORTED value. Depending on app version, it',
+    'may be the time requested from the decoder or the decoder estimate returned to the client;',
+    'the server cannot tell which. The real intervals may differ by hundreds of milliseconds and',
+    'may not be evenly spaced. Use them only as a rough ordering and a rough sense of elapsed time',
+    '— never as the basis for a precise rate.',
   ].join('\n');
 }
 
@@ -879,8 +965,9 @@ function buildOutputContract(input: AnalyzeFormPromptInput): string {
 }
 
 /**
- * The user turn: the frame manifest, then the image blocks each labelled with its (approximate)
- * requested time, then the output contract last. This is `docs/architecture.md` step 7's ordering
+ * The user turn: the frame manifest, then the image blocks each labelled with its approximate
+ * client-reported timestamp, then the output contract last. This is `docs/architecture.md` step
+ * 7's ordering
  * — "system message = the certified PACE knowledge..., then the image block(s) plus their
  * timestamps, then the PACE scoring instruction."
  */
@@ -904,7 +991,7 @@ export function buildUserContent(input: AnalyzeFormPromptInput): AnthropicConten
       text:
         input.media === 'photo'
           ? 'The photo:'
-          : `Frame ${i + 1} of ${input.frames.length} — requested at ~${Math.round(
+          : `Frame ${i + 1} of ${input.frames.length} — client-reported timestamp ~${Math.round(
               frame.requestedTimestampMs
             )} ms (approximate):`,
     });
@@ -994,7 +1081,7 @@ export interface BuildRequestOptions {
    * is Bedrock-only (see the note above).
    */
   forceToolCall?: boolean;
-  /** Defaults to `ANALYZE_FORM_EFFORT` (`medium`) — see that constant for the reasoning. */
+  /** Defaults to `ANALYZE_FORM_EFFORT` (`low`) — see that constant for the reasoning. */
   effort?: PaceEffort;
   /** Defaults to `ANALYZE_FORM_MODEL`. */
   model?: string;

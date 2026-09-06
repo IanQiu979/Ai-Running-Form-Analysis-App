@@ -52,9 +52,17 @@
  * 4/5. IDEMPOTENCY + ATOMIC RESERVE, both inside `reserve_analysis` (one round trip, one advisory
  *    lock). We branch on the returned `status`, never on `allowed` alone — see `handleExisting()`.
  *
- * 6-8. PROMPT → ONE VISION CALL → validate → retry once. `analyze-form-prompt.ts` (#41) builds the
- *    request; `analyze-form-validation.ts` (#45) reads the response and decides. Neither judges
- *    content.
+ * 6-8. PROMPT → ONE VISION CALL → validate → retry once, only for an eligible failure kind.
+ *    `analyze-form-prompt.ts` (#41) builds the request; `analyze-form-validation.ts` (#45) reads
+ *    the response and decides. `provider_timeout` and `max_tokens` truncation are terminal —
+ *    attempt 1 already spent most/all of the model window, so a retry would very likely repeat
+ *    the same failure (issue #199) — and so is a policy `refusal` (unlikely to change on the same
+ *    frames, and carries no farming signal either way). A quick transport blip (`model_error`)
+ *    retries only with a full 80s attempt available. A content/shape failure
+ *    (`no_tool_use`/`invalid_shape`) retries with at least 20s left: those failures already consumed
+ *    a completed model round trip, but MUST remain retry-reachable because a repeated content
+ *    failure is the only signal `classifyReleaseReason` has for deliberate prompt-injection
+ *    farming. If that smaller retry times out, it safely becomes `model_error`, not a strike.
  *
  * 9. SETTLE, THEN UPLOAD, THEN ATTACH — in that order, and only on a deliverable outcome (#130).
  *    THE INVARIANT: a 'reserved' row can never have frames. Frames go up only after the row has
@@ -80,7 +88,8 @@
  * `'cancelled'` if the model was never called, `'model_error'` if it was). An unexpected throw —
  * the case a hand-written `catch` chain always misses — takes the same path. This is the strongest
  * form of the requirement available in the language, and it is why these are not four scattered
- * `await release(...)` calls.
+ * `await release(...)` calls. On failures, quota release runs first: a slow ledger RPC may hold
+ * daily-cap headroom temporarily, but must never delay returning the user's reserved quota slot.
  */
 
 import {
@@ -133,27 +142,31 @@ import {
  */
 export const UPLOAD_HEALTH_CONSENT_KEY = 'upload.health.v1';
 
-/**
- * Wall-clock budget for ALL model work in one request, measured from the moment the reserve
- * lands. Sized against two ceilings that are not ours to move:
- *   - the client gives up at `ANALYZING_TIMEOUT_MS` = 120s (`lib/analyzing-machine.ts`);
- *   - Supabase's edge runtime has its own wall-clock limit above that.
- * 105s leaves ~15s of headroom under the client's timeout for the DB round trips, the frame
- * uploads, and the response itself — so a request that is going to fail does so as OUR structured
- * `{ error, code }` (with the reservation released and the ledger settled), rather than as the
- * client's blind timeout, which leaves the row `'reserved'` until #47's sweep.
- */
-export const ANALYZE_FORM_DEADLINE_MS = 105_000;
+/** Total request envelope, measured before parsing/consent/tier/gate/reserve. The client gives up
+ * at `ANALYZING_TIMEOUT_MS` = 120s (`lib/analyzing-machine.ts`), so 105s nominally leaves 15s for
+ * settling, releasing, uploads, and returning OUR structured error. Individual DB/storage calls
+ * remain governed by their own platform/network limits; we do not race side-effecting RPCs against
+ * local timers that could let them finish after the response. */
+export const ANALYZE_FORM_REQUEST_DEADLINE_MS = 105_000;
 
-/** Per-attempt ceiling. Two attempts cannot both run at this length inside the deadline — that is
- * intentional: attempt 1 is allowed to be slow (8 frames, adaptive thinking), and the retry then
- * takes whatever is genuinely left. */
-export const MODEL_CALL_TIMEOUT_MS = 65_000;
+/** Maximum model-work window once preflight lands. The effective model deadline is the earlier of
+ * `now + 85s` and the 105s request envelope above: preflight up to 20s preserves the full model
+ * window, while slower preflight consumes only the request envelope rather than extending it. */
+export const ANALYZE_FORM_DEADLINE_MS = 85_000;
 
-/** Below this much remaining budget, the retry is skipped rather than started and aborted
- * mid-flight. A call we cut off at 8s is a call we pay for and cannot use — strictly worse than
- * falling back on what attempt 1 already gave us. */
-export const MIN_RETRY_BUDGET_MS = 20_000;
+/** Per-attempt ceiling. A full 85s model window leaves 5s to classify a completed first attempt
+ * and, for a quick eligible failure, decide whether a retry still has a useful budget. */
+export const MODEL_CALL_TIMEOUT_MS = 80_000;
+
+/** A transport error retries only with a full attempt available. Transport failures should be
+ * quick; starting an underfunded replacement after a slow transport failure doubles likely waste. */
+export const MIN_RETRY_BUDGET_MS = 80_000;
+
+/** Content/shape failures have already completed a model round trip, so sharing the 80s transport
+ * floor made their retry — and therefore repeated-content anti-farming classification — practically
+ * unreachable. Twenty seconds preserves that signal. If the smaller retry times out, it safely
+ * self-classifies as `model_error`, never as a farming strike. */
+export const MIN_CONTENT_RETRY_BUDGET_MS = 20_000;
 
 /** The client sends raw base64 with no per-frame media type (`lib/analyze-form.ts`'s wire shape is
  * `frames: string[]`), and `lib/frames.ts` emits JPEG at q≈0.7. Both the vision call and the
@@ -349,9 +362,9 @@ function parseRequestBody(raw: unknown): ParseResult {
     parsedFrames.push({
       base64,
       mediaType: FRAME_MEDIA_TYPE,
-      // Named `requestedTimestampMs`, not `timestampMs`, all the way down: these are the times the
-      // client ASKED the decoder for, not the times of the frames it got back (issue #112). The
-      // prompt is what has to say so; this layer's only job is to not silently rename them.
+      // The wire field keeps its historical `requestedTimestampMs` name, but the server cannot
+      // distinguish an older client's requested seek target from a newer decoder-reported estimate.
+      // Downstream copy must treat either provenance as an approximate temporal hint.
       requestedTimestampMs: timestamp,
     });
   }
@@ -616,7 +629,7 @@ function handleExisting(reserve: ReserveResult): AnalyzeFormHttpResponse {
  *
  * `attemptIndex` is the whole design. Each gated call is ONE Anthropic request, and it is settled
  * with the outcome of THAT request — not with the outcome of the request as a whole. When attempt 1
- * returns prose and the retry succeeds, call 1 settles `'validation_failed'` and call 2 settles
+ * hits a transport error and the retry succeeds, call 1 settles `'model_error'` and call 2 settles
  * `'success'`. Settling both as `'success'` (because "the request worked in the end") would be
  * two separate bugs at once: the circuit breaker opens only when the last N settled calls ALL carry
  * `'model_error'`/`'validation_failed'`, so a masked failure makes it under-react to a real model
@@ -632,10 +645,16 @@ interface OpenCall {
 
 export async function runAnalyzeForm(
   deps: AnalyzeFormDeps,
-  params: { callerUserId: string; rawBody: unknown; requestId?: string }
+  params: {
+    callerUserId: string;
+    rawBody: unknown;
+    requestId?: string;
+    requestStartedAt?: number;
+  }
 ): Promise<AnalyzeFormHttpResponse> {
   const now = deps.now ?? Date.now;
-  const startedAt = now();
+  const startedAt = params.requestStartedAt ?? now();
+  const requestDeadline = startedAt + ANALYZE_FORM_REQUEST_DEADLINE_MS;
   const { callerUserId } = params;
 
   // Issue #85 — observability. Minted ONCE per request, before any work: `requestId` correlates
@@ -656,6 +675,12 @@ export async function runAnalyzeForm(
 
   // --- Observability accumulators.
   const attempts: AttemptOutcome[] = [];
+  // The subset of `attempts` for which a provider request actually went out. `attempts` itself
+  // must keep every entry — including the synthetic one `callModel` returns when the envelope is
+  // already spent — because the failure/settle logic below indexes into it by attempt number.
+  // But the summary line describes what HAPPENED, and a request that dispatched nothing made zero
+  // calls: reporting `attempts: 1` there over-counts every dashboard built on this field.
+  const dispatchedAttempts: AttemptOutcome[] = [];
   let tier: PaceTier | null = null;
   let mediaType: PaceMediaKind | null = null;
   let frameCount: number | null = null;
@@ -781,6 +806,7 @@ export async function runAnalyzeForm(
     // From this line on, a row exists in state `'reserved'`. Every exit path below — return, throw,
     // or fall-through — passes through the `finally`, which releases it unless it was settled.
     reservation = analysisId;
+    const modelDeadline = Math.min(now() + ANALYZE_FORM_DEADLINE_MS, requestDeadline);
 
     // ── 6/7. The grounded prompt (#41). Server-derived tier; never the client's word for it. ──
     const anthropicRequest = buildAnalyzeFormRequest({
@@ -789,8 +815,7 @@ export async function runAnalyzeForm(
       frames: request.frames,
     });
 
-    // ── 8. One vision call, then — on any failure — exactly one retry. ─────────────────────
-    const deadline = startedAt + ANALYZE_FORM_DEADLINE_MS;
+    // ── 8. One vision call, then — on a quick transport failure — exactly one retry. ───────
 
     const first = await callModel(
       deps,
@@ -798,32 +823,66 @@ export async function runAnalyzeForm(
       openCalls,
       gate.callId,
       0,
-      deadline,
+      modelDeadline,
       now,
       requestId,
       userIdHash
     );
     attempts.push(first.attempt);
+    if (first.dispatched) {
+      dispatchedAttempts.push(first.attempt);
+    }
     if (first.timedOut) {
       releaseReason = 'provider_timeout';
     }
 
-    // Did the model get its full second chance? This is the signal `decideOutcome` needs to tell a
-    // genuine farmer (asked twice, refused twice) from OUR suppressed-retry degradation (attempt 1
-    // failed, but WE cut the retry — too little deadline left, or its spend gate denied it). Only
-    // the former may release as the anti-farming `'validation_failed'`; the latter is `'model_error'`
-    // and must not tick the user's 3-strike cap for something we did (issue #6).
+    // Did a second model call genuinely happen? Keep this explicit for per-call accounting,
+    // fallback provenance, and `decideOutcome`'s conservative failure classification.
     let retryRan = false;
 
     if (!first.attempt.result) {
-      const remaining = deadline - now();
-      if (remaining >= MIN_RETRY_BUDGET_MS) {
+      const lastFailureReason = first.timedOut
+        ? 'provider_timeout'
+        : first.attempt.failure === 'call_failed'
+          ? 'model_error'
+          : first.attempt.failure;
+      const remainingBeforeGate = modelDeadline - now();
+      // RETRY-ELIGIBLE BY KIND, an explicit allowlist — get this wrong in either direction and
+      // something important breaks:
+      //   - `model_error` (a transport blip) and the two CONTENT/SHAPE failures (`no_tool_use`,
+      //     `invalid_shape`) are eligible. Content failures MUST stay eligible, not just
+      //     transport errors: a REPEATED content failure is the ONLY signal
+      //     `classifyReleaseReason` (`analyze-form-validation.ts`) has for deliberate
+      //     prompt-injection farming — it requires BOTH attempts to be content failures AND
+      //     `retryRan === true`. An earlier version of this fix restricted retry eligibility to
+      //     `model_error` alone, which makes `retryRan` structurally impossible whenever attempt 1
+      //     IS a content failure — silently making `'validation_failed'` unreachable and
+      //     disabling the 3-strike anti-farming cap for the one failure class it exists to catch
+      //     (issue #6/#85). See `flow.deno.test.ts`'s "rule 3" cases for the reachability proof.
+      //   - `provider_timeout` and `truncated` (max_tokens) are NOT eligible: both mean attempt 1
+      //     already spent most/all of the model window on THIS input, so retrying is very likely
+      //     to repeat the same failure and would only double the wait and the spend for nothing
+      //     (issue #199's core-purpose-audit finding: 3 of 6 real video calls timed out, one
+      //     truncated).
+      //   - `refusal` is also NOT eligible: it carries no farming signal
+      //     (`classifyReleaseReason` only recognizes `no_tool_use`/`invalid_shape`) and a policy
+      //     refusal on the exact same frames is unlikely to change on a second ask, so retrying it
+      //     buys nothing.
+      const isRetryEligibleFailure =
+        lastFailureReason === 'model_error' ||
+        lastFailureReason === 'no_tool_use' ||
+        lastFailureReason === 'invalid_shape';
+      const minRetryBudgetMs =
+        lastFailureReason === 'no_tool_use' || lastFailureReason === 'invalid_shape'
+          ? MIN_CONTENT_RETRY_BUDGET_MS
+          : MIN_RETRY_BUDGET_MS;
+      const mayRetry = isRetryEligibleFailure && remainingBeforeGate >= minRetryBudgetMs;
+      if (mayRetry) {
         // A SECOND Anthropic request is a second billed call, so it gets its OWN gate — the daily
         // cap and the circuit breaker must both see it. This gate necessarily runs after the
         // reserve (the retry could not exist before it); the ordering contract is about the FIRST
         // gate, which ran before any row was created. A denial here is not a failure: we simply
-        // stop calling and fall through to whatever attempt 1 gave us, which may still be a
-        // perfectly deliverable honest partial.
+        // stop calling and fall through to the transport failure from attempt 1.
         const retryEstimate = estimateTokensForCall(request.frames.length, tier);
         const retryGate = await gateAiCall(deps.rpc, {
           userId: callerUserId,
@@ -834,27 +893,54 @@ export async function runAnalyzeForm(
 
         if (retryGate.allowed) {
           openCalls.set(retryGate.callId, { attemptIndex: null });
-          const second = await callModel(
-            deps,
-            anthropicRequest,
-            openCalls,
-            retryGate.callId,
-            1,
-            deadline,
-            now,
-            requestId,
-            userIdHash
-          );
-          attempts.push(second.attempt);
-          // The retry genuinely happened — the model was asked a second time. This, and ONLY this,
-          // is what lets a two-content-failure pair be classified as the farming signal.
-          retryRan = true;
-          if (second.timedOut) {
-            releaseReason = 'provider_timeout';
+          // The gate is a real network round trip. Re-check the SAME failure-kind floor after it
+          // returns so a slow gate cannot turn an eligible retry into an underfunded provider call.
+          const remainingAfterGate = modelDeadline - now();
+          if (remainingAfterGate >= minRetryBudgetMs) {
+            const second = await callModel(
+              deps,
+              anthropicRequest,
+              openCalls,
+              retryGate.callId,
+              1,
+              modelDeadline,
+              now,
+              requestId,
+              userIdHash
+            );
+            attempts.push(second.attempt);
+            if (second.dispatched) {
+              dispatchedAttempts.push(second.attempt);
+            }
+            // The retry genuinely happened — the model was asked a second time.
+            retryRan = true;
+            if (second.timedOut) {
+              // A transport retry received the full 80s attempt budget, so its timeout remains a
+              // provider timeout. A content retry may receive only the remaining >=20s by our own
+              // policy; timing out that deliberately truncated attempt is our degradation and
+              // must self-correct to non-farming model_error, never blame the provider or strike
+              // the user.
+              releaseReason = lastFailureReason === 'model_error' ? 'provider_timeout' : 'model_error';
+            }
+          } else {
+            // The allowed gate row remains `attemptIndex: null`, so `finally` settles it cancelled
+            // at $0. Emit exactly one insufficient-budget event for this post-gate branch.
+            logEvent({
+              level: 'warn',
+              fn: 'analyze-form',
+              event: 'retry_skipped_insufficient_budget',
+              requestId,
+              userId: userIdHash,
+              analysisId,
+              failureKind: lastFailureReason,
+              stage: 'after_retry_gate',
+              remainingMs: remainingAfterGate,
+              minRetryBudgetMs,
+            });
           }
         } else {
-          // We suppressed the retry (daily cap / open breaker). `retryRan` stays false: a content
-          // failure on attempt 1 alone is our fault now, not a farming signal.
+          // We suppressed the retry (daily cap / open breaker). `retryRan` stays false: the
+          // transport failure on attempt 1 remains a server fault.
           //
           // Issue #85 — the retry-once path (#45's promise), specifically the case where WE cut
           // it, not the model. Distinct event name from `ai_gate_denied` above: this one denies
@@ -869,12 +955,14 @@ export async function runAnalyzeForm(
             reason: retryGate.reason,
           });
         }
-      } else {
-        // `remaining < MIN_RETRY_BUDGET_MS` — we skipped the retry to avoid paying for a call
-        // we'd have to abort. `retryRan` stays false for the same reason. Previously silent: this
-        // is exactly the kind of degradation issue #85 says must be counted, not discovered from
-        // a user complaint — a request that arrived with too little deadline left for a genuine
-        // second attempt.
+      } else if (isRetryEligibleFailure) {
+        // `remaining < minRetryBudgetMs`, but the failure kind itself was still retry-eligible
+        // — we skipped only because too little of the window is left, not because a
+        // `provider_timeout`/`truncated`/`refusal` made retrying pointless by kind (that case is
+        // silent on purpose: it is not a degradation, it is the intended behavior). `retryRan`
+        // stays false for the same reason. This IS exactly the kind of degradation issue #85 says
+        // must be counted, not discovered from a user complaint — a request that arrived with too
+        // little deadline left for a genuine second attempt.
         logEvent({
           level: 'warn',
           fn: 'analyze-form',
@@ -882,8 +970,10 @@ export async function runAnalyzeForm(
           requestId,
           userId: userIdHash,
           analysisId,
-          remainingMs: remaining,
-          minRetryBudgetMs: MIN_RETRY_BUDGET_MS,
+          failureKind: lastFailureReason,
+          stage: 'before_retry_gate',
+          remainingMs: remainingBeforeGate,
+          minRetryBudgetMs,
         });
       }
     }
@@ -1028,6 +1118,10 @@ export async function runAnalyzeForm(
     // Every path above — every `return`, every `throw`, every fall-through — arrives here. That is
     // the point: a branch cannot forget an obligation it does not perform.
 
+    if (reservation && !reservationSettled) {
+      await safeRelease(deps.rpc, callerUserId, reservation, releaseReason);
+    }
+
     for (const [callId, call] of openCalls) {
       await safeRecord(
         deps.rpc,
@@ -1036,10 +1130,6 @@ export async function runAnalyzeForm(
         reservation,
         usageForCall(call, attempts)
       );
-    }
-
-    if (reservation && !reservationSettled) {
-      await safeRelease(deps.rpc, callerUserId, reservation, releaseReason);
     }
 
     // Observability must never be able to break the request it is describing: a throw from here
@@ -1053,12 +1143,12 @@ export async function runAnalyzeForm(
         tier,
         mediaType,
         frameCount,
-        attempts: attempts.length,
-        retried: attempts.length > 1,
+        attempts: dispatchedAttempts.length,
+        retried: dispatchedAttempts.length > 1,
         outcome,
         isFallback,
         releaseReason: reservation && !reservationSettled ? releaseReason : null,
-        stopReasons: attempts.map((attempt) => attempt.stopReason),
+        stopReasons: dispatchedAttempts.map((attempt) => attempt.stopReason),
         inputTokens: sumUsage(attempts, 'input_tokens'),
         outputTokens: sumUsage(attempts, 'output_tokens'),
         cacheReadInputTokens: sumUsage(attempts, 'cache_read_input_tokens'),
@@ -1105,8 +1195,26 @@ async function callModel(
   now: () => number,
   requestId: string,
   userIdHash: string
-): Promise<{ attempt: AttemptOutcome; timedOut: boolean }> {
+): Promise<{ attempt: AttemptOutcome; timedOut: boolean; dispatched: boolean }> {
   const budget = Math.min(MODEL_CALL_TIMEOUT_MS, Math.max(0, deadline - now()));
+
+  if (budget <= 0) {
+    // The gate reservation exists, but no provider request was issued. Leave `attemptIndex` null so
+    // `finally` settles the unused ledger row as cancelled rather than billing a phantom timeout.
+    logEvent({
+      level: 'warn',
+      fn: 'analyze-form',
+      event: 'model_call_skipped_deadline',
+      requestId,
+      userId: userIdHash,
+      attemptIndex,
+      budgetMs: budget,
+    });
+    // `dispatched: false` — nothing was sent. The synthetic attempt below still drives the
+    // caller's failure handling (there is no result to decide on), but the observability line
+    // must not count it as a provider call that happened.
+    return { attempt: callFailedAttempt(), timedOut: true, dispatched: false };
+  }
 
   // Bind this ledger row to this attempt BEFORE the request goes out. From here on the call is
   // billable and is no longer a `'cancelled'` — a cancelled call is one that never happened — and
@@ -1134,10 +1242,10 @@ async function callModel(
       attemptIndex,
       budgetMs: budget,
     });
-    return { attempt: callFailedAttempt(), timedOut: result.kind === 'timeout' };
+    return { attempt: callFailedAttempt(), timedOut: result.kind === 'timeout', dispatched: true };
   }
 
-  return { attempt: readAttempt(result.response), timedOut: false };
+  return { attempt: readAttempt(result.response), timedOut: false, dispatched: true };
 }
 
 /**

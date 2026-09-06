@@ -19,13 +19,16 @@
  *      `app/capture/extracting.tsx`'s pre-flight `checkMediaCaps` rejects `durationMs > 15000` as
  *      `clipTooLong` — the app refusing a clip its own recorder had just capped. The longest, most
  *      analyzable recordings were exactly the ones that dead-ended.
- *   2. FRAMES WERE SAMPLED PAST THE END OF THE CLIP. `lib/frames.ts`'s `sampleTimestamps` spreads
- *      its samples across the 5%-95% window of whatever duration it is handed, so an inflated
- *      duration pushes the late samples at or beyond the real last frame. iOS's
+ *   2. FRAMES WERE SAMPLED PAST THE END OF THE CLIP. `lib/frames.ts`'s `sampleTimestamps` then
+ *      spread its samples across the 5%-95% window of whatever duration it was handed, so an
+ *      inflated duration pushed the late samples at or beyond the real last frame. iOS's
  *      `AVAssetImageGenerator` leaves `requestedTimeToleranceBefore` at `.positiveInfinity` for a
  *      requested time past the asset's duration (see `expo-video-thumbnails`'s
- *      `VideoThumbnailsModule.swift`), so those samples come back as the SAME final still —
- *      duplicate frames where the analysis was supposed to see motion.
+ *      `VideoThumbnailsModule.swift`), so those samples came back as the SAME final still —
+ *      duplicate frames where the analysis was supposed to see motion. Since #199 the sampler
+ *      takes one centered ~700ms burst instead, so an over-reported duration shifts that burst's
+ *      center rather than running off the end of the clip — but the duration it is handed still
+ *      has to be an honest measurement for the burst to land where it is meant to.
  *
  * WHAT THIS FIXES, AND WHAT IT HONESTLY DOES NOT. The caller stamps the stop time when it calls
  * `stopRecording()` rather than when `recordAsync` resolves, which removes the tail (finalization)
@@ -36,10 +39,11 @@
  * expo-camera SDK 54 API reports when recording actually began — `CameraView` has
  * `onCameraReady`/`onMountError` and nothing for recording start (`Camera.types.d.ts`), and
  * `recordAsync` resolves with `{ uri }` alone. Closing that gap needs a duration read off the
- * finished file, which no installed module can do (`expo-video-thumbnails` returns
- * `{ uri, width, height }`; `expo-video`/`expo-av` are deliberately not dependencies — see
- * `lib/frames.ts`'s header). Whatever you do here, do NOT paper over the remaining head error by
- * subtracting a guessed constant: an invented number is not a measurement.
+ * finished file. Nothing in this repo reads one today, and `expo-av` is still not a dependency —
+ * but `expo-video` IS one as of issue #199 (installed for batch frame decoding, see
+ * `lib/frames.ts`'s header), so the dependency list no longer rules that route out by itself.
+ * Whatever you do here, do NOT paper over the remaining head error by subtracting a guessed
+ * constant: an invented number is not a measurement.
  */
 import { MAX_CLIP_DURATION_MS } from './media-caps';
 
