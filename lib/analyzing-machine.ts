@@ -53,15 +53,25 @@ export const ANALYZING_LONG_WAIT_DELAY_MS = 1750;
 
 /**
  * Client-side wait ceiling, past which this screen gives up and shows `analyzing.error.timeout.*`
- * instead of waiting forever. NOT a guess at `analyze-form`'s own server-side timeout — there
- * isn't a documented one. `pending_timeout_seconds` (300s, `docs/architecture.md`'s AI-spend-gate
- * schema) is a different concern: how long a *reservation* sits before the gate ages it out on
- * its own, not a promise about how long the model call itself may run. This value is set well
- * past the documented 20-60s call range (extended-thinking calls can legitimately run long) but
- * comfortably under that 300s reservation ceiling, so the user is told something before the
- * server-side accounting would have moved on regardless. A client-side heuristic, not an
- * authoritative spec — revisit once #44 exists and this can be checked against real call
- * latencies.
+ * instead of waiting forever. **As of issue #199 (2026-09-06) the server sizes ITSELF against this
+ * number, so do not change it casually**: `analyze-form/flow.ts`'s
+ * `ANALYZE_FORM_REQUEST_DEADLINE_MS` (105s from handler entry) is deliberately set 15s under this
+ * value so a doomed request comes back as the server's structured `{ error, code }` — reservation
+ * released, ledger settled — rather than as this blind client timeout. Lowering this constant
+ * below that envelope reintroduces exactly the failure mode #199 removed. That 15s is nominal
+ * headroom, not a hard guarantee: individual server-side auth/DB/Storage/RPC calls have no local
+ * wall-clock cancellation, so a stalled dependency can still outlive this ceiling
+ * (`docs/architecture.md`'s "Timing" note). `pending_timeout_seconds` (300s,
+ * `docs/architecture.md`'s AI-spend-gate schema) is a different concern: how long a *reservation*
+ * sits before the gate ages it out on its own, not a promise about how long the model call
+ * itself may run. This value is set well past the documented 20-60s call range
+ * (extended-thinking calls can legitimately run long) but comfortably under that 300s
+ * reservation ceiling, so the user is told something before the server-side accounting would
+ * have moved on regardless. It began as a client-side heuristic;
+ * #199's live-call evidence (real Anthropic calls built by the production prompt code returned in
+ * 22-30s at `effort: 'low'`, against 63-65s at `medium`) checked it against real model latency —
+ * end-to-end latency through the deployed function is still unmeasured — and it is now the
+ * number the server's own envelope is derived from; see `docs/status.md` Known Issue #42.
  *
  * Reaching this ceiling does NOT cancel the in-flight `analyzeFormClient.submit()` call — per
  * `docs/architecture.md`'s "Backgrounding recovery" note, the server finishes and settles the

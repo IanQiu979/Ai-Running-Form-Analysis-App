@@ -921,6 +921,10 @@ milestone "done" criteria.
       its "Start a new analysis" action. Deliberately drops the "try again" line the `failed`/
       `timeout` copy carries, because a Retry there re-submits the same idempotency key and can only
       return the same released row. Wording mirrors the server's own message; not in the deck.
+    - **ADDED 2026-09-06 (issue #199):** `Copy.upload.error.unsupportedFootage.title` / `.body` —
+      the non-retryable state for `lib/frames.ts`'s `InsufficientFramesError` (too few distinct
+      frames survived the stride burst). Now mirrored into `docs/design/copy-deck.md`'s Screen 5
+      table, marked a draft until certified like the rest of this list.
     All six are written to the deck's own stated voice rules (plain, calm, name the outcome, no
     jargon, never claim a state that isn't true) but are drafts. `docs/design/copy-deck.md` now
     marks all six with a delimited "NEW — awaiting certification" note, following issue #95's

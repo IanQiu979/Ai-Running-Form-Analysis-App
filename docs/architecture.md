@@ -1163,7 +1163,10 @@ app/capture/
                 # window before it is known. A failed/unauthorized/slow lookup degrades to the
                 # free cap on purpose, never upward. A PHOTO is always exactly 1 frame and makes
                 # no quota call at all. Surfaces `FrameBudgetExceededError`
-                # (`upload.error.budgetExceeded`, no Retry — the same input would fail again) and
+                # (`upload.error.budgetExceeded`, no Retry — the same input would fail again),
+                # InsufficientFramesError (`upload.error.unsupportedFootage`, also no Retry —
+                # low-frame-rate footage collides identically every time; issue #199, checked
+                # BEFORE the generic branch since it is a FrameExtractionError subclass) and
                 # a generic extraction failure (`upload.error.extractionFailed`, Retry + Back)
                 # as distinct, real states, not a raw alert. On success: `upload.ready.*` (NEW
                 # copy — see below) and "Done" back to Home.
@@ -1182,7 +1185,8 @@ reusing the deck's Screen 5 key prefix even though the screen only implements th
 extraction half — see the #36 update note in `docs/design/copy-deck.md`'s Screen 5 section for
 why `upload.step.uploading`/`upload.error.*`/`upload.offline.*` are specced but not built). Most
 strings are lifted verbatim by key; a handful are genuinely new (`sourcePicker.error.*`,
-`upload.error.budgetExceeded.*`, `upload.error.extractionFailed.*`, `upload.ready.*`) because the
+`upload.error.budgetExceeded.*`, `upload.error.extractionFailed.*`, `upload.ready.*`, and
+#199's `upload.error.unsupportedFootage.*`) because the
 scenarios they cover — a library-picked clip over the cap, a local extraction failure, the
 no-next-screen-yet stopping point — were never specced. Each is marked "NEW key" at both its
 `constants/copy.ts` definition and its mirrored row in `docs/design/copy-deck.md`, the same
@@ -2769,7 +2773,7 @@ function flow" above wherever the two disagree.
 | File | Role | Tested |
 |---|---|---|
 | `analyze-form/index.ts` | HTTP + auth glue. Captures request start at `Deno.serve` entry, then verifies the JWT via `auth.getUser()` and passes the timestamp into the flow. | — |
-| `analyze-form/flow.ts` | The whole orchestration, against injected deps. No npm/Deno import. | 95 Deno tests |
+| `analyze-form/flow.ts` | The whole orchestration, against injected deps. No npm/Deno import. | 96 Deno tests |
 | `analyze-form/deps.ts` | Deno wiring: service-role Supabase client, Storage, the Anthropic `fetch`. | — (thin factory) |
 | `_shared/analyze-form-validation.ts` | #45: read the response, validate structurally, salvage, classify. | 43 Deno tests |
 
