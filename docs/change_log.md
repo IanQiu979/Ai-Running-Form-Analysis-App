@@ -70,11 +70,17 @@ this work.
     `knowledge/injury_flags.md`'s certified stop-running list (`PACE_SAFETY_SIGNALS`) — and
     `PACE_RESULT_SCHEMA` requires it, so the model declares the warning SEPARATELY from its
     assessment prose. Normalization copies that field across structurally and makes a certified
-    non-`none` signal's `note` the visible feedback on every tier, frame path, and pillar; nothing
-    else the model wrote about an unassessable pillar survives.
-    An ungrounded or unreadable `safety` value, and a real signal on a pillar a salvage would drop,
-    both FAIL CLOSED in `analyze-form-validation.ts` (no salvage, retry, then a non-farming
-    `model_error` release without charging). Certified safety notes are carried and surfaced
+    non-`none` signal's `note` LEAD the visible feedback on every tier, frame path, and pillar,
+    with whatever coaching prose survived normalization kept underneath it; nothing else the model
+    wrote about an unassessable pillar survives.
+    An ungrounded or unreadable `safety` value on a PRESENT pillar, and a real signal on a pillar a
+    salvage would drop, both FAIL CLOSED in `analyze-form-validation.ts` (no salvage, retry, then a
+    non-farming `invalid_safety` release without charging — its own reason, added to the
+    `analyses_release_reason_known_values` vocabulary by
+    `20260906120000_invalid_safety_release_reason.sql` and deliberately outside
+    `pace_is_farming_signal`, since the failed requirement is ours, not the user's). A pillar that
+    is simply ABSENT declares nothing and is ordinary schema drift: it stays `invalid_shape`, and
+    it does not abort the honest-partial salvage. Certified safety notes are carried and surfaced
     structurally; prose is never mined for them. `SYSTEM_PROMPT_TOKENS_ESTIMATE` rose 24000 →
     25500 because the new schema descriptions ride in the prompt once per pillar.
   - **The prompt now states two facts, never one.** `analyze-form-prompt.ts` builds its medium
@@ -92,18 +98,24 @@ this work.
   - **Review follow-up, same day.** The strip used to overwrite the pillar's `feedback` wholesale,
     which could silently delete a stop-running safety signal — the one class of content
     `analyze-form-prompt.ts`'s SAFETY_RULES make undroppable at every tier. Normalization now
-    discards the unsupported assessment prose and carries only the certified structured safety
-    declaration across; when it contains a real signal, its `note` becomes the replacement
-    feedback. All four pillars are guarded on a one-frame submission (a pillar the model did not
+    discards the unsupported assessment prose and carries the certified structured safety
+    declaration across; when it contains a real signal, its `note` is placed FIRST in the pillar's
+    feedback, ahead of any coaching prose that survived normalization — a warning leads, and never
+    deletes supportable coaching. All four pillars are guarded on a one-frame submission (a pillar the model did not
     score cannot keep flags or drills), and a video with one frame reaching analysis is no longer
     told to submit a video or blamed on its plan.
   - **Medium rules now follow the frame count actually attached, not the client's declared
     `mediaType`.** A video with only one frame attached was being handed the cross-frame rules
     ("across frames you can assess all four pillars ... arm-swing arc and symmetry"), inviting a
     comparison that never existed.
-  - **`components/pace-readout.tsx` shows ONE explanation per not-assessed pillar.** The canned
-    `notAssessed` line is now a fallback for a pillar with no feedback, instead of a second,
-    overlapping sentence rendered above the server's own.
+  - **`components/pace-readout.tsx` renders the canned `notAssessed` line unconditionally** for
+    every pillar with a null score/band, alongside `pillar.feedback` rather than as a fallback for
+    its absence. An earlier attempt to suppress the line whenever a pillar carried feedback was
+    reverted (see the bullet above) because it hid the marker on Pro/Elite pillars the model itself
+    could not score. The overlap it was meant to solve is gone at the source instead: the server no
+    longer writes a competing "submit a video" sentence into `feedback` for a pillar it normalized,
+    so a not-assessed pillar that also carries prose (a safety note, or a model explanation) shows
+    both lines and neither contradicts the other.
   - **`lib/history.ts` surfaces the new `409 in_progress` delete code** instead of flattening its
     actionable "retry once the analysis finishes" message into the generic delete failure;
     `docs/architecture.md`'s API table row for `DELETE /functions/v1/analysis/:id` lists it too.

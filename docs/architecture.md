@@ -2799,24 +2799,38 @@ and is never merely prompt-guided:
   `knowledge/injury_flags.md`'s certified stop-running list plus the calm `note` to show the
   runner — and it exists precisely so a
   stop-running warning is separated from assessment prose AT THE SOURCE rather than classified out
-  of it afterwards. Normalization copies it across and makes a certified non-`none` signal's `note`
-  the visible pillar feedback on every tier, frame path, and pillar; no keyword matching is involved,
-  in either direction. It is never tier-gated.
-- **ABSENT IS INVALID, and that is what makes the sentence above true.** `PACE_RESULT_SCHEMA` marks
-  `safety` `required`, but a schema is a request to the model, not a guarantee we may lean on — so
-  `analyze-form-validation.ts` refuses to call a response deliverable unless EVERY pillar carries a
-  usable declaration. Absent, malformed, ungrounded `signal`, a declared non-`none` signal with a
-  blank `note`, and a real signal on a pillar a salvage would drop all take the identical path: no
-  salvage, the retry runs, and a second failure releases the reservation without charging the
-  user. Reading an absent field as "no signal" would discard a warning written only in the prose
-  with more confidence than the keyword classifier this design replaced ever had. A missing
-  analysis is recoverable; a missing warning is not.
-- **A model/schema-contract failure is ours, not a farming signal.** A response that omits or
-  violates the required structured safety declaration releases as `model_error`, so it refunds the
-  reservation and cannot increment the runner's anti-farming counter. This does not broaden or
-  rename `validation_failed`: its existing meaning — the model received a genuine retry and both
-  responses met the established content-failure condition — remains the sole farming signal. No DB
-  change accompanies this distinction; the already-live
+  of it afterwards. Normalization copies it across and places a certified non-`none` signal's `note`
+  FIRST in that pillar's visible feedback on every tier, frame path, and pillar, keeping whatever
+  coaching prose survived normalization underneath it; no keyword matching is involved, in either
+  direction, and supportable coaching is never deleted because a warning fired. It is never
+  tier-gated.
+- **ABSENT IS INVALID ON A PILLAR THAT DECLARED ANYTHING, and that is what makes the sentence above
+  true.** `PACE_RESULT_SCHEMA` marks `safety` `required`, but a schema is a request to the model,
+  not a guarantee we may lean on — so `analyze-form-validation.ts` refuses to call a response
+  deliverable unless every PRESENT pillar carries a usable declaration. On such a pillar, absent,
+  malformed, ungrounded `signal`, a declared non-`none` signal with a blank `note`, and a real
+  signal on a pillar a salvage would drop all take the identical path: no salvage, the retry runs,
+  and a second failure releases the reservation without charging the user. Reading an absent field
+  as "no signal" would discard a warning written only in the prose with more confidence than the
+  keyword classifier this design replaced ever had. A missing analysis is recoverable; a missing
+  warning is not.
+  The one case scoped OUT is a pillar that is entirely absent, or not an object at all: it asserted
+  nothing about the runner, so there is no warning it could have dropped. That is ordinary schema
+  drift, it stays `invalid_shape` (and, after the retry, `validation_failed`) exactly as it did
+  before `safety` existed, and it does not abort the #45 honest-partial salvage of the pillars that
+  ARE readable — which is the only thing that keeps that fallback reachable against real model
+  output.
+- **A safety-contract failure is ours, not a farming signal, and it says so in its own words.** A
+  response that omits or violates the required structured safety declaration on a present pillar
+  releases as `'invalid_safety'`, so it refunds the reservation and cannot increment the runner's
+  anti-farming counter. It is kept distinct from `'model_error'` because the Anthropic call did not
+  fail — only OUR added requirement did — and the ledger should be able to tell those apart.
+  `20260906120000_invalid_safety_release_reason.sql` adds the value to
+  `analyses_release_reason_known_values`, the same superset-only idiom `'stale_sweep'` and
+  `'zero_pillars_assessed'` already used. This does not broaden or rename `validation_failed`: its
+  existing meaning — the model received a genuine retry and both responses met the established
+  content-failure condition — remains the sole farming signal. `pace_is_farming_signal` needs no
+  change and gets none: it returns true only for `'validation_failed'`, so the already-live
   `20260712220000_anti_farm_release_reason_fix.sql` migration, including Free's rolling 24-hour
   window, remains the control of record unchanged.
 - **The prompt states two separate facts**, never one merged one: what the runner SENT (photo or
