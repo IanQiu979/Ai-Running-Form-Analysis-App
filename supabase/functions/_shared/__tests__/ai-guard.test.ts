@@ -119,6 +119,90 @@ describe('gateAiCall', () => {
     });
   });
 
+  it('falls back to gate_ai_call when the override RPC is missing from the database', async () => {
+    const rpc = jest
+      .fn()
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: 'PGRST202',
+          message: 'Could not find the function public.gate_ai_call_unlimited in the schema cache',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: { allowed: true, call_id: 'call-fallback', estimated_usd: 0.23 },
+        error: null,
+      });
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await gateAiCall(
+      { rpc },
+      {
+        userId: 'u1',
+        estimatedInputTokens: 100,
+        estimatedOutputTokens: 200,
+        allUsersUnlimitedAccess: true,
+      }
+    );
+
+    expect(result).toEqual({ allowed: true, callId: 'call-fallback', estimatedUsd: 0.23 });
+    expect(rpc.mock.calls.map((c) => c[0])).toEqual(['gate_ai_call_unlimited', 'gate_ai_call']);
+    // Same arguments both times — the fallback re-runs the identical gate, it does not relax it.
+    expect(rpc.mock.calls[1][1]).toEqual(rpc.mock.calls[0][1]);
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('supabase db push'));
+    consoleError.mockRestore();
+  });
+
+  it('never turns a typed deny from the fallback gate into an allow', async () => {
+    const rpc = jest
+      .fn()
+      .mockResolvedValueOnce({
+        data: null,
+        error: { code: '42883', message: 'function gate_ai_call_unlimited(...) does not exist' },
+      })
+      .mockResolvedValueOnce({
+        data: { allowed: false, reason: 'user_daily_cap', spent_usd: 0.75, cap_usd: 0.75 },
+        error: null,
+      });
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await gateAiCall(
+      { rpc },
+      {
+        userId: 'u1',
+        estimatedInputTokens: 1,
+        estimatedOutputTokens: 1,
+        allUsersUnlimitedAccess: true,
+      }
+    );
+
+    expect(result).toEqual({
+      allowed: false,
+      reason: 'user_daily_cap',
+      detail: { spent_usd: 0.75, cap_usd: 0.75 },
+    });
+    consoleError.mockRestore();
+  });
+
+  it('does NOT fall back on any other error class — a transport failure still throws', async () => {
+    const rpc = jest.fn().mockResolvedValue({
+      data: null,
+      error: { code: 'ECONNRESET', message: 'TypeError: error sending request for url' },
+    });
+    await expect(
+      gateAiCall(
+        { rpc },
+        {
+          userId: 'u1',
+          estimatedInputTokens: 1,
+          estimatedOutputTokens: 1,
+          allUsersUnlimitedAccess: true,
+        }
+      )
+    ).rejects.toThrow(/gate_ai_call_unlimited failed: TypeError: error sending request for url/);
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces the override RPC name in the thrown error, not a hardcoded gate_ai_call', async () => {
     const client = mockClient({ data: null, error: { message: 'boom' } });
     await expect(

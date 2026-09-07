@@ -79,10 +79,20 @@ on 2026-09-06 and correctly left unfixed there as pre-existing and out of scope.
   state. The denial's `detail` (spend, cap, tier) is logged server-side and never forwarded —
   our per-tier dollar ceilings are a farming aid, not a user-facing fact.
 
-- **Deployment.** The migration must be applied with `supabase db push` before any of this is
-  true in production, and `lib/database.types.ts` regenerated afterwards (it is a generated file
-  and is deliberately left stale here — same known-drift convention its header already
-  documents for other unpushed migrations).
+- **Deployment — DB FIRST, then the edge function.** The migration must be applied with
+  `supabase db push` before `analyze-form` is deployed from this branch (the same deploy-gated
+  ordering `pace_quota_status` / `pace_purchase_tier` needed), and `lib/database.types.ts`
+  regenerated afterwards (it is a generated file and is deliberately left stale here — same
+  known-drift convention its header already documents for other unpushed migrations).
+  `ALL_USERS_UNLIMITED_ACCESS` is set on the live project, so the deployed function selects
+  `gate_ai_call_unlimited`, which does not exist until the push lands. Reversing the order no
+  longer 500s every analysis: `gateAiCall` now recognises a missing-function error (PostgREST
+  `PGRST202` / Postgres `42883`), logs loudly naming the required `supabase db push`, and falls
+  back **once** to `gate_ai_call`. That fallback is deliberately tighter, not looser — the base
+  gate derives the caller's real tier, so an override caller temporarily gets their true (usually
+  Free, $0.75) allowance instead of Elite's $4.00, which is the right direction of error for a
+  spend cap. Every other error class still throws exactly as before, and the fallback can never
+  turn a typed deny into an allow; both are unit-tested in `_shared/__tests__/ai-guard.test.ts`.
 
 ## 2026-09-06 (analysis reliability: model window, retry policy, stride-burst sampling)
 

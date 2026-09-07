@@ -3,11 +3,17 @@
  * this change's BEHAVIOUR is proved — that suite runs the committed migrations against a real
  * (WASM) Postgres and asserts what the gate actually does.
  *
- * What is left for a text-level suite is the class of claim no runtime assertion can make: what
- * the migration DOESN'T do. "This change did not quietly reverse a captain decision" and "this
- * change did not delete the global ceiling" are statements about the diff, and the diff is the
- * only place they can be checked. Same constraint (and same rationale) as every other suite in
- * this directory — see `anti_farm_release_reason_fix.test.ts`'s header.
+ * This file is deliberately NARROW: it asserts ONLY the class of claim no runtime assertion can
+ * make — what the migration DOESN'T do. "This change did not quietly reverse the captain decision
+ * audit-v23-r1-decision-zero-pillar-charge-policy" and "this change did not delete the global
+ * ceiling" are statements about the diff, and the diff is the only place they can be checked.
+ *
+ * Anything the gate positively DOES — the per-tier cap values, the global ceiling still being
+ * enforced as the outer bound, the operator-tunable dials, EXECUTE staying service_role-only —
+ * belongs in the PGlite suite and is asserted there. Do not restate it here as a regex: a text
+ * assertion cannot fail when the behaviour breaks, but does fail on a behaviour-preserving
+ * rename. Same constraint (and same rationale) as every other suite in this directory — see
+ * `anti_farm_release_reason_fix.test.ts`'s header.
  */
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
@@ -73,50 +79,5 @@ describe('the global ceiling is retained, not replaced', () => {
   it('does not drop or rename daily_usd_cap', () => {
     expect(sql).not.toMatch(/drop\s+column\s+.*daily_usd_cap/i);
     expect(sql).not.toMatch(/rename\s+column\s+daily_usd_cap/i);
-  });
-
-  it('still checks spend against v_cfg.daily_usd_cap in the rewritten gate', () => {
-    expect(sql).toMatch(/v_spent_usd \+ v_estimated_usd > v_cfg\.daily_usd_cap/);
-  });
-
-  it('adds the three per-user dials as NOT NULL with positive-value checks', () => {
-    for (const column of [
-      'user_daily_usd_cap_free',
-      'user_daily_usd_cap_pro',
-      'user_daily_usd_cap_elite',
-    ]) {
-      expect(sql).toMatch(new RegExp(`add column ${column}\\s+numeric not null default`, 'i'));
-      expect(sql).toMatch(new RegExp(`check \\(${column} > 0\\)`, 'i'));
-    }
-  });
-});
-
-describe('nothing new is exposed to a client', () => {
-  // Statements wrap across lines, so flatten first — a line-anchored regex would only ever see
-  // the first line of a multi-line grant.
-  const flattened = sql.replace(/\s+/g, ' ');
-  const grants = [...flattened.matchAll(/grant execute on function .+? to ([^;]+);/gi)];
-
-  it('grants EXECUTE on every new function to service_role and to nobody else', () => {
-    expect(grants.length).toBe(5);
-    for (const [, grantees] of grants) {
-      expect(grantees.trim()).toBe('service_role');
-    }
-  });
-
-  it('revokes EXECUTE from public/anon/authenticated on every function it defines', () => {
-    const defined = [...sql.matchAll(/create or replace function (public\.\w+)\(/g)].map((m) => m[1]);
-    expect(defined.sort()).toEqual([
-      'public.ai_spend_today',
-      'public.ai_user_daily_cap_usd',
-      'public.gate_ai_call',
-      'public.gate_ai_call_for_tier',
-      'public.gate_ai_call_unlimited',
-    ]);
-    for (const fn of defined) {
-      expect(sql).toMatch(
-        new RegExp(`revoke execute on function ${fn.replace('.', '\\.')}\\([\\s\\S]*?from public, anon, authenticated`, 'i')
-      );
-    }
   });
 });

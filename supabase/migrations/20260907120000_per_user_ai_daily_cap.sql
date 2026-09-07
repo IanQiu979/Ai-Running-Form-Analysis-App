@@ -114,6 +114,15 @@
 -- SIGNATURES. `gate_ai_call(uuid, integer, integer, text, uuid)` keeps its exact argument list —
 -- `create or replace`, no drop, no overload, no caller change required beyond the new deny
 -- reasons.
+--
+-- DEPLOYMENT ORDER — DB FIRST. `supabase db push` MUST run BEFORE `analyze-form` is deployed
+-- from this branch, the same ordering `pace_quota_status` / `pace_purchase_tier` needed for
+-- `quota-status` / `purchase-tier`. `gate_ai_call` itself already exists, so the default path is
+-- safe either way; the new one is `gate_ai_call_unlimited`, which `_shared/ai-guard.ts` selects
+-- whenever the `ALL_USERS_UNLIMITED_ACCESS` secret is set (it is, on the live project). Deploying
+-- the function first no longer 500s — `gateAiCall` detects the missing function and falls back to
+-- `gate_ai_call` once, which applies the caller's REAL tier cap (tighter, not looser) — but that
+-- is a degraded state, not the intended one. Push this migration first.
 
 -- ---------------------------------------------------------------------------------------------
 -- 1. The dials. Operator-tunable by UPDATE from the dashboard/SQL editor/MCP, no redeploy —

@@ -16,6 +16,13 @@
  * construction. That is real, but partial, protection: nothing here can stop `analyze-form`'s
  * own code from calling the Anthropic API directly and never touching this module at all. See
  * the migration header for the full, honest scoping of what "physically cannot" means here.
+ *
+ * DEPLOY-GATED. The per-user cap's `gate_ai_call_unlimited` (the `ALL_USERS_UNLIMITED_ACCESS`
+ * sibling) only exists once `supabase/migrations/20260907120000_per_user_ai_daily_cap.sql` is
+ * applied, so `supabase db push` MUST run BEFORE this function is deployed — the same ordering
+ * `pace_quota_status` / `pace_purchase_tier` needed for `quota-status` / `purchase-tier`. If it
+ * is deployed the other way round, `gateAiCall` degrades rather than 500s: see the missing-
+ * function fallback below.
  */
 
 export type GateDenyReason =
@@ -61,7 +68,7 @@ export interface RpcClient {
   rpc(
     fn: string,
     args: Record<string, unknown>
-  ): Promise<{ data: unknown; error: { message: string } | null }>;
+  ): Promise<{ data: unknown; error: { message: string; code?: string } | null }>;
 }
 
 export interface GateAiCallParams {
@@ -81,6 +88,23 @@ export interface GateAiCallParams {
   allUsersUnlimitedAccess?: boolean;
 }
 
+const BASE_GATE_FN = 'gate_ai_call';
+const OVERRIDE_GATE_FN = 'gate_ai_call_unlimited';
+
+/**
+ * True only for "that function is not in the database" — PostgREST's schema-cache miss
+ * (`PGRST202`) or Postgres's undefined_function (`42883`), by code or by the message either one
+ * produces. Every other error class (transport, timeout, permission, a genuine DB fault) is
+ * excluded on purpose: those must keep throwing exactly as before.
+ */
+function isMissingFunctionError(error: { message: string; code?: string }): boolean {
+  if (error.code === 'PGRST202' || error.code === '42883') {
+    return true;
+  }
+  const message = error.message.toLowerCase();
+  return message.includes('could not find the function') || message.includes('does not exist');
+}
+
 /**
  * Reserves budget headroom for one Anthropic call. Denies — without ever reserving anything —
  * if the kill switch is off, the circuit breaker is open, or EITHER daily cap would be exceeded:
@@ -92,16 +116,34 @@ export interface GateAiCallParams {
  * accidentally let a call through; only a genuine transport/DB error throws.
  */
 export async function gateAiCall(client: RpcClient, params: GateAiCallParams): Promise<GateResult> {
-  const fn = params.allUsersUnlimitedAccess ? 'gate_ai_call_unlimited' : 'gate_ai_call';
-  const { data, error } = await client.rpc(fn, {
+  const args = {
     p_user_id: params.userId,
     p_estimated_input_tokens: params.estimatedInputTokens,
     p_estimated_output_tokens: params.estimatedOutputTokens,
     p_model: params.model ?? 'claude-sonnet-5',
     p_analysis_id: params.analysisId ?? null,
-  });
+  };
+  const fn = params.allUsersUnlimitedAccess ? OVERRIDE_GATE_FN : BASE_GATE_FN;
+  let { data, error } = await client.rpc(fn, args);
 
-  if (error) {
+  if (error && fn === OVERRIDE_GATE_FN && isMissingFunctionError(error)) {
+    // The override sibling ships in 20260907120000_per_user_ai_daily_cap.sql; if the edge
+    // function is deployed before `supabase db push` runs, the RPC simply does not exist. Fall
+    // back to the always-present `gate_ai_call` once rather than 500ing every analysis. The
+    // fallback is deliberately TIGHTER, not looser: `gate_ai_call` derives the caller's real
+    // tier, so an override caller temporarily gets their true (usually Free, $0.75) allowance
+    // instead of Elite's $4.00. That is the correct direction of error for a spend cap —
+    // degraded, not unbounded — and it self-heals the moment the migration is pushed.
+    console.error(
+      `[ai-guard] ${OVERRIDE_GATE_FN} is missing from the database (${error.message}). ` +
+        `Run \`supabase db push\` to apply 20260907120000_per_user_ai_daily_cap.sql. ` +
+        `Falling back to ${BASE_GATE_FN}, which applies the caller's REAL tier cap.`
+    );
+    ({ data, error } = await client.rpc(BASE_GATE_FN, args));
+    if (error) {
+      throw new Error(`${BASE_GATE_FN} failed: ${error.message}`);
+    }
+  } else if (error) {
     throw new Error(`${fn} failed: ${error.message}`);
   }
 
