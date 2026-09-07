@@ -21,7 +21,8 @@
  * plus `stop_reason` and `output_tokens` against `MAX_OUTPUT_TOKENS_BY_TIER[tier]`, so a
  * truncation risk is visible as a margin, not only as a failure.
  *
- * It also greps every pillar's `feedback` for a steps-per-minute figure or range. The burst is
+ * It also greps every pillar's `feedback` and every injury flag's `detail` — the two runner-facing
+ * prose fields — for a steps-per-minute figure or range, and persists both. The burst is
  * about one stride cycle — too short to count steps (see `STRIDE_BURST_VIDEO_RULES` in
  * `analyze-form-prompt.ts`) — so ANY SPM number in a burst result is the model overclaiming and is
  * printed as a WARN. That is a truth check on the prompt, not a latency number.
@@ -78,10 +79,15 @@ const ANTHROPIC_VERSION = '2023-06-01';
  * reader can see how much of the raise a real burst actually needs. */
 const LEGACY_ATTEMPT_TIMEOUT_MS = 65_000;
 
-/** A steps-per-minute figure or range anywhere in runner-facing feedback. Case-insensitive; the
- * range form catches "160-170 SPM", "160–170 spm" and "160 to 170 steps per minute". */
-const SPM_RANGE = /\b\d{2,3}\s*(?:-|–|to)\s*\d{2,3}\s*(?:spm|steps)/i;
-const SPM_POINT = /\b\d{3}\s*(?:spm|steps per minute)/i;
+/** A steps-per-minute figure or range anywhere in runner-facing prose — `feedback` AND
+ * `flags[].detail`, the two fields that carry a claim about THIS runner (the same scope
+ * `grounding-eval.ts`'s `checkNoFalsePrecision` uses, and for the same reason: `drills[]`
+ * instructions are quoted from the certified corpus and legitimately say "~2 SPM").
+ * Case-insensitive; the unit alternation covers "SPM", "steps per minute", "steps/min" and
+ * "steps a minute". */
+const SPM_UNIT = String.raw`(?:spm\b|steps\s*(?:per|a|\/)\s*min(?:ute)?s?\b)`;
+const SPM_RANGE = new RegExp(String.raw`\b\d{2,3}\s*(?:[-–—]|\bto\b)\s*\d{2,3}\s*${SPM_UNIT}`, 'i');
+const SPM_POINT = new RegExp(String.raw`\b\d{2,3}\s*${SPM_UNIT}`, 'i');
 
 interface Manifest {
   clip: string;
@@ -114,10 +120,16 @@ function parseArgs(argv: string[]): Args {
     console.error(`unknown tier "${tier}"`);
     Deno.exit(2);
   }
+  const rawRepeat = get('--repeat');
+  const repeat = rawRepeat === undefined ? 1 : Number(rawRepeat);
+  if (!Number.isInteger(repeat) || repeat < 1) {
+    console.error(`--repeat must be a positive integer, got "${rawRepeat}"`);
+    Deno.exit(2);
+  }
   return {
     framesDir,
     tier,
-    repeat: Math.max(1, Number(get('--repeat') ?? 1)),
+    repeat,
     effort: (get('--effort') as PaceEffort | undefined) ?? ANALYZE_FORM_EFFORT,
     out: get('--out') ?? `${framesDir}/latency-results.json`,
     dryRun: argv.includes('--dry-run'),
@@ -134,6 +146,30 @@ async function loadFrames(framesDir: string): Promise<{ manifest: Manifest; fram
     frames.push({ base64, mediaType: 'image/jpeg', requestedTimestampMs: entry.timestampMs });
   }
   return { manifest, frames, bytes };
+}
+
+/** The results file is an append-only JSON array. A missing file is the first run; a file holding
+ * anything else is a mistake worth refusing while it is still free to refuse. */
+async function loadExistingRecords(out: string): Promise<unknown[]> {
+  let text: string;
+  try {
+    text = await Deno.readTextFile(out);
+  } catch (err) {
+    if (err instanceof Deno.errors.NotFound) return [];
+    throw err;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    console.error(`${out} exists but is not valid JSON. Move or delete it, or pass a different --out.`);
+    Deno.exit(2);
+  }
+  if (!Array.isArray(parsed)) {
+    console.error(`${out} exists but does not hold a JSON array. Move or delete it, or pass a different --out.`);
+    Deno.exit(2);
+  }
+  return parsed;
 }
 
 interface CallResult {
@@ -204,6 +240,10 @@ async function main(): Promise<void> {
     Deno.exit(2);
   }
 
+  // Read the results file BEFORE spending money: a pre-existing file holding something other than
+  // a JSON array would otherwise blow up the append after the calls are already paid for.
+  const existing = await loadExistingRecords(args.out);
+
   const pricing = AI_MODEL_PRICING[request.model];
   const records: unknown[] = [];
   for (let run = 1; run <= args.repeat; run++) {
@@ -267,13 +307,19 @@ async function main(): Promise<void> {
       for (const id of PACE_PILLARS) {
         const p = attempt.result.pillars[id];
         const feedback = p.feedback ?? '';
-        const spm = feedback.match(SPM_RANGE)?.[0] ?? feedback.match(SPM_POINT)?.[0];
-        if (spm) spmMentions.push(`${id}: "${spm}"`);
+        const runnerFacing: { where: string; text: string }[] = [
+          { where: 'feedback', text: feedback },
+          ...p.flags.map((f) => ({ where: `flag ${f.pattern}`, text: f.detail ?? '' })),
+        ];
+        for (const { where, text } of runnerFacing) {
+          const spm = text.match(SPM_RANGE)?.[0] ?? text.match(SPM_POINT)?.[0];
+          if (spm) spmMentions.push(`${id} ${where}: "${spm}"`);
+        }
         pillars[id] = {
           score: p.score,
           band: p.band,
           notAssessedReason: p.notAssessedReason ?? null,
-          flags: p.flags.map((f) => f.pattern),
+          flags: p.flags.map((f) => ({ pattern: f.pattern, detail: f.detail })),
           drills: p.drills.map((d) => d.name),
           feedback,
         };
@@ -292,14 +338,22 @@ async function main(): Promise<void> {
     records.push(record);
   }
 
-  let existing: unknown[] = [];
   try {
-    existing = JSON.parse(await Deno.readTextFile(args.out)) as unknown[];
-  } catch {
-    // first write
+    await Deno.writeTextFile(args.out, JSON.stringify([...existing, ...records], null, 2));
+    console.log(`\nwrote ${records.length} record(s) to ${args.out}`);
+  } catch (err) {
+    // The calls are already billed; never let a write failure discard them.
+    const fallback = `${args.out}.${Date.now()}.json`;
+    console.error(`\nfailed to write ${args.out}: ${err instanceof Error ? err.message : String(err)}`);
+    try {
+      await Deno.writeTextFile(fallback, JSON.stringify(records, null, 2));
+      console.error(`wrote ${records.length} record(s) to ${fallback} instead.`);
+    } catch {
+      console.error('could not write a fallback file either; dumping the records to stdout:');
+      console.log(JSON.stringify(records, null, 2));
+    }
+    Deno.exit(1);
   }
-  await Deno.writeTextFile(args.out, JSON.stringify([...existing, ...records], null, 2));
-  console.log(`\nwrote ${records.length} record(s) to ${args.out}`);
 }
 
 if (import.meta.main) {

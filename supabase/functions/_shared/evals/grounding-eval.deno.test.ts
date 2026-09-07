@@ -468,7 +468,8 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
   vo.pillars.elasticity.feedback = 'You are bouncing about 12 cm vertically on each step.';
   assert(failed(checkNoFalsePrecision(vo)), 'A vertical oscillation in centimetres was not caught.');
 
-  // A labelled RANGE is what the prompt explicitly permits. It must NOT fail.
+  // A hedged RANGE used to be permitted; the stride-burst prompt forbids it at every tier, so the
+  // grader has to forbid it too or the two disagree about the same invariant.
   const hedged = honestPhotoResult();
   hedged.pillars.cadence = pillar({
     score: 60,
@@ -476,8 +477,29 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
     feedback: 'Roughly 160-170 SPM — approximate, estimated from frames whose timing is not exact.',
   });
   assert(
-    !failed(checkNoFalsePrecision(hedged)),
-    'A correctly hedged, labelled-approximate RANGE is exactly what the prompt asks for and must pass.'
+    failed(checkNoFalsePrecision(hedged)),
+    'A hedged SPM RANGE is no longer supportable from a ~700ms burst and must fail.'
+  );
+
+  const attributedRange = honestPhotoResult();
+  attributedRange.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Your cadence is roughly 160-170 SPM across the burst.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(attributedRange)),
+    'An attributed SPM range was not caught.'
+  );
+
+  // The range rule also has to hold in an injury flag's detail, which is runner-facing prose.
+  const flagRange = honestPhotoResult();
+  flagRange.pillars.cadence.flags = [
+    { pattern: 'Overstriding', detail: 'Your cadence looks to sit around 160 to 170 steps per minute.' },
+  ];
+  assert(
+    failed(checkNoFalsePrecision(flagRange)),
+    'An SPM range inside a flag detail was not caught.'
   );
 });
 

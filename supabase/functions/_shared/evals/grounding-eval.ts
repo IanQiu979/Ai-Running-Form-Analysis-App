@@ -834,7 +834,8 @@ export function meanSentences(result: PaceResult): string {
  * doing exactly what it was told, and the grader would be the bug. See the file header.
  *
  * The three forbidden things, from `analyze-form-prompt.ts`'s TIMESTAMP_RULES:
- *   - a single precise cadence figure ("your cadence is 164 SPM") — a labelled RANGE is allowed;
+ *   - a single precise cadence figure ("your cadence is 164 SPM"), and — since the stride-burst
+ *     migration tightened `STRIDE_BURST_VIDEO_RULES` — a steps-per-minute RANGE as well;
  *   - any ground-contact-time figure in milliseconds;
  *   - any vertical-oscillation figure in centimetres.
  *
@@ -864,12 +865,20 @@ export function checkNoFalsePrecision(result: PaceResult): Check {
   // A cadence figure ATTRIBUTED TO THIS RUNNER as a point value. Scoped to the possessive/copular
   // form ("your cadence is 164", "their cadence sits at 168") so it cannot fire on the certified
   // norm "180 SPM is not a universal target", which a model may legitimately quote to REJECT it.
-  // An en-dashed or hyphenated RANGE ("roughly 160-170 SPM") is explicitly allowed by the prompt
-  // and is excluded by the negative lookahead.
   const point =
-    /\b(?:your|their|his|her|the runner'?s)\s+cadence\s+(?:is|was|of|sits at|comes out at|measures|appears to be|looks like)\s*(?:about|around|roughly|approximately|~)?\s*(\d{2,3})(?!\s*[-–—]\s*\d)/gi;
+    /\b(?:your|their|his|her|the runner'?s)\s+cadence\s+(?:is|was|of|sits at|comes out at|measures|appears to be|looks like)\s*(?:about|around|roughly|approximately|~)?\s*(\d{2,3})/gi;
   const attributed = claims.match(point);
   if (attributed) violations.push(`a point cadence figure for this runner: ${JSON.stringify(attributed)}`);
+
+  // A steps-per-minute RANGE ("roughly 160-170 SPM", "160 to 170 steps per minute"). This used to
+  // be exempt: TIMESTAMP_RULES once offered a hedged range as the correct way to answer. The
+  // stride-burst migration removed that licence — a ~700ms burst spans a third to a half of a step
+  // interval, so a footfall rate resolves only to ±30-50% and no range derived from it is honest.
+  // The certified norm is a POINT figure, so it stays untouched by this pattern.
+  const range = claims.match(
+    /\b\d{2,3}\s*(?:[-–—]|\bto\b)\s*\d{2,3}\s*(?:spm\b|steps\s*(?:per|a|\/)\s*min(?:ute)?s?\b)/gi
+  );
+  if (range) violations.push(`a steps-per-minute range: ${JSON.stringify(range)}`);
 
   if (violations.length > 0) {
     return {
