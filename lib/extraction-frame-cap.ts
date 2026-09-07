@@ -2,6 +2,11 @@
  * How many frames `app/capture/extracting.tsx` extracts from a VIDEO — resolved from the server's
  * own `frameCap`, never from a client-side per-tier table.
  *
+ * PURE DECISION ONLY. The `quota-status` round trip that feeds it lives in
+ * `lib/analysis-preflight.ts`, which takes ONE read and derives both answers the extraction screen
+ * needs: this frame cap, and whether the caller may start an analysis at all. Split that way so a
+ * capped or cooling-down runner is refused BEFORE any extraction work, without a second call.
+ *
  * WHY THIS MODULE EXISTS. `extracting.tsx` used to hardcode `const EXTRACTION_TIER: PaceTier =
  * 'free'`, with a comment justifying it as "there is no wired, authoritative way to read the
  * caller's tier on the client yet." That was true when written and is no longer: `lib/quota.ts`'s
@@ -28,7 +33,7 @@
  */
 import { PACE_FRAME_CAP } from '@shared/pace';
 
-import { quotaStatusClient, type QuotaStatusClient, type QuotaStatusResult } from './quota';
+import type { QuotaStatusResult } from './quota';
 
 /**
  * THE DELIBERATE FALLBACK, and the whole reason it is a named constant rather than a bare `1`:
@@ -60,20 +65,6 @@ export const FALLBACK_VIDEO_FRAME_CAP = PACE_FRAME_CAP.free;
 const GLOBAL_FRAME_CEILING = PACE_FRAME_CAP.elite;
 
 /**
- * One quota round-trip's worth of patience before the extraction screen stops waiting and
- * proceeds at `FALLBACK_VIDEO_FRAME_CAP`. Same order of magnitude, and the same reasoning, as
- * `app/(auth)/update-password.tsx`'s `RECOVERY_WAIT_TIMEOUT_MS` and `lib/hibp.ts`'s
- * `TOTAL_TIMEOUT_MS` — this project's established bound for a single network call, not an
- * arbitrary guess. It exists so a hung or very slow `quota-status` degrades the frame count
- * instead of leaving the user staring at a spinner that never advances.
- */
-export const QUOTA_WAIT_TIMEOUT_MS = 4000;
-
-/** Unique sentinel for the timeout leg of the race below — a symbol so it can never be confused
- *  with a real `QuotaStatusResult` the way a string or `null` could be. */
-const TIMED_OUT: unique symbol = Symbol('quotaWaitTimedOut');
-
-/**
  * The pure decision: how many frames a video gets, given whatever `quota-status` came back with.
  *
  * Every non-success branch resolves to `FALLBACK_VIDEO_FRAME_CAP` — deliberately, and never to
@@ -99,71 +90,4 @@ export function resolveVideoFrameCap(result: QuotaStatusResult): number {
   if (!Number.isInteger(frameCap) || frameCap < 1) return FALLBACK_VIDEO_FRAME_CAP;
 
   return Math.min(frameCap, GLOBAL_FRAME_CEILING);
-}
-
-/** One lookup, never rejecting — `QuotaStatusClient`'s contract already promises this, and the
- * `.catch` is defence in depth against a caller that breaks it. */
-async function lookUpOnce(client: QuotaStatusClient): Promise<QuotaStatusResult> {
-  return client.fetch().catch((): QuotaStatusResult => ({
-    ok: false,
-    error: { error: 'The quota lookup failed unexpectedly.', code: 'unknown' },
-  }));
-}
-
-/**
- * ONE RETRY BEFORE DEGRADING. Falling back to the free floor is safe (it can only under-request
- * frames), but it is not free of consequence: a Pro user whose lookup blipped gets a single-frame
- * analysis, and the result then honestly says only one frame could be analysed — a degraded
- * product bought by one flaky request. A retryable failure gets a second attempt before we accept
- * that, still inside the SAME `QUOTA_WAIT_TIMEOUT_MS` budget the caller already races against, so
- * this can never make the extraction screen wait longer than it does today.
- *
- * `unauthorized` is NOT retried: it is a settled answer about the caller (no session), not a
- * transient failure, and asking again cannot change it.
- */
-async function lookUpWithOneRetry(client: QuotaStatusClient): Promise<QuotaStatusResult> {
-  const first = await lookUpOnce(client);
-  if (first.ok || first.error.code === 'unauthorized') {
-    return first;
-  }
-  return lookUpOnce(client);
-}
-
-/**
- * Asks the server how many frames this caller's video may contain, bounded by
- * `QUOTA_WAIT_TIMEOUT_MS`, and resolving to `FALLBACK_VIDEO_FRAME_CAP` rather than rejecting on
- * any failure — so a caller can `await` this exactly once and always get a usable count back.
- *
- * `client` is injectable for the same reason `lib/quota.ts` exposes `createQuotaStatusClient()`
- * separately from its `quotaStatusClient` binding: a test can hand in a fake without a live edge
- * function to call. Production callers pass nothing.
- *
- * A retryable failure gets ONE second attempt first (`lookUpWithOneRetry`) — degrading a paying
- * user to a single frame on one flaky request is a real cost, and the honest result copy that
- * follows ("only one frame of your video could be analysed") is the user living with it.
- *
- * The `.catch` inside is defence in depth, not a live path: `QuotaStatusClient`'s contract is that
- * it "resolves — NEVER REJECTS", and `lib/quota.ts`'s real implementation folds every transport
- * failure into `{ ok: false }` itself. But a rejection escaping to the extraction screen's own
- * `.catch` would surface as `extractionFailed` — a dead-end error screen — when the honest
- * response to "we could not read your quota" is to extract at the free cap and let the analysis
- * proceed. Fail toward a working submission, never toward a hard stop.
- */
-export async function fetchVideoFrameCap(
-  client: QuotaStatusClient = quotaStatusClient
-): Promise<number> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
-    timer = setTimeout(() => resolve(TIMED_OUT), QUOTA_WAIT_TIMEOUT_MS);
-  });
-
-  try {
-    const outcome = await Promise.race([lookUpWithOneRetry(client), timeout]);
-
-    return outcome === TIMED_OUT ? FALLBACK_VIDEO_FRAME_CAP : resolveVideoFrameCap(outcome);
-  } finally {
-    // Always cleared, including on the fetch-won leg — a stray 4s timer would otherwise keep a
-    // React Native timer handle (and this closure) alive after the screen has moved on.
-    clearTimeout(timer);
-  }
 }

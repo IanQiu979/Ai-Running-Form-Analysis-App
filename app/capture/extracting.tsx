@@ -6,14 +6,30 @@
  * `expo-video` `generateThumbnailsAsync` call, so `onProgress` reports the actual Nth of N
  * thumbnails re-encoded after that batch returns — a real count of completed work, not a timer.
  *
- * HOW MANY FRAMES A VIDEO GETS: the caller's own `frameCap`, read off the server. This screen
- * awaits `lib/extraction-frame-cap.ts`'s `fetchVideoFrameCap()` (one bounded `quota-status` call)
- * before extracting, and feeds the single number it returns to BOTH the progress total and
- * `extractFrames`, so the caption can never promise a count the extraction will not produce. It
- * does NOT read `quota.tier` and index a client-side table — CLAUDE.md: "Tier, quota, frame cap,
- * and analysis are server-only ... the client may display tier/quota state but is never the
- * authority for it." A failed, unauthorized, or slow lookup degrades to the free cap on purpose,
- * never to a higher one. A photo skips all of this: always exactly one frame, no quota call.
+ * THE PRE-FLIGHT: one bounded `quota-status` call (`lib/analysis-preflight.ts`'s
+ * `fetchAnalysisPreflight()`), awaited before ANY thumbnail work, answering two things at once.
+ *
+ * 1. MAY THIS RUNNER START AT ALL. Both refusals that can end an analysis — the allowance cap and
+ *    issue #6's anti-farm cooldown — live in `reserve_analysis`, which the server does not reach
+ *    until frames have been extracted AND submitted. Without this gate a capped or cooling-down
+ *    runner filmed, waited through extraction, waited again on the Analyzing screen, and only then
+ *    learned they were never eligible. A `cooldown` gate renders the honest paused panel below
+ *    (no Retry — retrying cannot succeed until the window clears); an `exhausted` gate replaces
+ *    into `/paywall`, the same destination a server 402 already routes to, which states the real
+ *    allowance. Everything else — including every lookup failure — proceeds, because the client is
+ *    never the authority and a blip must not fabricate a refusal (see that module's fail-open rule).
+ *
+ * 2. HOW MANY FRAMES A VIDEO GETS: the caller's own `frameCap`, read off the server, fed to BOTH
+ *    the progress total and `extractFrames`, so the caption can never promise a count the
+ *    extraction will not produce. It does NOT read `quota.tier` and index a client-side table —
+ *    CLAUDE.md: "Tier, quota, frame cap, and analysis are server-only ... the client may display
+ *    tier/quota state but is never the authority for it." A failed, unauthorized, or slow lookup
+ *    degrades to the free cap on purpose, never to a higher one.
+ *
+ * A PHOTO NOW TAKES THIS CALL TOO, where it used to skip quota entirely. Its frame count still
+ * never depends on the answer (a photo is always exactly one frame at every tier), but its
+ * eligibility does, and one bounded round trip is a far better price than a 20-60s analysis wait
+ * ending in a refusal.
  *
  * No client-side "uploading %" step: since issue #88 (live), the client never uploads anything —
  * `analyze-form` writes the frames server-side, after the model call. This screen's whole job
@@ -38,7 +54,7 @@
  */
 import * as Crypto from 'expo-crypto';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -64,8 +80,13 @@ import {
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import {
+  describeCooldownRemaining,
+  fetchAnalysisPreflight,
+  type AnalysisPreflight,
+} from '@/lib/analysis-preflight';
 import { setPendingAnalyzeFormRequest, toAnalyzeFormRequest } from '@/lib/analyze-form';
-import { FALLBACK_VIDEO_FRAME_CAP, fetchVideoFrameCap } from '@/lib/extraction-frame-cap';
+import { FALLBACK_VIDEO_FRAME_CAP } from '@/lib/extraction-frame-cap';
 import {
   extractFrames,
   FrameBudgetExceededError,
@@ -93,12 +114,12 @@ function firstString(value: string | string[] | undefined): string | undefined {
 }
 
 type ExtractState =
-  // Resolving the caller's authoritative video frame cap off `quota-status` before any thumbnail
-  // work starts. Deliberately has NO frame numbers to show: the progress caption's total must
-  // never name a count the extraction might not produce, and until this resolves the real total is
-  // genuinely unknown. Bounded by `QUOTA_WAIT_TIMEOUT_MS`, so it cannot outlast one round trip;
-  // the screen's own always-rendered title ("Preparing your analysis") is what describes it.
-  // Never entered for a photo — see `PHOTO_FRAME_COUNT`.
+  // The pre-flight round trip: may this runner start, and how many frames does their video get.
+  // Deliberately has NO frame numbers to show: the progress caption's total must never name a
+  // count the extraction might not produce, and until this resolves the real total is genuinely
+  // unknown. Bounded by `QUOTA_WAIT_TIMEOUT_MS`, so it cannot outlast one round trip; the
+  // screen's own always-rendered title ("Preparing your analysis") is what describes it. Entered
+  // for a photo too since the gate applies to every submission — see this file's header.
   | { status: 'preparing' }
   | { status: 'extracting'; done: number; total: number }
   // Carries the full PaceFrameSet, not just a count — goToAnalyzing needs the actual frames to
@@ -110,10 +131,23 @@ type ExtractState =
   // Retry control: the same footage would collide the same way every time.
   | { status: 'error'; kind: 'unsupportedFootage' }
   | { status: 'error'; kind: 'extractionFailed' }
-  | { status: 'error'; kind: 'capViolation'; violation: MediaCapViolation };
+  | { status: 'error'; kind: 'capViolation'; violation: MediaCapViolation }
+  // Issue #6's anti-farm cooldown, caught by the pre-flight before any extraction. NOT an
+  // `error` kind on purpose: nothing failed, so it must never reach `errorCopy`'s failure
+  // wording, and — like budgetExceeded and unsupportedFootage, and unlike extractionFailed — it
+  // renders no Retry, because retrying cannot succeed until the window clears. `blockedUntil` is
+  // carried so the panel can say how long is left.
+  | { status: 'paused'; blockedUntil: string | null };
 
 export default function ExtractingScreen() {
   const router = useRouter();
+  // Issue #147's lesson applied to navigation: `useRouter()` is NOT contractually a stable
+  // reference across renders, and the pre-flight effect below must never list it as a dependency —
+  // a fresh object per render would re-run the effect on every pass, which is exactly the render
+  // loop that crashed this screen once already. Held in a ref so the effect can navigate on an
+  // `exhausted` gate without taking a dependency on it.
+  const routerRef = useRef(router);
+  routerRef.current = router;
   const params = useLocalSearchParams<{
     mediaType?: string;
     uri?: string;
@@ -216,25 +250,40 @@ export default function ExtractingScreen() {
         });
     }
 
-    if (input.mediaType === 'photo') {
-      // Synchronously, with no quota round trip and no `preparing` frame in between: a photo is
-      // always exactly one frame at every tier, so there is nothing to ask the server about.
-      startExtraction(PHOTO_FRAME_COUNT);
-    } else {
-      // A video's cap is the caller's own, read off `quota-status` — the bug this screen shipped
-      // with was hardcoding Free's 1 frame here for everyone, silently degrading every paying
-      // user's analysis (Cadence and Elasticity cannot score off a single still). This resolves to
-      // the free cap on a failed/unauthorized/slow lookup and never to a higher one; see
-      // `lib/extraction-frame-cap.ts` for each branch.
-      fetchVideoFrameCap()
-        // Contractually unreachable (`fetchVideoFrameCap` folds every failure into a usable count),
-        // but a rejection escaping here would strand the screen in `preparing` forever. Falling
-        // back keeps the submission working instead of hanging on a spinner.
-        .catch(() => FALLBACK_VIDEO_FRAME_CAP)
-        .then((frameCount) => {
-          if (!cancelled) startExtraction(frameCount);
-        });
+    // THE GATE, then the extraction. A refusal here costs the runner one bounded round trip; the
+    // same refusal from `reserve_analysis` costs them the whole extraction plus a 20-60s wait, and
+    // used to arrive dressed as a failure. Only a gate the SERVER stated is honoured — see
+    // `lib/analysis-preflight.ts`'s fail-open rule.
+    function applyPreflight({ gate, frameCap }: AnalysisPreflight) {
+      if (cancelled) return;
+
+
+      if (gate.kind === 'cooldown') {
+        setState({ status: 'paused', blockedUntil: gate.blockedUntil });
+        return;
+      }
+
+      if (gate.kind === 'exhausted') {
+        // The same destination a server 402 already routes to from `app/analyzing.tsx` — it
+        // re-reads live quota on mount and states the real allowance, so no params are needed and
+        // this screen never has to restate an allowance it is not the authority for.
+        routerRef.current.replace('/paywall');
+        return;
+      }
+
+      // A photo is always exactly one frame at every tier, so its count never depends on the
+      // answer even though its eligibility does. A video's cap is the caller's own: the bug this
+      // screen shipped with was hardcoding Free's 1 frame here for everyone, silently degrading
+      // every paying user's analysis (Cadence and Elasticity cannot score off a single still).
+      startExtraction(input.mediaType === 'photo' ? PHOTO_FRAME_COUNT : frameCap);
     }
+
+    fetchAnalysisPreflight()
+      // Contractually unreachable (`fetchAnalysisPreflight` folds every failure into a usable
+      // answer), but a rejection escaping here would strand the screen in `preparing` forever.
+      // Failing open keeps the submission working instead of hanging on a spinner.
+      .catch((): AnalysisPreflight => ({ gate: { kind: 'allowed' }, frameCap: FALLBACK_VIDEO_FRAME_CAP }))
+      .then(applyPreflight);
 
     return () => {
       cancelled = true;
@@ -243,6 +292,12 @@ export default function ExtractingScreen() {
 
   function goToSourcePicker() {
     router.replace('/capture');
+  }
+
+  /** The paused panel's only control. Home, not the source picker: picking different footage
+   *  cannot lift a cooldown, and Home is where the same countdown is already shown. */
+  function goHome() {
+    router.replace('/');
   }
 
   // The one control on the "ready" state (issue #135). Mints a fresh idempotency key for THIS
@@ -364,6 +419,28 @@ export default function ExtractingScreen() {
           </View>
         )}
 
+        {/* Issue #6's cooldown, caught by the pre-flight before a single frame was extracted.
+            Rendered on the SAME `<SurfaceCard>` panel as the error states — this is a stop, and it
+            should look like one — but with the paused copy rather than a failure title, and with
+            NO Retry: the window has to clear before anything here can succeed, so a Retry would be
+            a button that cannot work. `describeCooldownRemaining` returning null is what selects
+            the no-time-known wording; nothing here invents a countdown. */}
+        {state.status === 'paused' && (
+          <View style={styles.centered}>
+            <SurfaceCard style={styles.panel}>
+              <View style={styles.panelStack}>
+                <Text style={styles.errorTitle} accessibilityRole="header" accessibilityLiveRegion="polite">
+                  {Copy.analysisPause.title}
+                </Text>
+                <Text style={styles.caption} testID="analysis-paused-body">
+                  {analysisPauseBody(state.blockedUntil)}
+                </Text>
+                <PillButton label={Copy.analysisPause.cta} onPress={goHome} style={styles.cta} />
+              </View>
+            </SurfaceCard>
+          </View>
+        )}
+
         {state.status === 'error' && (
           <View style={styles.centered}>
             <SurfaceCard style={styles.panel}>
@@ -384,6 +461,14 @@ export default function ExtractingScreen() {
       </SafeAreaView>
     </ScreenGradient>
   );
+}
+
+/** The cooldown body, with the time left when the server gave us a usable one and without it when
+ *  it did not — never a guessed or zeroed countdown. Read at render time rather than when the
+ *  state was set so the phrase does not go stale if the panel is on screen for a while. */
+function analysisPauseBody(blockedUntil: string | null): string {
+  const remaining = describeCooldownRemaining(blockedUntil);
+  return remaining ? Copy.analysisPause.bodyFor(remaining) : Copy.analysisPause.body;
 }
 
 function errorCopy(state: Extract<ExtractState, { status: 'error' }>): { title: string; body: string } {

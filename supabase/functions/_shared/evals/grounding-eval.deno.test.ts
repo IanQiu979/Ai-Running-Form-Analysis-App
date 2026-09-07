@@ -39,6 +39,7 @@ import {
   checkNoFabricatedScore,
   checkNoFalsePrecision,
   checkNoUnsupportedPillar,
+  checkPillarSafety,
   checkTierVerbosity,
   freeTierCeiling,
   gradeCase,
@@ -582,6 +583,77 @@ Deno.test('an unsupportable input may fail CLEANLY — but never with an invente
 // -------------------------------------------------------------------------------------------
 // 5. ISSUE #89 — the free tier's structural ceiling, proven with NO model call
 // -------------------------------------------------------------------------------------------
+
+// -------------------------------------------------------------------------------------------
+// THE SAFETY CONTRACT — the grader that carries the live merge prerequisite. No model call.
+// -------------------------------------------------------------------------------------------
+
+Deno.test('checkPillarSafety passes an honest result where every pillar declares "none"', () => {
+  const check = checkPillarSafety(honestPhotoResult());
+
+  assert(check.status === 'pass', `Expected a pass; got ${check.status}: ${check.detail}`);
+  // "none" everywhere is the ORDINARY answer for a runner with nothing alarming about them. A
+  // grader that demanded a warning would be pressuring the model to invent one.
+  assert(
+    check.detail.includes('posture=none'),
+    `The detail should name each pillar's declared signal; got: ${check.detail}`
+  );
+});
+
+Deno.test('checkPillarSafety catches a pillar whose safety is missing entirely', () => {
+  const result = honestPhotoResult();
+  // The exact shape `PACE_RESULT_SCHEMA` asks for and a model can still omit: a pillar that
+  // asserts a score and prose but declares nothing about the runner's safety.
+  delete (result.pillars.posture as { safety?: unknown }).safety;
+
+  const check = checkPillarSafety(result);
+
+  assert(check.status === 'fail', 'A pillar with no safety declaration must fail.');
+  assert(check.detail.includes('posture: absent'), `Expected posture named as absent; got: ${check.detail}`);
+});
+
+Deno.test('checkPillarSafety catches an UNGROUNDED signal — one outside injury_flags.md', () => {
+  const result = honestPhotoResult();
+  (result.pillars.armSwing as { safety?: unknown }).safety = {
+    signal: 'runnersKnee',
+    note: 'Stop running and see a physio.',
+  };
+
+  const check = checkPillarSafety(result);
+
+  assert(check.status === 'fail', 'A signal outside the certified list is an ungrounded claim.');
+  assert(
+    check.detail.includes('not a grounded declaration'),
+    `Expected the ungrounded diagnostic; got: ${check.detail}`
+  );
+});
+
+Deno.test('checkPillarSafety catches a declared signal carrying a blank note', () => {
+  const result = honestPhotoResult();
+  // The worst of the three: production would deliver a stop-running signal with nothing to tell
+  // the runner. `isPaceSafety` alone accepts this, which is exactly why the note check exists.
+  (result.pillars.cadence as { safety?: unknown }).safety = {
+    signal: 'swellingLimpOrFavouringOneSide',
+    note: '   ',
+  };
+
+  const check = checkPillarSafety(result);
+
+  assert(check.status === 'fail', 'A declared signal with no note is unusable.');
+  assert(check.detail.includes('blank note'), `Expected the blank-note diagnostic; got: ${check.detail}`);
+});
+
+Deno.test('EVERY tier is exercised live — the merge condition cannot be met by two of three', () => {
+  const tiers = [...new Set(CASES.map((k) => k.tier))].sort();
+
+  assert(
+    tiers.join(',') === 'elite,free,pro',
+    `The live case set must cover all three tiers; it covers [${tiers.join(', ')}]. The safety ` +
+      'contract is a per-tier question because the tier dial changes the prompt the model is ' +
+      'complying with, and `analyze-form-validation.ts` refuses to deliver ANY response that ' +
+      'omits a usable declaration — so a tier left unproven is a tier that could be a total outage.'
+  );
+});
 
 Deno.test('#89 EVIDENCE: Free can never be scored on Cadence or Elasticity. By construction.', () => {
   // This test PASSES on purpose. It is not a bug report in test form — it is the evidence #89's

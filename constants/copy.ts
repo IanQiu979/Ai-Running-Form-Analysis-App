@@ -303,7 +303,14 @@ export const Copy = {
       // anti-farm cap) independently of `remaining` — a user can have quota left and still be
       // refused right now. The deck has no copy for this state; kept short and generic rather
       // than inventing detailed anti-farm messaging the deck was never asked to write.
+      //
+      // TWO VARIANTS, and which one renders is a statement about what we actually know. The same
+      // response also carries `blocked_until`, so when `lib/analysis-preflight.ts`'s
+      // `describeCooldownRemaining` can turn it into a phrase, Home says how long is left rather
+      // than an open-ended "later". `blocked` stays as the honest fallback for a missing,
+      // unparsable, or already-past expiry — never a guessed or zeroed countdown.
       blocked: "You can't start a new analysis right now. Try again later.",
+      blockedFor: "You can't start a new analysis for {remaining}.",
       // --- issues #54/#15 additions end ---
       loading: 'Checking your plan…',
       error: {
@@ -1228,5 +1235,34 @@ export const Copy = {
       // shared namespace here.
       cta: 'Retry',
     },
+  },
+  // Cross-cutting — the anti-farm COOLDOWN (issue #6's `too_many_failed_attempts`). NEW, not in
+  // the deck. Shared by three surfaces that all report the same fact, so they cannot drift apart:
+  // `app/capture/extracting.tsx`'s pre-flight refusal, `app/analyzing.tsx`'s panel for a server
+  // 429 that beat the pre-flight, and (for the caption only) Home.
+  //
+  // WHAT THIS COPY IS FIXING. This state used to render `analyzing.error.failed` — "Your analysis
+  // failed / The analysis service didn't return a usable result" — beside a Retry button. Every
+  // part of that was wrong: nothing failed, the service was never called, and Retry resubmitted
+  // into the identical refusal. So:
+  //   - the TITLE names a pause, not a failure;
+  //   - the BODY says what actually happened (several recent analyses could not be scored, which
+  //     is precisely what `pace_is_farming_signal` counts) and states the time left when the
+  //     server gave us one — `body` is the honest fallback when it did not;
+  //   - "nothing was counted against your quota" is literally true here: a refused reserve never
+  //     creates a row, so there is nothing to count;
+  //   - there is NO retry CTA, because retrying cannot succeed until the window clears. The one
+  //     control leaves for Home, which shows the same countdown.
+  // Deliberately does NOT offer an upgrade: `analyze-form` maps this to 429 rather than 402 for
+  // exactly that reason — selling a plan to someone we just throttled would be both wrong and
+  // useless, since a purchase does not lift this window for the tier they are already on.
+  analysisPause: {
+    title: 'Analyses are paused for now',
+    bodyFor: (remaining: string) =>
+      `Several recent analyses couldn't be scored, so new ones are paused for ${remaining}. Nothing failed here, and nothing was counted against your quota.`,
+    body: "Several recent analyses couldn't be scored, so new ones are paused for a short while. Nothing failed here, and nothing was counted against your quota.",
+    // Reuses `settings.back`/`paywall.back`'s wording by value, this file's established convention
+    // for a shared string (see `analyzing.error.cta`'s note on the absent Copy.shared namespace).
+    cta: 'Back to home',
   },
 } as const;

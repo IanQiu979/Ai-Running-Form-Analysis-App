@@ -76,6 +76,7 @@ import { readAttempt, type AttemptOutcome } from '../analyze-form-validation.ts'
 import { DRILLS_MD, INJURY_FLAGS_MD, PACE_FRAMEWORK_MD } from '../knowledge.generated.ts';
 import { AI_MODEL_PRICING, computeCostUsd } from '../ai-pricing.ts';
 import {
+  isPaceSafety,
   PACE_FRAME_CAP,
   PACE_PILLARS,
   type PaceNotAssessedReason,
@@ -319,15 +320,18 @@ async function pngFrame(bytes: Uint8Array, requestedTimestampMs: number): Promis
 }
 
 /**
- * FOUR CASES, FOUR LIVE CALLS. This is the minimum set that proves all four gates — not a matrix.
- * Each call is billed, so every case here has to earn its place, and one that proves nothing the
- * others do not should be deleted rather than kept for symmetry.
+ * FIVE CASES, FIVE LIVE CALLS. This is the minimum set that proves all four gates plus the safety
+ * contract — not a matrix. Each call is billed, so every case here has to earn its place, and one
+ * that proves nothing the others do not should be deleted rather than kept for symmetry.
  *
- * Note what is NOT here: an Elite case. Elite and Pro run the SAME prompt path (`TIER_VERBOSITY`
- * differs only in a depth string, which `analyze-form-prompt.deno.test.ts` already asserts for
- * free), and the tier rule that actually matters to the product — paid-tier content must never
- * leak to Free — is proven by the free/pro pair below at half the cost. Run `--case` to add Elite
- * ad hoc if a prompt change ever makes it interesting.
+ * THE ELITE CASE WAS ADDED FOR THE SAFETY CONTRACT, and only for it. This set deliberately had no
+ * Elite case before, on the sound reasoning that Elite and Pro run the same prompt path and differ
+ * only in a depth string `analyze-form-prompt.deno.test.ts` asserts for free. That reasoning does
+ * not extend to `checkPillarSafety`: `analyze-form-validation.ts` now refuses to deliver ANY
+ * response whose pillar `safety` is missing or unusable, so "does the model actually comply" is an
+ * outage question, and the tier dial does change the prompt the model complies with. A merge
+ * condition that says "every tier" cannot be met by two of three. It runs the stride video, so all
+ * four pillars are genuinely assessed — the case where the most safety declarations are in play.
  */
 export async function buildCases(): Promise<GroundingCase[]> {
   const overstride = await renderRunnerPng(POSE_OVERSTRIDE);
@@ -420,6 +424,24 @@ export async function buildCases(): Promise<GroundingCase[]> {
       frames: strideFrames,
       expect: { unsupportedPillars: [], nothingAssessable: false },
     },
+    {
+      id: 'stride-video-elite',
+      tier: 'elite',
+      media: 'video',
+      intent:
+        'THE THIRD TIER, added for the safety contract. Same stride burst as `stride-video-pro`, ' +
+        'at the top of the tier dial, so all four pillars are assessed and every one of them has ' +
+        'to carry a usable `safety` declaration. Production refuses to deliver a response that ' +
+        'omits one, so a model that does not comply at this tier is a total outage for it — and ' +
+        'no offline test can settle whether it complies. Also the only live check that Elite\'s ' +
+        'deeper feedback does not come at the cost of the grounding rules Pro obeys.',
+      proves: [
+        'the safety contract at the top tier (`invalid_safety` is not reachable in practice)',
+        'gate 3 (Elite depth still cannot unlock a fabrication)',
+      ],
+      frames: strideFrames,
+      expect: { unsupportedPillars: [], nothingAssessable: false },
+    },
   ];
 }
 
@@ -500,7 +522,8 @@ export type CheckId =
   | 'grounded-drills'
   | 'tier-verbosity'
   | 'no-false-precision'
-  | 'no-disclaimer-echo';
+  | 'no-disclaimer-echo'
+  | 'pillar-safety';
 
 /** `warn` never fails a run. It is for the things that are worth a human's eye but whose failure is
  * a copy nit, not a broken promise — failing the build on one would be over-tight validation. */
@@ -521,6 +544,70 @@ function sentenceCount(text: string): number {
 
 function pillarEntries(result: PaceResult): [PacePillarId, PacePillarResult][] {
   return PACE_PILLARS.map((id) => [id, result.pillars[id]]);
+}
+
+/**
+ * THE SAFETY CONTRACT, LIVE — the merge prerequisite for the safety-field work. `PACE_RESULT_SCHEMA`
+ * marks `safety` required on every pillar, but a schema is a REQUEST to the model, not a guarantee:
+ * `analyze-form-validation.ts` treats a missing or unusable declaration as `invalid_safety` and
+ * refuses to deliver anything at all, which is the correct fail-closed behaviour and also a total
+ * outage if the model does not in fact comply. Only a real call can settle that, and only across
+ * every tier — the tier dial changes the prompt.
+ *
+ * WHAT "USABLE" MEANS here is deliberately the SERVER's definition, imported rather than restated:
+ * `isPaceSafety` (a grounded `signal` from `injury_flags.md` plus a string note) and, for a
+ * declared signal, `hasSafetySignal` (a non-blank note). A grader with its own looser idea of
+ * usable would pass a payload production refuses.
+ *
+ * Note what this check does NOT do: it does not require any pillar to RAISE a signal. `'none'` is
+ * the ordinary, correct answer for a runner with nothing alarming about them, and demanding a
+ * warning would be pressuring the model to invent one. The contract is that the field is present
+ * and usable on every pillar that says anything — not that it is alarming.
+ */
+export function checkPillarSafety(result: PaceResult): Check {
+  const unusable: string[] = [];
+  const signals: string[] = [];
+
+  for (const [id, pillar] of pillarEntries(result)) {
+    // Read as `unknown` on purpose. The declared type says this is already a valid `PaceSafety` —
+    // `isPaceResult` checked it — but the whole point of a LIVE grader is to inspect what the model
+    // actually sent rather than to restate what the type system was told.
+    const raw: unknown = pillar?.safety;
+    if (raw === undefined || raw === null) {
+      unusable.push(`${id}: absent`);
+      continue;
+    }
+    if (!isPaceSafety(raw)) {
+      unusable.push(`${id}: not a grounded declaration (${JSON.stringify(raw)})`);
+      continue;
+    }
+    // `hasSafetySignal`'s second clause, written out rather than called: it is a type guard, and
+    // `raw` is already `PaceSafety` here, so invoking it would narrow the failure branch to `never`
+    // and make its own diagnostic unprintable. `isPaceSafety` above is the clause that matters and
+    // IS the server's own function; this one is a one-line trim check that cannot drift meaningfully.
+    if (raw.signal !== 'none' && raw.note.trim().length === 0) {
+      unusable.push(`${id}: declared "${raw.signal}" with a blank note`);
+      continue;
+    }
+    signals.push(`${id}=${raw.signal}`);
+  }
+
+  if (unusable.length > 0) {
+    return {
+      id: 'pillar-safety',
+      status: 'fail',
+      detail:
+        `Pillar safety is unusable on ${unusable.length} pillar(s): ${unusable.join('; ')}. ` +
+        'Production would classify this whole response as `invalid_safety`, release the ' +
+        'reservation, and deliver nothing.',
+    };
+  }
+
+  return {
+    id: 'pillar-safety',
+    status: 'pass',
+    detail: `Every pillar carries a usable safety declaration (${signals.join(', ')}).`,
+  };
 }
 
 /** GATE 2 — all four pillars, each with something to say. A not-assessed pillar STILL gets
@@ -971,6 +1058,7 @@ export function gradeCase(
   if (result) {
     checks.push({ id: 'structure', status: 'pass', detail: 'Parsed as a complete PaceResult.' });
     checks.push(checkFourPillars(result));
+    checks.push(checkPillarSafety(result));
     checks.push(...checkNoUnsupportedPillar(kase, result));
     checks.push(checkNoFabricatedScore(kase, result));
     checks.push(checkGroundedFlags(result));
@@ -1000,6 +1088,18 @@ export function gradeCase(
       status: 'fail',
       detail: `No usable result: ${attempt.failure} (stop_reason: ${attempt.stopReason ?? 'none'}).`,
     });
+    if (attempt.failure === 'invalid_safety') {
+      // Named separately from `structure` so the merge prerequisite reads off the report directly
+      // instead of being inferred from a generic parse failure.
+      checks.push({
+        id: 'pillar-safety',
+        status: 'fail',
+        detail:
+          'The response was payload-shaped but at least one pillar\'s `safety` was absent, ' +
+          'malformed, ungrounded, or a declared signal with a blank note. Production refuses to ' +
+          'deliver this.',
+      });
+    }
   }
 
   const usage = {

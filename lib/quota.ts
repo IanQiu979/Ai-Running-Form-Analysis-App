@@ -38,6 +38,7 @@
  */
 import { Copy } from '@/constants/copy';
 
+import { describeCooldownRemaining } from './analysis-preflight';
 import { invokeFunction } from './functions-client';
 import type { BlockedReason, QuotaStatus, SubscriptionTier } from '@shared/quota-status';
 
@@ -245,11 +246,22 @@ function describePrimaryCaption(quota: QuotaStatus): string {
  * from `docs/design/copy-deck.md` §Screen 2 (see `constants/copy.ts`'s `home.quota.*`). Pure
  * mapping only: `remaining`/`limit`/`periodEnd`/`blocked` all come straight from the server.
  */
-export function describeQuota(quota: QuotaStatus): QuotaCaption {
+export function describeQuota(quota: QuotaStatus, now: number = Date.now()): QuotaCaption {
   const primary = describePrimaryCaption(quota);
 
   if (quota.blocked) {
-    return { primary, secondary: Copy.home.quota.blocked };
+    // The same `blocked_until` the analysis pre-flight reads (`lib/analysis-preflight.ts`), used
+    // here so Home is the EARLIEST surface that says how long is left rather than an open-ended
+    // "later". `describeCooldownRemaining` returns null for a missing, unparsable, or already-past
+    // expiry, and that null is what selects the honest no-time-known wording — this never prints a
+    // guessed or zeroed countdown.
+    const remaining = describeCooldownRemaining(quota.blockedUntil, now);
+    return {
+      primary,
+      secondary: remaining
+        ? Copy.home.quota.blockedFor.replace('{remaining}', remaining)
+        : Copy.home.quota.blocked,
+    };
   }
 
   if (!quota.unlimited && quota.tier !== 'free' && (quota.remaining ?? 0) > 0) {
@@ -315,17 +327,21 @@ export function primaryCtaLabel(kind: PrimaryCtaKind): string {
  * *why*). `null` when the CTA is enabled; every disabled branch gets its own honest, specific
  * reason rather than a generic "unavailable".
  */
-export function primaryCtaAccessibilityHint(quota: QuotaStatus): string | null {
+export function primaryCtaAccessibilityHint(
+  quota: QuotaStatus,
+  now: number = Date.now()
+): string | null {
   if (isPrimaryCtaEnabled(quota)) return null;
 
   const kind = primaryCtaKind(quota);
   if (kind === 'analyze') {
-    // remaining > 0 but blocked — the anti-farm cap is the reason, not quota or tier.
-    return Copy.home.quota.blocked;
+    // remaining > 0 but blocked — the anti-farm cap is the reason, not quota or tier. Reuses the
+    // caption above verbatim so VoiceOver hears exactly what is on screen, countdown included.
+    return describeQuota(quota, now).secondary;
   }
   if (kind === 'analyzeDisabled') {
     // The exhausted-Elite caption already states the reason in full ("...renews {date}").
-    return describeQuota(quota).primary;
+    return describeQuota(quota, now).primary;
   }
   // upgradeToAnalyze / upgradeForMore are enabled (they open the Paywall), so isPrimaryCtaEnabled
   // returned true above and this line is unreachable for them. Kept exhaustive rather than
