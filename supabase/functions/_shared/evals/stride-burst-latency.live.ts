@@ -70,6 +70,11 @@ import { MODEL_CALL_TIMEOUT_MS } from '../../analyze-form/flow.ts';
 import { AI_MODEL_PRICING, computeCostUsd, MAX_OUTPUT_TOKENS_BY_TIER } from '../ai-pricing.ts';
 import { PACE_FRAME_CAP, PACE_PILLARS, type PaceTier } from '../pace.ts';
 import { toBase64 } from './grounding-eval-images.ts';
+import {
+  findAttributedCadencePoints,
+  findSpmRangeClaims,
+  stripPrescriptiveCadence,
+} from './grounding-eval.ts';
 
 const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -79,15 +84,15 @@ const ANTHROPIC_VERSION = '2023-06-01';
  * reader can see how much of the raise a real burst actually needs. */
 const LEGACY_ATTEMPT_TIMEOUT_MS = 65_000;
 
-/** A steps-per-minute figure or range anywhere in runner-facing prose — `feedback` AND
- * `flags[].detail`, the two fields that carry a claim about THIS runner (the same scope
- * `grounding-eval.ts`'s `checkNoFalsePrecision` uses, and for the same reason: `drills[]`
- * instructions are quoted from the certified corpus and legitimately say "~2 SPM").
- * Case-insensitive; the unit alternation covers "SPM", "steps per minute", "steps/min" and
- * "steps a minute". */
-const SPM_UNIT = String.raw`(?:spm\b|steps\s*(?:per|a|\/)\s*min(?:ute)?s?\b)`;
-const SPM_RANGE = new RegExp(String.raw`\b\d{2,3}\s*(?:[-–—]|\bto\b)\s*\d{2,3}\s*${SPM_UNIT}`, 'i');
-const SPM_POINT = new RegExp(String.raw`\b\d{2,3}\s*${SPM_UNIT}`, 'i');
+/** A steps-per-minute rate claimed for THIS runner, in `feedback` or `flags[].detail` — the two
+ * fields that carry a claim about them. The detectors come from `grounding-eval.ts` rather than
+ * being restated here: one definition of what counts as an SPM claim, so this harness and the
+ * honesty grader cannot drift apart on the invariant they both police. They exempt a prescribed
+ * DELTA ("raise it by 5-10 SPM") and the certified norm, which are not rate claims. */
+function spmClaims(text: string): string[] {
+  const scrubbed = stripPrescriptiveCadence(text);
+  return [...findSpmRangeClaims(scrubbed), ...findAttributedCadencePoints(scrubbed)];
+}
 
 interface Manifest {
   clip: string;
@@ -312,8 +317,7 @@ async function main(): Promise<void> {
           ...p.flags.map((f) => ({ where: `flag ${f.pattern}`, text: f.detail ?? '' })),
         ];
         for (const { where, text } of runnerFacing) {
-          const spm = text.match(SPM_RANGE)?.[0] ?? text.match(SPM_POINT)?.[0];
-          if (spm) spmMentions.push(`${id} ${where}: "${spm}"`);
+          for (const spm of spmClaims(text)) spmMentions.push(`${id} ${where}: "${spm}"`);
         }
         pillars[id] = {
           score: p.score,

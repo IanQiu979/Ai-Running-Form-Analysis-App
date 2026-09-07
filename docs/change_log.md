@@ -145,7 +145,10 @@ changed three things:
   `deno test` by construction, like `grounding-eval.live.ts`) sends real burst frames extracted at
   the exact timestamps production would request, times the call against both the pre-#206 65s
   bound and the current `MODEL_CALL_TIMEOUT_MS` (80s), reports `stop_reason` and output tokens
-  against `MAX_OUTPUT_TOKENS_BY_TIER`, and greps every pillar's feedback for an SPM figure or range.
+  against `MAX_OUTPUT_TOKENS_BY_TIER`, and greps every pillar's runner-facing prose for an SPM
+  figure or range using `grounding-eval.ts`'s own detectors, so the harness and the honesty grader
+  cannot drift apart on that invariant. (As the five calls below were measured it scanned
+  `feedback` only; the `flags[].detail` scan and the wider unit forms came later, with no re-run.)
   Its header documents the frame-manifest format and the exact `deno run` invocation. Inputs
   (never committed — images of people): PLOS ONE `pone.0115637` S3, a side-on lab treadmill runner
   at 3.0 m/s (CC BY 4.0), and the Commons "Jogging near Arakawa river" clip, a distant side-on
@@ -169,8 +172,11 @@ changed three things:
 - **What Cadence and Elasticity can now honestly claim, from the outputs.** All five results scored
   both pillars from a real consecutive stride (the lab burst shows toe-off in frame 1, a landing in
   frame 3 and the opposite landing in frame 7, verified by eye), cited landing frames by number,
-  and **contained zero SPM figures or ranges** — every Cadence feedback said explicitly that a step
-  rate cannot be counted from a burst this short and scored from the landing geometry. **Still
+  and **contained zero SPM figures or ranges in any pillar's feedback text** — every Cadence
+  feedback said explicitly that a step rate cannot be counted from a burst this short and scored
+  from the landing geometry. Injury-flag `detail` text was not scanned by the harness as it ran,
+  and cannot be re-checked from the recorded evidence: that run's results JSON kept only each
+  flag's `pattern`. **Still
   open, stated plainly:** run-to-run variance on identical evidence persists. The same outdoor
   Elite burst scored Cadence 74 with no flag on one run and 58 with an "Overstriding" flag on the
   next (Elasticity 65 vs 55). The burst fixed the EVIDENCE (the audit's finding #2); it does not fix

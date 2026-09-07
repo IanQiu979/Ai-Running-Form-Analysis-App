@@ -501,6 +501,30 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
     failed(checkNoFalsePrecision(flagRange)),
     'An SPM range inside a flag detail was not caught.'
   );
+
+  // A prescribed DELTA is not a claimed RATE. The certified 5-10%-above-self-selected guidance
+  // (pace_framework.md) is exactly what the model is told to give, and failing it would make the
+  // grader the bug — the same trap the drill-instruction exemption exists to avoid.
+  const prescriptive = honestPhotoResult();
+  prescriptive.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback:
+      'Lift your step rate about 5 to 10 percent — for most runners that is 10 to 15 steps per minute more than they run now.',
+  });
+  assert(
+    !failed(checkNoFalsePrecision(prescriptive)),
+    'Certified prescriptive cadence advice states no rate for this runner and must pass.'
+  );
+
+  const delta = honestPhotoResult();
+  delta.pillars.cadence.flags = [
+    { pattern: 'Overstriding', detail: 'Raise it by 5-10 SPM and let the foot land closer underneath you.' },
+  ];
+  assert(
+    !failed(checkNoFalsePrecision(delta)),
+    'A prescribed SPM delta is not a rate claim and must pass.'
+  );
 });
 
 Deno.test('THE GRADER IS NOT THE BUG: certified text that LOOKS like false precision must pass', () => {

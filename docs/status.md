@@ -1342,7 +1342,8 @@ milestone "done" criteria.
     only a screen render can prove). These four focused suites are green: 197 tests. **Live
     burst evidence landed 2026-09-07** (see "Stride-burst latency eval" below): five real calls on
     5- and 8-frame bursts, all inside the timeout with no truncation, and Cadence/Elasticity scored
-    from a verified consecutive stride with zero SPM figures. Still not verified: a real
+    from a verified consecutive stride with zero SPM figures or ranges in any pillar's feedback
+    text (injury-flag detail text was not scanned by the harness as it ran). Still not verified: a real
     device/simulator pass of the on-device extractor (the harness feeds ffmpeg-extracted frames at
     production's timestamps, not `expo-video`'s), and run-to-run variance on identical evidence
     remains (Cadence 74 vs 58 on the same burst).
@@ -1394,9 +1395,13 @@ milestone "done" criteria.
     reason `end_turn`; largest output 2570 of 8000 tokens. Decision: keep `effort: 'low'` and do
     not raise `max_tokens` (a raise would widen a ceiling nothing uses and must move the gate
     reservation with it). Honesty: all ten Cadence/Elasticity pillars scored from the burst, cited
-    landing frames, and none contained an SPM figure or range — the prompt was tightened in the
-    same change to say a ~one-cycle burst cannot count steps (`STRIDE_BURST_VIDEO_RULES`), and the
-    harness greps for it. The one finding to keep open: identical evidence still produces
+    landing frames, and none contained an SPM figure or range **in its feedback text** — the prompt
+    was tightened in the same change to say a ~one-cycle burst cannot count steps
+    (`STRIDE_BURST_VIDEO_RULES`), and the harness greps for it. Scope that claim honestly: the
+    harness as it ran scanned `feedback` only, so injury-flag `detail` text was NOT checked, and it
+    cannot be re-checked offline either — that run's results JSON persisted only each flag's
+    `pattern`. The flag-detail scan and the wider unit forms were added afterwards, without a
+    re-run. The one finding to keep open: identical evidence still produces
     different judgements run to run (Cadence 74/no flag vs 58/Overstriding on the same eight
     frames). That is the audit's finding #3, not #2, and is not an extraction problem. Full numbers
     and the burst-shape rationale: `docs/change_log.md` 2026-09-07 and `lib/frames.ts`

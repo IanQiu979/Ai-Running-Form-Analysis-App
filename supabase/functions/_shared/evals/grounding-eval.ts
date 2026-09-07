@@ -835,7 +835,8 @@ export function meanSentences(result: PaceResult): string {
  *
  * The three forbidden things, from `analyze-form-prompt.ts`'s TIMESTAMP_RULES:
  *   - a single precise cadence figure ("your cadence is 164 SPM"), and — since the stride-burst
- *     migration tightened `STRIDE_BURST_VIDEO_RULES` — a steps-per-minute RANGE as well;
+ *     migration tightened `STRIDE_BURST_VIDEO_RULES` — a steps-per-minute RANGE offered as this
+ *     runner's rate as well (a prescribed DELTA, "raise it by 5-10 SPM", stays legitimate);
  *   - any ground-contact-time figure in milliseconds;
  *   - any vertical-oscillation figure in centimetres.
  *
@@ -847,10 +848,72 @@ export function meanSentences(result: PaceResult): string {
  * say so explicitly. If it really did state a ground-contact time in ms, this is a genuine prompt
  * finding and #112's rule is being violated at Pro.
  */
+/** "SPM", "steps per minute", "steps/min", "steps a minute". */
+const SPM_UNIT = String.raw`(?:spm\b|steps\s*(?:per|a|\/)\s*min(?:ute)?s?\b)`;
+const HEDGE = String.raw`(?:about|around|roughly|approximately|~)`;
+const SPAN = String.raw`\d{2,3}\s*(?:[-–—]|\bto\b)\s*\d{2,3}`;
+
+/**
+ * A DELTA is not a RATE. "Raise it by 5-10 SPM" and "about 10 to 15 steps per minute more than you
+ * run now" are the certified prescription (`pace_framework.md`'s 5-10%-above-self-selected
+ * guidance) — the model has stated no rate for this runner and must not be failed for obeying.
+ * Only an adjacent delta marker counts, so "Your cadence is 164 SPM, which is below the ideal
+ * range" is NOT excused: the "below" there is a clause away, not attached to the figure.
+ */
+export function stripPrescriptiveCadence(text: string): string {
+  const magnitude = String.raw`\d{1,3}(?:\s*(?:[-–—]|\bto\b)\s*\d{1,3})?`;
+  return text
+    .replace(
+      new RegExp(
+        String.raw`\b(?:by|raise|raising|lift|lifting|increase|increasing|add|adding|up)\s+(?:it\s+|them\s+|your\s+\w+\s+)?(?:${HEDGE}\s*)?${magnitude}\s*${SPM_UNIT}`,
+        'gi'
+      ),
+      ' '
+    )
+    .replace(
+      new RegExp(
+        String.raw`\b${magnitude}\s*${SPM_UNIT}\s+(?:more|higher|faster|lower|slower|fewer|extra|above|below|than|beyond)\b`,
+        'gi'
+      ),
+      ' '
+    );
+}
+
+/**
+ * A cadence figure ATTRIBUTED TO THIS RUNNER as a point value. Scoped to the possessive/copular
+ * form ("your cadence is 164", "their cadence sits at 168") so it cannot fire on the certified
+ * norm "180 SPM is not a universal target", which a model may legitimately quote to REJECT it.
+ */
+export function findAttributedCadencePoints(text: string): string[] {
+  const point = new RegExp(
+    String.raw`\b(?:your|their|his|her|the runner'?s)\s+cadence\s+(?:is|was|of|sits at|comes out at|measures|appears to be|looks like)\s*(?:${HEDGE})?\s*(\d{2,3})`,
+    'gi'
+  );
+  return text.match(point) ?? [];
+}
+
+/**
+ * A steps-per-minute RANGE offered as this runner's rate — either attributed ("your cadence looks
+ * to sit around 160 to 170 steps per minute") or asserted bare and hedged ("roughly 160-170 SPM").
+ * This used to be exempt: TIMESTAMP_RULES once offered a hedged range as the correct way to
+ * answer. The stride-burst migration removed that licence — a ~700ms burst spans a third to a half
+ * of a step interval, so a footfall rate resolves only to ±30-50% and no range derived from it is
+ * honest. A general norm stated about runners at large, and any delta, are not this.
+ */
+export function findSpmRangeClaims(text: string): string[] {
+  const attributedRange = new RegExp(
+    String.raw`\b(?:your|their|his|her|the runner'?s)\s+(?:cadence|step\s+rate)\b[^.!?\n]{0,40}?\b${SPAN}\s*${SPM_UNIT}`,
+    'gi'
+  );
+  const hedgedRange = new RegExp(String.raw`\b${HEDGE}\s*${SPAN}\s*${SPM_UNIT}`, 'gi');
+  return [...(text.match(attributedRange) ?? []), ...(text.match(hedgedRange) ?? [])];
+}
+
 export function checkNoFalsePrecision(result: PaceResult): Check {
-  const claims = pillarEntries(result)
+  const raw = pillarEntries(result)
     .flatMap(([, p]) => [p.feedback ?? '', ...p.flags.map((f) => f.detail)])
     .join('\n');
+  const claims = stripPrescriptiveCadence(raw);
 
   const violations: string[] = [];
 
@@ -862,23 +925,13 @@ export function checkNoFalsePrecision(result: PaceResult): Check {
   const vo = claims.match(/\d+(?:\.\d+)?\s*(?:cm\b|centimet(?:re|er)s?\b)/gi);
   if (vo) violations.push(`vertical oscillation in cm: ${JSON.stringify(vo)}`);
 
-  // A cadence figure ATTRIBUTED TO THIS RUNNER as a point value. Scoped to the possessive/copular
-  // form ("your cadence is 164", "their cadence sits at 168") so it cannot fire on the certified
-  // norm "180 SPM is not a universal target", which a model may legitimately quote to REJECT it.
-  const point =
-    /\b(?:your|their|his|her|the runner'?s)\s+cadence\s+(?:is|was|of|sits at|comes out at|measures|appears to be|looks like)\s*(?:about|around|roughly|approximately|~)?\s*(\d{2,3})/gi;
-  const attributed = claims.match(point);
-  if (attributed) violations.push(`a point cadence figure for this runner: ${JSON.stringify(attributed)}`);
+  const attributed = findAttributedCadencePoints(claims);
+  if (attributed.length > 0) {
+    violations.push(`a point cadence figure for this runner: ${JSON.stringify(attributed)}`);
+  }
 
-  // A steps-per-minute RANGE ("roughly 160-170 SPM", "160 to 170 steps per minute"). This used to
-  // be exempt: TIMESTAMP_RULES once offered a hedged range as the correct way to answer. The
-  // stride-burst migration removed that licence — a ~700ms burst spans a third to a half of a step
-  // interval, so a footfall rate resolves only to ±30-50% and no range derived from it is honest.
-  // The certified norm is a POINT figure, so it stays untouched by this pattern.
-  const range = claims.match(
-    /\b\d{2,3}\s*(?:[-–—]|\bto\b)\s*\d{2,3}\s*(?:spm\b|steps\s*(?:per|a|\/)\s*min(?:ute)?s?\b)/gi
-  );
-  if (range) violations.push(`a steps-per-minute range: ${JSON.stringify(range)}`);
+  const range = findSpmRangeClaims(claims);
+  if (range.length > 0) violations.push(`a steps-per-minute range: ${JSON.stringify(range)}`);
 
   if (violations.length > 0) {
     return {
