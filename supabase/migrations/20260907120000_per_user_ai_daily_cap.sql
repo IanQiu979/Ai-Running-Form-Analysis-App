@@ -121,8 +121,10 @@
 -- safe either way; the new one is `gate_ai_call_unlimited`, which `_shared/ai-guard.ts` selects
 -- whenever the `ALL_USERS_UNLIMITED_ACCESS` secret is set (it is, on the live project). Deploying
 -- the function first no longer 500s — `gateAiCall` detects the missing function and falls back to
--- `gate_ai_call` once, which applies the caller's REAL tier cap (tighter, not looser) — but that
--- is a degraded state, not the intended one. Push this migration first.
+-- `gate_ai_call` once. Be clear about what that fallback buys: in a database where this migration
+-- is unapplied, `gate_ai_call` is still the old 20260712210100 definition, so the degraded window
+-- enforces the GLOBAL `daily_usd_cap` alone with NO per-user ceiling — availability preserved at
+-- today's production behaviour, not a tighter cap. Push this migration first.
 
 -- ---------------------------------------------------------------------------------------------
 -- 1. The dials. Operator-tunable by UPDATE from the dashboard/SQL editor/MCP, no redeploy —

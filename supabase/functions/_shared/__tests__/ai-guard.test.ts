@@ -184,6 +184,27 @@ describe('gateAiCall', () => {
     consoleError.mockRestore();
   });
 
+  it.each([
+    ['a missing relation raised from inside the override RPC', 'relation "public.ai_call_log" does not exist'],
+    ['a missing column raised from inside the override RPC', 'column "user_daily_usd_cap_elite" does not exist'],
+    ['a missing inner function, not the one we called', 'function public.pace_current_tier(uuid) does not exist'],
+  ])('throws instead of falling back for %s', async (_label, message) => {
+    const rpc = jest.fn().mockResolvedValue({ data: null, error: { code: '42883', message } });
+
+    await expect(
+      gateAiCall(
+        { rpc },
+        {
+          userId: 'u1',
+          estimatedInputTokens: 1,
+          estimatedOutputTokens: 1,
+          allUsersUnlimitedAccess: true,
+        }
+      )
+    ).rejects.toThrow(`gate_ai_call_unlimited failed: ${message}`);
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
   it('does NOT fall back on any other error class — a transport failure still throws', async () => {
     const rpc = jest.fn().mockResolvedValue({
       data: null,

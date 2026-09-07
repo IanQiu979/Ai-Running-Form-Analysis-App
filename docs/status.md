@@ -123,10 +123,12 @@ milestone "done" criteria.
   **DEPLOY THE MIGRATION FIRST, THEN `analyze-form`** — same deploy-gated ordering
   `pace_quota_status` / `pace_purchase_tier` needed. `ALL_USERS_UNLIMITED_ACCESS` is set on the
   live project, so the edge function will select the new `gate_ai_call_unlimited`, which does not
-  exist until the push lands. `_shared/ai-guard.ts` fails SAFE if the order is reversed (it
-  detects the missing function, logs loudly, and falls back once to `gate_ai_call`, applying the
-  caller's real tier cap rather than Elite's) — degraded, not an outage, and self-healing on
-  push, but not the intended state. Branch: `fm/v2-3-gate-ai-call-daily-cap-is-global-no-c7`.
+  exist until the push lands. `_shared/ai-guard.ts` stays AVAILABLE if the order is reversed (it
+  detects the missing function, logs loudly, and falls back once to `gate_ai_call`) — but in an
+  unmigrated database `gate_ai_call` is still the old global-cap-only definition, so that window
+  enforces the platform-wide $10/day ceiling ALONE with **no per-user cap in force**: today's
+  production behaviour, not a tighter one. Degraded and self-healing on push, not the intended
+  state. Branch: `fm/v2-3-gate-ai-call-daily-cap-is-global-no-c7`.
 - **Edge-function build/test contract closed 2026-07-12 (issue #90).** Three previously-unowned
   gaps that #41/#43/#44/#49/#59 all silently assumed: (1) **a Deno runner** —
   `supabase/functions/deno.json` + `npm run typecheck:edge` (`deno check`) / `npm run test:edge`

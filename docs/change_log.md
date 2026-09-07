@@ -76,7 +76,11 @@ on 2026-09-06 and correctly left unfixed there as pre-existing and out of scope.
 - **Client.** No app change. `analyze-form` returns the new `user_daily_cap` code with its own
   copy ("try again tomorrow", not "shortly"); `lib/analyze-form.ts` passes server codes through
   verbatim and `app/analyzing.tsx` already degrades an unrecognised code to its generic failure
-  state. The denial's `detail` (spend, cap, tier) is logged server-side and never forwarded —
+  state. Known, deliberately deferred handoff: because that generic failure panel supplies its own
+  body copy and a Retry button that resubmits straight into the same cap until UTC midnight, the
+  new `user_daily_cap` copy does not reach a user today — failure messaging and Retry UX are owned
+  by the concurrent `fm/v23-free-tier-real-analysis` worker and are untouched here. The denial's
+  `detail` (spend, cap, tier) is logged server-side and never forwarded —
   our per-tier dollar ceilings are a farming aid, not a user-facing fact.
 
 - **Deployment — DB FIRST, then the edge function.** The migration must be applied with
@@ -87,12 +91,16 @@ on 2026-09-06 and correctly left unfixed there as pre-existing and out of scope.
   `ALL_USERS_UNLIMITED_ACCESS` is set on the live project, so the deployed function selects
   `gate_ai_call_unlimited`, which does not exist until the push lands. Reversing the order no
   longer 500s every analysis: `gateAiCall` now recognises a missing-function error (PostgREST
-  `PGRST202` / Postgres `42883`), logs loudly naming the required `supabase db push`, and falls
-  back **once** to `gate_ai_call`. That fallback is deliberately tighter, not looser — the base
-  gate derives the caller's real tier, so an override caller temporarily gets their true (usually
-  Free, $0.75) allowance instead of Elite's $4.00, which is the right direction of error for a
-  spend cap. Every other error class still throws exactly as before, and the fallback can never
-  turn a typed deny into an allow; both are unit-tested in `_shared/__tests__/ai-guard.test.ts`.
+  `PGRST202`, or a `42883`-style message that both names the RPC we called and says a *function*
+  is what is missing), logs loudly naming the required `supabase db push`, and falls back **once**
+  to `gate_ai_call`. That fallback is an availability fallback to the status quo ante, **not** a
+  tighter cap: in a database where the migration is unapplied, `gate_ai_call` is still the old
+  global-cap-only definition, so the degraded window enforces the platform-wide $10/day ceiling
+  alone with no per-user ceiling at all — exactly today's production behaviour. A `does not exist`
+  message that does not name the RPC (a missing relation/column raised from *inside* the function)
+  is deliberately NOT treated as "the RPC is absent" and still throws. Every other error class
+  throws exactly as before, and the fallback can never turn a typed deny into an allow; all of
+  this is unit-tested in `_shared/__tests__/ai-guard.test.ts`.
 
 ## 2026-09-06 (analysis reliability: model window, retry policy, stride-burst sampling)
 
