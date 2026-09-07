@@ -145,9 +145,13 @@ changed three things:
   `deno test` by construction, like `grounding-eval.live.ts`) sends real burst frames extracted at
   the exact timestamps production would request, times the call against both the pre-#206 65s
   bound and the current `MODEL_CALL_TIMEOUT_MS` (80s), reports `stop_reason` and output tokens
-  against `MAX_OUTPUT_TOKENS_BY_TIER`, and greps every pillar's runner-facing prose for an SPM
-  figure or range using `grounding-eval.ts`'s own detectors, so the harness and the honesty grader
-  cannot drift apart on that invariant. (As the five calls below were measured it scanned
+  against `MAX_OUTPUT_TOKENS_BY_TIER`, and greps every pillar's runner-facing prose (feedback and
+  injury-flag detail) for an SPM figure or range. It shares only the UNIT forms with
+  `grounding-eval.ts` (`SPM_UNIT`) and deliberately keeps its own broad detector: it flags ANY SPM
+  number in a burst result, whatever the phrasing, because `STRIDE_BURST_VIDEO_RULES` forbids the
+  figure outright for that one media shape — whereas the grader runs over every media kind and
+  judges whether a figure is claimed as THIS runner's rate, so a certified norm and a prescribed
+  delta pass there. The two scopes are separate on purpose. (As the five calls below were measured it scanned
   `feedback` only; the `flags[].detail` scan and the wider unit forms came later, with no re-run.)
   Its header documents the frame-manifest format and the exact `deno run` invocation. Inputs
   (never committed — images of people): PLOS ONE `pone.0115637` S3, a side-on lab treadmill runner

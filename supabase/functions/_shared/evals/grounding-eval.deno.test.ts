@@ -502,6 +502,54 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
     'An SPM range inside a flag detail was not caught.'
   );
 
+  const barePoint = honestPhotoResult();
+  barePoint.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Roughly 165 SPM — approximate, estimated from frames whose timing is not exact.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(barePoint)),
+    'A bare hedged SPM POINT offered as this runner\'s rate was not caught.'
+  );
+
+  const hedgedAttributed = honestPhotoResult();
+  hedgedAttributed.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Your cadence looks like roughly 160-170 SPM — approximate.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(hedgedAttributed)),
+    'An attributed hedged SPM range was not caught.'
+  );
+
+  // A norm about runners at large states no rate for THIS runner. `pace_framework.md`'s 180-SPM
+  // myth discussion is exactly what a good answer paraphrases; failing it makes the grader the bug.
+  const norm = honestPhotoResult();
+  norm.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback:
+      'Most recreational runners land somewhere around 165 to 180 steps per minute, but that is not a target for you — what matters is where your foot lands.',
+  });
+  assert(
+    !failed(checkNoFalsePrecision(norm)),
+    'A general norm about runners at large is not a claim about this runner and must pass.'
+  );
+
+  // …but the same sentence may not smuggle an attributed figure past that exemption.
+  const normPlusClaim = honestPhotoResult();
+  normPlusClaim.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Your cadence is 164 SPM, which is quicker than most recreational runners manage.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(normPlusClaim)),
+    'An attributed figure in a sentence that also mentions runners at large must still fail.'
+  );
+
   const proseRange = honestPhotoResult();
   proseRange.pillars.cadence = pillar({
     score: 60,

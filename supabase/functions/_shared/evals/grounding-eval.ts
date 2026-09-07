@@ -882,16 +882,37 @@ export function stripPrescriptiveCadence(text: string): string {
 }
 
 /**
- * A cadence figure ATTRIBUTED TO THIS RUNNER as a point value. Scoped to the possessive/copular
- * form ("your cadence is 164", "their cadence sits at 168") so it cannot fire on the certified
- * norm "180 SPM is not a universal target", which a model may legitimately quote to REJECT it.
+ * A general norm stated about runners at large ("most recreational runners land around 165 to 180
+ * steps per minute, but that is not a target for you") is NOT a claim about this runner, and
+ * `pace_framework.md`'s 180-SPM myth discussion is exactly the thing a good answer paraphrases.
+ * Only the BARE forms consult this: a figure attributed possessively to the runner stays a
+ * violation even when the same sentence also mentions runners in general.
+ */
+const GENERAL_SUBJECT =
+  /\b(?:most|many|some|other|average|typical|recreational|competitive|elite|beginner|experienced|all)\s+(?:\w+\s+){0,2}?(?:runners?|athletes?|people)\b/i;
+
+/** A bare figure only counts when its clause has no subject other than the runner. */
+function bareClaimsOutsideNorms(text: string, pattern: RegExp): string[] {
+  return text
+    .split(/[.!?\n]+/)
+    .filter((sentence) => !GENERAL_SUBJECT.test(sentence))
+    .flatMap((sentence) => sentence.match(pattern) ?? []);
+}
+
+/**
+ * A cadence figure claimed as THIS RUNNER's rate, as a point value — either attributed by the
+ * possessive/copular form ("your cadence is 164", "their cadence sits at 168") or standing bare
+ * and hedged as their rate ("Roughly 165 SPM — approximate"). Neither fires on the certified norm
+ * "180 SPM is not a universal target", which a model may legitimately quote to REJECT it, nor on a
+ * norm about runners at large.
  */
 export function findAttributedCadencePoints(text: string): string[] {
   const point = new RegExp(
     String.raw`\b(?:your|their|his|her|the runner'?s)\s+cadence\s+(?:is|was|of|sits at|comes out at|measures|appears to be|looks like)\s*(?:${HEDGE})?\s*(\d{2,3})`,
     'gi'
   );
-  return text.match(point) ?? [];
+  const hedgedPoint = new RegExp(String.raw`\b${HEDGE}\s*\d{2,3}\s*${SPM_UNIT}`, 'gi');
+  return [...(text.match(point) ?? []), ...bareClaimsOutsideNorms(text, hedgedPoint)];
 }
 
 /**
@@ -907,7 +928,8 @@ export function findAttributedCadencePoints(text: string): string[] {
  * This used to be exempt: TIMESTAMP_RULES once offered a hedged range as the correct way to
  * answer. The stride-burst migration removed that licence — a ~700ms burst spans a third to a half
  * of a step interval, so a footfall rate resolves only to ±30-50% and no range derived from it is
- * honest. A general norm stated about runners at large, and any delta, are not this.
+ * honest. A general norm stated about runners at large, and any delta, are not this — the bare
+ * hedged form is scoped by `bareClaimsOutsideNorms` so it cannot fire on either.
  */
 export function findSpmRangeClaims(text: string): string[] {
   const attributedRange = new RegExp(
@@ -918,7 +940,7 @@ export function findSpmRangeClaims(text: string): string[] {
     String.raw`\b(?:${HEDGE}|between|from)\s*${SPAN}\s*${SPM_UNIT}`,
     'gi'
   );
-  return [...(text.match(attributedRange) ?? []), ...(text.match(hedgedRange) ?? [])];
+  return [...(text.match(attributedRange) ?? []), ...bareClaimsOutsideNorms(text, hedgedRange)];
 }
 
 export function checkNoFalsePrecision(result: PaceResult): Check {
