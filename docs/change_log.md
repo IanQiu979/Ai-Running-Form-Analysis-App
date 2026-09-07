@@ -27,8 +27,12 @@ on 2026-09-06 and correctly left unfixed there as pre-existing and out of scope.
   per-tier daily USD ceiling checked by `gate_ai_call` **in addition to** the global one, and
   checked *first* so a caller over their own allowance is told that (`user_daily_cap`, HTTP 429)
   rather than handed an outage they did not cause (`daily_cap`, HTTP 503). The cap counts
-  **every** gated call for that user whatever its outcome — including the ones the quota and
-  anti-farm controls deliberately forgive. That is what "key the anti-farm counter consistently
+  **every gated call for that user that actually cost money** — `success`, `fallback`,
+  `model_error`, `validation_failed`, and a zero-pillar result (which settles as `success`) —
+  including the outcomes the quota and anti-farm controls deliberately forgive. A `'cancelled'`
+  call settles at $0 and correctly adds nothing once settled, because the model was never
+  called; its `'pending'` row does hold its estimate against both ceilings until it settles or
+  ages out. That is what "key the anti-farm counter consistently
   with the cap" required: `pace_is_farming_signal` is an INTENT classifier with deliberate blind
   spots so a legitimate user is never permanently locked out; a SPEND cap may not share them,
   because the money left the building either way. Both controls are now keyed to the same

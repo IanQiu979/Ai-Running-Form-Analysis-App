@@ -2114,9 +2114,13 @@ only a future edge function calling with the service-role key can invoke these, 
   zero-pillar model calls that cost it neither a quota slot (refunded via
   `'zero_pillars_assessed'`) nor an anti-farm strike (`pace_is_farming_signal` deliberately
   forgives that reason). Key points:
-  - **The cap counts every gated call for that user, whatever its outcome** — including the
-    outcomes the quota and anti-farm controls deliberately forgive. That is the point: a spend
-    cap may not share an intent classifier's blind spots. Neither `pace_is_farming_signal` nor
+  - **The cap counts every gated call for that user that actually cost money** — `success`,
+    `fallback`, `model_error`, `validation_failed`, and a zero-pillar result (which settles as
+    `success`) — including the outcomes the quota and anti-farm controls deliberately forgive.
+    That is the point: a spend cap may not share an intent classifier's blind spots. A
+    `'cancelled'` call settles at $0 and correctly adds nothing once settled (the model was never
+    called), though its `'pending'` row holds its estimate against both ceilings until it settles
+    or ages out. Neither `pace_is_farming_signal` nor
     `reserve_analysis` nor the release-reason taxonomy is touched; the captain's zero-pillar
     refund decision stands exactly as it was.
   - **The tier is derived inside the RPC** (`public.pace_current_tier` over

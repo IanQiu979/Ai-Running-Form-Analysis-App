@@ -25,9 +25,20 @@
 --
 -- THE FIX, and why it is shaped this way.
 --
--- The per-user cap counts EVERY gated call for that user, whatever its outcome — success,
--- fallback, model_error, validation_failed, cancelled, and `zero_pillars_assessed` alike. That
--- is the whole point, and it is what "key the anti-farm counter consistently with the cap"
+-- The per-user cap counts every gated call for that user that ACTUALLY INCURRED COST — success,
+-- fallback, model_error, validation_failed, and a zero-pillar result (which settles as
+-- `success`, because the response validated). A `'cancelled'` call is one the gate allowed but
+-- that was never issued, so `record_ai_call` settles it at $0 and, once settled, it correctly
+-- contributes nothing — no model request was made and no money was spent. It is not free while
+-- it is in flight, though: a `'pending'` row holds its `estimated_usd` against BOTH ceilings
+-- regardless of how it will later settle, so a call that ends up cancelled does briefly occupy
+-- the caller's own headroom until `record_ai_call` settles it at $0 or `pending_timeout_seconds`
+-- ages it out.
+--
+-- The load-bearing property is that the cap has NO blind spot for the outcomes the quota and
+-- anti-farm controls deliberately forgive: a `zero_pillars_assessed` release refunds the quota
+-- slot and takes no anti-farm strike, yet its model call is charged in full against that user's
+-- own daily budget. That is what "key the anti-farm counter consistently with the cap"
 -- means here: `pace_is_farming_signal` is an INTENT classifier and deliberately has blind spots
 -- (server-fault releases, honest zero-pillar results) so that a legitimate user is never
 -- permanently locked out. A SPEND cap must have no such blind spots — money left the building
@@ -278,9 +289,11 @@ begin
 
   -- 3. PER-USER daily cap — the fix. Same arithmetic as the global cap below (settled actual
   -- since UTC midnight + still-live pending estimates), narrowed to this one user, and counting
-  -- EVERY status: a 'cancelled', 'model_error' or zero-pillar-released call cost real money and
-  -- is charged against this user's own day even though it costs them no quota slot and no
-  -- anti-farm strike.
+  -- every outcome that actually cost money: a 'model_error', 'validation_failed' or zero-pillar-
+  -- released call is charged against this user's own day even though it costs them no quota slot
+  -- and no anti-farm strike. A 'cancelled' call settles at $0 and so adds nothing once settled —
+  -- correctly, since the model was never called — but its pending row does hold its estimate
+  -- against this cap until it settles or ages out.
   --
   -- Checked BEFORE the global cap on purpose. When both would deny, the honest answer is the one
   -- about the caller's own allowance ('user_daily_cap', a 429 they can act on) rather than the
