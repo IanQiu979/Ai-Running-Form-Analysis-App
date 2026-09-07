@@ -36,6 +36,7 @@
  * control is offered at all — is also wiring only a screen-level render can prove.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform } from 'react-native';
 
 import { Copy } from '@/constants/copy';
 import { takePendingAnalyzeFormRequest } from '@/lib/analyze-form';
@@ -78,6 +79,8 @@ jest.mock('../../../lib/supabase', () => ({
 jest.mock('@/lib/quota', () => ({
   quotaStatusClient: { fetch: jest.fn() },
 }));
+
+const mockAnnounce = AccessibilityInfo.announceForAccessibility as jest.Mock;
 
 let renderCount = 0;
 
@@ -506,6 +509,44 @@ describe('ExtractingScreen — the pre-flight gate (no wait burned to be told yo
 
     await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/paywall'), WAIT);
     expect(mockExtractFrames).not.toHaveBeenCalled();
+  });
+
+  // The pause panel is a TERMINAL refusal, so the screen must stop claiming work is under way.
+  // Before this lock the "Preparing your analysis" eyebrow still rendered above it — the runner
+  // was told their analysis was being prepared and that analyses were paused at the same time —
+  // and it left the screen with two `accessibilityRole="header"` nodes instead of one.
+  it('drops the "preparing" heading so the pause is the screen\'s only heading', async () => {
+    mockRouteParams = { ...VIDEO_PARAMS };
+    mockQuotaFetch.mockResolvedValue(cooldownResult(new Date(NOW + 45 * 60 * 1000).toISOString()));
+
+    const { getByText } = await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(getByText(Copy.analysisPause.title)).toBeTruthy(), WAIT);
+    expect(screen.queryByText(Copy.upload.title)).toBeNull();
+    expect(screen.getAllByRole('header')).toHaveLength(1);
+    expect(getByText(Copy.analysisPause.title).props.accessibilityRole).toBe('header');
+  });
+
+  // `accessibilityLiveRegion="polite"` on the panel title is Android-only; `lib/use-announce.ts`
+  // is the iOS complement. Without this arm a VoiceOver user heard the wait and then silence
+  // while the screen had already become a refusal with a different set of controls.
+  it('announces the pause on iOS with the same countdown the panel shows', async () => {
+    const originalOS = Platform.OS;
+    Platform.OS = 'ios';
+    try {
+      mockRouteParams = { ...VIDEO_PARAMS };
+      mockQuotaFetch.mockResolvedValue(cooldownResult(new Date(NOW + 3 * 60 * 60 * 1000).toISOString()));
+
+      const { getByTestId } = await render(<ExtractingScreen />);
+
+      await waitFor(() => expect(getByTestId('analysis-paused-body')).toBeTruthy(), WAIT);
+      // The announcement must carry the body actually on screen, not a second, quieter sentence.
+      expect(mockAnnounce).toHaveBeenCalledWith(
+        `${Copy.analysisPause.title} ${getByTestId('analysis-paused-body').props.children}`
+      );
+    } finally {
+      Platform.OS = originalOS;
+    }
   });
 
   // THE FAIL-OPEN RULE, at the screen. Telling someone they are in a cooldown is a claim about

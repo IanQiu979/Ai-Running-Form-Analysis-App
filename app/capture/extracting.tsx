@@ -100,9 +100,9 @@ import { parseCaptureParams } from '@/lib/parse-capture-params';
 import { useAnnounce } from '@/lib/use-announce';
 
 // A photo submission is ALWAYS exactly one frame, at every tier (`docs/architecture.md`: "a photo
-// submission is always exactly 1 frame regardless of tier"), so this path never consults quota at
-// all — no `quota-status` round trip is made for a photo, and nothing about it changed when video
-// gained a real cap.
+// submission is always exactly 1 frame regardless of tier"), so a photo's frame COUNT never
+// depends on the quota answer. Its ELIGIBILITY does: the photo path takes the same `quota-status`
+// pre-flight round trip as video, so a capped or cooling-down runner is refused up front.
 const PHOTO_FRAME_COUNT = 1;
 
 // Mirrors `lib/parse-capture-params.ts`'s private helper of the same name — kept local rather
@@ -196,7 +196,9 @@ export default function ExtractingScreen() {
         ? `${Copy.upload.ready.title} ${Copy.upload.ready.body(state.frameSet.frames.length)}`
         : state.status === 'error'
           ? `${errorCopy(state).title} ${errorCopy(state).body}`
-          : null
+          : state.status === 'paused'
+            ? `${Copy.analysisPause.title} ${analysisPauseBody(state.blockedUntil)}`
+            : null
   );
 
   useEffect(() => {
@@ -327,8 +329,10 @@ export default function ExtractingScreen() {
         {/* L2 (v23-ux-audit-r1): this eyebrow used to render unconditionally, so the error state
             said "Preparing your analysis" and "Couldn't process this clip" at the same time.
             Skipped in the error branch — its own title below carries `accessibilityRole="header"`
-            instead, so the screen still has exactly one heading, just a failure-appropriate one. */}
-        {state.status !== 'error' && (
+            instead, so the screen still has exactly one heading, just a failure-appropriate one.
+            The paused branch is skipped for the same two reasons: "Preparing your analysis" would
+            contradict "Analyses are paused for now", and its panel title is that state's heading. */}
+        {state.status !== 'error' && state.status !== 'paused' && (
           <Eyebrow tone="primary" accessibilityRole="header">
             {Copy.upload.title}
           </Eyebrow>
