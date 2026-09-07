@@ -1334,15 +1334,18 @@ milestone "done" criteria.
     calls established the root causes; this fix round made no deployment and no live function
     invocation. Focused current suites: `flow.deno.test.ts` (96 tests,
     including non-zero-duration virtual-clock timeout/retry cases),
-    `analyze-form-prompt.deno.test.ts` (44 tests, including seven new burst/legacy-classification
+    `analyze-form-prompt.deno.test.ts` (46 tests as of 2026-09-07, including seven burst/legacy-classification
     cases and a mutation-tested `isStrideBurst`), `lib/__tests__/frames.test.ts` (42 tests,
     rewritten around `expo-video` mocks, with fail-closed, collision-skip/floor and native-cleanup
     cases mutation-tested against production code), and
     `app/capture/__tests__/extracting.test.tsx` (15 tests, including the error-kind routing that
-    only a screen render can prove). These four focused suites are green: 197 tests. Not yet
-    verified: a real device/simulator pass showing an actual reduction in video-analysis wall-clock time or a
-    real burst's effect on Cadence/Elasticity scoring — the audit's live-call evidence is the only
-    model-output evidence for this fix, same limitation the audit itself operated under.
+    only a screen render can prove). These four focused suites are green: 197 tests. **Live
+    burst evidence landed 2026-09-07** (see "Stride-burst latency eval" below): five real calls on
+    5- and 8-frame bursts, all inside the timeout with no truncation, and Cadence/Elasticity scored
+    from a verified consecutive stride with zero SPM figures. Still not verified: a real
+    device/simulator pass of the on-device extractor (the harness feeds ffmpeg-extracted frames at
+    production's timestamps, not `expo-video`'s), and run-to-run variance on identical evidence
+    remains (Cadence 74 vs 58 on the same burst).
 
     **Effort eval (2026-09-06, run manually outside the pipeline — the pipeline cannot make paid,
     real Anthropic calls).** 4 real Anthropic Messages API calls, billed, made directly via the
@@ -1376,6 +1379,28 @@ milestone "done" criteria.
     separately confirmed (no billing lookup performed) but consistent with the audit's prior
     $1.07-for-11-calls rate, i.e. a few tens of cents. `ANALYZE_FORM_EFFORT` stays `'low'` as
     implemented; this eval is the resolution of the merge prerequisite the intent named.
+
+    **Stride-burst latency eval (2026-09-07, `fm/v23-stride-burst-extraction`, run manually — 5
+    real Anthropic calls, $0.42 at list price).** The captain's 2026-09-06 launch-blocker brief
+    required real 5- AND 8-frame burst latency against the 65s bound; #206 had measured neither on
+    the burst as such (its four calls compared effort on 5-frame bursts only). New harness
+    `supabase/functions/_shared/evals/stride-burst-latency.live.ts` (production
+    `buildAnalyzeFormRequest`/`readAttempt`, `.live.ts` so `deno test` cannot see it) on two real
+    clips — PLOS ONE `pone.0115637` S3 (side-on lab treadmill, 3.0 m/s) and the Commons Arakawa
+    jogger (distant side-on outdoor) — frames extracted by ffmpeg at exactly production's
+    `sampleTimestamps` instants, 1568px, JPEG q≈0.7, effort `low`: Pro/5 **24.4s** and **21.4s**;
+    Elite/8 **29.6s**, **35.6s**, **29.8s** (the last two are the same Arakawa burst twice). Worst
+    case is 55% of the 65s bound and 44% of the current 80s `MODEL_CALL_TIMEOUT_MS`; every stop
+    reason `end_turn`; largest output 2570 of 8000 tokens. Decision: keep `effort: 'low'` and do
+    not raise `max_tokens` (a raise would widen a ceiling nothing uses and must move the gate
+    reservation with it). Honesty: all ten Cadence/Elasticity pillars scored from the burst, cited
+    landing frames, and none contained an SPM figure or range — the prompt was tightened in the
+    same change to say a ~one-cycle burst cannot count steps (`STRIDE_BURST_VIDEO_RULES`), and the
+    harness greps for it. The one finding to keep open: identical evidence still produces
+    different judgements run to run (Cadence 74/no flag vs 58/Overstriding on the same eight
+    frames). That is the audit's finding #3, not #2, and is not an extraction problem. Full numbers
+    and the burst-shape rationale: `docs/change_log.md` 2026-09-07 and `lib/frames.ts`
+    `sampleTimestamps`.
 
 ## Next action
 

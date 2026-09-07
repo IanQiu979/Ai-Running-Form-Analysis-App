@@ -106,6 +106,77 @@ on 2026-09-06 and correctly left unfixed there as pre-existing and out of scope.
   throws exactly as before, and the fallback can never turn a typed deny into an allow; all of
   this is unit-tested in `_shared/__tests__/ai-guard.test.ts`.
 
+## 2026-09-07 (stride burst: measured live, justified per pillar, bounded to what one cycle can claim)
+
+**On `fm/v23-stride-burst-extraction`, not yet merged to `main`.** Closes the launch-blocker the
+captain funded on 2026-09-06 on top of #206, which had already replaced the whole-clip spread with
+`lib/frames.ts`'s centered ~700ms burst and dropped `ANALYZE_FORM_EFFORT` to `'low'` — but with
+**zero real calls on the burst itself** (its four live calls compared effort levels on 5-frame
+bursts; no 8-frame burst had ever been run). This round made **5 real Anthropic calls, $0.42 at
+list price**, every one through the production `buildAnalyzeFormRequest`/`readAttempt` code, and
+changed three things:
+
+- **The burst shape is now justified from the certified framework, not inherited.** Kept as ONE
+  centered ~700ms window with density set by the tier cap (Pro 5 frames ~175ms apart, Elite 8
+  ~100ms apart). `sampleTimestamps`'s header records why: Cadence's certified primary evidence is
+  the landing (foot vs centre of mass, knee at contact), and any 700ms window contains at least one
+  full step interval at every recreational cadence, so a frame is guaranteed within half a gap of
+  a contact; Elasticity's evidence is contact quality and torso rise/fall across a landing-stance-
+  push-off, which Elite's ~100ms spacing samples two or three times per ~250ms stance and Pro's
+  ~175ms once or twice. A double burst (halves per-window density to 233-350ms, coarser than a
+  stance) and a wider window (same density cost, no certified evidence needs a full cycle) were
+  weighed and rejected. No frame count, cap, or byte budget changed.
+- **The prompt now states what one stride cycle can and cannot support, and stops licensing a
+  steps-per-minute range.** `STRIDE_BURST_VIDEO_RULES` (`analyze-form-prompt.ts`) gained a "WHAT
+  ONE STRIDE CYCLE CAN AND CANNOT SUPPORT" block: Cadence is scored from where the foot lands, and
+  **no SPM figure OR range** may be given from a burst — 100-175ms between frames is a third to a
+  half of a step, so a footfall interval resolves only to ±30-50% and any "range" would span the
+  whole recreational population, which fails the certified "estimate a range only when the frames
+  support it" condition. Elasticity is bounded to contact quality, knee/ankle give and visible
+  bounce, never a GCT or bounce figure. `TIMESTAMP_RULES` was made consistent: its worked hedging
+  example was an SPM range ("roughly 160-170 SPM — approximate"), now replaced by a bounce example,
+  and its reading of the certified timing clause now says the clause licenses nothing on this
+  deployment because the only video that reaches Cadence scoring is a ~one-cycle burst. The
+  `#112` prohibition text ("your cadence is 164 SPM") is unchanged and still asserted. Two new
+  prompt tests lock this (`analyze-form-prompt.deno.test.ts`, 46 tests); both were red before the
+  edit.
+- **A committed latency harness, and the measurement itself.**
+  `supabase/functions/_shared/evals/stride-burst-latency.live.ts` (a `.live.ts`, invisible to
+  `deno test` by construction, like `grounding-eval.live.ts`) sends real burst frames extracted at
+  the exact timestamps production would request, times the call against both the pre-#206 65s
+  bound and the current `MODEL_CALL_TIMEOUT_MS` (80s), reports `stop_reason` and output tokens
+  against `MAX_OUTPUT_TOKENS_BY_TIER`, and greps every pillar's feedback for an SPM figure or range.
+  Its header documents the frame-manifest format and the exact `deno run` invocation. Inputs
+  (never committed — images of people): PLOS ONE `pone.0115637` S3, a side-on lab treadmill runner
+  at 3.0 m/s (CC BY 4.0), and the Commons "Jogging near Arakawa river" clip, a distant side-on
+  outdoor jogger (CC BY 4.0); frames via ffmpeg at 1568px long edge, JPEG q≈0.7, effort `low`.
+
+  | clip | tier / frames | base64 | latency | output tokens / cap | stop | overall (P/A/C/E) |
+  |---|---|---|---|---|---|---|
+  | lab treadmill 3.0 m/s | Pro / 5 | 229 KB | **24.4 s** | 1374 / 6000 | end_turn | 75 (75/76/78/72) |
+  | lab treadmill 3.0 m/s | Elite / 8 | 369 KB | **29.6 s** | 2173 / 8000 | end_turn | 72 (76/78/66/69) |
+  | outdoor jogger | Pro / 5 | 768 KB | **21.4 s** | 1520 / 6000 | end_turn | 64 (74/62/58/60) |
+  | outdoor jogger | Elite / 8, run 1 | 1236 KB | **35.6 s** | 2570 / 8000 | end_turn | 70 (72/68/74/65) |
+  | outdoor jogger | Elite / 8, run 2 | 1236 KB | **29.8 s** | 2277 / 8000 | end_turn | 63 (72/68/58/55) |
+
+  Every call finished inside the 65s bound the brief measured against (worst case 55% of it) and
+  inside the current 80s cap (worst case 44%); no truncation, and the largest output was 32% of
+  its tier's ceiling. **Token/thinking decision: keep #206's `effort: 'low'` and do NOT raise
+  `max_tokens`** — the measured outputs use under a third of the existing 6k/8k ceilings, so a
+  raise would widen a window nothing uses while also having to move `gate_ai_call`'s per-call
+  reservation with it. The audit's `medium`-effort video calls (59-84s, one truncated at 6000)
+  are now explained as an effort problem, not a ceiling problem.
+- **What Cadence and Elasticity can now honestly claim, from the outputs.** All five results scored
+  both pillars from a real consecutive stride (the lab burst shows toe-off in frame 1, a landing in
+  frame 3 and the opposite landing in frame 7, verified by eye), cited landing frames by number,
+  and **contained zero SPM figures or ranges** — every Cadence feedback said explicitly that a step
+  rate cannot be counted from a burst this short and scored from the landing geometry. **Still
+  open, stated plainly:** run-to-run variance on identical evidence persists. The same outdoor
+  Elite burst scored Cadence 74 with no flag on one run and 58 with an "Overstriding" flag on the
+  next (Elasticity 65 vs 55). The burst fixed the EVIDENCE (the audit's finding #2); it does not fix
+  the model's stochastic judgement of that evidence (finding #3), which needs repeated sampling or a
+  confidence presentation rather than extraction work.
+
 ## 2026-09-06 (analysis reliability: model window, retry policy, stride-burst sampling)
 
 **On `fm/v23-reliability-timeouts`, not yet merged to `main`.** Root-caused from

@@ -818,6 +818,70 @@ Deno.test('a genuine stride burst unlocks all four pillars and is labelled STRID
   );
 });
 
+Deno.test('a stride burst states what one stride cycle can and cannot support: landing geometry, never a step rate', () => {
+  // The burst is ~one stride cycle (~700ms, `lib/frames.ts` `sampleTimestamps`): at most two or
+  // three footfalls, with 100-175ms between frames — a large fraction of a single step. That is
+  // enough to see WHERE the foot lands (pace_framework.md's "single most important thing you can
+  // see") and how the torso rises and falls, and NOT enough to count a rate. The certified
+  // "estimate a range only when the frames support it" condition is therefore unmet, and the
+  // prompt must say so for the burst rather than leave a range on the table.
+  for (const tier of ['pro', 'elite'] as const) {
+    const prompt = fullPromptText(videoInput(tier, PACE_FRAME_CAP[tier]));
+
+    assertIncludes(
+      prompt,
+      'WHAT ONE STRIDE CYCLE CAN AND CANNOT SUPPORT',
+      `${tier}: the burst rules do not spell out what one stride cycle can and cannot support.`
+    );
+    assertIncludes(
+      prompt,
+      'do not state a steps-per-minute figure OR RANGE from this burst',
+      `${tier}: the burst rules still leave a steps-per-minute range on the table.`
+    );
+    assertIncludes(
+      prompt,
+      'score Cadence from that',
+      `${tier}: the burst rules do not point Cadence at the landing geometry.`
+    );
+    assertIncludes(
+      prompt,
+      'Never a ground-contact time or bounce figure',
+      `${tier}: the burst rules do not bound Elasticity to contact quality and bounce.`
+    );
+  }
+
+  // The block is burst-specific: a photo and a legacy/sparse request already null both pillars,
+  // so the "what one cycle supports" text would be noise (and a contradiction) there.
+  for (const other of [photoInput('pro'), legacySparseVideoInput('pro')]) {
+    assert(
+      !fullPromptText(other).includes('WHAT ONE STRIDE CYCLE CAN AND CANNOT SUPPORT'),
+      `${other.media}/${other.frames.length} frames: the stride-cycle block leaked into a non-burst prompt.`
+    );
+  }
+});
+
+Deno.test('the timestamp rules no longer model an SPM range as the way to hedge, and say the burst cannot count steps', () => {
+  // Before this change TIMESTAMP_RULES's own worked example of "saying it in the output" was
+  // "roughly 160-170 SPM — approximate", and its reading of the certified timing clause licensed
+  // a WIDE range. Both contradict the burst rules above once the only video that can score
+  // Cadence is a ~one-cycle burst, so the example is replaced and the clause reading closed.
+  for (const input of [videoInput('pro'), videoInput('elite', 8), photoInput('pro'), legacySparseVideoInput('elite', 8)]) {
+    const prompt = fullPromptText(input);
+    assert(
+      !prompt.includes('roughly 160-170 SPM'),
+      `${input.media}/${input.frames.length} frames: the prompt still models an SPM range as the hedging example.`
+    );
+    assertIncludes(
+      prompt,
+      'too short to count steps',
+      `${input.media}/${input.frames.length} frames: the timing-clause reading does not say the burst is too short to count steps.`
+    );
+    // The forbidden-precision example (#112) must survive — the tightening only removes the
+    // permitted-range example, never the prohibition.
+    assertIncludes(prompt, 'your cadence is 164 SPM', 'The forbidden example of false precision went missing.');
+  }
+});
+
 Deno.test('frames spread across a whole clip are classified LEGACY/SPARSE and lose Cadence/Elasticity', () => {
   const prompt = fullPromptText(legacySparseVideoInput('pro'));
 
