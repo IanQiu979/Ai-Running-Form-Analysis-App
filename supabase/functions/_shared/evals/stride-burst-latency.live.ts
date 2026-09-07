@@ -70,11 +70,7 @@ import { MODEL_CALL_TIMEOUT_MS } from '../../analyze-form/flow.ts';
 import { AI_MODEL_PRICING, computeCostUsd, MAX_OUTPUT_TOKENS_BY_TIER } from '../ai-pricing.ts';
 import { PACE_FRAME_CAP, PACE_PILLARS, type PaceTier } from '../pace.ts';
 import { toBase64 } from './grounding-eval-images.ts';
-import {
-  findAttributedCadencePoints,
-  findSpmRangeClaims,
-  stripPrescriptiveCadence,
-} from './grounding-eval.ts';
+import { SPM_UNIT } from './grounding-eval.ts';
 
 const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -84,14 +80,29 @@ const ANTHROPIC_VERSION = '2023-06-01';
  * reader can see how much of the raise a real burst actually needs. */
 const LEGACY_ATTEMPT_TIMEOUT_MS = 65_000;
 
-/** A steps-per-minute rate claimed for THIS runner, in `feedback` or `flags[].detail` — the two
- * fields that carry a claim about them. The detectors come from `grounding-eval.ts` rather than
- * being restated here: one definition of what counts as an SPM claim, so this harness and the
- * honesty grader cannot drift apart on the invariant they both police. They exempt a prescribed
- * DELTA ("raise it by 5-10 SPM") and the certified norm, which are not rate claims. */
+/**
+ * ANY steps-per-minute number — a point figure or a range, in `feedback` or in an injury flag's
+ * `detail`, however it is phrased. Only the UNIT forms are shared with `grounding-eval.ts`
+ * (`SPM_UNIT`); the CLAIM test is deliberately this harness's own and MUST NOT be replaced by
+ * `checkNoFalsePrecision`'s detectors. The two police different rules on purpose:
+ *
+ *   - here: `STRIDE_BURST_VIDEO_RULES`' blanket "do not state a steps-per-minute figure OR RANGE
+ *     from this burst" — one ~700ms cycle cannot count steps, so grammatical attribution is
+ *     irrelevant and "you're turning over at about 168 spm" is exactly the overclaim to surface;
+ *   - there: false precision ATTRIBUTED to the runner, across every media kind and tier, where the
+ *     certified norm ("180 SPM is not a universal target") and a prescribed delta ("raise it by
+ *     5-10 SPM") are legitimate and must not fail.
+ *
+ * Unifying them would blind one or break the other. This is a WARN in a dev harness a human reads,
+ * so it errs wide by design.
+ */
+const SPM_ANY = new RegExp(
+  String.raw`\b\d{2,3}(?:\s*(?:[-–—]|\bto\b|\band\b)\s*\d{2,3})?\s*${SPM_UNIT}`,
+  'gi'
+);
+
 function spmClaims(text: string): string[] {
-  const scrubbed = stripPrescriptiveCadence(text);
-  return [...findSpmRangeClaims(scrubbed), ...findAttributedCadencePoints(scrubbed)];
+  return text.match(SPM_ANY) ?? [];
 }
 
 interface Manifest {

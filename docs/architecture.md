@@ -483,7 +483,9 @@ pure/client split as `ai-guard.ts`. 44 Deno tests.
   burst** — 100-175ms between frames is a third to a half of a step, so a footfall interval
   resolves only to ±30-50%; Elasticity is bounded to contact quality, knee/ankle give and visible
   torso rise/fall, never a GCT or bounce figure. Five real burst calls on 2026-09-07 produced zero
-  SPM mentions (`docs/change_log.md`).
+  SPM figures or ranges in any pillar's feedback text; injury-flag `detail` text was not scanned by
+  the harness as it ran, and cannot be re-checked offline (that run's results JSON kept only each
+  flag's `pattern`). See `docs/change_log.md`.
 - **`pace_framework.md`'s two timing clauses are amended at the prompt layer, not edited** (#112,
   the same mechanism as the note-conditional clauses below). The certified file — which ships
   byte-for-byte and is not editable without Ian's certification review — says *"**Only if frame
@@ -500,8 +502,9 @@ pure/client split as `ai-guard.ts`. 44 Deno tests.
   in the shipped bundle byte-for-byte, so a future re-certification that rewords them fails the
   build instead of leaving an amendment aimed at a sentence that no longer exists.
 - **The uncertainty must reach the runner, not just the model.** Any Cadence/Elasticity judgement
-  that leans on the frame timing has to carry the hedge into the user-visible `feedback` ("roughly
-  160–170 SPM — approximate, estimated from frames whose timing is not exact"). The runner sees
+  that leans on the frame timing has to carry the hedge into the user-visible `feedback` ("the
+  torso looks to settle a little between these frames — approximate, estimated from frames whose
+  timing is not exact"; since 2026-09-07 an SPM range is no longer an available hedge). The runner sees
   only `score`, `band`, and `feedback`; a hedge the model keeps to itself is not a hedge.
 - **The note-conditional certified guidance is neutralised at the prompt layer**, not by editing
   certified text (that needs Ian's review — GitHub issues #39/#40). No note field ships (Known Issue #10), so the

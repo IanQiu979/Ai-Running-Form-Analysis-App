@@ -502,6 +502,17 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
     'An SPM range inside a flag detail was not caught.'
   );
 
+  const proseRange = honestPhotoResult();
+  proseRange.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Your cadence across those frames sits between 160 and 170 steps per minute.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(proseRange)),
+    'An SPM range written as prose ("between 160 and 170") was not caught.'
+  );
+
   // A prescribed DELTA is not a claimed RATE. The certified 5-10%-above-self-selected guidance
   // (pace_framework.md) is exactly what the model is told to give, and failing it would make the
   // grader the bug — the same trap the drill-instruction exemption exists to avoid.

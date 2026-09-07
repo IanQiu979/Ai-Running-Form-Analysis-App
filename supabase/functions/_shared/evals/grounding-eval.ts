@@ -848,10 +848,12 @@ export function meanSentences(result: PaceResult): string {
  * say so explicitly. If it really did state a ground-contact time in ms, this is a genuine prompt
  * finding and #112's rule is being violated at Pro.
  */
-/** "SPM", "steps per minute", "steps/min", "steps a minute". */
-const SPM_UNIT = String.raw`(?:spm\b|steps\s*(?:per|a|\/)\s*min(?:ute)?s?\b)`;
+/** "SPM", "steps per minute", "steps/min", "steps a minute". Exported because the stride-burst
+ * latency harness scans for the same UNITS — but deliberately not for the same CLAIM; see
+ * `findSpmRangeClaims`. */
+export const SPM_UNIT = String.raw`(?:spm\b|steps\s*(?:per|a|\/)\s*min(?:ute)?s?\b)`;
 const HEDGE = String.raw`(?:about|around|roughly|approximately|~)`;
-const SPAN = String.raw`\d{2,3}\s*(?:[-–—]|\bto\b)\s*\d{2,3}`;
+const SPAN = String.raw`\d{2,3}\s*(?:[-–—]|\bto\b|\band\b)\s*\d{2,3}`;
 
 /**
  * A DELTA is not a RATE. "Raise it by 5-10 SPM" and "about 10 to 15 steps per minute more than you
@@ -894,7 +896,14 @@ export function findAttributedCadencePoints(text: string): string[] {
 
 /**
  * A steps-per-minute RANGE offered as this runner's rate — either attributed ("your cadence looks
- * to sit around 160 to 170 steps per minute") or asserted bare and hedged ("roughly 160-170 SPM").
+ * to sit around 160 to 170 steps per minute", "your cadence sits between 160 and 170 steps per
+ * minute") or asserted bare and hedged ("roughly 160-170 SPM", "from 160 to 170 SPM").
+ *
+ * DELIBERATELY NARROWER THAN THE HARNESS. `stride-burst-latency.live.ts` flags ANY SPM number in a
+ * burst result, because `STRIDE_BURST_VIDEO_RULES` forbids the figure outright for that one media
+ * shape. This grader runs over EVERY media kind and every tier, where a certified norm and a
+ * prescribed delta are both legitimate, so it judges attribution instead. The two scopes are not
+ * a duplication to be unified — unifying them breaks one of the two.
  * This used to be exempt: TIMESTAMP_RULES once offered a hedged range as the correct way to
  * answer. The stride-burst migration removed that licence — a ~700ms burst spans a third to a half
  * of a step interval, so a footfall rate resolves only to ±30-50% and no range derived from it is
@@ -905,7 +914,10 @@ export function findSpmRangeClaims(text: string): string[] {
     String.raw`\b(?:your|their|his|her|the runner'?s)\s+(?:cadence|step\s+rate)\b[^.!?\n]{0,40}?\b${SPAN}\s*${SPM_UNIT}`,
     'gi'
   );
-  const hedgedRange = new RegExp(String.raw`\b${HEDGE}\s*${SPAN}\s*${SPM_UNIT}`, 'gi');
+  const hedgedRange = new RegExp(
+    String.raw`\b(?:${HEDGE}|between|from)\s*${SPAN}\s*${SPM_UNIT}`,
+    'gi'
+  );
   return [...(text.match(attributedRange) ?? []), ...(text.match(hedgedRange) ?? [])];
 }
 
