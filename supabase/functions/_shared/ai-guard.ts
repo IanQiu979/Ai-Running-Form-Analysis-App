@@ -21,9 +21,15 @@
 export type GateDenyReason =
   | 'killed'
   | 'breaker_open'
+  /** The caller's OWN daily allowance for their tier. Their spend, their ceiling. */
+  | 'user_daily_cap'
+  /** The platform-wide daily ceiling, across every user. Our brake. */
   | 'daily_cap'
   | 'unknown_model'
-  | 'invalid_estimate';
+  | 'invalid_estimate'
+  /** The gate was handed no user id, so its per-user cap could not be keyed to anybody. Refused
+   * rather than spent unattributably — see the per-user-cap migration's `invalid_user` branch. */
+  | 'invalid_user';
 
 export type GateResult =
   | { allowed: true; callId: string; estimatedUsd: number }
@@ -64,16 +70,30 @@ export interface GateAiCallParams {
   estimatedOutputTokens: number;
   model?: string;
   analysisId?: string | null;
+  /**
+   * The temporary `ALL_USERS_UNLIMITED_ACCESS` override (migration 20260807090000). Swaps
+   * `gate_ai_call` for `gate_ai_call_unlimited`, exactly as `currentTier`/`reserveAnalysis` in
+   * `analyze-form/flow.ts` already swap `pace_current_tier`/`reserve_analysis` for their
+   * `_unlimited` siblings. The override applies the ELITE per-user cap; it does NOT lift the cap
+   * — per that migration's own wording, "unlimited" means analysis COUNT and "the AI spend
+   * guardrails remain intact too".
+   */
+  allUsersUnlimitedAccess?: boolean;
 }
 
 /**
  * Reserves budget headroom for one Anthropic call. Denies — without ever reserving anything —
- * if the kill switch is off, the circuit breaker is open, or the daily cap would be exceeded.
+ * if the kill switch is off, the circuit breaker is open, or EITHER daily cap would be exceeded:
+ * the caller's own per-tier allowance (`user_daily_cap`) or the platform-wide ceiling
+ * (`daily_cap`). The per-user one is checked first, so a caller over their own allowance is told
+ * that rather than being handed an outage they did not cause.
+ *
  * A deny is always a normal, typed return value, never an exception, so a missed `catch` can't
  * accidentally let a call through; only a genuine transport/DB error throws.
  */
 export async function gateAiCall(client: RpcClient, params: GateAiCallParams): Promise<GateResult> {
-  const { data, error } = await client.rpc('gate_ai_call', {
+  const fn = params.allUsersUnlimitedAccess ? 'gate_ai_call_unlimited' : 'gate_ai_call';
+  const { data, error } = await client.rpc(fn, {
     p_user_id: params.userId,
     p_estimated_input_tokens: params.estimatedInputTokens,
     p_estimated_output_tokens: params.estimatedOutputTokens,
@@ -82,7 +102,7 @@ export async function gateAiCall(client: RpcClient, params: GateAiCallParams): P
   });
 
   if (error) {
-    throw new Error(`gate_ai_call failed: ${error.message}`);
+    throw new Error(`${fn} failed: ${error.message}`);
   }
 
   const result = data as {
@@ -156,12 +176,23 @@ export async function recordAiCall(client: RpcClient, params: RecordAiCallParams
 }
 
 /**
- * Deny -> HTTP mapping (design spec: "all three denials are 503, not a 4xx — it is our brake,
- * not the user's fault"). Extended here to `unknown_model`/`invalid_estimate` for the same
- * reason: both are guardrail/operator-config problems, never something the calling user did
- * wrong.
+ * Deny -> HTTP mapping. The design spec's rule was "all three denials are 503, not a 4xx — it is
+ * our brake, not the user's fault", and that still holds for every denial that is about US:
+ * `killed`, `breaker_open`, `daily_cap` (the platform-wide ceiling), and the two
+ * guardrail/operator-config problems `unknown_model`/`invalid_estimate`.
+ *
+ * `user_daily_cap` is the one denial that is genuinely ABOUT THE CALLER — they have used their
+ * own tier's allowance for the day — so it is a 429, the status that actually means that. Calling
+ * it a 503 would tell the client the service is down when it is up and serving everybody else.
+ * `invalid_user` is a 400: the request named no user, which is a malformed call, not an outage.
  */
-export function httpStatusForGateDeny(_reason: GateDenyReason): number {
+export function httpStatusForGateDeny(reason: GateDenyReason): number {
+  if (reason === 'user_daily_cap') {
+    return 429;
+  }
+  if (reason === 'invalid_user') {
+    return 400;
+  }
   return 503;
 }
 
@@ -178,7 +209,10 @@ export function gateDenyResponseBody(
   detail?: Record<string, unknown>
 ): { error: string; code: GateDenyReason; detail?: Record<string, unknown> } {
   return {
-    error: 'Analysis is temporarily unavailable. Please try again shortly.',
+    error:
+      reason === 'user_daily_cap'
+        ? "You've reached today's analysis limit for your plan. Please try again tomorrow."
+        : 'Analysis is temporarily unavailable. Please try again shortly.',
     code: reason,
     detail,
   };

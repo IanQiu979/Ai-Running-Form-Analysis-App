@@ -208,6 +208,16 @@ default — copy an existing test rather than writing one from memory:
   a fill's `width` never moves so only its transform can — never that an animation finished.
   `components/__tests__/pace-readout-reveal.test.tsx` is the pattern to copy.
 
+**Migration SQL can be tested for real, in the commit gate.** This used to be untrue, and the
+old workaround — a regex over the `.sql` file — is why CLAUDE.md warns that "a text test passes
+while the privilege is fully intact". `supabase/functions/_shared/__tests__/ai-guard-sql.deno.test.ts`
+applies committed migration files verbatim to PGlite (Postgres 17 as WASM, in-process, no Docker)
+and asserts what Postgres actually does; it runs inside `npm run test:edge` under the existing
+permission flags. Copy that file's harness for any new claim about what a function or a grant
+DOES. Text-level migration tests are still right for the complementary claim — what a diff does
+NOT do (see `supabase/migrations/__tests__/per_user_ai_daily_cap.test.ts`). Genuine concurrency
+still needs `_shared/integration/*.local.ts` and a running local stack; PGlite is single-connection.
+
 **Screens ARE unit-tested when the bug class needs it** (this line used to say they were not, which
 went stale). Two precedents, both regression locks for bugs that shipped:
 `app/capture/__tests__/extracting.test.tsx` (issue #147's render loop, and the frame-cap bug — a

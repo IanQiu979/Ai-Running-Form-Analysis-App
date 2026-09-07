@@ -5,6 +5,85 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-07 (`gate_ai_call`'s daily cap is now per user, not global)
+
+**On `fm/v2-3-gate-ai-call-daily-cap-is-global-no-c7`, not yet merged to `main`, and the
+migration is NOT yet applied to the live project.** No model calls were made — every behaviour
+below is proved offline, against a real Postgres. Found by the free-tier task's security review
+on 2026-09-06 and correctly left unfixed there as pre-existing and out of scope.
+
+- **The bug.** `gate_ai_call` had exactly ONE daily ceiling and it was global: one shared
+  `daily_usd_cap` counter for everybody. Two real consequences. (1) A single account's activity
+  exhausted the day's allowance for every other account — a self-inflicted outage, delivered to
+  innocent users as a 503. (2) A Pro/Elite account could farm zero-pillar analyses for free:
+  `flow.ts` releases a validated-but-nothing-assessed result with `'zero_pillars_assessed'`,
+  which refunds the quota slot (captain decision
+  `audit-v23-r1-decision-zero-pillar-charge-policy`), and `pace_is_farming_signal` deliberately
+  does not treat that reason as abuse — so a real, fully-billed Anthropic call cost the caller
+  neither a quota slot nor an anti-farm strike, bounded only by how much of everyone else's day
+  they were willing to burn.
+
+- **The fix** (`supabase/migrations/20260907120000_per_user_ai_daily_cap.sql`). A per-user,
+  per-tier daily USD ceiling checked by `gate_ai_call` **in addition to** the global one, and
+  checked *first* so a caller over their own allowance is told that (`user_daily_cap`, HTTP 429)
+  rather than handed an outage they did not cause (`daily_cap`, HTTP 503). The cap counts
+  **every** gated call for that user whatever its outcome — including the ones the quota and
+  anti-farm controls deliberately forgive. That is what "key the anti-farm counter consistently
+  with the cap" required: `pace_is_farming_signal` is an INTENT classifier with deliberate blind
+  spots so a legitimate user is never permanently locked out; a SPEND cap may not share them,
+  because the money left the building either way. Both controls are now keyed to the same
+  subject, and nothing walks past both at once.
+
+- **Not changed, on purpose.** `pace_is_farming_signal`, `reserve_analysis`,
+  `release_analysis`, `settle_analysis` and the `release_reason` taxonomy are untouched — the
+  zero-pillar refund decision stands. Closing a spend hole by re-labelling an honest "nothing
+  assessable in this clip" as abuse would have been the wrong fix;
+  `supabase/migrations/__tests__/per_user_ai_daily_cap.test.ts` locks that out at the diff level.
+
+- **The numbers, and total exposure.** New `ai_ops_config` dials, operator-tunable with one
+  `UPDATE`: `user_daily_usd_cap_free` $0.75, `..._pro` $2.00, `..._elite` $4.00 — roughly 2 / 5 /
+  8 worst-case analyses per day against monthly quotas of 1 (lifetime) / 10 / 30. **Total spend
+  exposure is UNCHANGED at $10/day**: the global `daily_usd_cap` is retained as the outer
+  ceiling, deliberately not replaced by a per-user number (that would have multiplied the
+  ceiling by the user count). What changed is only how much of the $10 one account can take —
+  7.5% / 20% / 40%, down from 100%. It now takes at least 3 maxed Elite accounts to exhaust the
+  day for everyone, instead of one. Residual, stated plainly: the zero-pillar path is BOUNDED,
+  not eliminated — an Elite account can still burn its own $4/day of un-quota'd, un-anti-farmed
+  calls. Farming across many accounts remains issue #48's problem, not this one's.
+
+- **The tier is derived server-side**, inside the RPC, from `public.subscriptions` via
+  `pace_current_tier` — never passed in, so no edge-function bug or compromise can claim a tier
+  the user does not have. `gate_ai_call` keeps its exact 5-argument signature and becomes a thin
+  wrapper over the new `gate_ai_call_for_tier`; `ai_user_daily_cap_usd(p_tier)` is the one place
+  the tier→$ mapping lives; `gate_ai_call_unlimited` is the `ALL_USERS_UNLIMITED_ACCESS` sibling
+  and applies the **Elite cap** rather than lifting the cap, per that override's own "the AI
+  spend guardrails remain intact too". A gate call naming no user is now refused outright
+  (`invalid_user`, HTTP 400) instead of reserving unattributable spend.
+
+- **Testing — this repo can now run migrations against a real Postgres in the commit gate.**
+  `supabase/functions/_shared/__tests__/ai-guard-sql.deno.test.ts` applies the committed
+  migration files verbatim to PGlite (Postgres 17 compiled to WASM, ~20MB, in-process, ~9s) and
+  asserts what the gate DOES: one user exhausting their allowance leaves another user allowed;
+  the zero-pillar path is stopped by the spend cap while burning no quota and taking no
+  anti-farm strike; the caps are tier-scaled and tier-derived; the global cap still fires; the
+  kill switch, breaker, unknown-model refusal and `service_role`-only grants all survive the
+  rewrite. **10 of its 15 tests fail against the pre-fix migration set** (verified by removing
+  the new migration from the load list); the other 5 are regression locks that must pass both
+  ways. It runs inside `npm run test:edge` under the existing permission flags — no Docker, no
+  new script, no widened sandbox. `_shared/integration/*.local.ts` remains the place for real
+  concurrency, which PGlite's single connection cannot exercise.
+
+- **Client.** No app change. `analyze-form` returns the new `user_daily_cap` code with its own
+  copy ("try again tomorrow", not "shortly"); `lib/analyze-form.ts` passes server codes through
+  verbatim and `app/analyzing.tsx` already degrades an unrecognised code to its generic failure
+  state. The denial's `detail` (spend, cap, tier) is logged server-side and never forwarded —
+  our per-tier dollar ceilings are a farming aid, not a user-facing fact.
+
+- **Deployment.** The migration must be applied with `supabase db push` before any of this is
+  true in production, and `lib/database.types.ts` regenerated afterwards (it is a generated file
+  and is deliberately left stale here — same known-drift convention its header already
+  documents for other unpushed migrations).
+
 ## 2026-09-06 (analysis reliability: model window, retry policy, stride-burst sampling)
 
 **On `fm/v23-reliability-timeouts`, not yet merged to `main`.** Root-caused from

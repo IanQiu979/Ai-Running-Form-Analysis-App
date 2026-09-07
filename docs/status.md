@@ -109,6 +109,18 @@ milestone "done" criteria.
   "Current — AI spend guardrails substrate" section. **Still open, and not something this work
   could do from the repo: the hard spend ceiling in the Anthropic Console** — see Known Issue
   #17.
+  **UPDATED 2026-09-07: the daily cap is now PER USER as well as global** — a MEDIUM finding
+  from the free-tier task's 2026-09-06 security review. One shared counter meant a single
+  account could exhaust the day for everybody, and a Pro/Elite account could farm zero-pillar
+  model calls that cost it neither a quota slot nor an anti-farm strike.
+  `20260907120000_per_user_ai_daily_cap.sql` adds per-tier daily $ ceilings
+  ($0.75 / $2.00 / $4.00) checked before the global one, keyed by a tier derived inside the RPC.
+  **Total exposure is unchanged at $10/day** — the global cap is retained as the outer ceiling;
+  only one account's share of it changed, from 100% to at most 40%. The migration is written and
+  behaviourally tested (`_shared/__tests__/ai-guard-sql.deno.test.ts` runs the real migrations
+  against PGlite inside `npm run test:edge`) but **is NOT yet applied to the live project** —
+  `supabase db push` plus a `lib/database.types.ts` regeneration are still outstanding. Branch:
+  `fm/v2-3-gate-ai-call-daily-cap-is-global-no-c7`.
 - **Edge-function build/test contract closed 2026-07-12 (issue #90).** Three previously-unowned
   gaps that #41/#43/#44/#49/#59 all silently assumed: (1) **a Deno runner** —
   `supabase/functions/deno.json` + `npm run typecheck:edge` (`deno check`) / `npm run test:edge`
@@ -724,7 +736,10 @@ milestone "done" criteria.
       caps `frames.length` at `PACE_FRAME_CAP.elite` (8) with `too_many_frames`/400 before the gate,
       closing a $0-real-cost DoS that could saturate the global daily $ cap with ~$9.9 `'pending'`
       holds. The broader "$10 global cap + open signup" availability exposure is a config/design
-      decision above this PR and is being raised with Ian separately.
+      decision above this PR and is being raised with Ian separately. **Narrowed 2026-09-07**:
+      the daily cap is now per-user as well as global (see the AI-spend-guardrails bullet above),
+      so one account can take at most 40% of the day rather than all of it. The open-signup half
+      of that exposure (issue #48) is untouched.
     - **Consent-withdrawal vs. idempotent replay — DECIDED: refuse.** Known Issue #14 left this
       open ("do not silently pick one"). The consent check runs before idempotency, so a replay of
       an already-settled key by a user who has since withdrawn consent is **refused (403)**, not

@@ -3,11 +3,12 @@
  * here) is required to call around every Anthropic request. These tests mock the RPC transport
  * (`RpcClient`) rather than a real Postgres connection, so they prove the CONTRACT: what
  * `gateAiCall`/`recordAiCall` send to `gate_ai_call`/`record_ai_call` and how they interpret the
- * response — specifically the three refusal cases the issue calls out (cap exceeded, kill switch
- * on, breaker open) and that settle accounting round-trips correctly. They cannot prove the SQL
- * functions themselves behave correctly under concurrency — that needs a live/local Postgres,
- * which this repo has no harness for yet (see the design spec's "Testing" section and this
- * task's summary for why live verification against the hosted project was not run here).
+ * response — specifically the refusal cases the issue calls out (either cap exceeded, kill switch
+ * on, breaker open) and that settle accounting round-trips correctly.
+ *
+ * They do NOT prove the SQL behaves correctly; `ai-guard-sql.deno.test.ts` does that, by running
+ * the committed migrations against a real (WASM) Postgres. Genuine CONCURRENCY still needs the
+ * local Docker stack — see `_shared/integration/`.
  */
 import {
   gateAiCall,
@@ -57,6 +58,77 @@ describe('gateAiCall', () => {
       p_model: 'claude-sonnet-5',
       p_analysis_id: 'a1',
     });
+  });
+
+  it('sends NO tier argument — the per-user cap derives it server-side, from subscriptions', async () => {
+    const rpc = jest.fn().mockResolvedValue({
+      data: { allowed: true, call_id: 'c', estimated_usd: 1 },
+      error: null,
+    });
+    await gateAiCall({ rpc }, { userId: 'u1', estimatedInputTokens: 1, estimatedOutputTokens: 1 });
+    const args = rpc.mock.calls[0][1] as Record<string, unknown>;
+    expect(Object.keys(args)).not.toContain('p_tier');
+  });
+
+  it('routes to gate_ai_call_unlimited under the ALL_USERS_UNLIMITED_ACCESS override', async () => {
+    const rpc = jest.fn().mockResolvedValue({
+      data: { allowed: true, call_id: 'c', estimated_usd: 1 },
+      error: null,
+    });
+    await gateAiCall(
+      { rpc },
+      {
+        userId: 'u1',
+        estimatedInputTokens: 100,
+        estimatedOutputTokens: 200,
+        allUsersUnlimitedAccess: true,
+      }
+    );
+    expect(rpc).toHaveBeenCalledWith('gate_ai_call_unlimited', {
+      p_user_id: 'u1',
+      p_estimated_input_tokens: 100,
+      p_estimated_output_tokens: 200,
+      p_model: 'claude-sonnet-5',
+      p_analysis_id: null,
+    });
+  });
+
+  it('reports a user_daily_cap denial with its detail intact for server-side logging', async () => {
+    const client = mockClient({
+      data: {
+        allowed: false,
+        reason: 'user_daily_cap',
+        spent_usd: 3.9,
+        cap_usd: 4.0,
+        estimated_usd: 0.2304,
+        tier: 'elite',
+      },
+      error: null,
+    });
+    const result = await gateAiCall(client, {
+      userId: 'u1',
+      estimatedInputTokens: 36800,
+      estimatedOutputTokens: 8000,
+    });
+    // `estimated_usd` is stripped alongside `call_id`/`allowed`/`reason` by `gateAiCall`'s own
+    // destructuring — it is part of the allow shape, not the denial's detail.
+    expect(result).toEqual({
+      allowed: false,
+      reason: 'user_daily_cap',
+      detail: { spent_usd: 3.9, cap_usd: 4.0, tier: 'elite' },
+    });
+  });
+
+  it('surfaces the override RPC name in the thrown error, not a hardcoded gate_ai_call', async () => {
+    const client = mockClient({ data: null, error: { message: 'boom' } });
+    await expect(
+      gateAiCall(client, {
+        userId: 'u1',
+        estimatedInputTokens: 1,
+        estimatedOutputTokens: 1,
+        allUsersUnlimitedAccess: true,
+      })
+    ).rejects.toThrow(/gate_ai_call_unlimited failed: boom/);
   });
 
   it('refuses the call when the kill switch is off (allowed:false, reason:"killed")', async () => {
@@ -173,10 +245,37 @@ describe('recordAiCall', () => {
 });
 
 describe('httpStatusForGateDeny / gateDenyResponseBody', () => {
-  const reasons: GateDenyReason[] = ['killed', 'breaker_open', 'daily_cap', 'unknown_model', 'invalid_estimate'];
+  const ourFaultReasons: GateDenyReason[] = [
+    'killed',
+    'breaker_open',
+    'daily_cap',
+    'unknown_model',
+    'invalid_estimate',
+  ];
 
-  it.each(reasons)('maps deny reason "%s" to 503, not a 4xx — it is the brake, not the caller\'s fault', (reason) => {
-    expect(httpStatusForGateDeny(reason)).toBe(503);
+  it.each(ourFaultReasons)(
+    'maps deny reason "%s" to 503, not a 4xx — it is the brake, not the caller\'s fault',
+    (reason) => {
+      expect(httpStatusForGateDeny(reason)).toBe(503);
+    }
+  );
+
+  it('maps user_daily_cap to 429 — the caller is over their OWN allowance, we are not down', () => {
+    expect(httpStatusForGateDeny('user_daily_cap')).toBe(429);
+  });
+
+  it('maps invalid_user to 400 — a call naming no user is malformed, not an outage', () => {
+    expect(httpStatusForGateDeny('invalid_user')).toBe(400);
+  });
+
+  it('gives user_daily_cap its own copy: "try again tomorrow", not "try again shortly"', () => {
+    const perUser = gateDenyResponseBody('user_daily_cap');
+    const global = gateDenyResponseBody('daily_cap');
+    expect(perUser.code).toBe('user_daily_cap');
+    expect(perUser.error).not.toBe(global.error);
+    expect(perUser.error).toMatch(/tomorrow/i);
+    // The dollar ceilings must never reach the caller, even in the message.
+    expect(perUser.error).not.toMatch(/\$|usd/i);
   });
 
   it('returns a structured { error, code } body matching the project error contract', () => {
