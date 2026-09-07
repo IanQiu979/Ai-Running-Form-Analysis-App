@@ -23,6 +23,7 @@ import {
   ANALYZE_FORM_MODEL,
   PACE_ANALYSIS_TOOL,
   PACE_ANALYSIS_TOOL_NAME,
+  PACE_RESULT_SCHEMA,
   SCORE_BAND_RUBRIC,
   TIER_VERBOSITY,
   buildAnalyzeFormRequest,
@@ -962,6 +963,52 @@ Deno.test('the stride-burst span boundary is exact: 900ms is a burst, 901ms is l
 // 6. THE STRUCTURED-OUTPUT CONTRACT — it IS PaceResult (#43), not a parallel shape
 // -------------------------------------------------------------------------------------------
 
+Deno.test('THE COMPILED-GRAMMAR CEILING: the pillar is ONE $defs node, never four inlined copies', () => {
+  // WHY THIS TEST EXISTS, and it is not a style preference. On 2026-09-07 the live grounding eval
+  // came back 400 on all five cases, at every tier:
+  //
+  //   invalid_request_error — "The compiled grammar is too large, which would cause performance
+  //   issues. Simplify your tool schemas or reduce the number of strict tools."
+  //
+  // Nothing was generated and nothing was billed; the request is rejected before the model runs.
+  // Since `analyze-form` sends this schema on EVERY request, that is a total outage of the one
+  // endpoint this product exists for — and no offline test can see it, because the ceiling lives in
+  // Anthropic's grammar compiler, not in the JSON.
+  //
+  // The driver is STRUCTURAL, measured against the live API rather than guessed:
+  //   - four inlined pillars WITH `safety`                          -> 400
+  //   - the same schema with every `description` stripped (4,468c)  -> 400   (so: not text size)
+  //   - only the `safety` sub-object hoisted into `$defs`           -> 400   (so: not `safety` alone)
+  //   - the whole pillar hoisted into `$defs`, referenced 4x        -> 200
+  //
+  // So: one definition, four `$ref`s. If a future change needs the pillars to differ from each
+  // other, that is a real design change — re-measure it against the live API before merging, do not
+  // simply inline them back.
+  const schema = PACE_RESULT_SCHEMA as {
+    properties: { pillars: { properties: Record<string, unknown> } };
+    $defs?: Record<string, unknown>;
+  };
+
+  assert(
+    schema.$defs !== undefined && schema.$defs.pillar !== undefined,
+    'PACE_RESULT_SCHEMA no longer carries the shared `$defs.pillar` definition.'
+  );
+
+  for (const id of PACE_PILLARS) {
+    assert(
+      JSON.stringify(schema.properties.pillars.properties[id]) === '{"$ref":"#/$defs/pillar"}',
+      `Pillar "${id}" is inlined rather than a $ref to the shared definition. Four inlined copies ` +
+        'exceed the API compiled-grammar ceiling and 400 every request, at every tier.'
+    );
+  }
+
+  // A `$defs` node nobody points at would compile fine and prove nothing, so pin the pointer too.
+  assert(
+    JSON.stringify(PACE_RESULT_SCHEMA).includes('"$ref":"#/$defs/pillar"'),
+    'The $ref pointer no longer matches the $defs key.'
+  );
+});
+
 Deno.test('the tool schema mirrors PaceResult exactly — same pillars, same fields, same bands', () => {
   const schema = PACE_ANALYSIS_TOOL.input_schema as {
     properties: {
@@ -969,6 +1016,7 @@ Deno.test('the tool schema mirrors PaceResult exactly — same pillars, same fie
       overall: { required: string[] };
     };
     required: string[];
+    $defs: Record<string, unknown>;
   };
 
   assert(PACE_ANALYSIS_TOOL.name === PACE_ANALYSIS_TOOL_NAME, 'Tool name drifted from its constant.');
@@ -990,12 +1038,23 @@ Deno.test('the tool schema mirrors PaceResult exactly — same pillars, same fie
     'The tool schema does not require all four pillars.'
   );
 
-  // PacePillarResult's required fields.
+  // Every pillar is a `$ref` to ONE shared definition — see `pillarSchema`'s doc for the live
+  // HTTP 400 ("the compiled grammar is too large") that four inlined copies produce.
   for (const pillar of PACE_PILLARS) {
-    const pillarSchema = schema.properties.pillars.properties[pillar] as {
+    assert(
+      JSON.stringify(schema.properties.pillars.properties[pillar]) === '{"$ref":"#/$defs/pillar"}',
+      `Pillar "${pillar}" is not a $ref to the shared definition. Inlining it back exceeds the API's ` +
+        'compiled-grammar ceiling and 400s every request at every tier.'
+    );
+  }
+
+  // PacePillarResult's required fields, read through that one definition.
+  {
+    const pillarSchema = schema.$defs.pillar as {
       required: string[];
       properties: { band: { anyOf: [{ enum: string[] }, unknown] } };
     };
+    const pillar = 'the shared $defs.pillar definition';
     assert(
       JSON.stringify(pillarSchema.required.slice().sort()) ===
         JSON.stringify(['band', 'drills', 'feedback', 'flags', 'safety', 'score']),

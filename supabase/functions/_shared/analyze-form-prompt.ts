@@ -263,7 +263,22 @@ const BAND_DESCRIPTION =
 /**
  * JSON Schema for one pillar. Mirrors `PacePillarResult` exactly.
  *
- * SCHEMA LIMITS THAT SHAPED THIS (Anthropic structured outputs, verified 2026-07-12):
+ * ONE DEFINITION, REFERENCED FOUR TIMES — see `PACE_RESULT_SCHEMA`'s `$defs` block below. This
+ * used to be inlined per pillar with a `The ${label} pillar.` description; that description is
+ * gone because there is now a single shared node, and it was carrying nothing the property KEY
+ * (`posture`/`armSwing`/`cadence`/`elasticity`) and the prompt's own pillar rules do not already
+ * say far more clearly.
+ *
+ * SCHEMA LIMITS THAT SHAPED THIS (Anthropic structured outputs):
+ *   - THE COMPILED GRAMMAR HAS A SIZE CEILING, and four inlined copies of this object exceeded it
+ *     the moment `safety` was added. Verified live 2026-09-07, not reasoned about: the schema with
+ *     four inlined pillars is rejected before generation with HTTP 400 `invalid_request_error`,
+ *     "The compiled grammar is too large" — every request, every tier, so the whole endpoint is
+ *     down. The same schema with this one node in `$defs` and four `$ref`s to it is accepted.
+ *     The driver is STRUCTURAL, not textual: stripping every `description` in the schema (16,710
+ *     chars down to 4,468) still 400s, and hoisting only the `safety` sub-object is not enough
+ *     either. Do NOT inline this back per pillar, and treat any future per-pillar divergence as a
+ *     reason to re-measure against the live API before merging it.
  *   - Numerical constraints (`minimum`/`maximum`) are NOT supported, so 0-100 cannot be enforced
  *     here. It lives in the description, and `isPaceResult`'s `isScoreInRange` enforces it at
  *     runtime. Shape is guaranteed by the schema; range is guaranteed by code.
@@ -274,10 +289,9 @@ const BAND_DESCRIPTION =
  *     (`string` satisfies `string | null`) and better product behaviour: a not-assessed pillar
  *     should still say WHY, and what shot would fix it.
  */
-function pillarSchema(pillarLabel: string): Record<string, unknown> {
+function pillarSchema(): Record<string, unknown> {
   return {
     type: 'object',
-    description: `The ${pillarLabel} pillar.`,
     properties: {
       score: {
         anyOf: [{ type: 'integer' }, { type: 'null' }],
@@ -390,6 +404,11 @@ const PILLAR_LABELS: Record<string, string> = {
   elasticity: 'Elasticity (E)',
 };
 
+/** The single pillar definition's name and JSON-Pointer, kept together so the `$defs` key and the
+ *  four `$ref`s can never drift apart. */
+const PILLAR_SCHEMA_DEF_NAME = 'pillar';
+const PILLAR_SCHEMA_REF = `#/$defs/${PILLAR_SCHEMA_DEF_NAME}`;
+
 /**
  * THE OUTPUT CONTRACT, as one JSON Schema: exactly `PaceResult` from `./pace.ts` (#43) — the
  * identical shape the app renders and `analyses.result` stores. There is no parallel definition
@@ -412,9 +431,16 @@ export const PACE_RESULT_SCHEMA: Record<string, unknown> = {
   properties: {
     pillars: {
       type: 'object',
-      description: 'All four PACE pillars. Every pillar is always present, even when not assessed.',
+      // Names the four pillars HERE, on the one container node, because the per-pillar
+      // descriptions are gone: `$defs` gives all four the same shared definition (see
+      // `pillarSchema`'s doc for the live 400 that forced it), so there is no longer a per-pillar
+      // node to hang a label on.
+      description:
+        'All four PACE pillars — ' +
+        PACE_PILLARS.map((id) => `${id}: ${PILLAR_LABELS[id]}`).join(', ') +
+        '. Every pillar is always present, even when not assessed, and every one takes the same shape.',
       properties: Object.fromEntries(
-        PACE_PILLARS.map((id) => [id, pillarSchema(PILLAR_LABELS[id])])
+        PACE_PILLARS.map((id) => [id, { $ref: PILLAR_SCHEMA_REF }])
       ),
       required: [...PACE_PILLARS],
       additionalProperties: false,
@@ -445,6 +471,8 @@ export const PACE_RESULT_SCHEMA: Record<string, unknown> = {
   },
   required: ['pillars', 'overall'],
   additionalProperties: false,
+  // The shared pillar node. See `pillarSchema`'s doc for the live 400 that made this mandatory.
+  $defs: { [PILLAR_SCHEMA_DEF_NAME]: pillarSchema() },
 };
 
 /** The `output_config.format` payload — the default carrier for the schema above. */

@@ -5,6 +5,55 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-07 (the analysis-limit path: pre-flight the refusal, tell the truth, drop the dead Retry)
+
+**On `fm/v23-free-tier-real-analysis`, not yet merged to `main`.** The last slice of the
+free-tier lane: the branch made Free's analysis real, and this makes its REFUSALS honest. Rebased
+onto `main` after #206 first — see the rebase-integration entry below. `1` real Anthropic call
+budget was spent on the live safety check (exact count and result in `docs/status.md` Known Issue
+#43); everything else here is offline.
+
+- **The refusal now happens BEFORE the work, not after it.** Both checks that can end an analysis
+  — the allowance cap and issue #6's anti-farm cooldown — live in `reserve_analysis`, which the
+  server does not reach until the client has extracted frames AND submitted them. So a capped or
+  cooling-down runner filmed, waited through extraction, waited again on the Analyzing screen for
+  20-60s, and only then learned they were never eligible. `app/capture/extracting.tsx` already made
+  one bounded `quota-status` round trip for the frame cap; new `lib/analysis-preflight.ts` widens
+  that SAME read to answer both questions, so the gate costs nothing extra on the video path and
+  one bounded call on the photo path (which used to skip quota entirely — its frame count still
+  does not depend on the answer, but its eligibility does).
+- **It fails OPEN, always.** Only a structurally-valid `{ ok: true }` reading can refuse. Every
+  failure — unauthorized, unavailable, unknown, timed out, a client that broke its contract —
+  proceeds to `reserve_analysis`, which remains the only authority. Telling someone they are in a
+  cooldown is a claim about their account; a network blip must never be allowed to make it.
+- **The order matches the server.** `reserve_analysis` tests the anti-farm counter before the quota
+  cap, so the pre-flight reports `cooldown` ahead of `exhausted` for a caller who is both.
+  Otherwise the pre-flight would name a different reason than the server would give.
+- **"Your analysis failed" is gone from the cooldown path**, on both surfaces. A 429
+  `too_many_failed_attempts` used to render `analyzing.error.failed` — "The analysis service didn't
+  return a usable result" — which was untrue twice over: the reserve was refused, so no model call
+  was ever made and no row exists. New cross-cutting `Copy.analysisPause` names a pause rather than
+  a failure, says what actually happened, and states the time remaining when the server gave us one
+  (`blocked_until`, via `describeCooldownRemaining`). A missing, unparsable, or already-past expiry
+  degrades to wording without a time — never a guessed or zeroed countdown.
+- **The Retry that could not succeed is removed.** It is gone from the cooldown path on both the
+  extraction screen and the Analyzing screen; a genuine transient failure keeps it, which is the
+  whole distinction. `ErrorPanel`'s ghost exit became optional so the cooldown's single honest
+  action ("Back to home") renders once, at full emphasis, rather than twice.
+- **An exhausted allowance routes to `/paywall`** from the pre-flight — the same destination a
+  server 402 already reaches from `app/analyzing.tsx`, which re-reads live quota and states the
+  real allowance, so this screen never restates an allowance it is not the authority for.
+- **Home says how long is left too.** `describeQuota`'s blocked caption reads the same
+  `blocked_until`, so the earliest surface a user sees is also the first that stops saying "later".
+  Its `accessibilityHint` reuses the visible caption verbatim, countdown included.
+- **The live safety grader.** `checkPillarSafety` was added to the grounding eval, plus a third
+  (Elite) case, so the branch's merge condition — the deployed model populates `safety` on every
+  pillar at every tier — is answered by a real run rather than asserted. `analyze-form-validation.ts`
+  refuses to deliver ANY response whose pillar safety is unusable, so this is an outage question,
+  and the tier dial changes the prompt the model is complying with.
+
+See `docs/status.md` Known Issue #43 for the live-run evidence and the exact call count.
+
 ## 2026-09-07 (`gate_ai_call`'s daily cap is now per user, not global)
 
 **On `fm/v2-3-gate-ai-call-daily-cap-is-global-no-c7`, not yet merged to `main`, and the

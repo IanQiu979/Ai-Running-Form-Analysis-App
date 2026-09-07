@@ -400,11 +400,17 @@ Deno.test('the schema and the TypeScript type cannot drift: one shape, two carri
   const schema = PACE_RESULT_SCHEMA as {
     required: string[];
     properties: {
-      pillars: { required: string[]; properties: Record<string, {
+      pillars: { required: string[]; properties: Record<string, { $ref?: string }> };
+      overall: { required: string[] };
+    };
+    // ONE shared pillar definition, four `$ref`s to it. Four inlined copies exceed the API's
+    // compiled-grammar ceiling and are rejected with HTTP 400 before generation — every request,
+    // every tier. Verified live 2026-09-07; see `analyze-form-prompt.ts`'s `pillarSchema` doc.
+    $defs: {
+      pillar: {
         required: string[];
         properties: { band: { anyOf: [{ enum: string[] }, unknown] } };
-      }> };
-      overall: { required: string[] };
+      };
     };
   };
 
@@ -422,16 +428,24 @@ Deno.test('the schema and the TypeScript type cannot drift: one shape, two carri
   assertEquals(schema.properties.overall.required.sort(), ['band', 'score']);
 
   for (const id of ['armSwing', 'cadence', 'elasticity', 'posture'] as const) {
-    const pillar = schema.properties.pillars.properties[id];
+    assertEquals(
+      schema.properties.pillars.properties[id].$ref,
+      '#/$defs/pillar',
+      `pillar ${id} must be a $ref to the one shared definition — inlining it back 400s every request`
+    );
+  }
+
+  {
+    const pillar = schema.$defs.pillar;
     assertEquals(
       pillar.required.sort(),
       ['band', 'drills', 'feedback', 'flags', 'safety', 'score'],
-      `pillar ${id}'s required keys drifted from PacePillarResult`
+      "the shared pillar definition's required keys drifted from PacePillarResult"
     );
     assertEquals(
       pillar.properties.band.anyOf[0].enum.sort(),
       ['good', 'low', 'mid', 'strong'],
-      `pillar ${id}'s band enum drifted from ScoreBand`
+      "the shared pillar definition's band enum drifted from ScoreBand"
     );
   }
 

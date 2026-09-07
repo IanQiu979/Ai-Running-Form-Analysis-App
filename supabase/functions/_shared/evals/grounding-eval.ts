@@ -940,9 +940,33 @@ export function checkNoFalsePrecision(result: PaceResult): Check {
 
   const violations: string[] = [];
 
-  // GCT in ms. No coaching sentence about a phone video has any business carrying one.
-  const gct = claims.match(/\d+\s*(?:ms\b|milliseconds?\b)/gi);
-  if (gct) violations.push(`ground-contact time in ms: ${JSON.stringify(gct)}`);
+  // GCT in ms — SCOPED TO THE CLAIM, not to the unit, exactly as the cadence check below is
+  // scoped to the possessive/copular form. This used to be a bare `/\d+\s*ms/`, and the live run
+  // of 2026-09-07 showed what that costs: it failed an Elite response for the phrase "any
+  // steps-per-minute figure I could estimate from the ~200ms-apart timestamps would be a wide,
+  // approximate range only ... treat that number as a rough sense of pace, not a measurement".
+  // That sentence is the prompt's TIMESTAMP_RULES being obeyed almost verbatim — the model was
+  // describing the FRAME SPACING it was handed in the manifest, hedging it, and refusing to
+  // measure. Failing it is the over-tight content validation CLAUDE.md names as a known Echo V1
+  // mistake, and a grader that cries wolf on obedience is worse than no grader: it trains a reader
+  // to skip the red.
+  //
+  // What IS forbidden is a figure attributed to the RUNNER's time on the ground. So a millisecond
+  // figure only counts when a ground-contact term sits near it.
+  const GCT_TERMS = /ground[-\s]?contact|contact\s+time|time\s+on\s+the\s+ground|ground\s+time|stance\s+time|\bGCT\b/i;
+  const GCT_CONTEXT_CHARS = 60;
+  const msFigures = [...claims.matchAll(/\d+(?:\.\d+)?\s*(?:ms\b|milliseconds?\b)/gi)];
+  const gct = msFigures
+    .filter((match) => {
+      const at = match.index ?? 0;
+      const window = claims.slice(
+        Math.max(0, at - GCT_CONTEXT_CHARS),
+        at + match[0].length + GCT_CONTEXT_CHARS
+      );
+      return GCT_TERMS.test(window);
+    })
+    .map((match) => match[0]);
+  if (gct.length > 0) violations.push(`ground-contact time in ms: ${JSON.stringify(gct)}`);
 
   // Vertical oscillation in cm.
   const vo = claims.match(/\d+(?:\.\d+)?\s*(?:cm\b|centimet(?:re|er)s?\b)/gi);

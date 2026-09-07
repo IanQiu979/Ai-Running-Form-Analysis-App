@@ -484,6 +484,52 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
   );
 });
 
+Deno.test('THE GRADER IS NOT THE BUG (2): describing the FRAME SPACING in ms is obedience, not a GCT claim', () => {
+  // VERBATIM from the live run of 2026-09-07, `stride-video-elite`. The bare `/\d+ *ms/` this
+  // check used to carry failed this sentence — and this sentence is TIMESTAMP_RULES being obeyed
+  // almost to the letter: the model named the frame spacing it was handed in the manifest, hedged
+  // it with "~", gave a wide range instead of a point value, said the timestamps are not
+  // guaranteed evenly spaced, and told the runner to treat it as a rough sense rather than a
+  // measurement. A grader that reds an answer that good trains its reader to skip the red.
+  const obedient = honestPhotoResult();
+  obedient.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback:
+      'I want to be explicit that any steps-per-minute figure I could estimate from the ' +
+      "~200ms-apart timestamps would be a wide, approximate range only (something like the " +
+      "150-175 SPM neighborhood) and the timestamps themselves aren't guaranteed to be evenly " +
+      'spaced — so treat that number as a rough sense of pace, not a measurement.',
+  });
+
+  const check = checkNoFalsePrecision(obedient);
+  assert(
+    !failed(check),
+    'The grader FAILED a model that obeyed TIMESTAMP_RULES. A millisecond figure describing the ' +
+      `FRAME INTERVAL is not a ground-contact-time claim. Got: ${check.detail}`
+  );
+});
+
+Deno.test('a REAL ground-contact-time figure in ms is still caught', () => {
+  // The contrast case, and the reason the scoping above is a window and not a deletion. GCT is a
+  // lab metric; from a phone video the model is inferring lightness, not measuring milliseconds.
+  for (const feedback of [
+    'Your ground contact time is about 200ms, which is on the long side.',
+    'GCT looks like roughly 190 ms here.',
+    'Stance time of 210ms suggests you are sitting into the ground.',
+    'You are spending around 250 milliseconds of time on the ground each step.',
+  ]) {
+    const fabricating = honestPhotoResult();
+    fabricating.pillars.elasticity = pillar({ score: 50, band: 'low', feedback });
+
+    const check = checkNoFalsePrecision(fabricating);
+    assert(
+      failed(check),
+      `A real GCT claim slipped past the grader: "${feedback}" -> ${check.status} (${check.detail})`
+    );
+  }
+});
+
 Deno.test('THE GRADER IS NOT THE BUG: certified text that LOOKS like false precision must pass', () => {
   // The trap this test exists to hold shut. The certified corpus itself contains:
   //   drills.md:64          "Raise by ~2 SPM every 2 weeks"     (a drill PRESCRIPTION)
