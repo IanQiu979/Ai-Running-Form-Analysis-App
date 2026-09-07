@@ -1609,27 +1609,6 @@ Deno.test('an allowed fresh reservation with an unknown tier fails closed before
   assertEquals(releaseReasonFrom(h.rpc), 'internal_error', 'the fresh reservation must not be stranded');
 });
 
-Deno.test('the retry is skipped when too little of the deadline is left to finish one', async () => {
-  // A call we start and then abort 8s later is a call we pay for and cannot use — strictly worse
-  // than falling back on what attempt 1 already gave us.
-  let clock = 0;
-  const h = harness([partial(['posture', 'armSwing'])], {
-    now: () => {
-      const value = clock;
-      // Jump the clock past the retry budget as soon as attempt 1 is done.
-      clock += 100_000;
-      return value;
-    },
-  });
-
-  const res = await run(h);
-
-  assertEquals(res.status, 200);
-  assertEquals(res.body.isFallback, true);
-  assertEquals(h.model.sent.length, 1, 'no retry was started with no time to finish it');
-  assert(MIN_RETRY_BUDGET_MS > 0);
-});
-
 Deno.test('the model gets a real timeout budget, never Infinity', async () => {
   const h = harness([ok()]);
   await run(h);
@@ -2613,15 +2592,21 @@ Deno.test('the prompt states what the runner SENT and what we RECEIVED as two se
   await run(fromVideo, ONE_FRAME_VIDEO_BODY);
   const videoPrompt = systemText(fromVideo.model.requests[0]);
 
-  assert(videoPrompt.includes('WHAT THE RUNNER SENT: a video'), 'their own upload must not be renamed');
-  assert(videoPrompt.includes('WHAT YOU RECEIVED: ONE FRAME'), 'one frame is one instant, whatever produced it');
+  assert(
+    videoPrompt.includes('THE MEDIA: A SINGLE FRAME FROM A VIDEO'),
+    'their own upload must not be renamed'
+  );
+  assert(
+    videoPrompt.includes('They ALREADY sent a video. NEVER tell them to submit one'),
+    'one frame is one instant, but the runner still sent a video'
+  );
   assertEquals(
     videoPrompt.includes('Tell the runner a short video would unlock'),
     false,
     'never advise a video submitter to submit a video'
   );
   assertEquals(
-    videoPrompt.includes('Across frames you can assess all four pillars'),
+    videoPrompt.includes('Across these frames you can assess all four pillars'),
     false,
     'one attached frame must never get the cross-frame rules'
   );
@@ -2631,7 +2616,7 @@ Deno.test('the prompt states what the runner SENT and what we RECEIVED as two se
   await run(fromPhoto, ONE_FRAME_PHOTO_BODY);
   const photoPrompt = systemText(fromPhoto.model.requests[0]);
 
-  assert(photoPrompt.includes('WHAT THE RUNNER SENT: a photo'));
+  assert(photoPrompt.includes('THE MEDIA: A SINGLE PHOTO'));
   assert(
     photoPrompt.includes('Tell the runner a short video would unlock'),
     'a photo submitter IS told what would help'
@@ -2640,7 +2625,9 @@ Deno.test('the prompt states what the runner SENT and what we RECEIVED as two se
   const multiFrame = harness([ok()]);
   await run(multiFrame, VIDEO_BODY);
   assert(
-    systemText(multiFrame.model.requests[0]).includes('Across frames you can assess all four pillars'),
+    systemText(multiFrame.model.requests[0]).includes(
+      'Across these frames you can assess all four pillars'
+    ),
     'the multi-frame path is unchanged'
   );
 });

@@ -877,12 +877,22 @@ export async function runAnalyzeForm(
       //     (`classifyReleaseReason` only recognizes `no_tool_use`/`invalid_shape`) and a policy
       //     refusal on the exact same frames is unlikely to change on a second ask, so retrying it
       //     buys nothing.
+      //   - `invalid_safety` IS eligible, on the same content floor as the two shape failures: it
+      //     is a completed round trip whose CONTENT violated our own safety contract (a missing,
+      //     malformed, or ungrounded `safety` declaration), so a second ask can plausibly produce
+      //     a conforming one. Unlike the other two it can never become a farming strike —
+      //     `classifyReleaseReason` short-circuits any attempt carrying it to `'invalid_safety'`
+      //     — so the retry exists purely to give the model its second chance before we refuse to
+      //     deliver anything at all.
       const isRetryEligibleFailure =
         lastFailureReason === 'model_error' ||
         lastFailureReason === 'no_tool_use' ||
-        lastFailureReason === 'invalid_shape';
+        lastFailureReason === 'invalid_shape' ||
+        lastFailureReason === 'invalid_safety';
       const minRetryBudgetMs =
-        lastFailureReason === 'no_tool_use' || lastFailureReason === 'invalid_shape'
+        lastFailureReason === 'no_tool_use' ||
+        lastFailureReason === 'invalid_shape' ||
+        lastFailureReason === 'invalid_safety'
           ? MIN_CONTENT_RETRY_BUDGET_MS
           : MIN_RETRY_BUDGET_MS;
       const mayRetry = isRetryEligibleFailure && remainingBeforeGate >= minRetryBudgetMs;
