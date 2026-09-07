@@ -1307,9 +1307,11 @@ the original video (see "Media pipeline" below).
 3. **AI spend gate** (substrate added 2026-07-12, issue #91 — see "Current — AI spend
    guardrails substrate" above) — call `gateAiCall()` from
    `supabase/functions/_shared/ai-guard.ts` **before** idempotency/reserve, not after. On
-   `allowed: false` (kill switch off, circuit breaker open, or the global daily $ cap would be
-   exceeded), return `503` with `gateDenyResponseBody()`'s structured `{ error, code }` body —
-   this is the brake, not the caller's fault, so it is never a `4xx`. On allow, hold the returned
+   `allowed: false`, return `httpStatusForGateDeny(reason)` with `gateDenyResponseBody()`'s
+   structured `{ error, code }` body. Most denials are our brake, not the caller's fault, and stay
+   `503` (kill switch off, breaker open, unpriced model, global daily $ cap exceeded); the two
+   that really are about the caller do not — `user_daily_cap` (their own tier's daily allowance,
+   `429`) and `invalid_user` (the call named no user, `400`). On allow, hold the returned
    `call_id` for step 9. This runs before idempotency deliberately — see the "call ordering"
    note in that section for why the alternative (gate after reserve) would eventually lock out
    legitimate users.
@@ -2128,7 +2130,9 @@ only a future edge function calling with the service-role key can invoke these, 
     claiming a tier the user does not have. `gate_ai_call` is now a thin wrapper over
     `gate_ai_call_for_tier(p_user_id, p_tier, …)`; `ai_user_daily_cap_usd(p_tier)` is the single
     place the tier→$ mapping lives; `gate_ai_call_unlimited` is the `ALL_USERS_UNLIMITED_ACCESS`
-    sibling (Elite cap — it does **not** lift the cap).
+    sibling (Elite cap — it does **not** lift the cap). All three are `SECURITY DEFINER` with
+    EXECUTE revoked from `public`/`anon`/`authenticated` and granted only to `service_role`,
+    same as the rest of the gate.
   - **Total exposure is unchanged at $10/day.** The global `daily_usd_cap` is retained as the
     outer ceiling; what changed is only how much of it one account can take — 7.5% / 20% / 40%
     for Free / Pro / Elite, down from 100%.
@@ -2992,20 +2996,22 @@ This fix round did not deploy or invoke the live function.
 | Status | Code | When |
 |---|---|---|
 | 200 | — | `{ result, analysisId, isFallback }`. A full success and an honest partial share this shape. |
-| 400 | `invalid_request` / `frame_cap_exceeded` / `invalid_*` | Bad body, or a reserve-side input refusal. |
+| 400 | `invalid_request` / `frame_cap_exceeded` / `invalid_*` / `invalid_user` | Bad body, or a reserve-side input refusal. `invalid_user` is the gate refusing a call that named no user. |
 | 401 | `unauthorized` | No/!valid JWT. |
 | 402 | `quota_exceeded` | Over quota — the one code the paywall (#52) routes on. |
 | 403 | `consent_required` | No recorded `upload.health.v1` grant. |
 | 409 | `analysis_in_progress` / `previous_attempt_failed` | The idempotency key names a live or released reservation. |
 | 410 | `analysis_deleted` | Replay of a key whose analysis was soft-deleted (its `result` is redacted). |
 | 422 | `validation_failed` | Clean failure after the retry. Quota refunded. |
-| 429 | `too_many_failed_attempts` | Anti-farming throttle. Deliberately not a 402 — it clears on its own. |
+| 429 | `too_many_failed_attempts` / `user_daily_cap` | Anti-farming throttle, or the caller's own per-tier daily $ allowance. Deliberately not a 402 (clears on its own) and deliberately not a 503 (the service is up for everyone else). |
 | 503 | `killed`/`breaker_open`/`daily_cap` · `model_error`/`provider_timeout` | Our brake, or the provider. Never the caller's fault. |
 | 500 | `internal_error` / `misconfigured` | Our bug, or a missing secret. |
 
 The gate's `detail` payload is **never** forwarded to the client: on a `daily_cap` denial it carries
 `spent_usd`/`cap_usd`, so returning it would let any authenticated user read our AI spend and our
-ceiling by tripping the cap. It is logged server-side instead.
+ceiling by tripping the cap — and on a `user_daily_cap` denial it carries that caller's own spend,
+cap and tier, which is a farming aid rather than a user-facing fact. It is logged server-side
+instead.
 
 **Observability.** One structured JSON line per request: model outcome, tier, media type, frame
 count, attempt count, whether it retried, whether it fell back, the release reason if any, every
