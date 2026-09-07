@@ -538,6 +538,54 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
     'A general norm about runners at large is not a claim about this runner and must pass.'
   );
 
+  // The exemption belongs to the NORM'S CLAUSE, not to the whole sentence — a claim about this
+  // runner may not shelter behind a norm it shares a sentence with.
+  const normThenClaim = honestPhotoResult();
+  normThenClaim.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Most runners sit near 170-180 spm; you look closer to roughly 160 spm.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(normThenClaim)),
+    'A claim about this runner in the clause after a norm must still fail.'
+  );
+
+  const comparedWithNorm = honestPhotoResult();
+  comparedWithNorm.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Compared with most recreational runners, you are turning over at roughly 165 spm.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(comparedWithNorm)),
+    'A claim about this runner after a leading norm clause must still fail.'
+  );
+
+  // …while the norm's subject legitimately carries across a clause boundary of its own.
+  const carriedNorm = honestPhotoResult();
+  carriedNorm.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'For most recreational runners, cadence sits around 165 to 180 steps per minute.',
+  });
+  assert(
+    !failed(checkNoFalsePrecision(carriedNorm)),
+    'A norm whose figure sits in the clause after its subject must pass.'
+  );
+
+  // `~` is this repo's own notation for an approximate figure; it must not be a way out.
+  const tilde = honestPhotoResult();
+  tilde.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'You look like you run at ~165 spm.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(tilde)),
+    'A tilde-hedged SPM figure must fail exactly as "roughly 165 spm" does.'
+  );
+
   // …but the same sentence may not smuggle an attributed figure past that exemption.
   const normPlusClaim = honestPhotoResult();
   normPlusClaim.pillars.cadence = pillar({

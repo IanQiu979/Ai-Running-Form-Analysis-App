@@ -853,6 +853,10 @@ export function meanSentences(result: PaceResult): string {
  * `findSpmRangeClaims`. */
 export const SPM_UNIT = String.raw`(?:spm\b|steps\s*(?:per|a|\/)\s*min(?:ute)?s?\b)`;
 const HEDGE = String.raw`(?:about|around|roughly|approximately|~)`;
+/** `\b` before `~` never matches after a space, so the tilde needs its own alternative — and `~`
+ * is this repo's house notation for an approximate figure, the form a model is most likely to
+ * echo. */
+const HEDGE_PREFIX = String.raw`(?:\b(?:about|around|roughly|approximately)\s*|~\s*)`;
 const SPAN = String.raw`\d{2,3}\s*(?:[-–—]|\bto\b|\band\b)\s*\d{2,3}`;
 
 /**
@@ -891,12 +895,28 @@ export function stripPrescriptiveCadence(text: string): string {
 const GENERAL_SUBJECT =
   /\b(?:most|many|some|other|average|typical|recreational|competitive|elite|beginner|experienced|all)\s+(?:\w+\s+){0,2}?(?:runners?|athletes?|people)\b/i;
 
-/** A bare figure only counts when its clause has no subject other than the runner. */
+/** Second-person address is how every pillar's feedback speaks to the runner. */
+const RUNNER_REFERENCE = /\b(?:you|your|you're|yours|yourself|the runner|this runner)\b/i;
+
+/**
+ * A bare figure only counts when the CLAUSE it sits in has no subject other than the runner.
+ * Exempting the whole sentence let "Most runners sit near 170-180 spm; you look closer to roughly
+ * 160 spm" hide a real claim behind a norm it happens to share a sentence with. The norm's subject
+ * carries forward across clauses ("For most recreational runners, cadence sits around 165 to 180
+ * steps per minute") until a clause addresses the runner, which takes the subject back.
+ */
 function bareClaimsOutsideNorms(text: string, pattern: RegExp): string[] {
-  return text
-    .split(/[.!?\n]+/)
-    .filter((sentence) => !GENERAL_SUBJECT.test(sentence))
-    .flatMap((sentence) => sentence.match(pattern) ?? []);
+  const claims: string[] = [];
+  for (const sentence of text.split(/[.!?\n]+/)) {
+    let normSubjectCarries = false;
+    for (const clause of sentence.split(/[;,—–]+/)) {
+      const exempt: boolean =
+        !RUNNER_REFERENCE.test(clause) && (GENERAL_SUBJECT.test(clause) || normSubjectCarries);
+      normSubjectCarries = exempt;
+      if (!exempt) claims.push(...(clause.match(pattern) ?? []));
+    }
+  }
+  return claims;
 }
 
 /**
@@ -911,7 +931,7 @@ export function findAttributedCadencePoints(text: string): string[] {
     String.raw`\b(?:your|their|his|her|the runner'?s)\s+cadence\s+(?:is|was|of|sits at|comes out at|measures|appears to be|looks like)\s*(?:${HEDGE})?\s*(\d{2,3})`,
     'gi'
   );
-  const hedgedPoint = new RegExp(String.raw`\b${HEDGE}\s*\d{2,3}\s*${SPM_UNIT}`, 'gi');
+  const hedgedPoint = new RegExp(String.raw`${HEDGE_PREFIX}\d{2,3}\s*${SPM_UNIT}`, 'gi');
   return [...(text.match(point) ?? []), ...bareClaimsOutsideNorms(text, hedgedPoint)];
 }
 
@@ -937,7 +957,7 @@ export function findSpmRangeClaims(text: string): string[] {
     'gi'
   );
   const hedgedRange = new RegExp(
-    String.raw`\b(?:${HEDGE}|between|from)\s*${SPAN}\s*${SPM_UNIT}`,
+    String.raw`(?:${HEDGE_PREFIX}|\b(?:between|from)\s*)${SPAN}\s*${SPM_UNIT}`,
     'gi'
   );
   return [...(text.match(attributedRange) ?? []), ...bareClaimsOutsideNorms(text, hedgedRange)];
