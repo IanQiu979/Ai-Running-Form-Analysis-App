@@ -1451,10 +1451,92 @@ milestone "done" criteria.
     run this session because Docker Desktop was stopped and starting it / taking machine focus is
     off-limits for this agent. State this plainly rather than implying it passed.
 
-    **Depends on `fm/v23-reliability-timeouts`** (a parallel, unmerged branch owning timeout/
-    retry/frame-sampling/prompt semantics) for the eventual final frame-sampling and prompt
-    behavior — this work does not duplicate or wait on that branch, and frame sampling may
-    further limit what a real analysis can honestly claim once it lands.
+    **~~Depends on `fm/v23-reliability-timeouts`~~ — RESOLVED 2026-09-07.** That branch landed on
+    `main` as #206 (analysis deadline restructure + centered stride-burst sampling + the server-side
+    burst/legacy-sparse classifier), and this branch is now rebased onto it. Where the two overlapped
+    in `analyze-form-prompt.ts`, #206's four-way media classification is what survived; this branch's
+    single-frame honesty rule was folded into it rather than dropped. See `docs/change_log.md`'s
+    2026-09-07 rebase-integration entry.
+44. **NEW — the analysis-limit path is now pre-flighted and honest, and the live check that
+    gated it uncovered (and fixed) a total outage. 2026-09-07, `fm/v23-free-tier-real-analysis`,
+    NOT YET DEPLOYED.**
+
+    **The three defects, all on the path a user hits when they are NOT allowed to run an
+    analysis.** Both checks that can end an analysis — the allowance cap and issue #6's anti-farm
+    cooldown — are enforced inside `reserve_analysis`, which the server does not reach until the
+    client has extracted frames AND submitted them. So a capped or cooling-down runner filmed,
+    waited through extraction, waited another 20-60s on the Analyzing screen, and only then learned
+    they were never eligible — the cooldown arriving under `analyzing.error.failed` ("Your analysis
+    failed / The analysis service didn't return a usable result"), beside a Retry that resubmitted
+    into the identical refusal. Nothing had failed: the reserve was refused, so no model call was
+    made and no row existed.
+
+    Fixed in three parts. `lib/analysis-preflight.ts` widens the ONE bounded `quota-status` read
+    `app/capture/extracting.tsx` already made for the frame cap so it also answers "may this runner
+    start", before any thumbnail work (the photo path, which skipped quota entirely, now takes that
+    read too — its frame count still does not depend on the answer, its eligibility does). It fails
+    OPEN on every lookup failure, because "you are in a cooldown" is a claim about someone's account
+    and only the server may make it, and it reports `cooldown` ahead of `exhausted` because
+    `reserve_analysis` tests them in that order. New cross-cutting `Copy.analysisPause` names a
+    pause rather than a failure and states the time left from `blocked_until` (no expiry, an
+    unparsable one, or one already past degrades to wording with no time in it — never a guessed or
+    zeroed countdown). Retry is gone from that path on both screens; a genuine transient failure
+    keeps it. An exhausted allowance routes to `/paywall`, which states the real allowance. Home's
+    blocked caption reads the same `blocked_until`, so the earliest surface a user sees is the first
+    that stops saying "later".
+
+    **THE LIVE CHECK — 17 real Anthropic calls, and what each was for.** This branch's standing
+    merge condition was that the deployed model must be proven to populate the new per-pillar
+    `safety` field at every tier. It does — but the first run never got that far:
+
+    - **5 calls, all HTTP 400, unbilled.** The grounding eval (`--effort low`, matching the shipped
+      `ANALYZE_FORM_EFFORT`) came back `invalid_request_error` on every case, at every tier: *"The
+      compiled grammar is too large, which would cause performance issues."* `analyze-form` sends
+      `PACE_RESULT_SCHEMA` on EVERY request, so this was not a degraded result — it was every
+      analysis for every user rejected before the model ran, and the flow would have classified it
+      as a transport failure, released the reservation, and delivered nothing. **This branch's own
+      regression, and no offline test could see it**: the ceiling lives in Anthropic's grammar
+      compiler, not in the JSON.
+    - **5 probe calls, one variable each** (3 x 400 unbilled, 2 x 200 at `max_tokens: 16`), to find
+      the driver rather than guess it:
+
+      | schema under test | JSON size | result |
+      |---|---|---|
+      | four inlined pillars, WITH `safety` (the branch) | 16,710 chars | **400** |
+      | the same with `safety` removed (i.e. `main`'s) | 12,578 chars | 200 |
+      | the branch's, every `description` stripped | 4,468 chars | **400** |
+      | the branch's, only `safety` hoisted into `$defs` | 13,788 chars | **400** |
+      | the branch's, whole pillar in `$defs`, `$ref`d 4x | 5,421 chars | 200 |
+
+      So the driver is STRUCTURAL, not textual, and `main` is unaffected. The fix is one shared
+      `$defs.pillar` node and four `$ref`s — all four pillars were already byte-identical apart from
+      a `The ${label} pillar.` description, and those labels moved to the `pillars` container node.
+      Locked by a named regression test carrying these five measurements.
+    - **5 calls, all 200, $0.3232.** The eval re-run against the fixed schema. **THE MERGE
+      CONDITION HOLDS: `pillar-safety` passed on 5/5 cases — free/photo, pro/photo, pro/photo
+      (blank), pro/video, elite/video — with all four pillars carrying a usable declaration in every
+      one**, including the blank case where all four came back not-assessed and the free case where
+      two did. Every other grounding gate passed too, except one red at Elite (below).
+    - **2 calls, $0.1281.** Two more Elite samples, to establish whether that red reproduced. It did
+      (2 of 3) — and it was **the grader, not the model**: `no-false-precision`'s bare `/\d+ *ms/`
+      was firing on *"any steps-per-minute figure I could estimate from the ~200ms-apart timestamps
+      would be a wide, approximate range only ... treat that number as a rough sense of pace, not a
+      measurement"*. That is `TIMESTAMP_RULES` being obeyed almost verbatim — the model described the
+      frame spacing it was handed in the manifest, hedged it, gave a range instead of a point value,
+      and refused to measure. The check is now scoped to the claim the way the cadence check beside
+      it already was (a millisecond figure counts only with a ground-contact term near it), and both
+      captured Elite responses were re-graded OFFLINE against the fix: both pass. That was the
+      over-tight content validation CLAUDE.md names as a known Echo V1 mistake.
+
+    **Totals: 17 calls, 8 unbilled 400s, 9 successes, $0.4513 metered by the eval harness** (the two
+    200-returning probes were tiny and not separately metered — single-digit cents at most).
+
+    **What is still NOT proven.** No deployment and no simulator/device run: this is code-complete
+    and test-green only, same as #43. The committed `grounding-eval.results.json` is the artifact of
+    the LAST 4-case run before this work and was deliberately not overwritten with a partial
+    single-case run; the per-case evidence above is the record. And a single run carries no variance
+    data — it proves the safety CONTRACT (binary), never a quality score.
+
 
 ## Next action
 
@@ -1491,8 +1573,10 @@ still standing between here and a public/TestFlight release:
   rebased onto it, so the hero is on `main` and the pillar reveal sits under its real mount. Until
   this branch merges, `main` ships that hero on espresso/clay. See the M7 row above and
   `docs/change_log.md`'s 2026-09-04 entry.
-- **Known Issue #43** — the Free-tier real-analysis rewrite of `analyze-form` is code-complete
-  with focused regression coverage but **not deployed**. It now also carries an unapplied
+- **Known Issues #43 and #44** — the Free-tier real-analysis rewrite of `analyze-form`, and the
+  analysis-limit pre-flight on top of it, are code-complete with focused regression coverage but
+  **not deployed**. #44 also carries the `$defs` schema fix WITHOUT WHICH THE ENDPOINT IS DOWN:
+  deploying #43's `safety` field without it returns HTTP 400 on every request at every tier. It now also carries an unapplied
   migration, `20260906120000_invalid_safety_release_reason.sql`, which adds `'invalid_safety'` to
   `analyses_release_reason_known_values` — it must be applied BEFORE the function is deployed, or
   every safety-contract release will be rejected by the CHECK constraint and strand the

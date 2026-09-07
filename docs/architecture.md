@@ -458,6 +458,16 @@ pure/client split as `ai-guard.ts`. 44 Deno tests.
   `assertNonEmptyKnowledge()` at load, so an empty bundle fails the suite before an assertion runs;
   a test then asserts each file appears in the assembled prompt **byte-for-byte** (an anchor-phrase
   check would miss a truncation bug).
+- **THE OUTPUT SCHEMA IS ONE `$defs.pillar` NODE, `$ref`d FOUR TIMES — and that is a hard API
+  constraint, not a style choice.** Anthropic's structured-outputs grammar compiler has a size
+  ceiling, and four inlined copies of the pillar object exceed it once each carries a `safety`
+  declaration: the request is rejected with `400 invalid_request_error` ("The compiled grammar is
+  too large") **before the model runs**, on every request at every tier — a total outage of this
+  endpoint, invisible to every offline test. Measured live 2026-09-07 with one-variable probes: the
+  driver is structural, not textual (stripping every `description`, 16,710 chars down to 4,468,
+  still 400s; hoisting only the `safety` sub-object still 400s; hoisting the whole pillar returns
+  200). `docs/status.md` Known Issue #44 carries the full table. Do not inline the pillars back, and
+  re-measure against the live API before merging any change that makes them differ from each other.
 - **The tier dial is one parameter on one prompt** (`TIER_VERBOSITY`), never a second prompt or a
   second call. It is *structurally* incapable of buying certainty: the not-assessed rules, the
   medical boundary, the #112 timestamp rules, and the input-channel rules are assembled **outside**
@@ -1129,6 +1139,13 @@ app/capture/
                 # deck names this screen as where it "gates the Source Picker -> Capture/Upload
                 # handoff", and this is the first host that ticks that box (M4/M5 were the other
                 # two named candidates; still open there).
+  # extracting.tsx PRE-FLIGHTS THE ANALYSIS before any thumbnail work: one bounded
+  # `quota-status` read (lib/analysis-preflight.ts) answers BOTH "may this runner start"
+  # and "how many frames does their video get". A cooldown renders the honest paused panel
+  # (Copy.analysisPause, no Retry — retrying cannot succeed until the window clears); an
+  # exhausted allowance replaces into /paywall. Every lookup FAILURE proceeds: the client is
+  # never the authority, and a blip must not fabricate a claim about someone's account. See
+  # docs/status.md Known Issue #44.
   record.tsx    # Capture (screen 4): expo-camera's CameraView, mode="video" + mute (audio is
                 # never captured — app.json's expo-camera/expo-image-picker plugins already had
                 # microphonePermission: false and recordAudioAndroid: false from M1; unchanged),

@@ -9,9 +9,10 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
 
 **On `fm/v23-free-tier-real-analysis`, not yet merged to `main`.** The last slice of the
 free-tier lane: the branch made Free's analysis real, and this makes its REFUSALS honest. Rebased
-onto `main` after #206 first — see the rebase-integration entry below. `1` real Anthropic call
-budget was spent on the live safety check (exact count and result in `docs/status.md` Known Issue
-#43); everything else here is offline.
+onto `main` after #206 first. **17 real Anthropic calls were made**, all on the live safety check
+and the outage it uncovered — 8 were HTTP 400 rejections (unbilled) and 9 succeeded, $0.45 metered.
+Exact breakdown and per-case evidence: `docs/status.md` Known Issue #43. Everything else here is
+offline.
 
 - **The refusal now happens BEFORE the work, not after it.** Both checks that can end an analysis
   — the allowance cap and issue #6's anti-farm cooldown — live in `reserve_analysis`, which the
@@ -51,6 +52,20 @@ budget was spent on the live safety check (exact count and result in `docs/statu
   pillar at every tier — is answered by a real run rather than asserted. `analyze-form-validation.ts`
   refuses to deliver ANY response whose pillar safety is unusable, so this is an outage question,
   and the tier dial changes the prompt the model is complying with.
+
+- **THE LIVE CHECK CAUGHT A TOTAL OUTAGE, and it is this branch's own regression.**
+  `PACE_RESULT_SCHEMA` with the per-pillar `safety` object exceeds Anthropic's compiled-grammar
+  ceiling: every request, at every tier, came back `400 invalid_request_error` — "The compiled
+  grammar is too large" — before the model ran. `analyze-form` sends that schema on every request,
+  so deploying the branch as it stood would have taken the endpoint down completely, and no offline
+  test could have seen it. Fixed by hoisting the pillar into a single `$defs` node referenced four
+  times; measured, not guessed (four one-variable probes, recorded in `docs/status.md` #43 and in
+  `pillarSchema`'s own doc). Locked by a named regression test.
+- **One grader was the bug.** `no-false-precision`'s bare `/\d+ *ms/` failed an Elite response for
+  describing the FRAME SPACING it was handed ("the ~200ms-apart timestamps ... a wide, approximate
+  range only ... a rough sense of pace, not a measurement") — which is `TIMESTAMP_RULES` being
+  obeyed, not a ground-contact-time claim. Now scoped to the claim, the way the cadence check beside
+  it already was. Both the verbatim live sentence and four real GCT claims are locked as tests.
 
 See `docs/status.md` Known Issue #43 for the live-run evidence and the exact call count.
 
@@ -369,8 +384,8 @@ this work.
 - **Deployment ordering is binding**: `analyze-form` must be redeployed before or with the client
   release, since the simplified client rejects the retired `{ result, isSample: true }` shape by
   construction. Not deployed as of this entry.
-- **Depends on `fm/v23-reliability-timeouts`** (parallel, unmerged) for the eventual final
-  frame-sampling/prompt behavior; this work does not duplicate or wait on it.
+- ~~**Depends on `fm/v23-reliability-timeouts`** (parallel, unmerged)~~ — **RESOLVED 2026-09-07**:
+  that branch landed as #206 and this one is rebased onto it. See the 2026-09-07 entry above.
 - **Not verified**: the local Postgres integration proof
   (`supabase/functions/_shared/integration/quota-rpc.local.ts`) could not be run this session —
   Docker Desktop was stopped and this agent must not start it or take machine focus.
