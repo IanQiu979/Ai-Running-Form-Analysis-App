@@ -3,6 +3,7 @@
   "specifiers": {
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
+    "npm:@electric-sql/pglite@0.3.12": "0.3.12",
     "npm:@supabase/supabase-js@2.110.2": "2.110.2"
   },
   "jsr": {
@@ -17,6 +18,9 @@
     }
   },
   "npm": {
+    "@electric-sql/pglite@0.3.12": {
+      "integrity": "sha512-0xdRSYv96UW5DamTzJ7I0edfRw6VXbhQJrfBlVWaXRgs6k1YINUv+yB5bThsFQARhW7cQzFrsTl1vnud9eHYcQ=="
+    },
     "@supabase/auth-js@2.110.2": {
       "integrity": "sha512-Qj7a6EDP+AMMQFWqGv+qFa8r6re//dk+qQI5bA0KK+PZmnI3JPu97TDeNt6SMiQ2FkklP79hP2yDFYSnA989OA==",
       "dependencies": [

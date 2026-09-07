@@ -49,6 +49,15 @@
  *    three outages would lock out a legitimate user for something we did. Gating first means a
  *    denied request never creates a reservation at all.
  *
+ *    The gate enforces TWO daily ceilings: the caller's own per-tier allowance
+ *    (`user_daily_cap`), and the platform-wide one (`daily_cap`). The per-user cap counts every
+ *    gated call for that user whatever its outcome — including the ones the quota and anti-farm
+ *    controls deliberately forgive, `'zero_pillars_assessed'` above all — so this is the only
+ *    control standing between a paying account and unlimited free model calls. Its tier is
+ *    derived inside the RPC from `public.subscriptions`, never passed in from here. See
+ *    `supabase/migrations/20260907120000_per_user_ai_daily_cap.sql` for the numbers and the
+ *    total-exposure statement.
+ *
  * 4/5. IDEMPOTENCY + ATOMIC RESERVE, both inside `reserve_analysis` (one round trip, one advisory
  *    lock). We branch on the returned `status`, never on `allowed` alone — see `handleExisting()`.
  *
@@ -743,19 +752,27 @@ export async function runAnalyzeForm(
       userId: callerUserId,
       estimatedInputTokens: firstEstimate.inputTokens,
       estimatedOutputTokens: firstEstimate.outputTokens,
+      allUsersUnlimitedAccess: deps.allUsersUnlimitedAccess,
     });
     if (!gate.allowed) {
       // `gate.detail` is deliberately NOT forwarded to the client. On a `daily_cap` denial it
       // carries `spent_usd` / `cap_usd` — our operational AI spend and our ceiling — and on
       // `killed` it carries the operator's `disabled_reason`. None of that is the caller's
-      // business, and any authenticated user could read it just by tripping the cap. The client
+      // business, and any authenticated user could read it just by tripping the cap. A
+      // `user_daily_cap` denial's detail is about the caller's own spend rather than ours, but it
+      // is withheld on the same principle: it still discloses our per-tier $ ceilings, which is
+      // a farming aid, not a user-facing fact. The client
       // needs `code` (to pick the right copy) and nothing more; the detail is logged server-side,
       // where it belongs.
       //
       // Issue #85 — this is #91's guardrail substrate (kill switch / circuit breaker / daily cap)
       // actually firing, and it is exactly the kind of failure that must be COUNTED, not
       // discovered from a user complaint. `reason` is one of 'killed' | 'breaker_open' |
-      // 'daily_cap' | 'unknown_model' | 'invalid_estimate' — filterable directly in `get_logs`.
+      // 'user_daily_cap' | 'daily_cap' | 'unknown_model' | 'invalid_estimate' | 'invalid_user' —
+      // filterable directly in `get_logs`. 'user_daily_cap' (one caller over their own tier's
+      // daily allowance, a 429) and 'daily_cap' (the platform-wide ceiling, a 503) are
+      // deliberately distinct events: the first is normal per-account throttling, the second is
+      // an operational ceiling worth paging on.
       logEvent({
         level: 'warn',
         fn: 'analyze-form',
@@ -889,6 +906,7 @@ export async function runAnalyzeForm(
           estimatedInputTokens: retryEstimate.inputTokens,
           estimatedOutputTokens: retryEstimate.outputTokens,
           analysisId,
+          allUsersUnlimitedAccess: deps.allUsersUnlimitedAccess,
         });
 
         if (retryGate.allowed) {

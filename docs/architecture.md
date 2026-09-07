@@ -1307,9 +1307,11 @@ the original video (see "Media pipeline" below).
 3. **AI spend gate** (substrate added 2026-07-12, issue #91 — see "Current — AI spend
    guardrails substrate" above) — call `gateAiCall()` from
    `supabase/functions/_shared/ai-guard.ts` **before** idempotency/reserve, not after. On
-   `allowed: false` (kill switch off, circuit breaker open, or the global daily $ cap would be
-   exceeded), return `503` with `gateDenyResponseBody()`'s structured `{ error, code }` body —
-   this is the brake, not the caller's fault, so it is never a `4xx`. On allow, hold the returned
+   `allowed: false`, return `httpStatusForGateDeny(reason)` with `gateDenyResponseBody()`'s
+   structured `{ error, code }` body. Most denials are our brake, not the caller's fault, and stay
+   `503` (kill switch off, breaker open, unpriced model, global daily $ cap exceeded); the two
+   that really are about the caller do not — `user_daily_cap` (their own tier's daily allowance,
+   `429`) and `invalid_user` (the call named no user, `400`). On allow, hold the returned
    `call_id` for step 9. This runs before idempotency deliberately — see the "call ordering"
    note in that section for why the alternative (gate after reserve) would eventually lock out
    legitimate users.
@@ -2053,6 +2055,9 @@ ai_ops_config    (id boolean pk default true check (id),
                   analyze_enabled boolean not null default true,   -- THE KILL SWITCH
                   disabled_reason text,
                   daily_usd_cap numeric not null default 10.00,     -- global daily ceiling
+                  user_daily_usd_cap_free  numeric not null default 0.75,  -- PER-USER ceilings,
+                  user_daily_usd_cap_pro   numeric not null default 2.00,  -- checked in addition
+                  user_daily_usd_cap_elite numeric not null default 4.00,  -- to the global one
                   breaker_failure_threshold integer not null default 5,
                   breaker_cooldown_seconds integer not null default 900,
                   pending_timeout_seconds integer not null default 300,
@@ -2090,15 +2095,50 @@ only a future edge function calling with the service-role key can invoke these, 
 
 - **`gate_ai_call(p_user_id, p_estimated_input_tokens, p_estimated_output_tokens, p_model, p_analysis_id)`**
   takes a single **global** advisory lock (`hashtext('ai_ops_gate')` — deliberately not per-user
-  like `reserve_analysis`'s lock, because this cap is global), then denies in order: kill switch
+  like `reserve_analysis`'s lock, because it must serialize the global sum too, and one lock
+  covers both sums), then denies in order: no user id (`reason: 'invalid_user'`) → kill switch
   off (`reason: 'killed'`) → circuit breaker open (`reason: 'breaker_open'`) → unpriced model
-  (`reason: 'unknown_model'`) → daily cap would be exceeded (`reason: 'daily_cap'`). "Today's
-  spend" counts settled `actual_usd` since UTC midnight (the function pins `set timezone = 'UTC'`, not relying on the session default) **plus** every still-`'pending'`
-  reservation's `estimated_usd` made since midnight and not yet timed out — counting pending
-  estimates is what makes the cap hold under a concurrent burst; an orphaned pending row (the
-  function crashed mid-call) ages out of the sum on its own after `pending_timeout_seconds`, no
-  cron sweeper needed. On allow, inserts a `'pending'` row and returns
-  `{ allowed: true, call_id, estimated_usd }`.
+  (`reason: 'unknown_model'`) → **the caller's own daily allowance would be exceeded
+  (`reason: 'user_daily_cap'`)** → the global daily cap would be exceeded (`reason: 'daily_cap'`).
+  "Today's spend" — for both ceilings — counts settled `actual_usd` since UTC midnight (the
+  function pins `set timezone = 'UTC'`, not relying on the session default) **plus** every
+  still-`'pending'` reservation's `estimated_usd` made since midnight and not yet timed out —
+  counting pending estimates is what makes the cap hold under a concurrent burst; an orphaned
+  pending row (the function crashed mid-call) ages out of the sum on its own after
+  `pending_timeout_seconds`, no cron sweeper needed. On allow, inserts a `'pending'` row and
+  returns `{ allowed: true, call_id, estimated_usd }`.
+
+  **The per-user cap (2026-09-07, `20260907120000_per_user_ai_daily_cap.sql`) — NOT YET APPLIED
+  to the live project.** Until this migration is pushed, the paragraph above describes the
+  repo, not production; production still has only the global cap. Before it, `gate_ai_call` had
+  exactly one daily ceiling and it was **global**: one shared counter for everybody, so a single
+  account could exhaust the day for every other user, and a Pro/Elite account could farm
+  zero-pillar model calls that cost it neither a quota slot (refunded via
+  `'zero_pillars_assessed'`) nor an anti-farm strike (`pace_is_farming_signal` deliberately
+  forgives that reason). Key points:
+  - **The cap counts every gated call for that user that actually cost money** — `success`,
+    `fallback`, `model_error`, `validation_failed`, and a zero-pillar result (which settles as
+    `success`) — including the outcomes the quota and anti-farm controls deliberately forgive.
+    That is the point: a spend cap may not share an intent classifier's blind spots. A
+    `'cancelled'` call settles at $0 and correctly adds nothing once settled (the model was never
+    called), though its `'pending'` row holds its estimate against both ceilings until it settles
+    or ages out. Neither `pace_is_farming_signal` nor
+    `reserve_analysis` nor the release-reason taxonomy is touched; the captain's zero-pillar
+    refund decision stands exactly as it was.
+  - **The tier is derived inside the RPC** (`public.pace_current_tier` over
+    `public.subscriptions`), never passed in — no edge-function bug can buy a bigger allowance by
+    claiming a tier the user does not have. `gate_ai_call` is now a thin wrapper over
+    `gate_ai_call_for_tier(p_user_id, p_tier, …)`; `ai_user_daily_cap_usd(p_tier)` is the single
+    place the tier→$ mapping lives; `gate_ai_call_unlimited` is the `ALL_USERS_UNLIMITED_ACCESS`
+    sibling (Elite cap — it does **not** lift the cap). All three are `SECURITY DEFINER` with
+    EXECUTE revoked from `public`/`anon`/`authenticated` and granted only to `service_role`,
+    same as the rest of the gate.
+  - **Total exposure is unchanged at $10/day.** The global `daily_usd_cap` is retained as the
+    outer ceiling; what changed is only how much of it one account can take — 7.5% / 20% / 40%
+    for Free / Pro / Elite, down from 100%.
+  - The migration is proved behaviourally, not by regex over its own text:
+    `supabase/functions/_shared/__tests__/ai-guard-sql.deno.test.ts` applies the real committed
+    migrations to a real (WASM, PGlite) Postgres inside `npm run test:edge`.
 - **`ai_breaker_state()`** is derived on every read, not stored: open if the last
   `breaker_failure_threshold` settled calls are **all** `model_error`/`validation_failed` (a
   delivered `'fallback'` counts as success — the user got value) and the most recent is within
@@ -2116,8 +2156,9 @@ only a future edge function calling with the service-role key can invoke these, 
   call itself network-timed-out) records `actual_usd` at the **estimate**, not zero — an unknown
   cost is assumed incurred so the daily-cap budget never quietly under-counts. Otherwise
   `actual_usd` is computed from `ai_model_pricing`'s rates across all four token fields.
-- **`ai_spend_today()`** returns one JSONB snapshot — spend (settled/pending/total), the cap,
-  today's call counts by status, breaker state, kill-switch state — for `db-audit`,
+- **`ai_spend_today()`** returns one JSONB snapshot — spend (settled/pending/total), the global
+  cap, the three per-user caps (`user_daily_usd_caps`), today's call counts by status, breaker
+  state, kill-switch state — for `db-audit`,
   `cost-monitor`, and manual inspection. Service-role only, same as the rest.
 
 **Call ordering — binding on #44, not optional.** The gate runs **before** `reserve_analysis`:
@@ -2359,7 +2400,11 @@ plaintext by design) → sign up with a throwaway address (no human needed, no e
 `POST` this endpoint with `tier=elite` → live `reserve_analysis` now grants 30 analyses / 8-frame
 cap instead of free's 1/1 → burn them to trip the shared `ai_ops_config` daily spend cap ($10) →
 every real user's `analyze-form` denied for the rest of the day → repeat with a fresh signup. Cost
-to attacker: $0 — a 30× amplification of the existing daily-cap DoS. The header comment's original
+to attacker: $0 — a 30× amplification of the existing daily-cap DoS. **Narrowed, not closed, by
+the per-user cap (2026-09-07, above): one account can now take at most $4/day of the $10, so this
+chain needs at least three fresh signups per day rather than one, and the amplification it buys
+is the Elite cap over the Free one ($4 vs $0.75), not the whole day. The "$0 self-grant of the
+highest paid tier" problem itself is untouched — the fix below is still the control.** The header comment's original
 "TestFlight-only, MUST NOT ship to a public App Store release" warning was a comment, not a
 control, and did nothing to stop any of this the moment the function was deployed at all.
 
@@ -2951,20 +2996,22 @@ This fix round did not deploy or invoke the live function.
 | Status | Code | When |
 |---|---|---|
 | 200 | — | `{ result, analysisId, isFallback }`. A full success and an honest partial share this shape. |
-| 400 | `invalid_request` / `frame_cap_exceeded` / `invalid_*` | Bad body, or a reserve-side input refusal. |
+| 400 | `invalid_request` / `frame_cap_exceeded` / `invalid_*` / `invalid_user` | Bad body, or a reserve-side input refusal. `invalid_user` is the gate refusing a call that named no user. |
 | 401 | `unauthorized` | No/!valid JWT. |
 | 402 | `quota_exceeded` | Over quota — the one code the paywall (#52) routes on. |
 | 403 | `consent_required` | No recorded `upload.health.v1` grant. |
 | 409 | `analysis_in_progress` / `previous_attempt_failed` | The idempotency key names a live or released reservation. |
 | 410 | `analysis_deleted` | Replay of a key whose analysis was soft-deleted (its `result` is redacted). |
 | 422 | `validation_failed` | Clean failure after the retry. Quota refunded. |
-| 429 | `too_many_failed_attempts` | Anti-farming throttle. Deliberately not a 402 — it clears on its own. |
+| 429 | `too_many_failed_attempts` / `user_daily_cap` | Anti-farming throttle, or the caller's own per-tier daily $ allowance. Deliberately not a 402 (clears on its own) and deliberately not a 503 (the service is up for everyone else). |
 | 503 | `killed`/`breaker_open`/`daily_cap` · `model_error`/`provider_timeout` | Our brake, or the provider. Never the caller's fault. |
 | 500 | `internal_error` / `misconfigured` | Our bug, or a missing secret. |
 
 The gate's `detail` payload is **never** forwarded to the client: on a `daily_cap` denial it carries
 `spent_usd`/`cap_usd`, so returning it would let any authenticated user read our AI spend and our
-ceiling by tripping the cap. It is logged server-side instead.
+ceiling by tripping the cap — and on a `user_daily_cap` denial it carries that caller's own spend,
+cap and tier, which is a farming aid rather than a user-facing fact. It is logged server-side
+instead.
 
 **Observability.** One structured JSON line per request: model outcome, tier, media type, frame
 count, attempt count, whether it retried, whether it fell back, the release reason if any, every

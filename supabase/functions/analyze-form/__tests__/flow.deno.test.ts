@@ -1060,6 +1060,38 @@ Deno.test('rule 5: the gate runs BEFORE idempotency/reserve — a denial never c
   assertEquals(h.model.sent.length, 0);
 });
 
+Deno.test('rule 5: a per-user cap denial is a 429 about the caller, not a 503 about us', async () => {
+  const h = harness([]);
+  h.rpc.handlers.gate_ai_call = () => ({
+    data: {
+      allowed: false,
+      reason: 'user_daily_cap',
+      spent_usd: 3.9,
+      cap_usd: 4.0,
+      tier: 'elite',
+    },
+    error: null,
+  });
+
+  const res = await run(h);
+
+  // 429, not 503: the service is up and serving everybody else — this one caller has used their
+  // own tier's daily allowance. See the per-user-cap migration (20260907120000).
+  assertEquals(res.status, 429);
+  assertEquals(res.body.code, 'user_daily_cap');
+  // Same ordering guarantee as any other gate denial: nothing is reserved, nothing is released,
+  // nothing is sent to the model.
+  assertEquals(h.rpc.to('reserve_analysis').length, 0);
+  assertEquals(h.rpc.to('release_analysis').length, 0);
+  assertEquals(h.model.sent.length, 0);
+  // Our per-tier dollar ceilings are a farming aid; they must not reach the caller. Assert on the
+  // SERIALIZED body — that is what actually goes over the wire, and it is what drops the
+  // `detail: undefined` key `gateDenyResponseBody` leaves on the object.
+  const wire = JSON.parse(JSON.stringify(res.body));
+  assertEquals(Object.keys(wire).sort(), ['code', 'error']);
+  assertEquals(wire.error.includes('4'), false, 'the cap value must not leak through the copy');
+});
+
 Deno.test('rule 5: the kill switch and the circuit breaker are also 503s', async () => {
   for (const reason of ['killed', 'breaker_open']) {
     const h = harness([]);
@@ -2006,6 +2038,10 @@ Deno.test('all-users override: a normally-free account runs the full Elite path 
   const h = harness([ok()]);
   h.deps.allUsersUnlimitedAccess = true;
   h.rpc.handlers.pace_current_tier_unlimited = () => ({ data: 'elite', error: null });
+  h.rpc.handlers.gate_ai_call_unlimited = () => ({
+    data: { allowed: true, call_id: 'call-1', estimated_usd: 0.23 },
+    error: null,
+  });
   h.rpc.handlers.reserve_analysis_unlimited = () => ({
     data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'elite' },
     error: null,
@@ -2020,6 +2056,33 @@ Deno.test('all-users override: a normally-free account runs the full Elite path 
   assertEquals(h.rpc.names().includes('reserve_analysis'), false);
   assertEquals(h.rpc.names().includes('pace_current_tier_unlimited'), true);
   assertEquals(h.rpc.names().includes('reserve_analysis_unlimited'), true);
+  // The spend gate takes the same override route as tier and reserve — and, per that migration,
+  // it still CAPS (at Elite), it does not go uncapped.
+  assertEquals(h.rpc.names().includes('gate_ai_call'), false);
+  assertEquals(h.rpc.names().includes('gate_ai_call_unlimited'), true);
+});
+
+Deno.test('all-users override: the RETRY gate takes the override route too, not the default one', async () => {
+  const h = harness([prose(), ok()]);
+  h.deps.allUsersUnlimitedAccess = true;
+  h.rpc.handlers.pace_current_tier_unlimited = () => ({ data: 'elite', error: null });
+  let gateSeq = 0;
+  h.rpc.handlers.gate_ai_call_unlimited = () => {
+    gateSeq += 1;
+    return { data: { allowed: true, call_id: `call-${gateSeq}`, estimated_usd: 0.23 }, error: null };
+  };
+  h.rpc.handlers.reserve_analysis_unlimited = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'elite' },
+    error: null,
+  });
+
+  await run(h);
+
+  // `prose()` is a retry-eligible failure, so this request gates TWICE. Both gates must go
+  // through the override sibling — a single default-route gate would silently apply the Free cap
+  // to a caller the rest of the request is treating as Elite.
+  assertEquals(h.rpc.to('gate_ai_call').length, 0);
+  assertEquals(h.rpc.to('gate_ai_call_unlimited').length, 2);
 });
 
 Deno.test('pro/elite tiers are completely unaffected by the tier-lookup branch', async () => {

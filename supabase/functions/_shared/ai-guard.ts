@@ -16,14 +16,30 @@
  * construction. That is real, but partial, protection: nothing here can stop `analyze-form`'s
  * own code from calling the Anthropic API directly and never touching this module at all. See
  * the migration header for the full, honest scoping of what "physically cannot" means here.
+ *
+ * DEPLOY-GATED. The per-user cap's `gate_ai_call_unlimited` (the `ALL_USERS_UNLIMITED_ACCESS`
+ * sibling) only exists once `supabase/migrations/20260907120000_per_user_ai_daily_cap.sql` is
+ * applied, so `supabase db push` MUST run BEFORE this function is deployed — the same ordering
+ * `pace_quota_status` / `pace_purchase_tier` needed for `quota-status` / `purchase-tier`. If it
+ * is deployed the other way round, `gateAiCall` stays AVAILABLE rather than 500ing, by falling
+ * back to `gate_ai_call` — which, in that same unmigrated database, is still the old global-cap-
+ * only definition. The degraded window therefore enforces the platform-wide $10/day ceiling ALONE,
+ * with NO per-user ceiling at all: exactly today's production behaviour, not a tighter one. See
+ * the missing-function fallback below.
  */
 
 export type GateDenyReason =
   | 'killed'
   | 'breaker_open'
+  /** The caller's OWN daily allowance for their tier. Their spend, their ceiling. */
+  | 'user_daily_cap'
+  /** The platform-wide daily ceiling, across every user. Our brake. */
   | 'daily_cap'
   | 'unknown_model'
-  | 'invalid_estimate';
+  | 'invalid_estimate'
+  /** The gate was handed no user id, so its per-user cap could not be keyed to anybody. Refused
+   * rather than spent unattributably — see the per-user-cap migration's `invalid_user` branch. */
+  | 'invalid_user';
 
 export type GateResult =
   | { allowed: true; callId: string; estimatedUsd: number }
@@ -55,7 +71,7 @@ export interface RpcClient {
   rpc(
     fn: string,
     args: Record<string, unknown>
-  ): Promise<{ data: unknown; error: { message: string } | null }>;
+  ): Promise<{ data: unknown; error: { message: string; code?: string } | null }>;
 }
 
 export interface GateAiCallParams {
@@ -64,25 +80,84 @@ export interface GateAiCallParams {
   estimatedOutputTokens: number;
   model?: string;
   analysisId?: string | null;
+  /**
+   * The temporary `ALL_USERS_UNLIMITED_ACCESS` override (migration 20260807090000). Swaps
+   * `gate_ai_call` for `gate_ai_call_unlimited`, exactly as `currentTier`/`reserveAnalysis` in
+   * `analyze-form/flow.ts` already swap `pace_current_tier`/`reserve_analysis` for their
+   * `_unlimited` siblings. The override applies the ELITE per-user cap; it does NOT lift the cap
+   * — per that migration's own wording, "unlimited" means analysis COUNT and "the AI spend
+   * guardrails remain intact too".
+   */
+  allUsersUnlimitedAccess?: boolean;
+}
+
+const BASE_GATE_FN = 'gate_ai_call';
+const OVERRIDE_GATE_FN = 'gate_ai_call_unlimited';
+
+/**
+ * True only for "the RPC we called is not in the database". `PGRST202` is sufficient on its own:
+ * PostgREST raises it only when it cannot resolve the requested RPC itself. Everything else must
+ * BOTH name the function we called AND say a FUNCTION is what is missing — Postgres emits
+ * `relation "…" does not exist` / `column "…" does not exist` for faults raised from INSIDE a
+ * function too (a partially applied migration, a dropped dependency), and misreading one of those
+ * as "the RPC is absent" would silently retry a real fault into an allow. When in doubt this
+ * returns false and the caller throws, which is the safe direction for a spend gate.
+ */
+function isMissingFunctionError(error: { message: string; code?: string }, fn: string): boolean {
+  if (error.code === 'PGRST202') {
+    return true;
+  }
+  const message = error.message.toLowerCase();
+  if (!message.includes(fn.toLowerCase())) {
+    return false;
+  }
+  return message.includes('could not find the function') || /function\s[^\n]*does not exist/.test(message);
 }
 
 /**
  * Reserves budget headroom for one Anthropic call. Denies — without ever reserving anything —
- * if the kill switch is off, the circuit breaker is open, or the daily cap would be exceeded.
+ * if the kill switch is off, the circuit breaker is open, or EITHER daily cap would be exceeded:
+ * the caller's own per-tier allowance (`user_daily_cap`) or the platform-wide ceiling
+ * (`daily_cap`). The per-user one is checked first, so a caller over their own allowance is told
+ * that rather than being handed an outage they did not cause.
+ *
  * A deny is always a normal, typed return value, never an exception, so a missed `catch` can't
  * accidentally let a call through; only a genuine transport/DB error throws.
  */
 export async function gateAiCall(client: RpcClient, params: GateAiCallParams): Promise<GateResult> {
-  const { data, error } = await client.rpc('gate_ai_call', {
+  const args = {
     p_user_id: params.userId,
     p_estimated_input_tokens: params.estimatedInputTokens,
     p_estimated_output_tokens: params.estimatedOutputTokens,
     p_model: params.model ?? 'claude-sonnet-5',
     p_analysis_id: params.analysisId ?? null,
-  });
+  };
+  const fn = params.allUsersUnlimitedAccess ? OVERRIDE_GATE_FN : BASE_GATE_FN;
+  let { data, error } = await client.rpc(fn, args);
 
-  if (error) {
-    throw new Error(`gate_ai_call failed: ${error.message}`);
+  if (error && fn === OVERRIDE_GATE_FN && isMissingFunctionError(error, OVERRIDE_GATE_FN)) {
+    // The override sibling ships in 20260907120000_per_user_ai_daily_cap.sql; if the edge
+    // function is deployed before `supabase db push` runs, the RPC simply does not exist. Fall
+    // back to the always-present `gate_ai_call` once rather than 500ing every analysis. This is
+    // an AVAILABILITY fallback to the status quo ante, NOT a tighter cap: in a database missing
+    // the override sibling, `gate_ai_call` is still the old 20260712210100 definition — global
+    // `daily_usd_cap` only, no per-user ceiling, no tier derivation — so during the degraded
+    // window the request is gated by the pre-existing platform-wide $10/day cap ALONE, exactly as
+    // production behaves today. It self-heals the moment the migration is pushed, and every
+    // non-missing-function error still throws, so a real fault can never become an allow.
+    console.error(
+      `[ai-guard] ${OVERRIDE_GATE_FN} is missing from the database (${error.message}). ` +
+        `The PER-USER daily spend cap is NOT being enforced until ` +
+        `20260907120000_per_user_ai_daily_cap.sql is applied — run \`supabase db push\`. ` +
+        `Falling back once to ${BASE_GATE_FN}, which in an unmigrated database enforces only the ` +
+        `global daily cap.`
+    );
+    ({ data, error } = await client.rpc(BASE_GATE_FN, args));
+    if (error) {
+      throw new Error(`${BASE_GATE_FN} failed: ${error.message}`);
+    }
+  } else if (error) {
+    throw new Error(`${fn} failed: ${error.message}`);
   }
 
   const result = data as {
@@ -156,12 +231,23 @@ export async function recordAiCall(client: RpcClient, params: RecordAiCallParams
 }
 
 /**
- * Deny -> HTTP mapping (design spec: "all three denials are 503, not a 4xx — it is our brake,
- * not the user's fault"). Extended here to `unknown_model`/`invalid_estimate` for the same
- * reason: both are guardrail/operator-config problems, never something the calling user did
- * wrong.
+ * Deny -> HTTP mapping. The design spec's rule was "all three denials are 503, not a 4xx — it is
+ * our brake, not the user's fault", and that still holds for every denial that is about US:
+ * `killed`, `breaker_open`, `daily_cap` (the platform-wide ceiling), and the two
+ * guardrail/operator-config problems `unknown_model`/`invalid_estimate`.
+ *
+ * `user_daily_cap` is the one denial that is genuinely ABOUT THE CALLER — they have used their
+ * own tier's allowance for the day — so it is a 429, the status that actually means that. Calling
+ * it a 503 would tell the client the service is down when it is up and serving everybody else.
+ * `invalid_user` is a 400: the request named no user, which is a malformed call, not an outage.
  */
-export function httpStatusForGateDeny(_reason: GateDenyReason): number {
+export function httpStatusForGateDeny(reason: GateDenyReason): number {
+  if (reason === 'user_daily_cap') {
+    return 429;
+  }
+  if (reason === 'invalid_user') {
+    return 400;
+  }
   return 503;
 }
 
@@ -178,7 +264,10 @@ export function gateDenyResponseBody(
   detail?: Record<string, unknown>
 ): { error: string; code: GateDenyReason; detail?: Record<string, unknown> } {
   return {
-    error: 'Analysis is temporarily unavailable. Please try again shortly.',
+    error:
+      reason === 'user_daily_cap'
+        ? "You've reached today's analysis limit for your plan. Please try again tomorrow."
+        : 'Analysis is temporarily unavailable. Please try again shortly.',
     code: reason,
     detail,
   };
