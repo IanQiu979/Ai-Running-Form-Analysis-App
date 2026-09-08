@@ -454,7 +454,7 @@ verbosity dial, and the structured-output contract. M4's blocker: #44 (the edge 
 (validation/fallback) both build on it. **Pure and injectable** — no `Deno` global, no `fetch`, no
 env var, and it never calls Anthropic; it turns `(tier, media, frames)` into a request body, so the
 part most likely to change (prompt wording) is testable with zero network and zero API spend. Same
-pure/client split as `ai-guard.ts`. 44 Deno tests.
+pure/client split as `ai-guard.ts`. 46 Deno tests.
 
 - **Grounded, provably.** The three certified files are injected verbatim from
   `knowledge.generated.ts` (#90) — never inlined, never paraphrased. Importing that module runs
