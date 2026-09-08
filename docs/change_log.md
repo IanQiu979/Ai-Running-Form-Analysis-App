@@ -166,6 +166,13 @@ changed three things:
   | outdoor jogger | Elite / 8, run 1 | 1236 KB | **35.6 s** | 2570 / 8000 | end_turn | 70 (72/68/74/65) |
   | outdoor jogger | Elite / 8, run 2 | 1236 KB | **29.8 s** | 2277 / 8000 | end_turn | 63 (72/68/58/55) |
 
+  The five per-call records are auditable in-repo at
+  `supabase/functions/_shared/evals/stride-burst-latency.results.json` (the harness's `--out`,
+  mirroring `grounding-eval.results.json`): latency, `stop_reason`, usage, cost, SPM scan and every
+  pillar's prose, text only — no frames or base64 image data. They are **ONE author run
+  (2026-09-07), not a reproducible fixture**: a re-run makes new billed calls and yields new,
+  stochastic model output.
+
   Every call finished inside the 65s bound the brief measured against (worst case 55% of it) and
   inside the current 80s cap (worst case 44%); no truncation, and the largest output was 32% of
   its tier's ceiling. **Token/thinking decision: keep #206's `effort: 'low'` and do NOT raise

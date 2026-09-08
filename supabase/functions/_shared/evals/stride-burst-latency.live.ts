@@ -33,6 +33,16 @@
  * ledger row, no Storage write. What comes from production and must never be forked here: the
  * request body (`buildAnalyzeFormRequest`) and the response reader (`readAttempt`).
  *
+ * ── THE COMMITTED RUN ───────────────────────────────────────────────────────────────────────
+ *
+ * `stride-burst-latency.results.json` next to this file is the `--out` of the run that closed the
+ * captain's measurement obligation (5 calls, 2026-09-07, $0.42 at list price), kept in-repo so the
+ * numbers in `docs/change_log.md` are auditable — same convention as `grounding-eval.results.json`.
+ * It is text only: latency, stop_reason, usage, cost, the SPM scan and each pillar's prose, plus a
+ * base64 BYTE COUNT. No frames and no image data are in it, and none may ever be added.
+ * It is ONE author run, NOT a reproducible fixture: re-running spends real money and the model's
+ * output is stochastic, so scores and prose will differ. Nothing in `deno test` reads it.
+ *
  * ── FRAME INPUT ────────────────────────────────────────────────────────────────────────────
  *
  * `--frames DIR` must hold a `manifest.json`:
