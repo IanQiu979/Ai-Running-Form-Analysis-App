@@ -42,7 +42,7 @@ export function createDeleteAnalysisDeps(): { analyses: AnalysesTable; storage: 
     async findById(id) {
       const { data, error } = await client
         .from('analyses')
-        .select('id, user_id, deleted_at')
+        .select('id, user_id, deleted_at, status')
         .eq('id', id)
         .maybeSingle();
       if (error) {

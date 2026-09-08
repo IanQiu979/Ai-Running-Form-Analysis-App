@@ -13,7 +13,7 @@ milestone "done" criteria.
 | M2 — Capture (upload-from-library and in-app record both hand a valid, budget-compliant frame set to analysis on iOS) | Screens built (issue #36, `fix/36`, 2026-07-12) — source picker, in-app muted record + framing guide, permission-denied states, and honest extraction progress; see `docs/architecture.md`'s "Current — capture screens (issue #36)". Not fully closed: issue #37 (frames.ts test coverage) and issue #112 (frame timestamp accuracy) are still open, and Home's CTA isn't wired to `/capture` yet (a deliberately flagged gap, not this issue's scope — see the same architecture.md section). Issue #35 (direct-to-bucket upload) is superseded by #88's live contract and should not be built as originally scoped. **FIXED 2026-07-26 — extraction was capping paying users at the free tier.** `app/capture/extracting.tsx` hardcoded `EXTRACTION_TIER = 'free'`, so every Pro/Elite **video** was extracted to Free's 1 frame; Cadence and Elasticity cannot be scored from a single still, so a paying user's analysis was silently degraded to the free product. The cap now comes from `quota-status`'s authoritative `frameCap` via new `lib/extraction-frame-cap.ts` (never a client-side `PACE_FRAME_CAP[tier]` lookup — CLAUDE.md: the client is never the authority for a frame cap), `extractFrames` takes a resolved `videoFrameCap: number` instead of a tier, and a failed/unauthorized/slow lookup degrades to the free cap deliberately, never upward. Photos are unaffected (always 1 frame, no quota call). Covered by `lib/__tests__/extraction-frame-cap.test.ts` plus end-to-end screen locks in `app/capture/__tests__/extracting.test.tsx`. |
 | M3 — Knowledge grounding (prompt provably includes PACE framework text; output references PACE pillars) | **In progress** — the grounded prompt, tier verbosity dial, and structured-output contract landed 2026-07-12 (issue #41, `supabase/functions/_shared/analyze-form-prompt.ts`, covered by `analyze-form-prompt.deno.test.ts`, **no live model call made**), unblocking M4's #44/#45. The milestone's own gate — "prompt *provably* includes the framework text" — is proven statically today (the three certified files are asserted present **byte-for-byte** in the assembled prompt); proving the *output* references the PACE pillars still needs #42's live-call eval harness. Still open: **GitHub issue #39** (Ian certifies Elasticity + the pillar refinements — the prompt ships his name) and **#40** (the runner's-note guidance in `injury_flags.md`) — **re-verified 2026-07-25: #40's functional requirement is fully met and tested.** `INPUT_CHANNEL_RULES` in `analyze-form-prompt.ts` is wired into the assembled prompt and explicitly tells the model there is no runner's note and to treat every note-conditional clause in the certified files as inactive; `analyze-form-prompt.deno.test.ts` asserts the "There is NO runner's note" text is present. No prompt content instructs the model to weight a runner's note for the MVP path. What remains open is cosmetic only: the certified `injury_flags.md` file itself still reads "if the note reports…" in its own prose — editing that wording is a certified-content change per GitHub issue #39's constraint and needs Ian's sign-off, not an agent's; the file is otherwise inert on this point because the prompt layer already overrides it. |
 | M4 — Analysis engine (photo/video → valid PACE result; malformed responses never reach the user) | **In progress — the full path ran end to end against the live project 2026-07-26 (issue #128).** The AI spend guardrail substrate it must build behind (kill switch, daily cap, circuit breaker, per-call ledger; issue #91) landed 2026-07-12 and was **applied to the live project the same day** (`supabase db push`, verified — see Known Issue #17). Only the manual Anthropic Console spend ceiling remains open. **The Analyzing screen (issue #80) shipped 2026-07-12**, built entirely against the documented `analyze-form` contract via an injectable `AnalyzeFormClient` seam (`lib/analyze-form.ts`). **UPDATED 2026-07-26 (issue #128):** the `analyze-form` edge function (#44) is built AND **deployed** to the live project, and that seam is now bound to the **real** client — the dev mock is kept but `__DEV__`-guarded so it throws in a release bundle, mirroring `lib/delete-account.ts`. Verified live end to end: `public.analyses` went from zero rows ever to a `delivered` row with a valid PACE result and one frame in the private bucket. See `docs/architecture.md`'s corresponding section and Known Issue #35. |
-| M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed — and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. **Hardened 2026-07-13 after a security audit (PR #123): the function is gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — see Known Issue #21, a release blocker.** See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. **Every M5 screen now exists (2026-07-13)**: `app/paywall.tsx` + `lib/subscription.ts` (issue #52) is the dummy paywall, display-only by construction — no tier limit or frame cap is hardcoded, every count is read fresh off `quota-status`, locked by a regression test — and Home's quota-aware CTAs are real (issues #54/#15: the client-side quota mirror is deleted, replaced by one `lib/quota.ts` call to `quota-status`; exhausted CTAs now open the real Paywall route). See `docs/architecture.md`'s "Current — `app/paywall.tsx`" and "Current — Home quota" sections. **UPDATED 2026-07-26:** `purchase-tier` and `quota-status` are now **deployed** to the live project, and both `pace_quota_status` and `pace_purchase_tier` were found **already applied** to the live database (this row's earlier "not applied to any database" claim was stale — all 24 repo migrations are present). `PURCHASE_TIER_DUMMY_ENABLED=true` was set by captain decision — see Known Issue #21, now **RESOLVED 2026-08-06**: both `PURCHASE_TIER_DUMMY_ENABLED` and `PURCHASE_TIER_ALLOWED_USER_IDS` are unset on the live project. A second root cause found the same day — every authenticated edge function returning `401` to valid JWTs — was **the shared key parser misreading the platform's JSON-object key format** (`{"default":"sb_..."}`) as an array and falling through to the raw JSON string; **fixed in `_shared/supabase-keys.ts` and verified live**: a dummy purchase now grants pro (10/5) then elite (30/8), confirmed through `quota-status` and the `subscriptions` row, with `purchased_at` unmoved on repurchase. See Known Issue #35. |
+| M5 — Tiers & quotas (quota unbypassable server-side; paywall shows at the right moments) | Not started — except `GET /functions/v1/quota-status` (issue #50), written and Deno-tested on `fix/50` 2026-07-12, **not deployed**; its `pace_quota_status` DB function is written but **not applied** to any database. See `docs/architecture.md`'s "Current — `GET /functions/v1/quota-status` (issue #50)" section. **`POST /functions/v1/purchase-tier` (issue #51) joined it 2026-07-13** — written and Deno-tested on `feat/51-purchase-tier`, **not deployed**; its `pace_purchase_tier` DB function is written but **not applied** to any database. It is the only legitimate writer to `subscriptions` (no client-writable INSERT/UPDATE policy was added — the Echo V1 mistake stays closed — and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`), and a repurchase is idempotent: `purchased_at` is written once, on first purchase, and never moved, so replaying a purchase cannot reset a user's quota period. **Hardened 2026-07-13 after a security audit (PR #123): the function is gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — see Known Issue #21, a release blocker.** See `docs/architecture.md`'s "Current — `POST /functions/v1/purchase-tier` (issue #51)" section. **Every M5 screen now exists (2026-07-13)**: `app/paywall.tsx` + `lib/subscription.ts` (issue #52) is the dummy paywall, display-only by construction — its Pro 10 / Elite 30 per-period totals are explicit display copy, while live account-specific counts and renewal dates come from `quota-status`; enforcement remains server-side, and no frame cap is stated there — and Home's quota-aware CTAs are real (issues #54/#15: the client-side quota mirror is deleted, replaced by one `lib/quota.ts` call to `quota-status`; exhausted CTAs now open the real Paywall route). See `docs/architecture.md`'s "Current — `app/paywall.tsx`" and "Current — Home quota" sections. **UPDATED 2026-07-26:** `purchase-tier` and `quota-status` are now **deployed** to the live project, and both `pace_quota_status` and `pace_purchase_tier` were found **already applied** to the live database (this row's earlier "not applied to any database" claim was stale — all 24 repo migrations are present). `PURCHASE_TIER_DUMMY_ENABLED=true` was set by captain decision — see Known Issue #21, now **RESOLVED 2026-08-06**: both `PURCHASE_TIER_DUMMY_ENABLED` and `PURCHASE_TIER_ALLOWED_USER_IDS` are unset on the live project. A second root cause found the same day — every authenticated edge function returning `401` to valid JWTs — was **the shared key parser misreading the platform's JSON-object key format** (`{"default":"sb_..."}`) as an array and falling through to the raw JSON string; **fixed in `_shared/supabase-keys.ts` and verified live**: a dummy purchase now grants pro (10/5) then elite (30/8), confirmed through `quota-status` and the `subscriptions` row, with `purchased_at` unmoved on repurchase. See Known Issue #35. |
 | M6 — Past Analyses (results + stored frames persist and re-open; delete purges both row and storage objects) | **In progress — gained a real screen 2026-07-13.** `DELETE /functions/v1/analysis/:id` (issue #57, closing #3) is written, Deno-tested, and **confirmed DEPLOYED** (corrected 2026-07-13 — every earlier note here and in `docs/architecture.md` calling it "not deployed" was stale; see Known Issue #27 for the drift and why it matters). **It now also purges Storage a second time after the row is marked deleted (issue #132, 2026-07-13)**, closing the delete-during-upload orphan window issue #130 narrowed — see the (resolved) Known Issue #26 below; **redeployed 2026-07-26, so that code is live** (Known Issue #27). See Known Issue #19 for the residual gap #57 narrows but does not close. **`app/(tabs)/history.tsx` (issues #55/#12, 2026-07-13)** is the Past Analyses screen itself — list, per-row not-assessed/no-thumbnail states, delete, and a tab-bar chrome fix (partial — see Known Issue #28). Also `POST /functions/v1/delete-account` (issue #58), written and Deno-tested on `feat/58-delete-account` 2026-07-13, **deployed and verified live 2026-07-26** — see Known Issues #22 and #35. Its account-level storage sweep is bounded-concurrency and resumable (issue #125, 2026-07-13), and it now also requires recent reauthentication (issue #124, 2026-07-13) — see Known Issue #22's updated sub-bullets. The client (`lib/delete-account.ts`) has been bound to the real function since PR #122 (2026-07-13) — see Known Issue #23. The Elite Compare screen (issue #60) was built but unreachable from navigation until the 2026-08-07 comprehensive audit wired a "Compare two analyses" entry point into History — see `docs/architecture.md`'s "Current — Past Analyses" section. |
 | M7 — Polish & TestFlight (stranger can go sign-up → analysis → result without a dead end) | **In progress — gained real offline/a11y/consent/recovery work 2026-07-13. UPDATED 2026-07-26: M4's `analyze-form` IS deployed and the full sign-up → analysis → result path ran end to end against the live project (issue #128), so this milestone's own gate is now testable rather than blocked; what remains is the polish/TestFlight work itemised below plus the release blockers in Known Issues #21 and #31.** The privacy slice of issue #68 landed 2026-07-12: privacy policy drafted (publication **on hold**, see Known Issue #15), App Store label answers recorded, no-analytics-SDK re-confirmed. **The Art. 9 consent gate is now two-phase (issues #68 restatement + #94, 2026-07-13)**: health consent + a new 16+ age checkbox are once-ever; a "who is in this photo?" subject attestation is now asked on every upload, never skippable — see `docs/architecture.md`'s "Current — the two-phase consent gate" section. Server-side enforcement is still a binding M4 requirement — see Known Issue #14. **Connectivity detection landed 2026-07-13 (issue #93)**: a global offline banner is live, and the pre-flight gate before an `analyze-form` submit IS wired (`app/analyzing.tsx`) — corrected 2026-08-07, this row previously called the gate unwired; see Known Issue #30 (RESOLVED). **One `AppState` listener with foreground reconciliation landed 2026-07-13 (issues #10/#64)**: a backgrounded-then-foregrounded analysis recovers; a process kill does not — see Known Issue #29. **Password reset landed 2026-07-13 (issue #81)** — no privacy-label or consent implication, a pure account-recovery gap closed. **Sign-in a11y and hierarchy polish landed 2026-07-13 (issues #16/#20/#28/#11)**, including the first iOS `AccessibilityInfo.announceForAccessibility` usage in the repo. **`.maestro/` E2E flows for the M7 no-dead-end gate were written 2026-07-13 (issue #86) but never run** — see Known Issue #31. The repo gained its **first CI workflow** 2026-07-12 — a daily scheduled canary for the HIBP check, not a PR gate — narrowing issue #74. **A second workflow, `.github/workflows/ci.yml` (issue #82, 2026-07-13), is the repo's first actual commit gate** — typecheck/lint/test on every push and PR to `main`, previously enforced by convention only; see `docs/architecture.md`'s "Current — CI" section for both. **The M7 responsive/cross-device pass landed 2026-08-19 (issue #63)**: the tablet and safe-area half of that issue (the Dynamic Type half was PR #78). Four real defects, not just width caps — the floating tab bar stretched the full width of an iPad AND was drawn behind Android's system navigation bar, the offline banner double-inset every screen below it on a notched device, and the result screen's hero grew to ~93% of an iPad viewport. Orientation is now CONFIRMED and the answer reverses this issue's own assumption: `"orientation": "portrait"` does not pin an iPad, and `ios.requireFullScreen` cannot be used to make it (Apple deprecated `UIRequiresFullScreen`). See `docs/architecture.md`'s "Current — orientation, tablet support and safe areas" section, which also carries the four items that still need the #84 dev build. **The M7 full-app accessibility re-audit landed 2026-07-25 (issue #62)**: now that M2–M6 screens all exist, `accessibility-reviewer`° → `accessibility-implementer` swept the whole app against the design-brief §7 floor and fixed 5 defects, most notably `components/pace-readout.tsx`'s `PillarRow` collapsing its entire feedback/flags/drills body into one opaque VoiceOver node on every result screen — see `docs/a11y-audit-62.md` for the full defect list and `docs/change_log.md`'s 2026-07-25 entry. **The "Cadence Arcs" visual redesign MERGED to `main` 2026-09-01 as #195** — this row previously said it was built but unmerged, which was true when written and wrong from #195 onward; corrected 2026-09-04. It replaced the 2026-08-02 Calm design system: espresso/clay tokens instead of blue/violet, a new `Arc` token and three arc primitives, the result readout re-cut from horizontal pillar bars to radial rings (same `PaceResult` shape, same not-assessed honesty rule), the motif on every screen via `<ScreenGradient>`, and new app icon/splash art. **It is already being superseded: the "Cold Read" redesign (2026-09-04) is BUILT BUT NOT MERGED** on `fm/v23-redesign-theme-onboarding` — a near-monochrome cool palette, a single icy-cyan accent reserved for the primary CTA, the arc motif retired in favour of the achromatic `Meter` token, scrollable pace/pillars content added to the entry screen (which IS the front door — there is no separate onboarding route), and re-tinted launch assets. Its entry-screen hero merged separately as #196 on 2026-09-04 and IS on `main`; the Cold Read branch is rebased onto it. Neither is in a build, so this milestone's polish gate is not moved by either yet. Full account: `docs/change_log.md`'s 2026-09-04 entry and `docs/architecture.md`'s Cold Read sub-section. |
 
@@ -1033,6 +1033,13 @@ milestone "done" criteria.
     would mean new schema/RPC surface beyond this task's captain-approved scope (the free-tier
     behavior change, not new abuse-prevention infrastructure).
 
+    **SUPERSEDED 2026-09-06 (code-complete, not yet deployed) — see Known Issue #43.** The
+    `pace_current_tier` short-circuit this entry describes is retired: Free now runs through
+    `reserve_analysis` like every other tier, so its hard lifetime cap of 1 (plus the 3-strike
+    anti-farming counter) applies to Free again, and the no-rate-limit gap this entry flags no
+    longer exists in the new code. This entry stays as the historical record of the sample-preview
+    era; it is no longer current once #43 deploys.
+
 37. **RESOLVED 2026-08-05 — `main` had been three commits ahead of production for ten days, and
     the drift was costing real money while the shipped copy said otherwise.** PR #171 ("make Free
     tier a zero-model-call sample preview") merged 2026-07-26, but **neither half of it was ever
@@ -1380,6 +1387,160 @@ milestone "done" criteria.
     separately confirmed (no billing lookup performed) but consistent with the audit's prior
     $1.07-for-11-calls rate, i.e. a few tens of cents. `ANALYZE_FORM_EFFORT` stays `'low'` as
     implemented; this eval is the resolution of the merge prerequisite the intent named.
+43. **NEW — Free tier's fabricated zero-model-call sample (Known Issues #36/#37 above) is
+    RETIRED, replaced with a real, capped analysis — code-complete 2026-09-06, NOT YET DEPLOYED.**
+    The captain's ruling: Free now runs through the exact same `analyze-form` path as Pro/Elite —
+    auth → consent → AI spend gate → `reserve_analysis` (the only place tier is now learned, via
+    `reserve.tier`) → model call (+1 retry) → a new server-side normalization step → settle →
+    upload → attach. `pace_current_tier`/`pace_current_tier_unlimited` are no longer called by
+    `analyze-form` at all (the `ALL_USERS_UNLIMITED_ACCESS` override still works, now via
+    `reserve_analysis_unlimited` alone). This closes the launch-blocking defect #36/#37 described:
+    the fabricated sample promised a cadence figure, a left/right ground-contact comparison, and
+    flags/drills that no certified knowledge file supports, and — because it was never
+    persisted — zero Free signup in five weeks ever produced a real `analyses` row.
+
+    The new `normalizeForEvidenceAndTier()` step in `flow.ts` is what makes a REAL result honest
+    rather than merely genuine: for any one-frame submission (Free's only allowance, and any photo
+    from any tier), Cadence and Elasticity are forced to not-assessed regardless of what the model
+    claimed. A photo records `notAssessedReason: 'needsVideo'`; a video records
+    `'singleFrameFromVideo'`, which means only that one frame of the video reached this analysis —
+    it never guesses that the runner's plan caused it. Free additionally has flags/drills stripped
+    from every pillar. `overall` is recomputed only on a path that normalizes pillars (one frame or
+    Free's paid-content strip); a multi-frame Pro/Elite result keeps the model's own `overall`.
+    A structurally valid response that ends up assessing nothing (a photo that never shows the
+    runner, or a one-frame submission normalized down to zero assessed pillars) now `SETTLE`s for
+    Free — consuming the one lifetime slot, a deliberate asymmetry, since refunding it would turn
+    that single slot into an unlimited free-form-checking loop — but still `RELEASE`s (refunds) for
+    Pro/Elite, unchanged.
+
+    Safety is a required, per-pillar structured contract, not a prompt-only hope or a prose
+    classifier. Every pillar must declare `{ signal, note }` using the certified stop-running
+    signal vocabulary; normalization carries a certified signal's note across structurally and
+    makes it the visible feedback on every tier, frame path, and pillar, including when unsupported
+    assessment prose is discarded. Missing, malformed, ungrounded declarations, or a declared
+    non-`none` signal with a blank note fail closed: no salvage is delivered, the retry runs, and
+    a second contract failure releases the reservation. A model/schema-contract failure is our
+    fault, releases as non-farming `model_error`, and cannot tick the user's anti-farming counter.
+    This does not redefine the existing `validation_failed` case: after a genuine retry, the
+    existing content-failure condition remains the sole farming signal. The
+    live `20260712220000_anti_farm_release_reason_fix.sql` migration and its rolling-24-hour Free
+    window are unchanged.
+
+    A related hardening landed alongside it: `_shared/delete-analysis.ts`'s
+    `AnalysisOwnershipRow` now carries `status`, and `deleteAnalysis()` refuses a `'reserved'` row
+    with a new `{ outcome: 'in_progress' }` (409, code `in_progress`) before touching Storage —
+    closing a race where a delete-during-analysis could let an in-flight request settle a result
+    nobody could ever see or purge. (This is separate from, and does not close, Known Issue #19's
+    client soft-delete bypass — see that entry.)
+
+    On the client: `AnalyzeFormSuccess` (`lib/analyze-form.ts`) is one shape again,
+    `{ result, analysisId, isFallback }` — the `kind: 'result' | 'sample'` union, `isSample`,
+    `app/result/sample.tsx`, `<SampleResultBanner>`, and `lib/pending-sample-result.ts` are all
+    deleted. `constants/copy.ts`'s Free/paywall copy was rewritten to describe only what the
+    product can actually certify, dropping every promised pillar count and the "sample preview"
+    framing. The paid allowances are stated exactly: Pro adds 10 analyses per period; Elite adds
+    30 analyses per period. Those are display claims only; enforcement remains server-side.
+
+    **Deployment ordering is binding**: `analyze-form` must be redeployed before or with the
+    client release, because the simplified client now rejects the retired
+    `{ result, isSample: true }` shape as malformed by construction. An old deployed function
+    paired with the new client fails closed; a new deployed function paired with the old client
+    also degrades safely. **As of this writing this has NOT been deployed.** Focused automated
+    regression coverage exists for the new path, but this entry does not claim a completed full
+    validation run. **Zero real Anthropic calls** were made anywhere in this work.
+
+    **Not verified**: the local Postgres integration proof in
+    `supabase/functions/_shared/integration/quota-rpc.local.ts` (extended to prove one Free
+    request produces one delivered row and a second fresh idempotency key is denied) could not be
+    run this session because Docker Desktop was stopped and starting it / taking machine focus is
+    off-limits for this agent. State this plainly rather than implying it passed.
+
+    **~~Depends on `fm/v23-reliability-timeouts`~~ — RESOLVED 2026-09-07.** That branch landed on
+    `main` as #206 (analysis deadline restructure + centered stride-burst sampling + the server-side
+    burst/legacy-sparse classifier), and this branch is now rebased onto it. Where the two overlapped
+    in `analyze-form-prompt.ts`, #206's four-way media classification is what survived; this branch's
+    single-frame honesty rule was folded into it rather than dropped. See `docs/change_log.md`'s
+    2026-09-07 rebase-integration entry.
+44. **NEW — the analysis-limit path is now pre-flighted and honest, and the live check that
+    gated it uncovered (and fixed) a total outage. 2026-09-07, `fm/v23-free-tier-real-analysis`,
+    NOT YET DEPLOYED.**
+
+    **The three defects, all on the path a user hits when they are NOT allowed to run an
+    analysis.** Both checks that can end an analysis — the allowance cap and issue #6's anti-farm
+    cooldown — are enforced inside `reserve_analysis`, which the server does not reach until the
+    client has extracted frames AND submitted them. So a capped or cooling-down runner filmed,
+    waited through extraction, waited another 20-60s on the Analyzing screen, and only then learned
+    they were never eligible — the cooldown arriving under `analyzing.error.failed` ("Your analysis
+    failed / The analysis service didn't return a usable result"), beside a Retry that resubmitted
+    into the identical refusal. Nothing had failed: the reserve was refused, so no model call was
+    made and no row existed.
+
+    Fixed in three parts. `lib/analysis-preflight.ts` widens the ONE bounded `quota-status` read
+    `app/capture/extracting.tsx` already made for the frame cap so it also answers "may this runner
+    start", before any thumbnail work (the photo path, which skipped quota entirely, now takes that
+    read too — its frame count still does not depend on the answer, its eligibility does). It fails
+    OPEN on every lookup failure, because "you are in a cooldown" is a claim about someone's account
+    and only the server may make it, and it reports `cooldown` ahead of `exhausted` because
+    `reserve_analysis` tests them in that order. New cross-cutting `Copy.analysisPause` names a
+    pause rather than a failure and states the time left from `blocked_until` (no expiry, an
+    unparsable one, or one already past degrades to wording with no time in it — never a guessed or
+    zeroed countdown). Retry is gone from that path on both screens; a genuine transient failure
+    keeps it. An exhausted allowance routes to `/paywall`, which states the real allowance. Home's
+    blocked caption reads the same `blocked_until`, so the earliest surface a user sees is the first
+    that stops saying "later".
+
+    **THE LIVE CHECK — 17 real Anthropic calls, and what each was for.** This branch's standing
+    merge condition was that the deployed model must be proven to populate the new per-pillar
+    `safety` field at every tier. It does — but the first run never got that far:
+
+    - **5 calls, all HTTP 400, unbilled.** The grounding eval (`--effort low`, matching the shipped
+      `ANALYZE_FORM_EFFORT`) came back `invalid_request_error` on every case, at every tier: *"The
+      compiled grammar is too large, which would cause performance issues."* `analyze-form` sends
+      `PACE_RESULT_SCHEMA` on EVERY request, so this was not a degraded result — it was every
+      analysis for every user rejected before the model ran, and the flow would have classified it
+      as a transport failure, released the reservation, and delivered nothing. **This branch's own
+      regression, and no offline test could see it**: the ceiling lives in Anthropic's grammar
+      compiler, not in the JSON.
+    - **5 probe calls, one variable each** (3 x 400 unbilled, 2 x 200 at `max_tokens: 16`), to find
+      the driver rather than guess it:
+
+      | schema under test | JSON size | result |
+      |---|---|---|
+      | four inlined pillars, WITH `safety` (the branch) | 16,710 chars | **400** |
+      | the same with `safety` removed (i.e. `main`'s) | 12,578 chars | 200 |
+      | the branch's, every `description` stripped | 4,468 chars | **400** |
+      | the branch's, only `safety` hoisted into `$defs` | 13,788 chars | **400** |
+      | the branch's, whole pillar in `$defs`, `$ref`d 4x | 5,421 chars | 200 |
+
+      So the driver is STRUCTURAL, not textual, and `main` is unaffected. The fix is one shared
+      `$defs.pillar` node and four `$ref`s — all four pillars were already byte-identical apart from
+      a `The ${label} pillar.` description, and those labels moved to the `pillars` container node.
+      Locked by a named regression test carrying these five measurements.
+    - **5 calls, all 200, $0.3232.** The eval re-run against the fixed schema. **THE MERGE
+      CONDITION HOLDS: `pillar-safety` passed on 5/5 cases — free/photo, pro/photo, pro/photo
+      (blank), pro/video, elite/video — with all four pillars carrying a usable declaration in every
+      one**, including the blank case where all four came back not-assessed and the free case where
+      two did. Every other grounding gate passed too, except one red at Elite (below).
+    - **2 calls, $0.1281.** Two more Elite samples, to establish whether that red reproduced. It did
+      (2 of 3) — and it was **the grader, not the model**: `no-false-precision`'s bare `/\d+ *ms/`
+      was firing on *"any steps-per-minute figure I could estimate from the ~200ms-apart timestamps
+      would be a wide, approximate range only ... treat that number as a rough sense of pace, not a
+      measurement"*. That is `TIMESTAMP_RULES` being obeyed almost verbatim — the model described the
+      frame spacing it was handed in the manifest, hedged it, gave a range instead of a point value,
+      and refused to measure. The check is now scoped to the claim the way the cadence check beside
+      it already was (a millisecond figure counts only with a ground-contact term near it), and both
+      captured Elite responses were re-graded OFFLINE against the fix: both pass. That was the
+      over-tight content validation CLAUDE.md names as a known Echo V1 mistake.
+
+    **Totals: 17 calls, 8 unbilled 400s, 9 successes, $0.4513 metered by the eval harness** (the two
+    200-returning probes were tiny and not separately metered — single-digit cents at most).
+
+    **What is still NOT proven.** No deployment and no simulator/device run: this is code-complete
+    and test-green only, same as #43. The committed `grounding-eval.results.json` is the artifact of
+    the LAST 4-case run before this work and was deliberately not overwritten with a partial
+    single-case run; the per-case evidence above is the record. And a single run carries no variance
+    data — it proves the safety CONTRACT (binary), never a quality score.
+
 
     **Stride-burst latency eval (2026-09-07, `fm/v23-stride-burst-extraction`, run manually — 5
     real Anthropic calls, $0.42 at list price).** The captain's 2026-09-06 launch-blocker brief
@@ -1442,6 +1603,17 @@ still standing between here and a public/TestFlight release:
   rebased onto it, so the hero is on `main` and the pillar reveal sits under its real mount. Until
   this branch merges, `main` ships that hero on espresso/clay. See the M7 row above and
   `docs/change_log.md`'s 2026-09-04 entry.
+- **Known Issues #43 and #44** — the Free-tier real-analysis rewrite of `analyze-form`, and the
+  analysis-limit pre-flight on top of it, are code-complete with focused regression coverage but
+  **not deployed**. #44 also carries the `$defs` schema fix WITHOUT WHICH THE ENDPOINT IS DOWN:
+  deploying #43's `safety` field without it returns HTTP 400 on every request at every tier. It now also carries an unapplied
+  migration, `20260906120000_invalid_safety_release_reason.sql`, which adds `'invalid_safety'` to
+  `analyses_release_reason_known_values` — it must be applied BEFORE the function is deployed, or
+  every safety-contract release will be rejected by the CHECK constraint and strand the
+  reservation. `analyze-form` then needs `supabase functions deploy analyze-form`
+  before or with the client release (the new client rejects the retired sample shape), and the
+  local Postgres integration proof for it could not be run this session (Docker was stopped) —
+  report that proof as **unproven**, never as passing.
 - **Known Issue #31** — `.maestro/` E2E flows ran for the first time 2026-07-25 but are not yet a
   clean, repeatable pass.
 - **Known Issue #24/#34** — several blocks of uncertified copy across Settings, consent, paywall,

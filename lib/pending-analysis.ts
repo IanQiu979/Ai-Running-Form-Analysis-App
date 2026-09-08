@@ -27,16 +27,13 @@
  *     dead end to begin with — its own primary CTA and Settings link stay fully usable underneath),
  *     clear the marker.
  *
- * KNOWN GAP (captain-approved 2026-07-26, Free tier's zero-model-call sample preview): the marker
- * is set unconditionally the instant ANY request exists, before the server has told the client
- * which tier it is. A Free-tier request never creates an `analyses` row at all (it short-circuits
- * before `reserve_analysis` — see `supabase/functions/analyze-form/flow.ts`), so a kill between
- * navigating to `/analyzing` and the (normally near-instant) sample response landing leaves a
- * marker with "no row yet" forever — `sweep_stale_reservations`'s 15-minute backstop cannot help,
- * since there was never a row for it to flip to `released`. Impact is minimal: `'pending'` renders
- * no UI on Home, and the marker is silently overwritten the next time the user starts any
- * analysis — but unlike the cases above, this one does not self-resolve on its own. Not fixed
- * here; flagged so a future reader isn't surprised.
+ * CLOSED GAP (2026-09-06): this used to document a Free-tier hole — the marker is still set
+ * unconditionally the instant ANY request exists, before the server has told the client which tier
+ * it is, and the retired zero-model-call sample preview short-circuited before `reserve_analysis`,
+ * so a Free request created no `analyses` row for the marker to ever reconcile against. Free now
+ * runs a real capped analysis: it reserves, settles, and is covered by `sweep_stale_reservations`
+ * exactly like every other tier, so a killed Free request self-resolves on a later cold start just
+ * like the `reserved` case above. No tier bypasses the reserve any more.
  *
  * STORAGE CHOICE: plain `AsyncStorage`, NOT `lib/secure-storage.ts`'s Keychain/Keystore-backed
  * adapter. That adapter exists to protect a Supabase session (an access + refresh token pair) —

@@ -10,8 +10,8 @@
  *
  * ══ THE CALL ORDER IS THE CONTRACT ══════════════════════════════════════════════════════════
  *
- *   auth → consent → TIER LOOKUP (free short-circuits here) → AI GATE
- *        → idempotency + quota reserve → model call (+1 retry)
+ *   auth → consent → AI GATE → idempotency + quota reserve (tier is DERIVED here)
+ *        → model call (+1 retry) → normalize (evidence + tier)
  *        → settle → upload frames → attach ... and on any failure: release
  *
  * Every arrow is load-bearing and each has a named failure mode. In order:
@@ -29,19 +29,17 @@
  *    control. A missing row, a `granted = false` row, AND a query error all mean refuse; see
  *    `checkConsent()`. Skip it and the app processes Art. 9 health data with no legal basis.
  *
- * 2.5. TIER LOOKUP, side-effect-free (captain-approved 2026-07-26). `pace_current_tier` answers
- *    "which tier is this user on" with none of `reserve_analysis`'s side effects — no row, no
- *    quota slot spent. A `'free'` result short-circuits the ENTIRE rest of this function: no AI
- *    gate, no reserve, no model call, ever. Free tier is a zero-Anthropic-spend, honestly-labeled
- *    sample preview (`_shared/analyze-form-sample.ts`), a hard cost-control requirement, not just
- *    UX — see that file's header. `'pro'`/`'elite'` fall straight through to the existing path
- *    below, completely unmodified; `reserveAnalysis` re-derives the tier a second time internally,
- *    an accepted redundant `SELECT` traded for not touching the hardened path that follows at all.
- *    On any RPC failure here, `currentTier` throws — same as `reserveAnalysis`'s own error
- *    handling — and the outer `catch` turns it into the same `internal_error` 500 every other
- *    unexpected RPC failure in this function already produces. It deliberately does NOT default to
- *    `'free'` on error: that would silently swallow a paying user's real analysis on a transient
- *    DB blip, which is a worse failure mode than a request that has to be retried.
+ * 2.5. FREE TIER (captain's ruling, 2026-09-06 — supersedes the earlier zero-spend sample). Free
+ *    gets a REAL, model-backed analysis through this SAME path, capped server-side by
+ *    `reserve_analysis`'s one-lifetime-delivered-analysis policy (Known Issue #14's authority, not
+ *    a client-visible counter). There is no more side-effect-free pre-reserve tier lookup and no
+ *    early return: every tier — free, pro, elite — runs gate → reserve → model → normalize →
+ *    settle identically, and `reserve.tier` (from `reserve_analysis` itself) is the only place tier
+ *    is learned. This closes the launch-blocking defect the fabricated sample created: it promised
+ *    a cadence figure, a left/right ground-contact comparison, and flags/drills that do not exist
+ *    in the certified knowledge files, and nobody who saw it ever received a real analysis (five
+ *    weeks, zero `analyses` rows). The normalization step below is what makes a real Free result
+ *    honest rather than merely genuine.
  *
  * 3. AI SPEND GATE, before idempotency and before the reserve — not after (#91's binding call
  *    order). If the gate ran after the reserve, every kill-switch/cap/breaker denial would have to
@@ -60,6 +58,7 @@
  *
  * 4/5. IDEMPOTENCY + ATOMIC RESERVE, both inside `reserve_analysis` (one round trip, one advisory
  *    lock). We branch on the returned `status`, never on `allowed` alone — see `handleExisting()`.
+ *    `reserve.tier` is now the SOLE source of tier for the rest of the request.
  *
  * 6-8. PROMPT → ONE VISION CALL → validate → retry once, only for an eligible failure kind.
  *    `analyze-form-prompt.ts` (#41) builds the request; `analyze-form-validation.ts` (#45) reads
@@ -72,6 +71,19 @@
  *    a completed model round trip, but MUST remain retry-reachable because a repeated content
  *    failure is the only signal `classifyReleaseReason` has for deliberate prompt-injection
  *    farming. If that smaller retry times out, it safely becomes `model_error`, not a strike.
+ *    The MEDIUM RULES are picked from the frame count actually attached, not the client's
+ *    declared `mediaType` — a video clipped to one frame by Free's cap is one instant, and must
+ *    never be handed the cross-frame rules.
+ *
+ * 8.5. NORMALIZE (evidence + tier) — server-side, unconditional, never prompt-only trust. Cadence
+ *    (a rate) and Elasticity (a bounce cycle) cannot be honestly assessed from a single frame,
+ *    whatever the model claims: every one-frame submission (Free's only allowance, and any photo
+ *    from any tier) has both pillars forced to `notAssessedReason: 'needsVideo'` here, and `overall`
+ *    is recomputed from what is left. A stop-running SAFETY signal the model wrote into such a
+ *    pillar survives the strip and leads the replacement feedback (SAFETY_RULES: undroppable at
+ *    every tier). Free additionally never renders flags/drills (`pace.ts`'s `PacePillarResult` doc
+ *    comment) — stripped here, not merely omitted from the prompt. See
+ *    `normalizeForEvidenceAndTier()`.
  *
  * 9. SETTLE, THEN UPLOAD, THEN ATTACH — in that order, and only on a deliverable outcome (#130).
  *    THE INVARIANT: a 'reserved' row can never have frames. Frames go up only after the row has
@@ -110,7 +122,6 @@ import {
   type RpcClient,
 } from '../_shared/ai-guard.ts';
 import { estimateTokensForCall } from '../_shared/ai-pricing.ts';
-import { FREE_SAMPLE_PACE_RESULT } from '../_shared/analyze-form-sample.ts';
 import {
   buildAnalyzeFormRequest,
   type AnalyzeFormRequest as AnthropicRequest,
@@ -120,6 +131,7 @@ import {
 import {
   callFailedAttempt,
   decideOutcome,
+  deriveOverall,
   readAttempt,
   type AnalyzeFormDecision,
   type AnthropicMessageResponse,
@@ -132,7 +144,9 @@ import {
   PACE_FRAME_CAP,
   PACE_MAX_REQUEST_BODY_BYTES,
   PACE_PILLARS,
+  hasSafetySignal,
   isPaceResult,
+  type PacePillarResult,
   type PaceResult,
   type PaceTier,
 } from '../_shared/pace.ts';
@@ -406,31 +420,11 @@ interface ReserveResult {
   [key: string]: unknown;
 }
 
-/**
- * `pace_current_tier` — the side-effect-free tier lookup (new migration
- * `20260804120000_pace_current_tier_function.sql`), used ONLY to decide whether this request can
- * skip the model call entirely. MUST throw (not silently default) on an RPC error or an
- * unrecognized value — same posture as `reserveAnalysis` just below, and deliberately the
- * opposite of `checkConsent`'s fail-closed-refuse: defaulting to `'free'` here would silently
- * swallow a paying user's real analysis on a transient DB blip, and defaulting to a paid tier
- * would be the actual spend risk this whole feature exists to avoid. The caller lets the throw
- * propagate to the function's own top-level `catch`, which already turns any unexpected RPC
- * failure into the same `internal_error` 500.
- */
-async function currentTier(
-  rpc: RpcClient,
-  userId: string,
-  allUsersUnlimitedAccess = false
-): Promise<PaceTier> {
-  const fn = allUsersUnlimitedAccess ? 'pace_current_tier_unlimited' : 'pace_current_tier';
-  const { data, error } = await rpc.rpc(fn, { p_user_id: userId });
-  if (error) {
-    throw new Error(`${fn} failed: ${error.message}`);
-  }
-  if (data !== 'free' && data !== 'pro' && data !== 'elite') {
-    throw new Error(`${fn} returned an unexpected tier: ${JSON.stringify(data)}`);
-  }
-  return data;
+/** `ReserveResult` crosses an RPC/JSON trust boundary; its compile-time tier annotation proves
+ * nothing at runtime. Keep this check closed and explicit so prototype keys cannot index the
+ * prompt/token tables or bypass `tier === 'free'` normalization. */
+function isPaceTier(value: unknown): value is PaceTier {
+  return value === 'free' || value === 'pro' || value === 'elite';
 }
 
 async function reserveAnalysis(
@@ -722,31 +716,14 @@ export async function runAnalyzeForm(
       ));
     }
 
-    // ── 2.5. Tier lookup — side-effect-free, before the AI gate and the reserve. ────────────
-    //
-    // See the file header's "TIER LOOKUP" section above. A free result answers the whole request
-    // right here: no gate check, no reservation, no `analyses` row, no model call — this is a
-    // fabricated preview, always labeled `isSample: true`. Nothing below this branch ever runs for
-    // a free-tier caller, so `openCalls`/`reservation` stay empty/null and the `finally` at the
-    // bottom is a no-op by construction, exactly like every other early return above it.
-    tier = await currentTier(deps.rpc, callerUserId, deps.allUsersUnlimitedAccess);
-
-    if (tier === 'free') {
-      outcome = 'sample';
-      return (response = {
-        status: 200,
-        body: { result: FREE_SAMPLE_PACE_RESULT, isSample: true },
-      });
-    }
-
     // ── 3. AI spend gate — BEFORE idempotency and reserve (#91's binding order). ────────────
     //
-    // Tier is now known to be 'pro' or 'elite' (free short-circuited above), but the pre-call
-    // estimate below still deliberately uses the WORST case (elite's 8k output budget) rather than
-    // the now-known real tier. That errs strictly toward reserving too much headroom, which
-    // `ai-pricing.ts` names as the intended direction of error — the gate is a ceiling, not an
-    // accountant, and `record_ai_call` settles the real cost from real token counts moments later.
-    // The retry's gate, below, knows the true tier and uses it.
+    // Tier is not known yet — `reserve_analysis` below is the only place it is derived — so the
+    // pre-call estimate deliberately uses the WORST case (elite's 8k output budget) rather than
+    // guessing. That errs strictly toward reserving too much headroom, which `ai-pricing.ts` names
+    // as the intended direction of error — the gate is a ceiling, not an accountant, and
+    // `record_ai_call` settles the real cost from real token counts moments later. The retry's
+    // gate, below, knows the true tier and uses it.
     const firstEstimate = estimateTokensForCall(request.frames.length, 'elite');
     const gate = await gateAiCall(deps.rpc, {
       userId: callerUserId,
@@ -808,7 +785,18 @@ export async function runAnalyzeForm(
       return (response = reserveDenialResponse(reserve));
     }
 
-    tier = reserve.tier ?? null;
+    const analysisId = reserve.id;
+    // A fresh row already exists once reserve_analysis returns allowed. Record it BEFORE validating
+    // the rest of the untrusted RPC payload so every malformed tier/id exit still reaches the one
+    // release_analysis call in `finally` whenever an id is available.
+    if (!reserve.existing && typeof analysisId === 'string') {
+      reservation = analysisId;
+    }
+
+    if (!isPaceTier(reserve.tier)) {
+      throw new Error('reserve_analysis returned an allowed reservation with an invalid tier.');
+    }
+    tier = reserve.tier;
 
     if (reserve.existing) {
       // CONTRACT RULE 2 lives here. `allowed: true` is not permission to deliver.
@@ -816,9 +804,8 @@ export async function runAnalyzeForm(
       return (response = handleExisting(reserve));
     }
 
-    const analysisId = reserve.id;
-    if (typeof analysisId !== 'string' || !tier) {
-      throw new Error('reserve_analysis returned an allowed reservation with no id or tier.');
+    if (typeof analysisId !== 'string') {
+      throw new Error('reserve_analysis returned an allowed reservation with no id.');
     }
     // From this line on, a row exists in state `'reserved'`. Every exit path below — return, throw,
     // or fall-through — passes through the `finally`, which releases it unless it was settled.
@@ -826,6 +813,11 @@ export async function runAnalyzeForm(
     const modelDeadline = Math.min(now() + ANALYZE_FORM_DEADLINE_MS, requestDeadline);
 
     // ── 6/7. The grounded prompt (#41). Server-derived tier; never the client's word for it. ──
+    // Both facts go to the builder — what the runner SENT (`mediaType`) and what actually reached
+    // us (`frames`) — and `analyze-form-prompt.ts` keeps them apart: one attached frame gets the
+    // one-instant rules whatever produced it, while the runner's own upload is still described to
+    // the model as the video it was. Collapsing the two is how a video submitter ends up being
+    // told their upload is a photo and advised to send a video.
     const anthropicRequest = buildAnalyzeFormRequest({
       tier,
       media: request.mediaType,
@@ -885,12 +877,22 @@ export async function runAnalyzeForm(
       //     (`classifyReleaseReason` only recognizes `no_tool_use`/`invalid_shape`) and a policy
       //     refusal on the exact same frames is unlikely to change on a second ask, so retrying it
       //     buys nothing.
+      //   - `invalid_safety` IS eligible, on the same content floor as the two shape failures: it
+      //     is a completed round trip whose CONTENT violated our own safety contract (a missing,
+      //     malformed, or ungrounded `safety` declaration), so a second ask can plausibly produce
+      //     a conforming one. Unlike the other two it can never become a farming strike —
+      //     `classifyReleaseReason` short-circuits any attempt carrying it to `'invalid_safety'`
+      //     — so the retry exists purely to give the model its second chance before we refuse to
+      //     deliver anything at all.
       const isRetryEligibleFailure =
         lastFailureReason === 'model_error' ||
         lastFailureReason === 'no_tool_use' ||
-        lastFailureReason === 'invalid_shape';
+        lastFailureReason === 'invalid_shape' ||
+        lastFailureReason === 'invalid_safety';
       const minRetryBudgetMs =
-        lastFailureReason === 'no_tool_use' || lastFailureReason === 'invalid_shape'
+        lastFailureReason === 'no_tool_use' ||
+        lastFailureReason === 'invalid_shape' ||
+        lastFailureReason === 'invalid_safety'
           ? MIN_CONTENT_RETRY_BUDGET_MS
           : MIN_RETRY_BUDGET_MS;
       const mayRetry = isRetryEligibleFailure && remainingBeforeGate >= minRetryBudgetMs;
@@ -1018,37 +1020,54 @@ export async function runAnalyzeForm(
       }
       return (response = fail(
         503,
-        releaseReason,
+        // `'invalid_safety'` is a LEDGER distinction, not a wire one: it tells us apart "the
+        // provider erred" from "our own certified-safety requirement was not honoured". The caller
+        // can do exactly the same thing about either, so the client keeps seeing the stable
+        // `'model_error'` code rather than learning our internal vocabulary.
+        releaseReason === 'invalid_safety' ? 'model_error' : releaseReason,
         'The analysis service is having trouble right now. This one has not been counted against your quota — please try again shortly.'
       ));
     }
 
     isFallback = decision.kind === 'partial';
 
+    // ── 8.5. Normalize (evidence + tier) — see the file header. Server-side, unconditional, and
+    // strictly AFTER the honest-partial decision above: the only input this function ever
+    // recomputes `overall` from again is what actually survives normalization, never what the
+    // model claimed. From here on `normalizedResult` — never `decision.result` — is the value that
+    // gets counted, returned, and persisted.
+    const normalizedResult = normalizeForEvidenceAndTier(decision.result, {
+      frameCount: request.frames.length,
+      mediaType: request.mediaType,
+      tier,
+    });
+
     // ── 9.5. Captain decision (audit-v23-r1-decision-zero-pillar-charge-policy). ────────────
     //
     // A response can reach here fully structurally VALID (`decideOutcome` returned `kind:
     // 'valid'`, never even touching the >= 1-assessed-pillar bar that gates the 'partial' branch
     // above) and yet assess NOTHING — every pillar honestly `score: null`, e.g. a clip that never
-    // actually shows the runner. That is a real, well-formed result the user got zero usable
-    // information from, and charging their quota for it is exactly the harm this decision exists
-    // to close. `release_analysis`, not `settle_analysis`: the row hands its quota slot back
-    // (same mechanism `'validation_failed'`/`'model_error'` failures already use), while the
-    // computed `decision.result` — never persisted — is still returned to the caller below, so
-    // the request is NOT failed outright. `'zero_pillars_assessed'` is excluded from
-    // `pace_is_farming_signal` (20260712220000), so this never ticks the 3-strike anti-farm cap:
-    // an honest "nothing to see here" is not an attack.
-    const deliveredResult = decision.result;
+    // actually shows the runner, OR a one-frame submission whose only assessed pillars were
+    // Cadence/Elasticity before normalization forced them to `needsVideo`. That is a real,
+    // well-formed result the user got zero usable information from. For Pro/Elite,
+    // `release_analysis` hands the quota slot back (same mechanism `'validation_failed'`/
+    // `'model_error'` failures already use), while the computed `normalizedResult` — never
+    // persisted — is still returned to the caller below, so the request is NOT failed outright.
+    // Free instead SETTLES a zero-pillar result (2026-09-06 ruling): Free has exactly one lifetime
+    // delivered analysis, and refunding a blank/unusable submission would turn that single slot
+    // into an unlimited free-form-checking loop. `'zero_pillars_assessed'` is excluded from
+    // `pace_is_farming_signal` (20260712220000) either way, so this never ticks the 3-strike
+    // anti-farm cap: an honest "nothing to see here" is not an attack.
     const assessedPillarCount = PACE_PILLARS.filter(
-      (id) => deliveredResult.pillars[id].score !== null
+      (id) => normalizedResult.pillars[id].score !== null
     ).length;
 
-    if (assessedPillarCount === 0) {
+    if (assessedPillarCount === 0 && tier !== 'free') {
       releaseReason = 'zero_pillars_assessed';
       outcome = 'zero_pillars_assessed';
       return (response = {
         status: 200,
-        body: { result: decision.result, analysisId, isFallback },
+        body: { result: normalizedResult, analysisId, isFallback },
       });
     }
 
@@ -1095,7 +1114,7 @@ export async function runAnalyzeForm(
     const settled = await settleAnalysis(deps.rpc, {
       userId: callerUserId,
       analysisId,
-      result: decision.result,
+      result: normalizedResult,
       isFallback,
     });
 
@@ -1114,7 +1133,7 @@ export async function runAnalyzeForm(
 
     return (response = {
       status: 200,
-      body: { result: decision.result, analysisId, isFallback },
+      body: { result: normalizedResult, analysisId, isFallback },
     });
   } catch (err) {
     // Our own bug, or an RPC that hard-failed. Never the user's fault, and never a farming signal:
@@ -1201,6 +1220,138 @@ async function checkConsent(deps: AnalyzeFormDeps, userId: string): Promise<bool
     );
     return false;
   }
+}
+
+/** Cadence is a rate and Elasticity is a bounce cycle: neither exists inside one still frame. */
+const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
+
+/**
+ * Server-side normalization — see the file header's "NORMALIZE" step. Never prompt-only trust
+ * (captain's ruling, 2026-09-06, the audit's sharpest finding): whatever the model wrote, this
+ * function is the last word on what actually reaches the caller and gets persisted.
+ *
+ *   - ONE FRAME cannot show stride-to-stride motion. Cadence and Elasticity are forced to an
+ *     honest not-assessed, DISCARDING every claim the model made about them — score, band,
+ *     feedback prose, flags, drills. That prose is exactly the failure mode the retired sample
+ *     shipped (a hallucinated "mid-170s spm" and a left/right ground-contact comparison neither
+ *     pillar's certified knowledge file supports), so none of it survives, however it is phrased.
+ *   - A certified non-`none` `safety` declaration LEADS that pillar's feedback on EVERY path — all
+ *     pillars, all tiers, one or many frames. No reading of prose, keyword matching, or judgement
+ *     call: the certified `note` is placed first, unmissable, and whatever coaching prose SURVIVED
+ *     the normalization above is kept underneath it (captain's ruling: a warning never deletes
+ *     supportable coaching, and never trails behind it). Prose the normalization already discarded
+ *     as unsupportable — a motion pillar on one frame — stays discarded, so the note stands alone
+ *     there. This function may assume the declaration is THERE:
+ *     `analyze-form-validation.ts` refuses to call a response
+ *     deliverable unless every pillar carries a usable one, so an absent, malformed, ungrounded,
+ *     or blank-note `safety` never reaches this code — it fails closed into a retry and then a
+ *     release. `hasSafetySignal(null)` below is therefore only ever reached for a pillar WE
+ *     produced (a salvage drop), never for one whose warning we might be discarding.
+ *   - The `notAssessedReason` names what we can actually vouch for: `'needsVideo'` for a photo,
+ *     and `'singleFrameFromVideo'` when the runner sent a video and exactly one frame of it
+ *     arrived. It does NOT claim WHY only one frame arrived — the frame count is chosen on the
+ *     device (`lib/extraction-frame-cap.ts`, which degrades to one frame when it cannot read the
+ *     caller's quota at all), so "your plan only allows one" is a cause we have not verified and
+ *     is plainly false for a paying user whose quota lookup failed. The client renders one
+ *     sentence from this reason (`Copy.result.pillar.notAssessed.*`), so no surface tells a video
+ *     submitter to submit a video, and none blames a plan.
+ *   - ALL FOUR pillars are guarded on a one-frame submission, not merely the two that are forced.
+ *     Posture and Arm-swing POSITION do survive one frame, but a pillar the model itself did not
+ *     score may not keep flags or drills it cannot support — guarding half of them was never a
+ *     guarantee against fabricated confidence.
+ *   - FREE never renders flags/drills (`pace.ts`'s `PacePillarResult` doc comment: "Paid-tier
+ *     content"). Stripped here on every pillar, not merely omitted from the prompt. `safety` is
+ *     NOT tier-gated and is never stripped — it is the one field a cheap tier cannot cost you.
+ *
+ * `overall` is recomputed — via the same `deriveOverall()` the honest-partial fallback path
+ * already uses — ONLY when this function actually changed a pillar. A multi-frame Pro/Elite
+ * result passes through untouched, model `overall` included: recomputing it there would silently
+ * replace the model's headline with our mean on a paid path this change has no business altering.
+ * When pillars WERE normalized, the model's `overall` was computed over pillars that no longer
+ * exist, so it cannot be kept.
+ */
+function normalizeForEvidenceAndTier(
+  result: PaceResult,
+  input: { frameCount: number; mediaType: PaceMediaKind; tier: PaceTier }
+): PaceResult {
+  const { frameCount, mediaType, tier } = input;
+  const pillars: Record<string, PacePillarResult> = { ...result.pillars };
+  const normalizesPillars = frameCount === 1 || tier === 'free';
+
+  if (frameCount === 1) {
+    for (const id of PACE_PILLARS) {
+      const pillar = pillars[id];
+
+      if (MOTION_ONLY_PILLARS.includes(id)) {
+        const safety = pillar.safety ?? null;
+        pillars[id] = {
+          score: null,
+          band: null,
+          feedback: null,
+          notAssessedReason: mediaType === 'video' ? 'singleFrameFromVideo' : 'needsVideo',
+          safety,
+          flags: [],
+          drills: [],
+        };
+        continue;
+      }
+
+      const notAssessedReason =
+        mediaType === 'video' && pillar.notAssessedReason === 'needsVideo'
+          ? ('singleFrameFromVideo' as const)
+          : pillar.notAssessedReason;
+
+      if (pillar.score === null || pillar.band === null) {
+        pillars[id] = {
+          ...pillar,
+          score: null,
+          band: null,
+          notAssessedReason,
+          flags: [],
+          drills: [],
+        };
+      } else if (notAssessedReason !== pillar.notAssessedReason) {
+        pillars[id] = { ...pillar, notAssessedReason };
+      }
+    }
+  }
+
+  if (tier === 'free') {
+    for (const id of PACE_PILLARS) {
+      pillars[id] = { ...pillars[id], flags: [], drills: [] };
+    }
+  }
+
+  // The UI renders `feedback`, not the machine-readable `safety` sibling, so the certified note is
+  // composed into it here — in exactly ONE place, for every pillar, tier and frame count. The note
+  // is copied structurally (no keyword inference) and placed FIRST; any coaching prose still
+  // standing after the normalization above follows it, separated by a blank line.
+  for (const id of PACE_PILLARS) {
+    const pillar = pillars[id];
+    const safety = pillar.safety ?? null;
+    if (hasSafetySignal(safety)) {
+      pillars[id] = { ...pillar, feedback: composeSafetyLedFeedback(safety.note, pillar.feedback) };
+    }
+  }
+
+  const normalizedPillars = pillars as PaceResult['pillars'];
+  return {
+    pillars: normalizedPillars,
+    overall: normalizesPillars ? deriveOverall(normalizedPillars) : result.overall,
+  };
+}
+
+/**
+ * Warning first, coaching below. The certified `note` is never merged into, reworded around, or
+ * appended after the model's prose — a runner who reads only the first line still reads the
+ * warning — and supportable coaching is never deleted just because a warning fired.
+ */
+function composeSafetyLedFeedback(note: string, feedback: string | null): string {
+  const coaching = feedback?.trim() ?? '';
+  if (coaching.length === 0 || coaching === note.trim()) {
+    return note;
+  }
+  return `${note}\n\n${coaching}`;
 }
 
 async function callModel(
@@ -1424,6 +1575,7 @@ function statusForCall(
       return 'validation_failed';
     case 'truncated':
     case 'refusal':
+    case 'invalid_safety':
     case 'call_failed':
       return 'model_error';
     default:
@@ -1486,7 +1638,7 @@ async function safeRelease(
     const { error } = await rpc.rpc('release_analysis', {
       p_user_id: userId,
       p_analysis_id: analysisId,
-      // One of the four strings `analyses_release_reason_known_values` permits. Anything else is
+      // One of the strings `analyses_release_reason_known_values` permits. Anything else is
       // rejected by the CHECK constraint — and only `'validation_failed'` ticks the anti-farming
       // counter, so getting this wrong either brickes an innocent user or hands a farmer free
       // calls.

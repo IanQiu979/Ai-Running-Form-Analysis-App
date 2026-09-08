@@ -23,6 +23,7 @@ import {
   proTierVideoResult,
 } from '@/lib/pace-fixtures';
 import { pillarDetailA11yLabel, pillarLabel } from '@/lib/pace-readout';
+import type { PaceResult } from '@shared/pace';
 
 /** The `<ArcRing>` geometry `<PaceReadout>` renders a pillar at, re-derived here rather than
  *  copied from a render: the sweep must be the score as a fraction of the full circle. */
@@ -98,6 +99,58 @@ describe('a not-assessed pillar never reads as a zero (photoResult: Cadence + El
     // stringified into a fabricated score rather than just checking the testID is absent.
     expect(screen.queryByText('0')).toBeNull();
   });
+});
+
+// The runner DID send a video; their plan's frame cap clipped it to one frame. Neither "needs
+// video, not a photo" nor "bad angle" is a true sentence about that upload, so the server writes
+// its own reason and this row must speak it.
+it('speaks the single-frame-from-video reason, never "not a photo", for a clipped video', async () => {
+  const clipped: PaceResult = {
+    ...photoResult,
+    pillars: {
+      ...photoResult.pillars,
+      cadence: { ...photoResult.pillars.cadence, notAssessedReason: 'singleFrameFromVideo' },
+    },
+  };
+
+  await render(<PaceReadout result={clipped} />);
+
+  const line = screen.getByTestId('pillar-not-assessed-cadence', HIDDEN).props.children;
+  expect(line).toBe(Copy.result.pillar.notAssessed.singleFrameFromVideo);
+  expect(line).not.toContain('not a photo');
+  // The a11y announcement is the same fact, not a different one — a screen-reader user on this
+  // path must not be told they sent a photo either.
+  expect(screen.getByLabelText(`Cadence. ${Copy.result.pillar.notAssessed.singleFrameFromVideo}`)).toBeTruthy();
+});
+
+// A Pro/Elite multi-frame analysis may honestly report a pillar as not-assessed AND write real
+// explanatory prose for it (`_shared/pace.ts` permits exactly that). The marker must not vanish
+// just because feedback is present — a dashed ring alone does not say "not assessed".
+it('keeps the not-assessed marker on a Pro pillar that carries its own feedback', async () => {
+  const proWithNote: PaceResult = {
+    ...proTierVideoResult,
+    pillars: {
+      ...proTierVideoResult.pillars,
+      armSwing: {
+        score: null,
+        band: null,
+        feedback: 'Keep the elbows near 90 degrees.',
+        notAssessedReason: 'angle',
+        flags: [],
+        drills: [],
+      },
+    },
+  };
+
+  await render(<PaceReadout result={proWithNote} />);
+
+  expect(screen.getByTestId('pillar-not-assessed-armSwing', HIDDEN).props.children).toBe(
+    Copy.result.pillar.notAssessed.angle
+  );
+  expect(screen.getByTestId('pillar-feedback-armSwing').props.accessibilityLabel).toBe(
+    'Keep the elbows near 90 degrees.'
+  );
+  expect(screen.queryByTestId('pillar-score-armSwing')).toBeNull();
 });
 
 it('renders the "angle" reason distinctly from "needsVideo" for a badly-framed pillar', async () => {

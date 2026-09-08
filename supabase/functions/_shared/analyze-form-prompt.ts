@@ -84,7 +84,7 @@
 
 import { DRILLS_MD, INJURY_FLAGS_MD, PACE_FRAMEWORK_MD } from './knowledge.generated.ts';
 import { MAX_OUTPUT_TOKENS_BY_TIER } from './ai-pricing.ts';
-import { PACE_FRAME_CAP, PACE_PILLARS, SCORE_BAND_VALUES } from './pace.ts';
+import { PACE_FRAME_CAP, PACE_PILLARS, PACE_SAFETY_SIGNALS, SCORE_BAND_VALUES } from './pace.ts';
 import type { PaceTier } from './pace.ts';
 
 // -------------------------------------------------------------------------------------------
@@ -263,7 +263,22 @@ const BAND_DESCRIPTION =
 /**
  * JSON Schema for one pillar. Mirrors `PacePillarResult` exactly.
  *
- * SCHEMA LIMITS THAT SHAPED THIS (Anthropic structured outputs, verified 2026-07-12):
+ * ONE DEFINITION, REFERENCED FOUR TIMES — see `PACE_RESULT_SCHEMA`'s `$defs` block below. This
+ * used to be inlined per pillar with a `The ${label} pillar.` description; that description is
+ * gone because there is now a single shared node, and it was carrying nothing the property KEY
+ * (`posture`/`armSwing`/`cadence`/`elasticity`) and the prompt's own pillar rules do not already
+ * say far more clearly.
+ *
+ * SCHEMA LIMITS THAT SHAPED THIS (Anthropic structured outputs):
+ *   - THE COMPILED GRAMMAR HAS A SIZE CEILING, and four inlined copies of this object exceeded it
+ *     the moment `safety` was added. Verified live 2026-09-07, not reasoned about: the schema with
+ *     four inlined pillars is rejected before generation with HTTP 400 `invalid_request_error`,
+ *     "The compiled grammar is too large" — every request, every tier, so the whole endpoint is
+ *     down. The same schema with this one node in `$defs` and four `$ref`s to it is accepted.
+ *     The driver is STRUCTURAL, not textual: stripping every `description` in the schema (16,710
+ *     chars down to 4,468) still 400s, and hoisting only the `safety` sub-object is not enough
+ *     either. Do NOT inline this back per pillar, and treat any future per-pillar divergence as a
+ *     reason to re-measure against the live API before merging it.
  *   - Numerical constraints (`minimum`/`maximum`) are NOT supported, so 0-100 cannot be enforced
  *     here. It lives in the description, and `isPaceResult`'s `isScoreInRange` enforces it at
  *     runtime. Shape is guaranteed by the schema; range is guaranteed by code.
@@ -274,10 +289,9 @@ const BAND_DESCRIPTION =
  *     (`string` satisfies `string | null`) and better product behaviour: a not-assessed pillar
  *     should still say WHY, and what shot would fix it.
  */
-function pillarSchema(pillarLabel: string): Record<string, unknown> {
+function pillarSchema(): Record<string, unknown> {
   return {
     type: 'object',
-    description: `The ${pillarLabel} pillar.`,
     properties: {
       score: {
         anyOf: [{ type: 'integer' }, { type: 'null' }],
@@ -302,6 +316,33 @@ function pillarSchema(pillarLabel: string): Record<string, unknown> {
           'this is a single photo (Cadence and Elasticity always take this on a photo). ' +
           '"angle": the camera angle, framing, lighting, or crop does not show what this pillar ' +
           'needs.',
+      },
+      safety: {
+        type: 'object',
+        description:
+          "This pillar's stop-running declaration, kept OUT of `feedback` so it survives when the " +
+          'server strips claims a single frame cannot support. Say it in `feedback` too, first, ' +
+          'as the safety rules require — this is the machine-readable copy, not a replacement.',
+        properties: {
+          signal: {
+            type: 'string',
+            enum: [...PACE_SAFETY_SIGNALS],
+            description:
+              'injury_flags.md\'s certified stop-running list, and the ONLY values allowed. ' +
+              '"none" (the normal answer) = nothing of the kind is visible or reported; ' +
+              '"sharpOrWorseningPain"; "swellingLimpOrFavouringOneSide"; ' +
+              '"achillesOrHeelCordPain". Declare one ONLY when plainly visible or stated.',
+          },
+          note: {
+            type: 'string',
+            description:
+              'Empty string when signal is "none". Otherwise injury_flags.md\'s language ' +
+              'template: calm, plain language, get it looked at before running on it. Never name ' +
+              'a condition as present.',
+          },
+        },
+        required: ['signal', 'note'],
+        additionalProperties: false,
       },
       flags: {
         type: 'array',
@@ -351,7 +392,7 @@ function pillarSchema(pillarLabel: string): Record<string, unknown> {
         },
       },
     },
-    required: ['score', 'band', 'feedback', 'flags', 'drills'],
+    required: ['score', 'band', 'feedback', 'safety', 'flags', 'drills'],
     additionalProperties: false,
   };
 }
@@ -362,6 +403,11 @@ const PILLAR_LABELS: Record<string, string> = {
   cadence: 'Cadence (C)',
   elasticity: 'Elasticity (E)',
 };
+
+/** The single pillar definition's name and JSON-Pointer, kept together so the `$defs` key and the
+ *  four `$ref`s can never drift apart. */
+const PILLAR_SCHEMA_DEF_NAME = 'pillar';
+const PILLAR_SCHEMA_REF = `#/$defs/${PILLAR_SCHEMA_DEF_NAME}`;
 
 /**
  * THE OUTPUT CONTRACT, as one JSON Schema: exactly `PaceResult` from `./pace.ts` (#43) — the
@@ -385,9 +431,16 @@ export const PACE_RESULT_SCHEMA: Record<string, unknown> = {
   properties: {
     pillars: {
       type: 'object',
-      description: 'All four PACE pillars. Every pillar is always present, even when not assessed.',
+      // Names the four pillars HERE, on the one container node, because the per-pillar
+      // descriptions are gone: `$defs` gives all four the same shared definition (see
+      // `pillarSchema`'s doc for the live 400 that forced it), so there is no longer a per-pillar
+      // node to hang a label on.
+      description:
+        'All four PACE pillars — ' +
+        PACE_PILLARS.map((id) => `${id}: ${PILLAR_LABELS[id]}`).join(', ') +
+        '. Every pillar is always present, even when not assessed, and every one takes the same shape.',
       properties: Object.fromEntries(
-        PACE_PILLARS.map((id) => [id, pillarSchema(PILLAR_LABELS[id])])
+        PACE_PILLARS.map((id) => [id, { $ref: PILLAR_SCHEMA_REF }])
       ),
       required: [...PACE_PILLARS],
       additionalProperties: false,
@@ -418,6 +471,8 @@ export const PACE_RESULT_SCHEMA: Record<string, unknown> = {
   },
   required: ['pillars', 'overall'],
   additionalProperties: false,
+  // The shared pillar node. See `pillarSchema`'s doc for the live 400 that made this mandatory.
+  $defs: { [PILLAR_SCHEMA_DEF_NAME]: pillarSchema() },
 };
 
 /** The `output_config.format` payload — the default carrier for the schema above. */
@@ -523,6 +578,14 @@ const SAFETY_RULES = [
   "  FIRST, in the `feedback` of the pillar it shows up in, at EVERY tier including Free — in",
   '  calm, plain language, telling the runner to get it looked at before running on it. It is',
   '  never buried under form feedback and never withheld because a tier is cheap.',
+  '- AND DECLARE IT IN THE `safety` FIELD of that same pillar: pick the matching certified',
+  '  `signal` from injury_flags.md\'s stop-running list and put the calm sentence in `note`.',
+  '  Prose alone is not enough — the server strips claims a single frame cannot support, and the',
+  '  `safety` field is what carries the warning through that strip untouched. A stop-running',
+  '  signal you write ONLY into `feedback` can be lost; one you declare here cannot.',
+  '- `signal: "none"` (with an empty `note`) is the normal answer and is required whenever no',
+  '  stop-running signal is visible. Never declare a signal to be safe: a false alarm on every',
+  '  result is how a real one stops being read.',
   '- Do NOT write the "not medical advice" disclaimer into any field. The app renders it under',
   '  every single result already, on every tier. Writing it again would double it on screen.',
 ].join('\n');
@@ -793,8 +856,12 @@ const SINGLE_FRAME_VIDEO_RULES = [
   '  from a single pose, however suggestive it looks.',
   '  => Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
   '     "needsVideo"`. This is not a failure — it is the correct, honest result for a single',
-  '     frame. Tell the runner a short multi-frame video would unlock those two pillars.',
+  '     frame.',
   '- Arm swing RANGE (the arc) is also motion over time. Judge position only, and say so.',
+  '- They ALREADY sent a video. NEVER tell them to submit one, and never describe their',
+  '  submission as a photo. You are NOT told why only one frame arrived — do not speculate about',
+  '  it, and never state or imply that their plan allows only one. If you mention the limitation',
+  '  at all, say only that one frame of their video could be analysed.',
 ].join('\n');
 
 /**
@@ -925,9 +992,11 @@ export function buildSystemPrompt(input: AnalyzeFormPromptInput): AnthropicTextB
  * so the classification driving `videoMediaRules` is visible in the manifest text too, not only
  * inferred silently from which rules got included above it.
  */
-export function formatFrameManifest(frames: PaceFrame[]): string {
+export function formatFrameManifest(frames: PaceFrame[], media: PaceMediaKind = 'photo'): string {
   if (frames.length === 1) {
-    return 'FRAME MANIFEST: 1 frame (a single photo or video frame — no timing information applies).';
+    return media === 'video'
+      ? 'FRAME MANIFEST: 1 frame — the only frame that could be extracted from the runner\'s video. No timing information applies to a single frame.'
+      : 'FRAME MANIFEST: 1 frame (a single photo — no timing information applies).';
   }
 
   const lines = frames.map((frame, i) => {
@@ -1005,17 +1074,24 @@ function buildOutputContract(input: AnalyzeFormPromptInput): string {
  * — "system message = the certified PACE knowledge..., then the image block(s) plus their
  * timestamps, then the PACE scoring instruction."
  */
+function submissionLine(input: AnalyzeFormPromptInput): string {
+  if (input.media === 'photo') {
+    return "Here is the runner's submission: one photo.";
+  }
+  return input.frames.length === 1
+    ? "Here is the runner's submission: a video, of which exactly one frame was extracted for this analysis."
+    : `Here is the runner's submission: ${input.frames.length} frames from a short video.`;
+}
+
 export function buildUserContent(input: AnalyzeFormPromptInput): AnthropicContentBlock[] {
   const blocks: AnthropicContentBlock[] = [];
 
   blocks.push({
     type: 'text',
     text: [
-      input.media === 'photo'
-        ? 'Here is the runner\'s submission: one photo.'
-        : `Here is the runner's submission: ${input.frames.length} frames from a short video.`,
+      submissionLine(input),
       '',
-      formatFrameManifest(input.frames),
+      formatFrameManifest(input.frames, input.media),
     ].join('\n'),
   });
 
@@ -1023,8 +1099,10 @@ export function buildUserContent(input: AnalyzeFormPromptInput): AnthropicConten
     blocks.push({
       type: 'text',
       text:
-        input.media === 'photo'
-          ? 'The photo:'
+        input.frames.length === 1
+          ? input.media === 'photo'
+            ? 'The photo:'
+            : 'The one frame extracted from the video:'
           : `Frame ${i + 1} of ${input.frames.length} — client-reported timestamp ~${Math.round(
               frame.requestedTimestampMs
             )} ms (approximate):`,

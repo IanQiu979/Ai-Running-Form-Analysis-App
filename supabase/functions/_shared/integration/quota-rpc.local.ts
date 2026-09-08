@@ -30,14 +30,51 @@ async function reserve(userId: string, idempotencyKey: string, frameCount = 1, m
   return data as Record<string, unknown>;
 }
 
-async function release(userId: string, analysisId: string) {
+async function release(userId: string, analysisId: string, reason = 'internal_error') {
   const { data, error } = await client.rpc('release_analysis', {
     p_user_id: userId,
     p_analysis_id: analysisId,
-    p_reason: 'internal_error',
+    p_reason: reason,
   });
   if (error) throw new Error(`release_analysis failed: ${error.message}`);
   return data as Record<string, unknown>;
+}
+
+const DELIVERED_RESULT = {
+  pillars: {
+    posture: { score: 80, band: 'good', feedback: 'Tall through mid-stance.', flags: [], drills: [] },
+    armSwing: { score: null, band: null, feedback: null, notAssessedReason: 'angle', flags: [], drills: [] },
+    cadence: { score: null, band: null, feedback: null, notAssessedReason: 'needsVideo', flags: [], drills: [] },
+    elasticity: { score: null, band: null, feedback: null, notAssessedReason: 'needsVideo', flags: [], drills: [] },
+  },
+  overall: { score: 80, band: 'good' },
+};
+
+async function settle(userId: string, analysisId: string) {
+  const { data, error } = await client.rpc('settle_analysis', {
+    p_user_id: userId,
+    p_analysis_id: analysisId,
+    p_result: DELIVERED_RESULT,
+    p_is_fallback: false,
+    p_media_paths: [],
+  });
+  if (error) throw new Error(`settle_analysis failed: ${error.message}`);
+  return data as Record<string, unknown>;
+}
+
+async function quotaStatus(userId: string) {
+  const { data, error } = await client.rpc('pace_quota_status', { p_user_id: userId });
+  if (error) throw new Error(`pace_quota_status failed: ${error.message}`);
+  return data as Record<string, unknown>;
+}
+
+async function analysisRows(userId: string) {
+  const { data, error } = await client
+    .from('analyses')
+    .select('id,status,result,is_fallback')
+    .eq('user_id', userId);
+  if (error) throw new Error(`analysis row query failed: ${error.message}`);
+  return data ?? [];
 }
 
 async function activeAnalysisCount(userId: string): Promise<number> {
@@ -179,17 +216,37 @@ Deno.test('pace_current_period: returns the half-open [start, end) window anchor
 // ---------------------------------------------------------------------------
 // 4. FREE IS LIFETIME, PRO/ELITE ARE PERIOD-BASED — a real branch, not just documented.
 // ---------------------------------------------------------------------------
-Deno.test('reserve_analysis: free tier quota is lifetime (limit 1), independent of pace_current_period', async () => {
+Deno.test('Free lifetime flow: one reservation is genuinely delivered and a second fresh key is denied', async () => {
   const userId = await createTestUser(client, 'free-lifetime');
   try {
     const first = await reserve(userId, `free-lifetime-a-${crypto.randomUUID()}`);
     assertEquals(first.allowed, true);
+    assertEquals(first.existing, false);
     assertEquals(first.tier, 'free');
+    assertEquals(first.status, 'reserved');
+
+    const settled = await settle(userId, first.id as string);
+    assertEquals(settled.ok, true);
+    assertEquals(settled.status, 'delivered');
+
+    const deliveredRows = await analysisRows(userId);
+    assertEquals(deliveredRows.length, 1);
+    assertEquals(deliveredRows[0].id, first.id);
+    assertEquals(deliveredRows[0].status, 'delivered');
+    assertEquals(deliveredRows[0].result, DELIVERED_RESULT);
+    assertEquals(deliveredRows[0].is_fallback, false);
+
+    const quotaAfterDelivery = await quotaStatus(userId);
+    assertEquals(quotaAfterDelivery.tier, 'free');
+    assertEquals(quotaAfterDelivery.used, 1);
+    assertEquals(quotaAfterDelivery.limit, 1);
+    assertEquals(quotaAfterDelivery.is_lifetime, true);
 
     const second = await reserve(userId, `free-lifetime-b-${crypto.randomUUID()}`);
     assertEquals(second.allowed, false);
     assertEquals(second.reason, 'quota_exceeded');
     assertEquals(second.limit, 1);
+    assertEquals(await analysisRows(userId), deliveredRows, 'the denied request must not insert a second row');
   } finally {
     await deleteTestUser(client, userId);
   }
@@ -219,6 +276,69 @@ Deno.test('reserve_analysis: pro tier quota (limit 10) is enforced via pace_curr
     // Confirmed independently from the row side — the rejected 11th call must not have inserted
     // anything, not just returned allowed: false.
     assertEquals(await activeAnalysisCount(userId), 10);
+  } finally {
+    await deleteTestUser(client, userId);
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// THE ANTI-FARM CAP MUST NOT COST A FREE USER THE ANALYSIS THEY NEVER RECEIVED.
+//
+// Routing Free through `reserve_analysis` (2026-09-06) put Free accounts under the 3-strike
+// released-reservation cap for the first time. `20260712220000_anti_farm_release_reason_fix.sql`
+// already narrowed that cap twice — it counts only reasons `pace_is_farming_signal()` names
+// (`validation_failed` alone), and for Free it is a rolling 24h window, not lifetime — so our own
+// failures must not spend it. These two cases prove that against the REAL migration rather than
+// against a reading of it. They need Docker/local Postgres, which is why they live in this file.
+// ---------------------------------------------------------------------------
+
+Deno.test('anti-farm: three OUR-FAULT releases do not stop a Free user getting their analysis', async () => {
+  const userId = await createTestUser(client, 'free-transient-failures');
+  try {
+    for (const reason of ['model_error', 'provider_timeout', 'internal_error']) {
+      const attempt = await reserve(userId, `free-transient-${reason}-${crypto.randomUUID()}`);
+      assertEquals(attempt.allowed, true, `a ${reason} release must not deny the next attempt`);
+      const released = await release(userId, attempt.id as string, reason);
+      assertEquals(released.status, 'released');
+    }
+
+    const fourth = await reserve(userId, `free-transient-success-${crypto.randomUUID()}`);
+    assertEquals(fourth.allowed, true, 'three of OUR failures may never cost the user their one analysis');
+    assertEquals(fourth.tier, 'free');
+
+    const settled = await settle(userId, fourth.id as string);
+    assertEquals(settled.status, 'delivered');
+  } finally {
+    await deleteTestUser(client, userId);
+  }
+});
+
+Deno.test('anti-farm: three validation_failed releases DO throttle, and the block is not lifetime', async () => {
+  const userId = await createTestUser(client, 'free-farming-signal');
+  try {
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const attempt = await reserve(userId, `free-farm-${i}-${crypto.randomUUID()}`);
+      assertEquals(attempt.allowed, true);
+      ids.push(attempt.id as string);
+      await release(userId, attempt.id as string, 'validation_failed');
+    }
+
+    const blocked = await reserve(userId, `free-farm-blocked-${crypto.randomUUID()}`);
+    assertEquals(blocked.allowed, false, 'confirmed farming signals still throttle');
+    assertEquals(blocked.reason, 'too_many_failed_attempts');
+
+    // THE INVARIANT: throttled, never permanently denied. Age the three releases past the rolling
+    // 24h window the migration defines and the same user may try again.
+    const { error } = await client
+      .from('analyses')
+      .update({ released_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString() })
+      .in('id', ids);
+    if (error) throw new Error(`could not age the released rows: ${error.message}`);
+
+    const afterWindow = await reserve(userId, `free-farm-after-window-${crypto.randomUUID()}`);
+    assertEquals(afterWindow.allowed, true, 'the anti-farm block must expire, never be a lifetime denial');
   } finally {
     await deleteTestUser(client, userId);
   }

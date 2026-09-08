@@ -117,6 +117,32 @@ describe('a not-assessed pillar never reads as a zero (photoResult.cadence is nu
     expect(screen.queryByTestId('pillar-detail-band-cadence')).toBeNull();
   });
 
+  // The second render surface for the same fact (the info button opens this modal). A runner whose
+  // video was clipped to one frame must not read "needs video, not a photo" here either.
+  it('speaks the media-aware reason for a video clipped to one frame', async () => {
+    await render(
+      <PillarDetailModal
+        visible
+        onDismiss={jest.fn()}
+        pillarId="cadence"
+        pillar={{
+          ...photoResult.pillars.cadence,
+          notAssessedReason: 'singleFrameFromVideo',
+          feedback: 'Get that ankle looked at before running on it.',
+        }}
+      />
+    );
+
+    const reason = screen.getByTestId('pillar-detail-not-assessed-cadence').props.children;
+    expect(reason).toBe(Copy.result.pillar.notAssessed.singleFrameFromVideo);
+    expect(reason).not.toContain('not a photo');
+    // The prose beside it is the stop-running note the server carried across — a different fact,
+    // not a competing account of what was submitted.
+    expect(screen.getByTestId('pillar-detail-feedback-cadence').props.children).toBe(
+      'Get that ankle looked at before running on it.'
+    );
+  });
+
   it('never renders the literal string "0" anywhere', async () => {
     await render(
       <PillarDetailModal

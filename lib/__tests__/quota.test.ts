@@ -51,7 +51,7 @@ const FREE_AVAILABLE: QuotaStatus = {
   used: 0,
   limit: 1,
   remaining: 1,
-  frameCap: 8,
+  frameCap: 1,
   unlimited: false,
   isLifetime: true,
   periodStart: null,
@@ -283,17 +283,16 @@ describe('describeQuota', () => {
     });
   });
 
-  it('renders the free-lifetime caption, never "this month" — the deck is emphatic', () => {
+  it('tells an unused Free account that one real analysis is available', () => {
     expect(describeQuota(FREE_AVAILABLE)).toEqual({
-      primary: Copy.home.quota.free.available,
+      primary: '1 free analysis available',
       secondary: null,
     });
-    expect(Copy.home.quota.free.available.toLowerCase()).not.toContain('this month');
   });
 
-  it('renders the free-exhausted caption with no secondary line', () => {
+  it('tells an exhausted Free account that its real analysis has been used', () => {
     expect(describeQuota(FREE_EXHAUSTED)).toEqual({
-      primary: Copy.home.quota.exhausted.free,
+      primary: "You've used your free analysis",
       secondary: null,
     });
   });
@@ -320,13 +319,35 @@ describe('describeQuota', () => {
   it('renders the anti-farm blocked notice as the secondary line even when quota remains', () => {
     // ELITE_BLOCKED: remaining: 28, blocked: true — the exact "quota left but currently
     // refused" combination issue #6 / `_shared/quota-status.ts`'s header calls out by name.
-    const caption = describeQuota(ELITE_BLOCKED);
+    // `blockedUntil` is 2026-07-14T00:00:00Z; pinning `now` two hours earlier makes the phrase
+    // exact rather than dependent on when the suite runs.
+    const twoHoursBefore = Date.parse('2026-07-13T22:00:00.000Z');
+    const caption = describeQuota(ELITE_BLOCKED, twoHoursBefore);
     expect(caption.primary).toBe('28 of 30 analyses left this period');
+    expect(caption.secondary).toBe(Copy.home.quota.blockedFor.replace('{remaining}', 'about 2 hours'));
+  });
+
+  // Home is the earliest surface that can say how long is left, and it says it from the SAME
+  // `blocked_until` the analysis pre-flight reads — so the two never disagree.
+  it('states how long the block has left rather than an open-ended "later"', () => {
+    const caption = describeQuota(ELITE_BLOCKED, Date.parse('2026-07-13T22:00:00.000Z'));
+    expect(caption.secondary).toContain('about 2 hours');
+    expect(caption.secondary).not.toBe(Copy.home.quota.blocked);
+  });
+
+  // ...but only when the server gave us a usable expiry. A missing, unparsable, or already-past
+  // `blocked_until` degrades to the timeless wording; it is never a guessed or zeroed countdown.
+  it.each([
+    ['no expiry at all', null, Date.parse('2026-07-13T22:00:00.000Z')],
+    ['an unparsable expiry', 'soon', Date.parse('2026-07-13T22:00:00.000Z')],
+    ['an expiry already in the past', '2026-07-14T00:00:00.000Z', Date.parse('2026-07-15T00:00:00.000Z')],
+  ])('falls back to the timeless notice for %s', (_label, blockedUntil, now) => {
+    const caption = describeQuota({ ...ELITE_BLOCKED, blockedUntil }, now);
     expect(caption.secondary).toBe(Copy.home.quota.blocked);
   });
 
   it('prioritizes the blocked notice over "Renews" when both would otherwise apply', () => {
-    const caption = describeQuota(ELITE_BLOCKED);
+    const caption = describeQuota(ELITE_BLOCKED, Date.parse('2026-07-13T22:00:00.000Z'));
     expect(caption.secondary).not.toMatch(/^Renews/);
   });
 });
@@ -375,8 +396,12 @@ describe('primaryCtaAccessibilityHint', () => {
     expect(primaryCtaAccessibilityHint(FREE_AVAILABLE)).toBeNull();
   });
 
+  // VoiceOver must hear exactly what is on screen, countdown included — the hint is the visible
+  // caption verbatim, not a second, quietly-different sentence.
   it('names the anti-farm block, not a quota reason, when quota remains but is blocked', () => {
-    expect(primaryCtaAccessibilityHint(ELITE_BLOCKED)).toBe(Copy.home.quota.blocked);
+    const now = Date.parse('2026-07-13T22:00:00.000Z');
+    expect(primaryCtaAccessibilityHint(ELITE_BLOCKED, now)).toBe(describeQuota(ELITE_BLOCKED, now).secondary);
+    expect(primaryCtaAccessibilityHint(ELITE_BLOCKED, now)).toContain('about 2 hours');
   });
 
   it('reuses the visible exhausted-Elite caption verbatim (no separate invented reason)', () => {

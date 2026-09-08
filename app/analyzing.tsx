@@ -87,7 +87,6 @@ import {
 import { onAppForeground } from '@/lib/app-state';
 import { checkConnectivity } from '@/lib/connectivity';
 import { clearPendingAnalysisMarker, setPendingAnalysisMarker } from '@/lib/pending-analysis';
-import { setPendingSampleResult } from '@/lib/pending-sample-result';
 import { useSession } from '@/lib/session-provider';
 import { signOut, type SignOutResult } from '@/lib/sign-out';
 import { supabase } from '@/lib/supabase';
@@ -197,18 +196,6 @@ export default function AnalyzingScreen() {
             // paywall below instead of offering a Retry that would resubmit into the same
             // exhausted quota.
             dispatch({ type: 'failed', attempt, code: result.error.code });
-            return;
-          }
-
-          if (result.data.kind === 'sample') {
-            // Free tier (captain-approved 2026-07-26): zero model calls, a labeled preview
-            // instead. `heroDataUri` is built from the frame ALREADY in memory — the "their own
-            // uploaded photo" requirement, with nothing uploaded to Storage for a sample. A photo
-            // submission is always exactly one frame server-side, but this stays defensive rather
-            // than assuming it.
-            const heroDataUri =
-              request.frames.length > 0 ? `data:image/jpeg;base64,${request.frames[0]}` : null;
-            dispatch({ type: 'sample', attempt, result: result.data.result, heroDataUri });
             return;
           }
 
@@ -360,19 +347,6 @@ export default function AnalyzingScreen() {
       pathname: '/result/[id]',
       params: { id: state.analysisId, justAnalyzed: '1' },
     } as Href);
-  }, [state, router]);
-
-  // Free tier's sample preview (captain-approved 2026-07-26), mirroring the 'succeeded' effect
-  // above: stage the result in its own one-shot mailbox (a `PaceResult` plus a `data:` URI is far
-  // past what's sane as a serialized route param, same reasoning `justAnalyzed` above avoids for
-  // the real path) and hand off to the static `/result/sample` route. No `analyses` row exists for
-  // a sample, so there is nothing for the marker below to reconcile later — clear it the same way
-  // the real success path does.
-  useEffect(() => {
-    if (state.phase !== 'sample') return;
-    clearPendingAnalysisMarker();
-    setPendingSampleResult({ result: state.result, heroDataUri: state.heroDataUri });
-    router.replace('/result/sample');
   }, [state, router]);
 
   // Issue #136: a real 402 quota_exceeded opens the paywall rather than the generic retryable
@@ -565,10 +539,34 @@ export default function AnalyzingScreen() {
           />
         )}
 
+        {/* The server's 429 `too_many_failed_attempts` — issue #6's anti-farm cooldown, reached
+            here only when it beat `app/capture/extracting.tsx`'s pre-flight (a lookup that failed
+            open, or a window that closed between the two calls). NOTHING FAILED: the reserve was
+            refused, so no model call was made, no row exists, and nothing was counted. It used to
+            render `error.failed` — "Your analysis failed / the service didn't return a usable
+            result" — with a Retry that resubmitted into the identical refusal; both halves were
+            untrue. There is deliberately no Retry and no upgrade offer here: retrying cannot
+            succeed until the window clears, and `analyze-form` maps this to 429 rather than 402
+            precisely so we never sell a plan to someone we just throttled.
+
+            The remaining time is NOT stated on this path. The 429 body carries no expiry
+            (`reserve_analysis` returns only the reason), and this screen will not invent one or
+            spend another round trip to guess at it — the pre-flight is the surface that has the
+            number, and Home shows it too. */}
+        {state.phase === 'failed' && state.code === 'too_many_failed_attempts' && (
+          <ErrorPanel
+            styles={styles}
+            title={Copy.analysisPause.title}
+            body={Copy.analysisPause.body}
+            primary={{ label: Copy.analysisPause.cta, onPress: handleCancel }}
+          />
+        )}
+
         {/* Issue #136: `quota_exceeded` is excluded here — the effect above routes it to /paywall.
             Rendering a Retry for it would resubmit into the same exhausted quota. */}
         {state.phase === 'failed' &&
           state.code !== 'quota_exceeded' &&
+          state.code !== 'too_many_failed_attempts' &&
           state.code !== 'previous_attempt_failed' &&
           state.code !== 'unauthorized' && (
             <ErrorPanel
@@ -649,7 +647,14 @@ type ErrorPanelProps = {
    * render a button whose wording promises something the handler cannot do.
    */
   primary?: { label: string; onPress: () => void };
-  onCancel: () => void;
+  /**
+   * The ghost exit to Home. OPTIONAL because one phase — the anti-farm cooldown — has exactly one
+   * honest action, leaving, and rendering it twice (once as `primary`, once as a de-emphasised
+   * "Cancel" beneath it) would read as two different choices when there is only one. Every other
+   * phase passes it: those all have a real primary action, so the exit must stay available beside
+   * it ("Retry/Cancel must never trap the user").
+   */
+  onCancel?: () => void;
 };
 
 /**
@@ -691,7 +696,9 @@ function ErrorPanel({ styles, title, body, primary, onCancel }: ErrorPanelProps)
       {primary && (
         <PillButton label={primary.label} onPress={primary.onPress} style={styles.errorAction} />
       )}
-      <PillButton variant="ghost" label={Copy.analyzing.error.cta.cancel} onPress={onCancel} />
+      {onCancel && (
+        <PillButton variant="ghost" label={Copy.analyzing.error.cta.cancel} onPress={onCancel} />
+      )}
     </View>
   );
 }

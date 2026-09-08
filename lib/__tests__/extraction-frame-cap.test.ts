@@ -16,6 +16,10 @@
  *   3. A structurally-valid-but-nonsense `frameCap` (0, negative, NaN, fractional) is treated as
  *      a failure, not obeyed.
  *
+ * THE `quota-status` ROUND TRIP THAT FEEDS THIS lives in `lib/analysis-preflight.ts` (one read,
+ * two answers: this frame cap and whether the caller may start at all) and is covered by
+ * `lib/__tests__/analysis-preflight.test.ts`. Only the pure decision is exercised here.
+ *
  * `../supabase` is mocked because `lib/quota.ts` -> `lib/functions-client.ts` -> `lib/supabase.ts`
  * builds a real client from `EXPO_PUBLIC_*` at import time and throws when those are unset (as
  * they are under Jest) — same module-boundary mock `delete-account.test.ts` and `consent.test.ts`
@@ -24,12 +28,7 @@
  */
 import { PACE_FRAME_CAP } from '@shared/pace';
 
-import {
-  FALLBACK_VIDEO_FRAME_CAP,
-  fetchVideoFrameCap,
-  QUOTA_WAIT_TIMEOUT_MS,
-  resolveVideoFrameCap,
-} from '../extraction-frame-cap';
+import { FALLBACK_VIDEO_FRAME_CAP, resolveVideoFrameCap } from '../extraction-frame-cap';
 import type { QuotaStatus, QuotaStatusClient, QuotaStatusErrorCode, QuotaStatusResult } from '../quota';
 
 jest.mock('../supabase', () => ({
@@ -161,66 +160,5 @@ describe('resolveVideoFrameCap — the deliberate free-cap fallback', () => {
     for (const failure of failures) {
       expect(resolveVideoFrameCap(failure)).toBeLessThanOrEqual(PACE_FRAME_CAP.free);
     }
-  });
-});
-
-describe('fetchVideoFrameCap', () => {
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  it('returns the paid cap the injected client reports', async () => {
-    const client = clientResolving(okResult('elite', PACE_FRAME_CAP.elite));
-
-    await expect(fetchVideoFrameCap(client)).resolves.toBe(PACE_FRAME_CAP.elite);
-    expect(client.fetch).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns the free cap when the client reports an error', async () => {
-    const client = clientResolving(errorResult('quota_status_unavailable'));
-
-    await expect(fetchVideoFrameCap(client)).resolves.toBe(FALLBACK_VIDEO_FRAME_CAP);
-  });
-
-  // "Do not block the UI indefinitely on a network call." A hung quota-status must degrade the
-  // frame count, not strand the screen on a spinner that never advances.
-  it('stops waiting after QUOTA_WAIT_TIMEOUT_MS and falls back to the free cap', async () => {
-    jest.useFakeTimers();
-    // Never resolves on its own — the real behavior of a hung request.
-    const client: QuotaStatusClient = { fetch: jest.fn(() => new Promise<QuotaStatusResult>(() => {})) };
-
-    const capPromise = fetchVideoFrameCap(client);
-    await jest.advanceTimersByTimeAsync(QUOTA_WAIT_TIMEOUT_MS);
-
-    await expect(capPromise).resolves.toBe(FALLBACK_VIDEO_FRAME_CAP);
-  });
-
-  // The race must not fire early: a response that arrives comfortably inside the window is
-  // honoured in full, so a paying user on a merely-slowish connection still gets their frames.
-  it('honours a paid cap that arrives before the timeout', async () => {
-    jest.useFakeTimers();
-    const client: QuotaStatusClient = {
-      fetch: jest.fn(
-        () =>
-          new Promise<QuotaStatusResult>((resolve) => {
-            setTimeout(() => resolve(okResult('pro', PACE_FRAME_CAP.pro)), QUOTA_WAIT_TIMEOUT_MS - 1_000);
-          })
-      ),
-    };
-
-    const capPromise = fetchVideoFrameCap(client);
-    await jest.advanceTimersByTimeAsync(QUOTA_WAIT_TIMEOUT_MS - 1_000);
-
-    await expect(capPromise).resolves.toBe(PACE_FRAME_CAP.pro);
-  });
-
-  // Defence in depth, not a live path: QuotaStatusClient's contract is that it resolves and never
-  // rejects. If one ever did, the rejection must not escape to the extraction screen's own
-  // `.catch`, where it would render a dead-end "extraction failed" instead of simply extracting
-  // at the free cap.
-  it('falls back to the free cap when a client violates its contract and rejects', async () => {
-    const client: QuotaStatusClient = { fetch: jest.fn().mockRejectedValue(new Error('boom')) };
-
-    await expect(fetchVideoFrameCap(client)).resolves.toBe(FALLBACK_VIDEO_FRAME_CAP);
   });
 });

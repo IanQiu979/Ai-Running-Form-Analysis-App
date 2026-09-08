@@ -5,6 +5,94 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-08 (review pass on the analysis-limit path)
+
+**On `fm/v23-free-tier-real-analysis`, not yet merged to `main`.** Follow-ups from the review of
+the 2026-09-07 entry below; no model calls were made.
+
+- **The paused panel is a real heading, and it is announced.** The Extracting screen's pause state
+  now carries the panel title as the screen's single `accessibilityRole="header"` (the
+  "Preparing your analysis" eyebrow is skipped there, as it already is for an error — it would
+  contradict "Analyses are paused for now"), and the state is announced on iOS like the ready and
+  error states already were. The title also drops the failure hue for `text.primary`: a pause is
+  not a failure, and the colour must not claim one.
+- **A one-frame VIDEO never reports "needs video, not a photo".** `normalizeForEvidenceAndTier()`
+  now maps a MODEL-supplied `notAssessedReason: 'needsVideo'` to the server-authored
+  `'singleFrameFromVideo'` on a video submission, not just the two motion pillars it forces itself.
+  Same rule as before, applied everywhere it can be reached: state what happened, never tell a
+  video submitter to submit a video, never blame a plan.
+- **`describeCooldownRemaining` moved to its own module**, `lib/cooldown-remaining.ts`. Both
+  `lib/quota.ts` and `lib/analysis-preflight.ts` need it and already import each other's exports;
+  the split is what keeps that from becoming a module cycle, the same shape
+  `lib/extraction-frame-cap.ts` took. No behaviour change.
+- **`lib/pending-analysis.ts`'s "known gap" comment was stale** and is now recorded as CLOSED: it
+  described the retired sample's short-circuit, and no tier bypasses `reserve_analysis` any more,
+  so a killed Free request self-resolves exactly like every other tier's.
+
+## 2026-09-07 (the analysis-limit path: pre-flight the refusal, tell the truth, drop the dead Retry)
+
+**On `fm/v23-free-tier-real-analysis`, not yet merged to `main`.** The last slice of the
+free-tier lane: the branch made Free's analysis real, and this makes its REFUSALS honest. Rebased
+onto `main` after #206 first. **17 real Anthropic calls were made**, all on the live safety check
+and the outage it uncovered — 8 were HTTP 400 rejections (unbilled) and 9 succeeded, $0.45 metered.
+Exact breakdown and per-case evidence: `docs/status.md` Known Issue #43. Everything else here is
+offline.
+
+- **The refusal now happens BEFORE the work, not after it.** Both checks that can end an analysis
+  — the allowance cap and issue #6's anti-farm cooldown — live in `reserve_analysis`, which the
+  server does not reach until the client has extracted frames AND submitted them. So a capped or
+  cooling-down runner filmed, waited through extraction, waited again on the Analyzing screen for
+  20-60s, and only then learned they were never eligible. `app/capture/extracting.tsx` already made
+  one bounded `quota-status` round trip for the frame cap; new `lib/analysis-preflight.ts` widens
+  that SAME read to answer both questions, so the gate costs nothing extra on the video path and
+  one bounded call on the photo path (which used to skip quota entirely — its frame count still
+  does not depend on the answer, but its eligibility does).
+- **It fails OPEN, always.** Only a structurally-valid `{ ok: true }` reading can refuse. Every
+  failure — unauthorized, unavailable, unknown, timed out, a client that broke its contract —
+  proceeds to `reserve_analysis`, which remains the only authority. Telling someone they are in a
+  cooldown is a claim about their account; a network blip must never be allowed to make it.
+- **The order matches the server.** `reserve_analysis` tests the anti-farm counter before the quota
+  cap, so the pre-flight reports `cooldown` ahead of `exhausted` for a caller who is both.
+  Otherwise the pre-flight would name a different reason than the server would give.
+- **"Your analysis failed" is gone from the cooldown path**, on both surfaces. A 429
+  `too_many_failed_attempts` used to render `analyzing.error.failed` — "The analysis service didn't
+  return a usable result" — which was untrue twice over: the reserve was refused, so no model call
+  was ever made and no row exists. New cross-cutting `Copy.analysisPause` names a pause rather than
+  a failure, says what actually happened, and states the time remaining when the server gave us one
+  (`blocked_until`, via `describeCooldownRemaining`). A missing, unparsable, or already-past expiry
+  degrades to wording without a time — never a guessed or zeroed countdown.
+- **The Retry that could not succeed is removed.** It is gone from the cooldown path on both the
+  extraction screen and the Analyzing screen; a genuine transient failure keeps it, which is the
+  whole distinction. `ErrorPanel`'s ghost exit became optional so the cooldown's single honest
+  action ("Back to home") renders once, at full emphasis, rather than twice.
+- **An exhausted allowance routes to `/paywall`** from the pre-flight — the same destination a
+  server 402 already reaches from `app/analyzing.tsx`, which re-reads live quota and states the
+  real allowance, so this screen never restates an allowance it is not the authority for.
+- **Home says how long is left too.** `describeQuota`'s blocked caption reads the same
+  `blocked_until`, so the earliest surface a user sees is also the first that stops saying "later".
+  Its `accessibilityHint` reuses the visible caption verbatim, countdown included.
+- **The live safety grader.** `checkPillarSafety` was added to the grounding eval, plus a third
+  (Elite) case, so the branch's merge condition — the deployed model populates `safety` on every
+  pillar at every tier — is answered by a real run rather than asserted. `analyze-form-validation.ts`
+  refuses to deliver ANY response whose pillar safety is unusable, so this is an outage question,
+  and the tier dial changes the prompt the model is complying with.
+
+- **THE LIVE CHECK CAUGHT A TOTAL OUTAGE, and it is this branch's own regression.**
+  `PACE_RESULT_SCHEMA` with the per-pillar `safety` object exceeds Anthropic's compiled-grammar
+  ceiling: every request, at every tier, came back `400 invalid_request_error` — "The compiled
+  grammar is too large" — before the model ran. `analyze-form` sends that schema on every request,
+  so deploying the branch as it stood would have taken the endpoint down completely, and no offline
+  test could have seen it. Fixed by hoisting the pillar into a single `$defs` node referenced four
+  times; measured, not guessed (four one-variable probes, recorded in `docs/status.md` #43 and in
+  `pillarSchema`'s own doc). Locked by a named regression test.
+- **One grader was the bug.** `no-false-precision`'s bare `/\d+ *ms/` failed an Elite response for
+  describing the FRAME SPACING it was handed ("the ~200ms-apart timestamps ... a wide, approximate
+  range only ... a rough sense of pace, not a measurement") — which is `TIMESTAMP_RULES` being
+  obeyed, not a ground-contact-time claim. Now scoped to the claim, the way the cadence check beside
+  it already was. Both the verbatim live sentence and four real GCT claims are locked as tests.
+
+See `docs/status.md` Known Issue #43 for the live-run evidence and the exact call count.
+
 ## 2026-09-07 (`gate_ai_call`'s daily cap is now per user, not global)
 
 **On `fm/v2-3-gate-ai-call-daily-cap-is-global-no-c7`, not yet merged to `main`, and the
@@ -272,6 +360,150 @@ function. Full account: `docs/status.md` Known Issue #42.
   a screen render can prove) — 197 tests across these four focused suites. All new fail-closed/
   classification assertions were mutation-tested against production code to confirm they are not
   vacuous.
+## 2026-09-06 (Free tier gets a real, capped analysis — the fabricated sample is retired)
+
+**Captain's ruling: Free now runs through the exact same `analyze-form` path as Pro/Elite,
+capped server-side at one lifetime delivered analysis** — enforced by `reserve_analysis`'s
+existing per-user advisory lock and lifetime cap for Free, not a new counter or new schema.
+Code-complete with focused automated regression coverage; **not yet deployed**, this entry does
+not claim a completed full validation run, and zero real Anthropic calls were made anywhere in
+this work.
+
+- **The `pace_current_tier` pre-lookup and the Free short-circuit are gone from
+  `supabase/functions/analyze-form/flow.ts`.** Every tier now runs auth → consent → AI spend gate
+  → `reserve_analysis` (the only place tier is now learned, via `reserve.tier`) → model call (+1
+  retry) → normalize → settle → upload → attach. This closes a launch-blocking defect: the retired
+  sample fabricated a cadence figure and a left/right ground-contact comparison that no certified
+  knowledge file supports, and — because it was never persisted — no Free signup in five weeks
+  ever produced a real `analyses` row.
+- **New server-side normalization step, `normalizeForEvidenceAndTier()`, invoked for every result
+  and never prompt-only trust.** Any one-frame submission (Free's only allowance, and any photo
+  from any tier) has Cadence and Elasticity forced to not-assessed, replacing whatever the model
+  claimed. A photo records `notAssessedReason: 'needsVideo'`; a video records
+  `'singleFrameFromVideo'`, meaning exactly one frame of that video reached the analysis, without
+  guessing why. Free additionally has flags/drills stripped from every pillar. `overall` is
+  recomputed via the existing `deriveOverall()` only when one of those paths normalizes pillars;
+  an unchanged multi-frame Pro/Elite result keeps the model's own headline.
+  - **Review follow-up 3, same day — a missing `safety` field is now INVALID, not "no signal".**
+    The structured field closed the classifier hole but left a fail-OPEN one: the output schema's
+    `required` list is a request to the model, not a grammar guarantee, so a pillar could arrive
+    with no declaration (or one whose declared non-`none` signal carried a blank note) and
+    normalization would read that as "nothing to warn about" — dropping a warning that lived in
+    the pillar's prose.
+    `analyze-form-validation.ts` now refuses to deliver any response whose pillars do not all carry
+    a usable declaration; absent, malformed, ungrounded, a non-`none` signal with a blank note, and
+    "a real signal on a pillar the salvage would drop" all take the same fail-closed path (no
+    salvage → retry → release, uncharged). These model/schema-contract failures are our fault and
+    release as non-farming `model_error`; they cannot tick the runner's anti-farming counter. The
+    narrowing is real and deliberate: an honest-partial salvage now also requires every readable
+    pillar to declare its safety state.
+  - **`overall` is no longer recomputed on paths that normalized nothing.** A multi-frame Pro/Elite
+    result keeps the model's own headline; only a one-frame submission or Free's flag/drill strip
+    (the paths that actually change pillars) re-derives it.
+  - **Copy and prompt no longer blame the runner's plan for a single frame.** The frame count is
+    decided on the device and `lib/extraction-frame-cap.ts` degrades to one frame whenever it cannot
+    read the caller's quota — so a paying user on a flaky connection was being told their plan
+    allowed one frame. Both surfaces now state only what we can vouch for ("only one frame of your
+    video could be analysed"), and `fetchVideoFrameCap` retries a retryable quota lookup once,
+    inside its existing timeout budget, before degrading.
+  - **Anti-farm lockout (raised in review): NOT a live defect, verified against the migration.**
+    The reviewer read `20260711150400`, which is superseded. The current `reserve_analysis`
+    (`20260712220000_anti_farm_release_reason_fix.sql`) already counts only reasons
+    `pace_is_farming_signal()` names — `validation_failed` alone, so model/schema-contract
+    failures (`model_error`),
+    `provider_timeout`, `internal_error` and `zero_pillars_assessed` never count — and scopes
+    Free's counter to a rolling 24h window from `released_at`, not lifetime. Two integration cases
+    covering exactly this (three our-fault releases then a successful delivery; three
+    `validation_failed` releases throttling and then expiring) were added to
+    `supabase/functions/_shared/integration/quota-rpc.local.ts` and are **unrun** — that file needs
+    local Postgres, and Docker was unavailable, the same limitation already recorded for it.
+  - **Review follow-up 2, same day — the safety signal is now structural, not lexical.** The first
+    follow-up preserved a stop-running warning by keyword-matching the model's prose, which could
+    both drop a warning phrased outside the pattern and preserve a fabricated cadence claim that
+    happened to match it. That heuristic is gone. `supabase/functions/_shared/pace.ts` gains an
+    ADDITIVE per-pillar `safety` field — `{ signal, note }`, where `signal` is an id from
+    `knowledge/injury_flags.md`'s certified stop-running list (`PACE_SAFETY_SIGNALS`) — and
+    `PACE_RESULT_SCHEMA` requires it, so the model declares the warning SEPARATELY from its
+    assessment prose. Normalization copies that field across structurally and makes a certified
+    non-`none` signal's `note` LEAD the visible feedback on every tier, frame path, and pillar,
+    with whatever coaching prose survived normalization kept underneath it; nothing else the model
+    wrote about an unassessable pillar survives.
+    An ungrounded or unreadable `safety` value on a PRESENT pillar, and a real signal on a pillar a
+    salvage would drop, both FAIL CLOSED in `analyze-form-validation.ts` (no salvage, retry, then a
+    non-farming `invalid_safety` release without charging — its own reason, added to the
+    `analyses_release_reason_known_values` vocabulary by
+    `20260906120000_invalid_safety_release_reason.sql` and deliberately outside
+    `pace_is_farming_signal`, since the failed requirement is ours, not the user's). A pillar that
+    is simply ABSENT declares nothing and is ordinary schema drift: it stays `invalid_shape`, and
+    it does not abort the honest-partial salvage. Certified safety notes are carried and surfaced
+    structurally; prose is never mined for them. `SYSTEM_PROMPT_TOKENS_ESTIMATE` rose 24000 →
+    25500 because the new schema descriptions ride in the prompt once per pillar.
+  - **The prompt now states two facts, never one.** `analyze-form-prompt.ts` builds its medium
+    rules from what the runner SENT (photo or video) and what REACHED the model (frame count), so a
+    video with only one frame reaching the analysis gets the one-instant rules while still being
+    described as the video it is — and is never advised to submit a video or told why only one
+    frame arrived. `flow.ts` passes the real `mediaType` again rather than relabelling a one-frame
+    video as a photo.
+  - **`notAssessedReason` gains the server-authored `'singleFrameFromVideo'`**, with its own copy
+    string, so both render surfaces (`components/pace-readout.tsx` and
+    `components/pillar-detail-modal.tsx`) and the VoiceOver announcement describe the runner's own
+    upload correctly. The previous round's suppression of the "Not assessed" marker whenever a
+    pillar carried feedback is reverted — it hid the marker on Pro/Elite pillars the model itself
+    could not score — and is replaced by the server no longer writing a competing sentence.
+  - **Review follow-up, same day.** The strip used to overwrite the pillar's `feedback` wholesale,
+    which could silently delete a stop-running safety signal — the one class of content
+    `analyze-form-prompt.ts`'s SAFETY_RULES make undroppable at every tier. Normalization now
+    discards the unsupported assessment prose and carries the certified structured safety
+    declaration across; when it contains a real signal, its `note` is placed FIRST in the pillar's
+    feedback, ahead of any coaching prose that survived normalization — a warning leads, and never
+    deletes supportable coaching. All four pillars are guarded on a one-frame submission (a pillar the model did not
+    score cannot keep flags or drills), and a video with one frame reaching analysis is no longer
+    told to submit a video or blamed on its plan.
+  - **Medium rules now follow the frame count actually attached, not the client's declared
+    `mediaType`.** A video with only one frame attached was being handed the cross-frame rules
+    ("across frames you can assess all four pillars ... arm-swing arc and symmetry"), inviting a
+    comparison that never existed.
+  - **`components/pace-readout.tsx` renders the canned `notAssessed` line unconditionally** for
+    every pillar with a null score/band, alongside `pillar.feedback` rather than as a fallback for
+    its absence. An earlier attempt to suppress the line whenever a pillar carried feedback was
+    reverted (see the bullet above) because it hid the marker on Pro/Elite pillars the model itself
+    could not score. The overlap it was meant to solve is gone at the source instead: the server no
+    longer writes a competing "submit a video" sentence into `feedback` for a pillar it normalized,
+    so a not-assessed pillar that also carries prose (a safety note, or a model explanation) shows
+    both lines and neither contradicts the other.
+  - **`lib/history.ts` surfaces the new `409 in_progress` delete code** instead of flattening its
+    actionable "retry once the analysis finishes" message into the generic delete failure;
+    `docs/architecture.md`'s API table row for `DELETE /functions/v1/analysis/:id` lists it too.
+- **Zero-pillar responses now split by tier.** A structurally valid result that ends up assessing
+  nothing still `RELEASE`s (refunds the quota slot) for Pro/Elite, but now `SETTLE`s (consumes the
+  slot) for Free — a deliberate asymmetry, since refunding a blank submission would turn Free's one
+  lifetime slot into an unlimited free-form-checking loop.
+- **New reserved-row delete guard.** `_shared/delete-analysis.ts`'s `AnalysisOwnershipRow` now
+  carries `status`, and `deleteAnalysis()` refuses a `'reserved'` row with `{ outcome:
+  'in_progress' }` (409, code `in_progress`) before touching Storage — closing a race where a
+  delete-during-analysis could let an in-flight request settle a result nobody could ever see or
+  purge.
+- **Client surface simplified.** `AnalyzeFormSuccess` (`lib/analyze-form.ts`) is one shape again,
+  `{ result, analysisId, isFallback }` — no more `kind: 'result' | 'sample'` union, no more
+  `isSample`. Deleted: `app/result/sample.tsx`, `components/sample-result-banner.tsx`,
+  `lib/pending-sample-result.ts`, `supabase/functions/_shared/analyze-form-sample.ts`, and their
+  tests. `app/analyzing.tsx` now only ever routes to `/result/[id]`.
+- **Copy rewritten** (`constants/copy.ts`) to describe only what the product can actually certify
+  — no promised pillar count, no "sample preview" framing. Free: one real analysis from a single
+  photo or frame, no flags/drills. Pro: 10 analyses per period, multi-frame evidence, and certified
+  flags/drills when supported. Elite: 30 analyses per period, deeper per-pillar feedback, and
+  comparison against past analyses.
+- **Deployment ordering is binding**: `analyze-form` must be redeployed before or with the client
+  release, since the simplified client rejects the retired `{ result, isSample: true }` shape by
+  construction. Not deployed as of this entry.
+- ~~**Depends on `fm/v23-reliability-timeouts`** (parallel, unmerged)~~ — **RESOLVED 2026-09-07**:
+  that branch landed as #206 and this one is rebased onto it. See the 2026-09-07 entry above.
+- **Not verified**: the local Postgres integration proof
+  (`supabase/functions/_shared/integration/quota-rpc.local.ts`) could not be run this session —
+  Docker Desktop was stopped and this agent must not start it or take machine focus.
+
+See `docs/architecture.md`'s "Current — `analyze-form` edge function" section and `docs/status.md`
+Known Issue #43 for the full detail.
 
 ## 2026-09-05 (Expo SDK 54 -> 57)
 

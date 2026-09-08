@@ -367,6 +367,9 @@ describe('deleteHistoryAnalysis', () => {
     ['not_found', "No analysis exists with that id."],
     ['not_yours', 'This analysis does not belong to the authenticated user.'],
     ['purge_failed', 'Could not remove the stored media for this analysis. Nothing was deleted — please try again.'],
+    // 409, added 2026-09-06 with the reserved-row delete guard: the actionable "wait and retry"
+    // message must reach the user, not be flattened into the generic delete failure.
+    ['in_progress', 'This analysis is still in progress and cannot be deleted yet.'],
   ] as const)('maps a documented %s failure through, code and message intact', async (code, error) => {
     mockInvoke.mockResolvedValue({
       data: null,

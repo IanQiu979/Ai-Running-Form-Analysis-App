@@ -55,6 +55,21 @@ describe('notAssessedCopy', () => {
     expect(notAssessedCopy('needsVideo')).toBe(Copy.result.pillar.notAssessed.needsVideo);
   });
 
+  it('maps the server-authored "singleFrameFromVideo" to copy that never calls the upload a photo', () => {
+    const copy = notAssessedCopy('singleFrameFromVideo');
+    expect(copy).toBe(Copy.result.pillar.notAssessed.singleFrameFromVideo);
+    expect(copy).not.toContain('not a photo');
+    expect(copy).toMatch(/video/i);
+  });
+
+  // WHAT happened, never WHY. The frame count is decided on the device, and
+  // `lib/extraction-frame-cap.ts` degrades to a single frame whenever it cannot read the caller's
+  // quota — so blaming the user's plan is a guess, and a false one for a paying user whose lookup
+  // failed. This string is shown to that user.
+  it('never blames the runner\'s plan for the single frame', () => {
+    expect(notAssessedCopy('singleFrameFromVideo')).not.toMatch(/plan|tier|upgrade/i);
+  });
+
   it('falls back to the generic string for an unnamed reason instead of dropping the pillar', () => {
     // Cast: pace.ts's own validator deliberately does not restrict notAssessedReason to exactly
     // the two known values (see its doc comment) — this proves the client honors that.

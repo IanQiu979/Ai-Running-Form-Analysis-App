@@ -91,6 +91,9 @@ export interface AnalysisOwnershipRow {
   id: string;
   user_id: string;
   deleted_at: string | null;
+  /** `public.analysis_status` (`20260711150200_analyses.sql`). A `'reserved'` row is still in
+   * flight inside `analyze-form/flow.ts` — see `deleteAnalysis()`'s guard below. */
+  status: 'reserved' | 'delivered' | 'released';
 }
 
 /** Minimal shape of what `deleteAnalysis()` needs from `public.analyses`, service-role only. */
@@ -131,6 +134,16 @@ export type DeleteAnalysisResult =
   | { outcome: 'deleted'; alreadyDeleted: boolean; purgedObjectCount: number }
   | { outcome: 'not_found' }
   | { outcome: 'not_yours' }
+  /**
+   * The row is `'reserved'` — `analyze-form/flow.ts` is (or was, if it crashed) actively working
+   * on it, and settles it before frames are ever uploaded (#130's invariant: a reserved row can
+   * never have frames). Refused BEFORE any Storage read: there is nothing to purge yet, and racing
+   * a delete against an in-flight settle is exactly the spend-refund bypass a launch-blocker audit
+   * would flag — delete, then let the in-flight request settle a result nobody can ever see or
+   * purge. The client should retry once the analysis finishes (or ~#47's stale-reservation sweep
+   * reclaims it, if the owning invocation crashed).
+   */
+  | { outcome: 'in_progress' }
   | { outcome: 'purge_failed'; reason: string }
   /**
    * The row IS fully deleted (`markDeleted` committed) but the second purge — the #132 sweep for
@@ -176,6 +189,12 @@ export async function deleteAnalysis(
   }
   if (row.user_id !== params.callerUserId) {
     return { outcome: 'not_yours' };
+  }
+  if (row.status === 'reserved') {
+    // Refuse before the first Storage read (per #130's invariant, a reserved row has no frames to
+    // purge yet anyway) and before any row mutation — `analyze-form/flow.ts` owns this row until it
+    // settles or releases.
+    return { outcome: 'in_progress' };
   }
 
   const prefix = `${params.callerUserId}/${params.analysisId}/`;
@@ -326,6 +345,10 @@ export function httpStatusForOutcome(outcome: DeleteAnalysisResult['outcome']): 
       return 404;
     case 'not_yours':
       return 403;
+    case 'in_progress':
+      // A real conflict with in-flight server work, not a client mistake and not "try later" —
+      // the standard code for "the resource is in a state that conflicts with this request."
+      return 409;
     case 'purge_failed':
       // Not the caller's fault (a storage-side problem), same "never a 4xx for our own failure"
       // idiom `ai-guard.ts`'s `httpStatusForGateDeny` already uses in this codebase — signals
@@ -348,6 +371,8 @@ export function responseBodyForOutcome(result: DeleteAnalysisResult): Record<str
       return { error: 'No analysis exists with that id.', code: 'not_found' };
     case 'not_yours':
       return { error: 'This analysis does not belong to the authenticated user.', code: 'not_yours' };
+    case 'in_progress':
+      return { error: 'This analysis is still in progress and cannot be deleted yet.', code: 'in_progress' };
     case 'purge_failed':
       return {
         error: 'Could not remove the stored media for this analysis. Nothing was deleted — please try again.',

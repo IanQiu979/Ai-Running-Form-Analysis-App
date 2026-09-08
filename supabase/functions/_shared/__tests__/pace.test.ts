@@ -33,12 +33,14 @@ import {
   PACE_MAX_REQUEST_BODY_BYTES,
   PACE_MIN_ASSESSED_PILLARS_FOR_PARTIAL,
   PACE_PILLARS,
+  PACE_SAFETY_SIGNALS,
   SCORE_BAND_VALUES,
   type PaceAnalysisOutcome,
   type PaceDrill,
   type PaceInjuryFlag,
   type PacePillarResult,
   type PaceResult,
+  hasSafetySignal,
   isPaceAnalysisOutcome,
   isPaceResult,
 } from '../pace';
@@ -233,6 +235,49 @@ describe('isPaceResult', () => {
   // otherwise be misread as zero arguments instead of "the value under test is an array".
   it.each([[null], [undefined], ['a string'], [42], [[]]])('rejects a non-object value (%p)', (value) => {
     expect(isPaceResult(value)).toBe(false);
+  });
+});
+
+describe('the safety declaration (the one field whose CONTENT is checked)', () => {
+  it('accepts every certified stop-running signal id', () => {
+    for (const signal of PACE_SAFETY_SIGNALS) {
+      const result = validResult({ elasticity: assessedPillar({ safety: { signal, note: 'Get it looked at.' } }) });
+      expect(isPaceResult(result)).toBe(true);
+    }
+  });
+
+  it('REJECTS a signal id that is not in injury_flags.md\'s certified list', () => {
+    // An ungrounded safety claim is a shape violation, not a content judgment — the closed
+    // vocabulary is the whole mechanism that keeps a warning traceable to the certified file.
+    const result = validResult({
+      elasticity: assessedPillar({
+        safety: { signal: 'runnersKnee', note: 'Stop.' } as unknown as PacePillarResult['safety'],
+      }),
+    });
+
+    expect(isPaceResult(result)).toBe(false);
+  });
+
+  it('REJECTS a safety object with no readable note', () => {
+    const result = validResult({
+      elasticity: assessedPillar({
+        safety: { signal: 'none' } as unknown as PacePillarResult['safety'],
+      }),
+    });
+
+    expect(isPaceResult(result)).toBe(false);
+  });
+
+  it('accepts a pillar that carries no safety field at all (additive, not required by the shape)', () => {
+    expect(isPaceResult(validResult())).toBe(true);
+  });
+
+  it('hasSafetySignal is false for "none" and for an empty note, true only for a real declaration', () => {
+    expect(hasSafetySignal(undefined)).toBe(false);
+    expect(hasSafetySignal(null)).toBe(false);
+    expect(hasSafetySignal({ signal: 'none', note: '' })).toBe(false);
+    expect(hasSafetySignal({ signal: 'swellingLimpOrFavouringOneSide', note: '   ' })).toBe(false);
+    expect(hasSafetySignal({ signal: 'swellingLimpOrFavouringOneSide', note: 'Get it seen.' })).toBe(true);
   });
 });
 

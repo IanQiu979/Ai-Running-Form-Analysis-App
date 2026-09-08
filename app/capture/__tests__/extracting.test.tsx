@@ -5,7 +5,15 @@
  * 1. ISSUE #147 — the infinite render loop ("Maximum update depth exceeded") that crashed every
  *    photo/video submission. See the "render-loop" describe block at the bottom.
  *
- * 2. THE FRAME-CAP BUG — this screen hardcoded `const EXTRACTION_TIER: PaceTier = 'free'`, so
+ * 2. THE PRE-FLIGHT GATE — a capped or cooling-down runner used to extract frames, submit, wait
+ *    20-60s, and only then be refused: the cooldown under copy that claimed their analysis had
+ *    FAILED, beside a Retry that resubmitted into the identical refusal. The gate now runs on ONE
+ *    bounded `quota-status` read before any thumbnail work, on the photo path as well as video.
+ *    See the "pre-flight gate" describe block. Only a refusal the SERVER stated is honoured —
+ *    every lookup failure proceeds, because a blip must not fabricate a claim about someone's
+ *    account.
+ *
+ * 3. THE FRAME-CAP BUG — this screen hardcoded `const EXTRACTION_TIER: PaceTier = 'free'`, so
  *    every Pro and Elite user's video was extracted down to Free's single frame. Cadence and
  *    Elasticity are the two PACE pillars derived from motion over time and cannot be scored from
  *    one still, so a paying user silently received a degraded version of the free product. The
@@ -28,6 +36,7 @@
  * control is offered at all — is also wiring only a screen-level render can prove.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform } from 'react-native';
 
 import { Copy } from '@/constants/copy';
 import { takePendingAnalyzeFormRequest } from '@/lib/analyze-form';
@@ -71,6 +80,8 @@ jest.mock('@/lib/quota', () => ({
   quotaStatusClient: { fetch: jest.fn() },
 }));
 
+const mockAnnounce = AccessibilityInfo.announceForAccessibility as jest.Mock;
+
 let renderCount = 0;
 
 /** Route params the mocked `useLocalSearchParams` will serve. Mutable so each test can pick a
@@ -100,11 +111,14 @@ jest.mock('expo-router', () => ({
     renderCount += 1;
     return { ...mockRouteParams };
   },
-  useRouter: () => ({
-    replace: jest.fn(),
-    push: jest.fn(),
-  }),
+  // Stable across renders, unlike `useLocalSearchParams` above: the real `useRouter()` is not
+  // contractually a fresh object per call, and a stable mock is what lets the `exhausted` gate's
+  // `replace('/paywall')` be asserted at all. (`extracting.tsx` still holds it in a ref rather
+  // than depending on it — see that file's comment.)
+  useRouter: () => mockRouter,
 }));
+
+const mockRouter = { replace: jest.fn(), push: jest.fn() };
 
 // `jest.requireActual('@/lib/frames')` below re-executes the real module, whose top-level
 // `import ... from 'expo-video'` otherwise crashes at import time under Jest (no native module,
@@ -138,7 +152,11 @@ const mockQuotaFetch = quotaStatusClient.fetch as jest.MockedFunction<typeof quo
 
 /** A complete, well-formed `QuotaStatus` — every field present, so a regression that reads some
  *  field other than `frameCap` cannot pass on a partial fixture. */
-function quotaResult(tier: QuotaStatus['tier'], frameCap: number): QuotaStatusResult {
+function quotaResult(
+  tier: QuotaStatus['tier'],
+  frameCap: number,
+  overrides: Partial<QuotaStatus> = {}
+): QuotaStatusResult {
   return {
     ok: true,
     data: {
@@ -154,6 +172,7 @@ function quotaResult(tier: QuotaStatus['tier'], frameCap: number): QuotaStatusRe
       blocked: false,
       blockedReason: null,
       blockedUntil: null,
+      ...overrides,
     },
   };
 }
@@ -169,6 +188,10 @@ beforeEach(() => {
   jest.clearAllMocks();
   renderCount = 0;
   mockRouteParams = { ...PHOTO_PARAMS };
+  // A permissive default, so every case that is not ABOUT the gate passes through it. Cases that
+  // are about it override this. `jest.clearAllMocks()` clears calls, not implementations, so this
+  // has to be re-set per test rather than once at module scope.
+  mockQuotaFetch.mockResolvedValue(quotaResult('free', PACE_FRAME_CAP.free));
 });
 
 describe('ExtractingScreen — video frame cap comes from the server (the paid-tier bug)', () => {
@@ -336,17 +359,29 @@ describe('ExtractingScreen — every extracted frame reaches the analysis step',
   });
 });
 
-describe('ExtractingScreen — photos are unaffected', () => {
-  // A photo is exactly one frame at every tier, so this path must not consult quota at all: no
-  // round trip, no waiting, no way for a quota failure to change what a photo submission does.
-  it('extracts one frame without ever calling quota-status', async () => {
+describe('ExtractingScreen — a photo is always one frame, whatever quota says', () => {
+  // The photo path now DOES take the pre-flight read (its eligibility depends on it — see the
+  // gate block below), but its frame COUNT still must not: a photo is exactly one frame at every
+  // tier, so an Elite reading must not turn it into eight, and a failed reading must not change
+  // it either. That independence is the property this case exists to hold.
+  it('extracts one frame even on an Elite reading', async () => {
+    mockQuotaFetch.mockResolvedValue(quotaResult('elite', PACE_FRAME_CAP.elite));
+
     const { getByText } = await render(<ExtractingScreen />);
 
     await waitFor(() => expect(mockExtractFrames).toHaveBeenCalledTimes(1), WAIT);
 
-    expect(mockQuotaFetch).not.toHaveBeenCalled();
     expect(extractedFrameCount()).toBe(1);
     expect(getByText(Copy.upload.step.extracting(0, 1))).toBeTruthy();
+  });
+
+  it('extracts one frame when the quota lookup fails outright', async () => {
+    mockQuotaFetch.mockResolvedValue({ ok: false, error: { error: 'simulated', code: 'unknown' } });
+
+    await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(mockExtractFrames).toHaveBeenCalledTimes(1), WAIT);
+    expect(extractedFrameCount()).toBe(1);
   });
 });
 
@@ -382,6 +417,154 @@ describe('ExtractingScreen — a clip that can never be analyzed says so, instea
     await waitFor(() => expect(getByText(Copy.upload.error.extractionFailed.title)).toBeTruthy(), WAIT);
     expect(getByText('Retry')).toBeTruthy();
   });
+});
+
+describe('ExtractingScreen — the pre-flight gate (no wait burned to be told you were never eligible)', () => {
+  /** An expiry a fixed distance ahead of a pinned clock, so the phrase under test is exact. */
+  const NOW = Date.parse('2026-09-07T12:00:00.000Z');
+
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'clearTimeout'] }).setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function cooldownResult(blockedUntil: string | null): QuotaStatusResult {
+    return quotaResult('free', PACE_FRAME_CAP.free, {
+      blocked: true,
+      blockedReason: 'too_many_failed_attempts',
+      blockedUntil,
+    });
+  }
+
+  // THE headline lock for this bug class, on BOTH media paths. Before the gate, a cooling-down
+  // runner extracted every frame, submitted, waited, and was then told their analysis had FAILED.
+  it.each([
+    ['a video', VIDEO_PARAMS],
+    ['a photo', PHOTO_PARAMS],
+  ] as const)('refuses %s BEFORE any frame is extracted when the server reports a cooldown', async (_label, params) => {
+    mockRouteParams = { ...params };
+    mockQuotaFetch.mockResolvedValue(cooldownResult(new Date(NOW + 3 * 60 * 60 * 1000).toISOString()));
+
+    const { getByText } = await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(getByText(Copy.analysisPause.title)).toBeTruthy(), WAIT);
+    // The whole point: nothing was extracted, so nothing was waited through.
+    expect(mockExtractFrames).not.toHaveBeenCalled();
+  });
+
+  // Piece 2 of the fix: the copy must name the real reason and the time left, and must not claim
+  // anything failed. "failed" appearing anywhere in this panel is the exact regression.
+  it('states the time remaining and never says the analysis failed', async () => {
+    mockRouteParams = { ...VIDEO_PARAMS };
+    mockQuotaFetch.mockResolvedValue(cooldownResult(new Date(NOW + 3 * 60 * 60 * 1000).toISOString()));
+
+    const { getByText, getByTestId } = await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(getByText(Copy.analysisPause.title)).toBeTruthy(), WAIT);
+    expect(getByTestId('analysis-paused-body').props.children).toBe(
+      Copy.analysisPause.bodyFor('about 3 hours')
+    );
+    expect(getByText(Copy.analysisPause.title)).toBeTruthy();
+    expect(screen.queryByText(Copy.analyzing.error.failed.title)).toBeNull();
+    expect(screen.queryByText(Copy.upload.error.extractionFailed.title)).toBeNull();
+  });
+
+  // We only ever state a time the server actually gave us. A missing expiry degrades to the
+  // no-time-known wording rather than a guess or a zeroed countdown.
+  it('falls back to the timeless wording when the server sent no expiry', async () => {
+    mockRouteParams = { ...VIDEO_PARAMS };
+    mockQuotaFetch.mockResolvedValue(cooldownResult(null));
+
+    const { getByTestId } = await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(getByTestId('analysis-paused-body')).toBeTruthy(), WAIT);
+    expect(getByTestId('analysis-paused-body').props.children).toBe(Copy.analysisPause.body);
+  });
+
+  // Piece 3: no Retry on a path where retrying cannot succeed. The exit exists and goes Home —
+  // picking different footage cannot lift a cooldown.
+  it('offers no Retry, only a way home', async () => {
+    mockRouteParams = { ...VIDEO_PARAMS };
+    mockQuotaFetch.mockResolvedValue(cooldownResult(new Date(NOW + 20 * 60 * 1000).toISOString()));
+
+    const { getByText, queryByText } = await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(getByText(Copy.analysisPause.title)).toBeTruthy(), WAIT);
+    expect(queryByText('Retry')).toBeNull();
+
+    fireEvent.press(getByText(Copy.analysisPause.cta));
+    expect(mockRouter.replace).toHaveBeenCalledWith('/');
+  });
+
+  // An exhausted allowance is a different refusal with a different honest next step: the paywall,
+  // which re-reads live quota and states the real allowance. Still before any extraction.
+  it('sends an exhausted caller to the paywall before extracting anything', async () => {
+    mockRouteParams = { ...VIDEO_PARAMS };
+    mockQuotaFetch.mockResolvedValue(quotaResult('free', PACE_FRAME_CAP.free, { used: 1, remaining: 0 }));
+
+    await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/paywall'), WAIT);
+    expect(mockExtractFrames).not.toHaveBeenCalled();
+  });
+
+  // The pause panel is a TERMINAL refusal, so the screen must stop claiming work is under way.
+  // Before this lock the "Preparing your analysis" eyebrow still rendered above it — the runner
+  // was told their analysis was being prepared and that analyses were paused at the same time —
+  // and it left the screen with two `accessibilityRole="header"` nodes instead of one.
+  it('drops the "preparing" heading so the pause is the screen\'s only heading', async () => {
+    mockRouteParams = { ...VIDEO_PARAMS };
+    mockQuotaFetch.mockResolvedValue(cooldownResult(new Date(NOW + 45 * 60 * 1000).toISOString()));
+
+    const { getByText } = await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(getByText(Copy.analysisPause.title)).toBeTruthy(), WAIT);
+    expect(screen.queryByText(Copy.upload.title)).toBeNull();
+    expect(screen.getAllByRole('header')).toHaveLength(1);
+    expect(getByText(Copy.analysisPause.title).props.accessibilityRole).toBe('header');
+  });
+
+  // `accessibilityLiveRegion="polite"` on the panel title is Android-only; `lib/use-announce.ts`
+  // is the iOS complement. Without this arm a VoiceOver user heard the wait and then silence
+  // while the screen had already become a refusal with a different set of controls.
+  it('announces the pause on iOS with the same countdown the panel shows', async () => {
+    const originalOS = Platform.OS;
+    Platform.OS = 'ios';
+    try {
+      mockRouteParams = { ...VIDEO_PARAMS };
+      mockQuotaFetch.mockResolvedValue(cooldownResult(new Date(NOW + 3 * 60 * 60 * 1000).toISOString()));
+
+      const { getByTestId } = await render(<ExtractingScreen />);
+
+      await waitFor(() => expect(getByTestId('analysis-paused-body')).toBeTruthy(), WAIT);
+      // The announcement must carry the body actually on screen, not a second, quieter sentence.
+      expect(mockAnnounce).toHaveBeenCalledWith(
+        `${Copy.analysisPause.title} ${getByTestId('analysis-paused-body').props.children}`
+      );
+    } finally {
+      Platform.OS = originalOS;
+    }
+  });
+
+  // THE FAIL-OPEN RULE, at the screen. Telling someone they are in a cooldown is a claim about
+  // their account; a lookup that failed tells us nothing, so the request must proceed to
+  // `reserve_analysis` — the only authority — rather than be refused here on a guess.
+  it.each(['unauthorized', 'quota_status_unavailable', 'unknown'] as const)(
+    'never fabricates a refusal from a %s lookup failure',
+    async (code) => {
+      mockRouteParams = { ...VIDEO_PARAMS };
+      mockQuotaFetch.mockResolvedValue({ ok: false, error: { error: `simulated ${code}`, code } });
+
+      await render(<ExtractingScreen />);
+
+      await waitFor(() => expect(mockExtractFrames).toHaveBeenCalledTimes(1), WAIT);
+      expect(screen.queryByText(Copy.analysisPause.title)).toBeNull();
+      expect(mockRouter.replace).not.toHaveBeenCalledWith('/paywall');
+    }
+  );
 });
 
 describe('ExtractingScreen (issue #147 render-loop regression)', () => {

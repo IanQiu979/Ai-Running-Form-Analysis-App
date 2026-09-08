@@ -30,9 +30,11 @@ import {
   type ModelCallResult,
 } from '../flow.ts';
 import type { RpcClient } from '../../_shared/ai-guard.ts';
-import { PACE_ANALYSIS_TOOL_NAME } from '../../_shared/analyze-form-prompt.ts';
+import {
+  PACE_ANALYSIS_TOOL_NAME,
+  type AnalyzeFormRequest,
+} from '../../_shared/analyze-form-prompt.ts';
 import type { AnthropicMessageResponse } from '../../_shared/analyze-form-validation.ts';
-import { FREE_SAMPLE_PACE_RESULT } from '../../_shared/analyze-form-sample.ts';
 
 const CALLER = '11111111-1111-4111-8111-111111111111';
 const ATTACKER_TARGET = '22222222-2222-4222-8222-222222222222';
@@ -54,11 +56,9 @@ class FakeRpc implements RpcClient {
   readonly calls: RpcCall[] = [];
   private gateSeq = 0;
 
+  constructor(private readonly events: string[] = []) {}
+
   handlers: Record<string, RpcHandler> = {
-    // Defaults to 'pro' — the free-tier short-circuit (`currentTier`, before the gate) is tested
-    // explicitly in its own suite below; every OTHER test in this file exercises the pro/elite
-    // path, which is what a default of 'pro' preserves without touching each one individually.
-    pace_current_tier: () => ({ data: 'pro', error: null }),
     gate_ai_call: () => {
       this.gateSeq += 1;
       return { data: { allowed: true, call_id: `call-${this.gateSeq}`, estimated_usd: 0.09 }, error: null };
@@ -76,6 +76,7 @@ class FakeRpc implements RpcClient {
   // deno-lint-ignore require-await
   async rpc(fn: string, args: Record<string, unknown>) {
     this.calls.push({ fn, args });
+    this.events.push(`rpc:${fn}`);
     const handler = this.handlers[fn];
     if (!handler) {
       throw new Error(`FakeRpc: unstubbed rpc "${fn}"`);
@@ -124,11 +125,17 @@ class FakeStorage {
 
 class FakeModel {
   readonly sent: number[] = [];
-  constructor(private readonly queue: ModelCallResult[]) {}
+  /** The actual request bodies, in order — the emitted prompt is a generated interface this suite
+   * is allowed to assert on (which medium rules a submission was given is not observable any
+   * other way). */
+  readonly requests: AnalyzeFormRequest[] = [];
+  constructor(private readonly queue: ModelCallResult[], private readonly events: string[] = []) {}
 
   // deno-lint-ignore require-await
-  async send(_request: unknown, timeoutMs: number): Promise<ModelCallResult> {
+  async send(request: unknown, timeoutMs: number): Promise<ModelCallResult> {
+    this.requests.push(request as AnalyzeFormRequest);
     this.sent.push(timeoutMs);
+    this.events.push('model');
     const next = this.queue.shift();
     if (!next) {
       throw new Error('FakeModel: called more times than the test scripted');
@@ -180,8 +187,13 @@ class VirtualClockModel {
 // Fixtures
 // ---------------------------------------------------------------------------
 
+/** `safety` is part of the contract now, not an optional extra: `analyze-form-validation.ts`
+ * refuses to deliver a response whose pillar cannot declare one, so every fixture here declares
+ * the ordinary answer — nothing of the kind is visible. */
+const NO_SAFETY_SIGNAL = { signal: 'none', note: '' };
+
 function scoredPillar(score: number, band: string) {
-  return { score, band, feedback: 'Tall through mid-stance.', flags: [], drills: [] };
+  return { score, band, feedback: 'Tall through mid-stance.', safety: NO_SAFETY_SIGNAL, flags: [], drills: [] };
 }
 
 function validToolInput() {
@@ -244,7 +256,7 @@ function refusal(): ModelCallResult {
 function partial(parsed: string[]): ModelCallResult {
   const pillars: Record<string, unknown> = {};
   for (const id of ['posture', 'armSwing', 'cadence', 'elasticity']) {
-    pillars[id] = parsed.includes(id) ? scoredPillar(80, 'good') : { garbage: true };
+    pillars[id] = parsed.includes(id) ? scoredPillar(80, 'good') : { garbage: true, safety: NO_SAFETY_SIGNAL };
   }
   return ok({ pillars });
 }
@@ -257,6 +269,7 @@ function notAssessedPillar(reason: 'angle' | 'needsVideo') {
     band: null,
     feedback: null,
     notAssessedReason: reason,
+    safety: NO_SAFETY_SIGNAL,
     flags: [],
     drills: [],
   };
@@ -290,15 +303,17 @@ interface Harness {
   storage: FakeStorage;
   model: FakeModel;
   deps: AnalyzeFormDeps;
+  events: string[];
 }
 
 function harness(
   modelResults: ModelCallResult[],
   options: { granted?: boolean | null; consentThrows?: boolean; now?: () => number } = {}
 ): Harness {
-  const rpc = new FakeRpc();
+  const events: string[] = [];
+  const rpc = new FakeRpc(events);
   const storage = new FakeStorage();
-  const model = new FakeModel(modelResults);
+  const model = new FakeModel(modelResults, events);
 
   const deps: AnalyzeFormDeps = {
     rpc,
@@ -316,7 +331,7 @@ function harness(
     now: options.now,
   };
 
-  return { rpc, storage, model, deps };
+  return { rpc, storage, model, deps, events };
 }
 
 function run(h: Harness, body: unknown = VIDEO_BODY, callerUserId = CALLER) {
@@ -911,41 +926,90 @@ Deno.test('rule 3: the anti-farming refusal is a 429, not a paywall 402', async 
 });
 
 // ===========================================================================
-// CAPTAIN DECISION (audit-v23-r1-decision-zero-pillar-charge-policy) — a structurally VALID
-// result in which every pillar is honestly not-assessed carries no information the user paid
-// for. It must not charge the quota slot — but the request must still deliver the (empty)
-// result, not fail outright.
+// A fully valid all-not-assessed result is still an honest model result. Free has only one
+// lifetime analysis, so settling it prevents repeated zero-evidence submissions from becoming an
+// unlimited model-spend bypass. Pro/Elite retain the existing refund policy.
 // ===========================================================================
 
-Deno.test('zero-pillar policy: a fully valid result with ZERO assessed pillars RELEASES, not settles', async () => {
-  const h = harness([allNotAssessed()]);
+/** A fully valid but ADVERSARIAL zero-pillar response: every pillar honestly not-assessed, yet the
+ * model still attached flags/drills to one of them. Structurally legal (`pace.ts` never forbids
+ * flags/drills on a not-assessed pillar) and exactly the kind of paid-tier content Free must never
+ * render regardless of what the model attaches them to. */
+function allNotAssessedWithStrayContent(): ModelCallResult {
+  return ok({
+    pillars: {
+      posture: {
+        score: null,
+        band: null,
+        feedback: null,
+        notAssessedReason: 'angle',
+        safety: NO_SAFETY_SIGNAL,
+        flags: [{ pattern: 'Overstriding', detail: 'Cannot confirm from this angle.' }],
+        drills: [{ name: 'Wall Forward-Lean Drill', instructions: 'Lean from the ankles.' }],
+      },
+      armSwing: notAssessedPillar('angle'),
+      cadence: notAssessedPillar('needsVideo'),
+      elasticity: notAssessedPillar('needsVideo'),
+    },
+    overall: { score: null, band: null },
+  });
+}
 
-  const res = await run(h);
-
-  assertEquals(res.status, 200, 'the (empty) result is still delivered, not failed outright');
-  assertEquals((res.body.result as { pillars: unknown }).pillars, {
-    posture: notAssessedPillar('angle'),
-    armSwing: notAssessedPillar('angle'),
-    cadence: notAssessedPillar('needsVideo'),
-    elasticity: notAssessedPillar('needsVideo'),
+Deno.test('zero-pillar policy: Free SETTLES a fully valid result with zero assessed pillars', async () => {
+  const h = harness([allNotAssessedWithStrayContent()]);
+  // `reserve_analysis` is the ONLY source of tier — there is no pre-reserve lookup to disagree
+  // with it. Its 'free' is the value the settlement policy must use.
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'free' },
+    error: null,
   });
 
-  assertEquals(h.rpc.to('settle_analysis').length, 0, 'nothing useful was delivered — never settle it');
-  const release = h.rpc.to('release_analysis');
-  assertEquals(release.length, 1, 'the quota slot must be handed back, not charged');
-  assertEquals(release[0].args.p_reason, 'zero_pillars_assessed');
+  const res = await run(h, {
+    mediaType: 'photo',
+    frames: ['AAAA'],
+    timestamps: [0],
+    idempotencyKey: 'free-zero-pillars',
+  });
+
+  assertEquals(res.status, 200);
+  assertEquals(res.body.analysisId, ANALYSIS_ID, 'Free must receive the persisted row id');
+  assertEquals(h.rpc.to('settle_analysis').length, 1, 'the one lifetime Free slot is consumed');
+  assertEquals(h.rpc.to('release_analysis').length, 0, 'Free zero-pillar results are not refunded');
+
+  const result = res.body.result as {
+    pillars: Record<string, { score: number | null; flags: unknown[]; drills: unknown[] }>;
+    overall: { score: number | null; band: string | null };
+  };
+  for (const id of ['posture', 'armSwing', 'cadence', 'elasticity']) {
+    assertEquals(result.pillars[id].score, null, `${id}: still honestly not-assessed`);
+    assertEquals(result.pillars[id].flags, [], `${id}: Free strips flags even when the model attached them`);
+    assertEquals(result.pillars[id].drills, [], `${id}: Free strips drills even when the model attached them`);
+  }
+  assertEquals(result.overall, { score: null, band: null }, 'no pillar survived, so overall stays null');
+  assertEquals(
+    h.rpc.to('settle_analysis')[0].args.p_result,
+    result,
+    'exactly what was returned is exactly what was persisted'
+  );
 });
 
-Deno.test('zero-pillar policy: a released zero-pillar row does NOT count as a farming signal', async () => {
-  // pace_is_farming_signal only treats 'validation_failed' as abuse (20260712220000). Prove the
-  // reason this suite releases with is never that string, so reserve_analysis's 3-strike cap is
-  // never ticked by an honest zero-pillar read.
-  const h = harness([allNotAssessed()]);
+Deno.test('zero-pillar policy: Pro and Elite RELEASE a fully valid result with zero assessed pillars', async () => {
+  for (const tier of ['pro', 'elite'] as const) {
+    const h = harness([allNotAssessed()]);
+    h.rpc.handlers.reserve_analysis = () => ({
+      data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
+      error: null,
+    });
 
-  await run(h);
+    const res = await run(h);
 
-  const release = h.rpc.to('release_analysis');
-  assertNotEquals(release[0].args.p_reason, 'validation_failed');
+    assertEquals(res.status, 200, `${tier} still receives the honest empty result`);
+    assertEquals(h.rpc.to('settle_analysis').length, 0, `${tier} must not charge an empty result`);
+    const release = h.rpc.to('release_analysis');
+    assertEquals(release.length, 1, `${tier} must hand the quota slot back`);
+    assertEquals(release[0].args.p_reason, 'zero_pillars_assessed');
+    assertNotEquals(release[0].args.p_reason, 'validation_failed');
+  }
 });
 
 Deno.test('zero-pillar policy: at least one real score still settles normally, even if others are not assessed', async () => {
@@ -1104,12 +1168,11 @@ Deno.test('rule 5: the kill switch and the circuit breaker are also 503s', async
   }
 });
 
-Deno.test('rule 5: gate ordering is auth -> consent -> tier -> gate -> reserve -> settle -> attach', async () => {
+Deno.test('rule 5: gate -> reserve -> model -> settle -> attach, with tier derived by reserve', async () => {
   const h = harness([ok()]);
   await run(h);
 
   assertEquals(h.rpc.names(), [
-    'pace_current_tier',
     'gate_ai_call',
     'reserve_analysis',
     'settle_analysis',
@@ -1519,6 +1582,31 @@ Deno.test('a photo runs on the free tier at one frame, and the tier comes from t
 
   assertEquals(res.status, 200);
   assertEquals(h.storage.uploads.map((u) => u.path), [`${CALLER}/${ANALYSIS_ID}/frame-01.jpg`]);
+});
+
+Deno.test('an allowed fresh reservation with an unknown tier fails closed before model work and is released', async () => {
+  // `toString` is intentionally a prototype key: without an explicit closed-union check it indexes
+  // both tier tables successfully enough to reach the model, then bypasses `tier === "free"`
+  // normalization. A random string merely crashes accidentally and would make this test toothless.
+  const h = harness([ok()]);
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: {
+      allowed: true,
+      existing: false,
+      id: ANALYSIS_ID,
+      status: 'reserved',
+      tier: 'toString',
+    },
+    error: null,
+  });
+
+  const res = await run(h);
+
+  assertEquals(res.status, 500);
+  assertEquals(res.body.code, 'internal_error');
+  assertEquals(h.model.sent.length, 0, 'an untrusted tier must never reach prompt/token lookup');
+  assertEquals(h.rpc.to('settle_analysis').length, 0);
+  assertEquals(releaseReasonFrom(h.rpc), 'internal_error', 'the fresh reservation must not be stranded');
 });
 
 Deno.test('the model gets a real timeout budget, never Infinity', async () => {
@@ -1999,39 +2087,139 @@ Deno.test('#130: a purge that itself fails still delivers 200 — nothing after 
 });
 
 // ===========================================================================
-// FREE-TIER SAMPLE PREVIEW (captain-approved 2026-07-26) — Free makes ZERO Anthropic calls, ever.
-// `pace_current_tier` short-circuits BEFORE the AI gate and BEFORE reserve_analysis: this is the
-// concrete proof that a free-tier request never reaches `deps.model.send`, never reserves a row,
-// and never gates AI spend — a code-review claim is not sufficient given the AI-spend stakes.
+// FREE-TIER REAL ANALYSIS — one genuine, persisted lifetime result, then quota denial.
 // ===========================================================================
 
-Deno.test('free tier: zero model calls, zero gate, zero reserve — a labeled sample instead', async () => {
-  const h = harness([]); // an empty model queue — `deps.model.send` throws if ever invoked
-  h.rpc.handlers.pace_current_tier = () => ({ data: 'free', error: null });
+/** An ADVERSARIAL Free-tier model response — exactly the shape the retired fabricated sample
+ * promised and the launch audit condemned: a confident cadence figure, flags, and drills on a
+ * ONE-FRAME (photo) submission. If normalization is missing or incomplete, this fixture is what
+ * would leak to the caller. */
+function adversarialFreePhotoResult(): ModelCallResult {
+  return ok({
+    pillars: {
+      posture: {
+        score: 78,
+        band: 'good',
+        feedback: 'Tall through mid-stance.',
+        safety: NO_SAFETY_SIGNAL,
+        flags: [{ pattern: 'Overstriding', detail: 'Foot lands ahead of the hip.' }],
+        drills: [{ name: 'Wall Forward-Lean Drill', instructions: 'Lean from the ankles.' }],
+      },
+      armSwing: {
+        score: 66,
+        band: 'mid',
+        feedback: 'Some cross-body swing.',
+        safety: NO_SAFETY_SIGNAL,
+        flags: [],
+        drills: [{ name: 'Elbow Drive Drill', instructions: 'Drive elbows straight back.' }],
+      },
+      // A single photo cannot show this — a hallucinated cadence figure of the exact kind the
+      // launch audit flagged ("mid-170s spm"). Normalization must overwrite this entirely.
+      cadence: {
+        score: 62,
+        band: 'mid',
+        feedback: 'Cadence looks to be in the mid-170s spm, on the low side.',
+        safety: NO_SAFETY_SIGNAL,
+        flags: [{ pattern: 'Low cadence', detail: 'Overstriding risk.' }],
+        drills: [{ name: 'Metronome Drill', instructions: 'Run to a 180bpm click.' }],
+      },
+      // Ditto — a fabricated left/right ground-contact comparison, the other shape the audit named.
+      elasticity: {
+        score: 58,
+        band: 'mid',
+        feedback: 'Left ground contact runs longer than right.',
+        safety: NO_SAFETY_SIGNAL,
+        flags: [],
+        drills: [],
+      },
+    },
+    overall: { score: 66, band: 'mid' },
+  });
+}
 
-  const res = await run(h);
+Deno.test('free tier: one supported result runs reserve -> model -> settle, then a fresh key is denied before model', async () => {
+  const h = harness([adversarialFreePhotoResult()]);
+  let deliveredRows = 0;
 
-  assertEquals(res.status, 200);
-  assertEquals(res.body, { result: FREE_SAMPLE_PACE_RESULT, isSample: true });
-  assertEquals(h.model.sent.length, 0, 'free tier must never call the model');
-  assertEquals(h.rpc.to('gate_ai_call').length, 0, 'free tier must never gate AI spend');
-  assertEquals(h.rpc.to('reserve_analysis').length, 0, 'free tier must never reserve a row/quota slot');
-  assertEquals(h.rpc.to('settle_analysis').length, 0);
-  assertEquals(h.rpc.to('release_analysis').length, 0);
-  assertEquals(h.rpc.to('record_ai_call').length, 0);
-  assertEquals(h.storage.uploads.length, 0, 'nothing is uploaded for a sample — no frame ever lands');
-  assertEquals(h.rpc.names(), ['pace_current_tier']);
-});
+  h.rpc.handlers.reserve_analysis = () => {
+    if (deliveredRows === 1) {
+      return {
+        data: { allowed: false, reason: 'quota_exceeded', tier: 'free', used: 1, limit: 1 },
+        error: null,
+      };
+    }
+    return {
+      data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'free' },
+      error: null,
+    };
+  };
+  h.rpc.handlers.settle_analysis = () => {
+    deliveredRows += 1;
+    return { data: { ok: true, id: ANALYSIS_ID, status: 'delivered' }, error: null };
+  };
 
-Deno.test('free tier: consent (CONTRACT RULE 4) still governs — the tier lookup never runs before it', async () => {
-  const h = harness([], { granted: false });
-  h.rpc.handlers.pace_current_tier = () => ({ data: 'free', error: null });
+  const first = await run(h, {
+    mediaType: 'photo',
+    frames: ['AAAA'],
+    timestamps: [0],
+    idempotencyKey: 'free-first',
+  });
 
-  const res = await run(h);
+  assertEquals(first.status, 200);
+  assertEquals(first.body.analysisId, ANALYSIS_ID, 'Free receives the persisted row id');
+  assert(!('isSample' in first.body), 'the retired sample marker must never ship');
+  assertEquals(h.model.sent.length, 1, 'the first Free allowance funds exactly one model call');
+  assertEquals(h.rpc.to('settle_analysis').length, 1, 'the supported result is persisted as delivered');
+  assertEquals(deliveredRows, 1, 'the fake backing store contains exactly one delivered row');
 
-  assertEquals(res.status, 403);
-  assertEquals(res.body.code, 'consent_required');
-  assertEquals(h.rpc.calls.length, 0, 'refused before the tier lookup ever ran');
+  // THE NORMALIZATION CONTRACT — every field the retired sample fabricated must come back honest,
+  // not merely "different": exact values, not a shape check.
+  const result = first.body.result as {
+    pillars: Record<string, { score: number | null; band: string | null; notAssessedReason?: string; flags: unknown[]; drills: unknown[] }>;
+    overall: { score: number | null; band: string | null };
+  };
+  assertEquals(result.pillars.posture.score, 78, 'a real assessed pillar is not touched');
+  assertEquals(result.pillars.posture.flags, [], 'Free strips flags even off a real, assessed pillar');
+  assertEquals(result.pillars.posture.drills, [], 'Free strips drills even off a real, assessed pillar');
+  assertEquals(result.pillars.armSwing.score, 66);
+  assertEquals(result.pillars.armSwing.flags, []);
+  assertEquals(result.pillars.armSwing.drills, []);
+  assertEquals(result.pillars.cadence.score, null, 'a one-frame submission can never carry a cadence figure');
+  assertEquals(result.pillars.cadence.band, null);
+  assertEquals(result.pillars.cadence.notAssessedReason, 'needsVideo');
+  assertEquals(result.pillars.cadence.flags, []);
+  assertEquals(result.pillars.cadence.drills, []);
+  assertEquals(result.pillars.elasticity.score, null, 'a one-frame submission can never carry a ground-contact comparison');
+  assertEquals(result.pillars.elasticity.band, null);
+  assertEquals(result.pillars.elasticity.notAssessedReason, 'needsVideo');
+  assertEquals(result.pillars.elasticity.flags, []);
+  assertEquals(result.pillars.elasticity.drills, []);
+  // overall is RECOMPUTED from the two surviving real pillars (78, 66), never the model's own 66/'mid'
+  // over four pillars it no longer gets credit for.
+  assertEquals(result.overall.score, 72, 'overall must be recomputed from only the surviving pillars');
+  assertEquals(result.overall.band, 'good');
+
+  const settledResult = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
+  assertEquals(settledResult, result, 'exactly what was returned is exactly what was persisted');
+
+  const reserveIndex = h.events.indexOf('rpc:reserve_analysis');
+  const modelIndex = h.events.indexOf('model');
+  const settleIndex = h.events.indexOf('rpc:settle_analysis');
+  assert(reserveIndex >= 0 && reserveIndex < modelIndex, 'reserve must precede the paid model call');
+  assert(modelIndex < settleIndex, 'the validated model result must exist before settlement');
+
+  const second = await run(h, {
+    mediaType: 'photo',
+    frames: ['BBBB'],
+    timestamps: [0],
+    idempotencyKey: 'free-second-fresh-key',
+  });
+
+  assertEquals(second.status, 402);
+  assertEquals(second.body.code, 'quota_exceeded');
+  assertEquals(h.model.sent.length, 1, 'the denied second request must not call the model');
+  assertEquals(h.rpc.to('settle_analysis').length, 1, 'the denied request must not create another delivery');
+  assertEquals(deliveredRows, 1, 'the first delivered row is the only delivered row');
 });
 
 Deno.test('all-users override: a normally-free account runs the full Elite path through the additive RPCs', async () => {
@@ -2054,7 +2242,7 @@ Deno.test('all-users override: a normally-free account runs the full Elite path 
   assert(!('isSample' in res.body), 'override responses must never carry the Free sample marker');
   assertEquals(h.rpc.names().includes('pace_current_tier'), false);
   assertEquals(h.rpc.names().includes('reserve_analysis'), false);
-  assertEquals(h.rpc.names().includes('pace_current_tier_unlimited'), true);
+  assertEquals(h.rpc.names().includes('pace_current_tier_unlimited'), false);
   assertEquals(h.rpc.names().includes('reserve_analysis_unlimited'), true);
   // The spend gate takes the same override route as tier and reserve — and, per that migration,
   // it still CAPS (at Elite), it does not go uncapped.
@@ -2085,10 +2273,9 @@ Deno.test('all-users override: the RETRY gate takes the override route too, not 
   assertEquals(h.rpc.to('gate_ai_call_unlimited').length, 2);
 });
 
-Deno.test('pro/elite tiers are completely unaffected by the tier-lookup branch', async () => {
+Deno.test('pro/elite tiers still run the real persisted-result path', async () => {
   for (const tier of ['pro', 'elite']) {
     const h = harness([ok()]);
-    h.rpc.handlers.pace_current_tier = () => ({ data: tier, error: null });
     h.rpc.handlers.reserve_analysis = () => ({
       data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
       error: null,
@@ -2098,29 +2285,568 @@ Deno.test('pro/elite tiers are completely unaffected by the tier-lookup branch',
 
     assertEquals(res.status, 200);
     assertEquals(h.model.sent.length, 1, `${tier} must still call the model exactly once`);
+    assertEquals(h.rpc.to('settle_analysis').length, 1, `${tier} must still persist the result`);
     assert(!('isSample' in res.body), `${tier} response must never carry isSample`);
   }
 });
 
-Deno.test('a pace_current_tier RPC failure fails CLOSED as a 500, never silently as a sample or a paid call', async () => {
-  const h = harness([]);
-  h.rpc.handlers.pace_current_tier = () => ({ data: null, error: { message: 'db is on fire' } });
 
-  const res = await run(h);
+// ===========================================================================
+// ONE FRAME IS ONE INSTANT, whatever produced it — and a STOP-RUNNING SIGNAL survives that,
+// structurally. Free's frame cap is 1, so a VIDEO submission routinely arrives as a single frame:
+// the path where normalization discards every claim the model made about Cadence/Elasticity, and
+// where the certified `safety` declaration is the one thing that must come through untouched.
+// ===========================================================================
 
-  assertEquals(res.status, 500);
-  assertEquals(res.body.code, 'internal_error');
-  assertEquals(h.model.sent.length, 0);
-  assert(!('isSample' in res.body), 'an RPC failure must not silently degrade into a sample response');
+const ONE_FRAME_VIDEO_BODY = {
+  mediaType: 'video',
+  frames: ['AAAA'],
+  timestamps: [0],
+  idempotencyKey: 'one-frame-video',
+};
+
+const ONE_FRAME_PHOTO_BODY = {
+  mediaType: 'photo',
+  frames: ['AAAA'],
+  timestamps: [0],
+  idempotencyKey: 'one-frame-photo',
+};
+
+function freeReserve() {
+  return {
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'free' },
+    error: null,
+  };
+}
+
+function systemText(request: AnalyzeFormRequest): string {
+  return request.system.map((block) => block.text).join('\n');
+}
+
+/** The three stop-running signals of `knowledge/injury_flags.md`, phrased the way a coach actually
+ * writes them. NONE of these sentences shares vocabulary with a keyword list — that is the point:
+ * preservation must not depend on recognising the words. */
+const SAFETY_CASES = [
+  {
+    label: 'guarding, in the reviewer’s own words',
+    signal: 'swellingLimpOrFavouringOneSide',
+    note: 'The left leg cannot take even weight and she is guarding it — see someone before your next run.',
+  },
+  {
+    label: 'bone-stress language with no clinical vocabulary',
+    signal: 'sharpOrWorseningPain',
+    note: 'You describe a hot, worsening ache along the shin that builds as you go — please have that assessed before your next session.',
+  },
+  {
+    label: 'heel-cord language',
+    signal: 'achillesOrHeelCordPain',
+    note: 'What you describe at the back of the heel gets worse when pushed through; hold off on speed work and have it checked.',
+  },
+] as const;
+
+const SAFETY_FIXTURE_COACHING = 'Contact time looks springy and the cadence sits in the mid-170s spm.';
+
+function pillarWithSafety(
+  signal: string,
+  note: string,
+  extra: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    score: 71,
+    band: 'good',
+    feedback: SAFETY_FIXTURE_COACHING,
+    safety: { signal, note },
+    flags: [],
+    drills: [],
+    ...extra,
+  };
+}
+
+function safeSignal() {
+  return NO_SAFETY_SIGNAL;
+}
+
+for (const testCase of SAFETY_CASES) {
+  Deno.test(`a stop-running signal survives the one-frame strip: ${testCase.label}`, async () => {
+    const h = harness([
+      ok({
+        pillars: {
+          posture: { ...scoredPillar(78, 'good'), safety: safeSignal() },
+          armSwing: { ...scoredPillar(66, 'mid'), safety: safeSignal() },
+          cadence: { ...scoredPillar(70, 'good'), safety: safeSignal() },
+          elasticity: pillarWithSafety(testCase.signal, testCase.note),
+        },
+        overall: { score: 71, band: 'good' },
+      }),
+    ]);
+    h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+    const res = await run(h, ONE_FRAME_VIDEO_BODY);
+
+    assertEquals(res.status, 200);
+    const result = res.body.result as {
+      pillars: Record<
+        string,
+        {
+          score: number | null;
+          band: string | null;
+          feedback: string | null;
+          notAssessedReason?: string;
+          safety?: { signal: string; note: string } | null;
+          flags: unknown[];
+          drills: unknown[];
+        }
+      >;
+    };
+    const elasticity = result.pillars.elasticity;
+
+    // THE WARNING IS THERE, in the runner's face, and unaltered.
+    assertEquals(elasticity.feedback, testCase.note);
+    assertEquals(elasticity.safety, { signal: testCase.signal, note: testCase.note });
+
+    // AND THE ASSESSMENT CLAIM IS GONE — score, band, and the model's prose about a bounce cycle
+    // and a cadence figure a single frame cannot support.
+    assertEquals(elasticity.score, null);
+    assertEquals(elasticity.band, null);
+    assertEquals(elasticity.notAssessedReason, 'singleFrameFromVideo');
+    assertEquals(elasticity.flags, []);
+    assertEquals(elasticity.drills, []);
+    assertEquals(
+      (elasticity.feedback ?? '').includes('mid-170s spm'),
+      false,
+      'a cadence figure must never survive on a pillar one frame cannot assess'
+    );
+
+    // And it is what was PERSISTED, not just what was returned.
+    const settled = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
+    assertEquals(settled.pillars.elasticity.feedback, testCase.note);
+    assertEquals(settled.pillars.elasticity.score, null);
+  });
+}
+
+Deno.test('no pillar tells a VIDEO submitter to send a video', async () => {
+  const h = harness([
+    ok({
+      pillars: {
+        posture: {
+          score: null,
+          band: null,
+          feedback: null,
+          notAssessedReason: 'needsVideo',
+          safety: NO_SAFETY_SIGNAL,
+          flags: [],
+          drills: [],
+        },
+        armSwing: {
+          score: null,
+          band: null,
+          feedback: null,
+          notAssessedReason: 'needsVideo',
+          safety: NO_SAFETY_SIGNAL,
+          flags: [],
+          drills: [],
+        },
+        cadence: { ...scoredPillar(70, 'good'), notAssessedReason: 'needsVideo' },
+        elasticity: { ...scoredPillar(74, 'good'), notAssessedReason: 'needsVideo' },
+      },
+      overall: { score: 72, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_VIDEO_BODY);
+
+  assertEquals(res.status, 200);
+  const pillars = (res.body.result as {
+    pillars: Record<string, { notAssessedReason?: string }>;
+  }).pillars;
+
+  for (const id of ['posture', 'armSwing', 'cadence', 'elasticity']) {
+    assertEquals(
+      pillars[id].notAssessedReason,
+      'singleFrameFromVideo',
+      `${id} must not ask a video submitter for a video`
+    );
+  }
+
+  const settled = h.rpc.to('settle_analysis')[0].args.p_result as {
+    pillars: Record<string, { notAssessedReason?: string }>;
+  };
+  assertEquals(settled.pillars.posture.notAssessedReason, 'singleFrameFromVideo');
 });
 
-Deno.test('a pace_current_tier RPC returning an unrecognized value also fails closed as a 500', async () => {
-  const h = harness([]);
-  h.rpc.handlers.pace_current_tier = () => ({ data: 'platinum', error: null });
+Deno.test('a PHOTO submission keeps needsVideo, which is true there', async () => {
+  const h = harness([
+    ok({
+      pillars: {
+        posture: {
+          score: null,
+          band: null,
+          feedback: null,
+          notAssessedReason: 'needsVideo',
+          safety: NO_SAFETY_SIGNAL,
+          flags: [],
+          drills: [],
+        },
+        armSwing: scoredPillar(66, 'mid'),
+        cadence: scoredPillar(70, 'good'),
+        elasticity: scoredPillar(74, 'good'),
+      },
+      overall: { score: 70, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
 
-  const res = await run(h);
+  const res = await run(h, ONE_FRAME_PHOTO_BODY);
 
-  assertEquals(res.status, 500);
-  assertEquals(res.body.code, 'internal_error');
-  assertEquals(h.model.sent.length, 0);
+  assertEquals(res.status, 200);
+  const pillars = (res.body.result as {
+    pillars: Record<string, { notAssessedReason?: string }>;
+  }).pillars;
+  assertEquals(pillars.posture.notAssessedReason, 'needsVideo');
+  assertEquals(pillars.cadence.notAssessedReason, 'needsVideo');
+});
+
+Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier and frame path', async () => {
+  const paths = [
+    { tier: 'free', body: ONE_FRAME_VIDEO_BODY },
+    { tier: 'pro', body: ONE_FRAME_VIDEO_BODY },
+    { tier: 'elite', body: ONE_FRAME_VIDEO_BODY },
+    { tier: 'pro', body: VIDEO_BODY },
+    { tier: 'elite', body: VIDEO_BODY },
+  ] as const;
+  const notes = {
+    posture: 'Posture safety note from the certified declaration.',
+    armSwing: 'Arm-swing safety note from the certified declaration.',
+    cadence: 'Cadence safety note from the certified declaration.',
+    elasticity: 'Elasticity safety note from the certified declaration.',
+  } as const;
+  // The two motion pillars are forced not-assessed on a one-frame submission, which discards their
+  // prose outright; the warning then stands alone. Everywhere else the prose is supportable and
+  // must survive UNDER the warning.
+  const MOTION = ['cadence', 'elasticity'] as const;
+
+  for (const { tier, body } of paths) {
+    const h = harness([
+      ok({
+        pillars: {
+          posture: pillarWithSafety('sharpOrWorseningPain', notes.posture),
+          armSwing: pillarWithSafety('swellingLimpOrFavouringOneSide', notes.armSwing),
+          cadence: pillarWithSafety('achillesOrHeelCordPain', notes.cadence),
+          elasticity: pillarWithSafety('sharpOrWorseningPain', notes.elasticity),
+        },
+        overall: { score: 71, band: 'good' },
+      }),
+    ]);
+    h.rpc.handlers.reserve_analysis = () => ({
+      data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
+      error: null,
+    });
+
+    const res = await run(h, body);
+
+    assertEquals(res.status, 200, `${tier}/${body.frames.length} frame(s)`);
+    const result = res.body.result as {
+      pillars: Record<string, { feedback: string | null; safety?: { note: string } | null }>;
+    };
+    const oneFrame = body.frames.length === 1;
+    for (const id of ['posture', 'armSwing', 'cadence', 'elasticity'] as const) {
+      const label = `${tier}/${body.frames.length} frame(s)/${id}`;
+      const feedback = result.pillars[id].feedback ?? '';
+      const strippedByNormalization = oneFrame && (MOTION as readonly string[]).includes(id);
+
+      assertEquals(
+        feedback.startsWith(notes[id]),
+        true,
+        `${label}: the certified warning must come FIRST, not after the coaching`
+      );
+      assertEquals(
+        feedback.includes(SAFETY_FIXTURE_COACHING),
+        !strippedByNormalization,
+        strippedByNormalization
+          ? `${label}: prose one frame cannot support must stay discarded`
+          : `${label}: supportable coaching must survive under the warning`
+      );
+      if (!strippedByNormalization) {
+        assertEquals(
+          feedback,
+          `${notes[id]}\n\n${SAFETY_FIXTURE_COACHING}`,
+          `${label}: warning, blank line, then the coaching`
+        );
+      } else {
+        assertEquals(feedback, notes[id], `${label}: the warning stands alone`);
+      }
+      assertEquals(result.pillars[id].safety?.note, notes[id]);
+    }
+    assertEquals(
+      h.rpc.to('settle_analysis')[0].args.p_result,
+      result,
+      `${tier}/${body.frames.length} frame(s): persisted output must match visible output`
+    );
+  }
+});
+
+Deno.test('a pillar with no stop-running signal keeps no prose at all after the one-frame strip', async () => {
+  const h = harness([
+    ok({
+      pillars: {
+        posture: { ...scoredPillar(78, 'good'), safety: safeSignal() },
+        armSwing: { ...scoredPillar(66, 'mid'), safety: safeSignal() },
+        cadence: pillarWithSafety('none', ''),
+        elasticity: pillarWithSafety('none', ''),
+      },
+      overall: { score: 71, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_PHOTO_BODY);
+  const result = res.body.result as {
+    pillars: Record<string, { feedback: string | null; score: number | null; notAssessedReason?: string }>;
+  };
+
+  assertEquals(result.pillars.cadence.feedback, null, 'no safety signal means no surviving prose');
+  assertEquals(result.pillars.cadence.score, null);
+  assertEquals(
+    result.pillars.cadence.notAssessedReason,
+    'needsVideo',
+    'a photo submitter is told a video would unlock these pillars'
+  );
+  assertEquals(result.pillars.elasticity.feedback, null);
+});
+
+Deno.test('an UNGROUNDED safety signal fails closed: no salvage, no delivery, no charge', async () => {
+  // A signal id outside injury_flags.md's certified list. Salvaging around it would hand the
+  // runner a complete-looking analysis with an unreadable warning quietly dropped.
+  const ungrounded = () =>
+    ok({
+      pillars: {
+        posture: { ...scoredPillar(78, 'good'), safety: { signal: 'runnersKnee', note: 'Stop running.' } },
+        armSwing: { ...scoredPillar(66, 'mid'), safety: safeSignal() },
+        cadence: { ...scoredPillar(70, 'good'), safety: safeSignal() },
+        elasticity: { ...scoredPillar(71, 'good'), safety: safeSignal() },
+      },
+      overall: { score: 71, band: 'good' },
+    });
+  const h = harness([ungrounded(), ungrounded()]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_VIDEO_BODY);
+
+  assertEquals(res.status, 503);
+  assertEquals(res.body.code, 'model_error');
+  assertEquals(h.rpc.to('settle_analysis').length, 0, 'nothing may be delivered around a dropped warning');
+  assertEquals(
+    releaseReasonFrom(h.rpc),
+    'invalid_safety',
+    'an unusable safety field is OUR contract failing — its own reason, never a farming strike'
+  );
+  assertEquals(h.model.sent.length, 2, 'the model got its full second chance first');
+});
+
+Deno.test('a real signal on a pillar the salvage would DROP also fails closed', async () => {
+  // Elasticity is unreadable garbage, so a salvage would replace it with the all-null dropped
+  // pillar — taking its declared stop-running signal with it. That must abort the salvage.
+  const withDroppedWarning = () =>
+    ok({
+      pillars: {
+        posture: { ...scoredPillar(78, 'good'), safety: safeSignal() },
+        armSwing: { ...scoredPillar(66, 'mid'), safety: safeSignal() },
+        cadence: { ...scoredPillar(70, 'good'), safety: safeSignal() },
+        elasticity: {
+          score: 'not a number',
+          safety: { signal: 'swellingLimpOrFavouringOneSide', note: 'Get that ankle looked at first.' },
+        },
+      },
+    });
+  const h = harness([withDroppedWarning(), withDroppedWarning()]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_VIDEO_BODY);
+
+  assertEquals(res.status, 422);
+  assertEquals(h.rpc.to('settle_analysis').length, 0);
+  assertEquals(h.rpc.to('release_analysis').length, 1);
+});
+
+Deno.test('the prompt states what the runner SENT and what we RECEIVED as two separate facts', async () => {
+  const fromVideo = harness([ok()]);
+  fromVideo.rpc.handlers.reserve_analysis = () => freeReserve();
+  await run(fromVideo, ONE_FRAME_VIDEO_BODY);
+  const videoPrompt = systemText(fromVideo.model.requests[0]);
+
+  assert(
+    videoPrompt.includes('THE MEDIA: A SINGLE FRAME FROM A VIDEO'),
+    'their own upload must not be renamed'
+  );
+  assert(
+    videoPrompt.includes('They ALREADY sent a video. NEVER tell them to submit one'),
+    'one frame is one instant, but the runner still sent a video'
+  );
+  assertEquals(
+    videoPrompt.includes('Tell the runner a short video would unlock'),
+    false,
+    'never advise a video submitter to submit a video'
+  );
+  assertEquals(
+    videoPrompt.includes('Across these frames you can assess all four pillars'),
+    false,
+    'one attached frame must never get the cross-frame rules'
+  );
+
+  const fromPhoto = harness([ok()]);
+  fromPhoto.rpc.handlers.reserve_analysis = () => freeReserve();
+  await run(fromPhoto, ONE_FRAME_PHOTO_BODY);
+  const photoPrompt = systemText(fromPhoto.model.requests[0]);
+
+  assert(photoPrompt.includes('THE MEDIA: A SINGLE PHOTO'));
+  assert(
+    photoPrompt.includes('Tell the runner a short video would unlock'),
+    'a photo submitter IS told what would help'
+  );
+
+  const multiFrame = harness([ok()]);
+  await run(multiFrame, VIDEO_BODY);
+  assert(
+    systemText(multiFrame.model.requests[0]).includes(
+      'Across these frames you can assess all four pillars'
+    ),
+    'the multi-frame path is unchanged'
+  );
+});
+
+// ===========================================================================
+// ABSENT IS INVALID. `PACE_RESULT_SCHEMA` marks `safety` required, but a schema is a request to
+// the model, not a guarantee — so a pillar that arrives without one, or with one we cannot use,
+// takes the same fail-closed path as an ungrounded signal. Reading "absent" as "no signal" would
+// discard a warning written in the prose with more confidence than any classifier ever did.
+// ===========================================================================
+
+const WARNING_IN_THE_PROSE =
+  'She is favouring the left leg and it looks swollen — get it looked at before running again.';
+
+/** Fully valid in every respect EXCEPT the safety declaration on Cadence, which is `broken`.
+ * Its prose carries a real warning, which is precisely what must not be silently dropped. */
+function cadenceSafety(broken: Record<string, unknown>): ModelCallResult {
+  return ok({
+    pillars: {
+      posture: scoredPillar(78, 'good'),
+      armSwing: scoredPillar(66, 'mid'),
+      cadence: {
+        score: 70,
+        band: 'good',
+        feedback: WARNING_IN_THE_PROSE,
+        flags: [],
+        drills: [],
+        ...broken,
+      },
+      elasticity: scoredPillar(71, 'good'),
+    },
+    overall: { score: 71, band: 'good' },
+  });
+}
+
+const UNUSABLE_SAFETY: { label: string; broken: Record<string, unknown> }[] = [
+  { label: 'the field is absent entirely', broken: {} },
+  { label: 'the field is malformed (wrong shape)', broken: { safety: 'she is limping' } },
+  { label: 'the field is null', broken: { safety: null } },
+  {
+    label: 'the signal is outside injury_flags.md',
+    broken: { safety: { signal: 'runnersKnee', note: 'Stop running.' } },
+  },
+  {
+    label: 'a declared signal carries a blank note',
+    broken: { safety: { signal: 'swellingLimpOrFavouringOneSide', note: '   ' } },
+  },
+];
+
+for (const { label, broken } of UNUSABLE_SAFETY) {
+  Deno.test(`fail closed when ${label}: retry, release, deliver nothing`, async () => {
+    const h = harness([cadenceSafety(broken), cadenceSafety(broken)]);
+    h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+    const res = await run(h, ONE_FRAME_VIDEO_BODY);
+
+    assertEquals(res.status, 503, 'an unusable safety declaration is never deliverable');
+    assertEquals(res.body.code, 'model_error');
+    assertEquals(h.model.sent.length, 2, 'the model gets its full second chance');
+    assertEquals(h.rpc.to('settle_analysis').length, 0, 'nothing is delivered and nothing is persisted');
+    assertEquals(
+      releaseReasonFrom(h.rpc),
+      'invalid_safety',
+      'the quota slot is handed back under our own reason, without a farming strike'
+    );
+    assertEquals(
+      h.rpc.to('record_ai_call').map((call) => call.args.p_status),
+      ['model_error', 'model_error'],
+      'provider/model safety omissions must be observable as our fault in the call ledger too'
+    );
+  });
+}
+
+Deno.test('a well-formed "none" declaration on every pillar is the ordinary, deliverable case', async () => {
+  const h = harness([cadenceSafety({ safety: { signal: 'none', note: '' } })]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_VIDEO_BODY);
+
+  assertEquals(res.status, 200, 'the fail-closed rule must not reject an honest response');
+  assertEquals(h.rpc.to('settle_analysis').length, 1);
+});
+
+// ===========================================================================
+// `overall` belongs to the model unless WE changed the pillars it was computed over.
+// ===========================================================================
+
+Deno.test('a multi-frame paid analysis keeps the model\'s own overall, untouched', async () => {
+  for (const tier of ['pro', 'elite'] as const) {
+    const h = harness([
+      ok({
+        pillars: {
+          posture: scoredPillar(80, 'good'),
+          armSwing: scoredPillar(72, 'good'),
+          cadence: scoredPillar(60, 'mid'),
+          elasticity: scoredPillar(90, 'strong'),
+        },
+        // Deliberately NOT the mean of the four (which is 75.5 -> 76): if this survives, the
+        // model's headline was kept; if it becomes 76, we silently replaced it.
+        overall: { score: 71, band: 'good' },
+      }),
+    ]);
+    h.rpc.handlers.reserve_analysis = () => ({
+      data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
+      error: null,
+    });
+
+    const res = await run(h, VIDEO_BODY);
+    const result = res.body.result as { overall: { score: number | null; band: string | null } };
+
+    assertEquals(result.overall, { score: 71, band: 'good' }, `${tier}: the model's overall is not ours to rewrite`);
+    assertEquals(
+      (h.rpc.to('settle_analysis')[0].args.p_result as typeof result).overall,
+      { score: 71, band: 'good' }
+    );
+  }
+});
+
+Deno.test('a one-frame analysis DOES recompute overall — the model computed it over pillars we removed', async () => {
+  const h = harness([
+    ok({
+      pillars: {
+        posture: scoredPillar(78, 'good'),
+        armSwing: scoredPillar(66, 'mid'),
+        cadence: scoredPillar(60, 'mid'),
+        elasticity: scoredPillar(90, 'strong'),
+      },
+      overall: { score: 73, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_PHOTO_BODY);
+  const result = res.body.result as { overall: { score: number | null } };
+
+  // mean(78, 66) = 72 — Cadence and Elasticity were zeroed, so the model's 73 no longer describes
+  // anything that survived.
+  assertEquals(result.overall.score, 72);
 });

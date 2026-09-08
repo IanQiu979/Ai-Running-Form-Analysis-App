@@ -192,12 +192,9 @@ app/
                           # navigates to `result/[id]` (singular, matching this table);
                           # docs/design/motion-consult.md's nav-param example was corrected to
                           # match (docs/status.md Known Issue #20, resolved).
-  result/sample               # current (captain-approved 2026-07-26) — Free tier's zero-model-
-                          # call labeled sample preview. A static sibling route, not a `[id]`
-                          # dynamic match — no `analyses` row exists to fetch for a sample.
-                          # `app/analyzing.tsx` routes here instead of `result/[id]` for a
-                          # `kind: 'sample'` response; see "Current — `analyze-form` edge
-                          # function" below.
+  # result/sample no longer exists (removed 2026-09-06) — Free's fabricated, zero-model-call
+  # sample preview was retired; Free now gets a real analysis through `result/[id]` like every
+  # other tier. See "Current — `analyze-form` edge function" below.
   settings                   # current (issue #53) — top-level pushed route, not a tab; see
                           # "Current — the Settings screen" below.
   paywall                     # current (issue #52, 2026-07-13) — the M5 dummy paywall; see
@@ -461,6 +458,16 @@ pure/client split as `ai-guard.ts`. 46 Deno tests.
   `assertNonEmptyKnowledge()` at load, so an empty bundle fails the suite before an assertion runs;
   a test then asserts each file appears in the assembled prompt **byte-for-byte** (an anchor-phrase
   check would miss a truncation bug).
+- **THE OUTPUT SCHEMA IS ONE `$defs.pillar` NODE, `$ref`d FOUR TIMES — and that is a hard API
+  constraint, not a style choice.** Anthropic's structured-outputs grammar compiler has a size
+  ceiling, and four inlined copies of the pillar object exceed it once each carries a `safety`
+  declaration: the request is rejected with `400 invalid_request_error` ("The compiled grammar is
+  too large") **before the model runs**, on every request at every tier — a total outage of this
+  endpoint, invisible to every offline test. Measured live 2026-09-07 with one-variable probes: the
+  driver is structural, not textual (stripping every `description`, 16,710 chars down to 4,468,
+  still 400s; hoisting only the `safety` sub-object still 400s; hoisting the whole pillar returns
+  200). `docs/status.md` Known Issue #44 carries the full table. Do not inline the pillars back, and
+  re-measure against the live API before merging any change that makes them differ from each other.
 - **The tier dial is one parameter on one prompt** (`TIER_VERBOSITY`), never a second prompt or a
   second call. It is *structurally* incapable of buying certainty: the not-assessed rules, the
   medical boundary, the #112 timestamp rules, and the input-channel rules are assembled **outside**
@@ -715,10 +722,11 @@ work dead weight. The layout work above makes either choice safe; nothing is blo
 every `screenOptions` in `app/(tabs)/`, `app/capture/` and `app/(auth)/` sets `headerShown: false` —
 so an unspecified top edge can never double with a header inset. The floating tab bar overlaps only
 `(tabs)/index.tsx` and `(tabs)/history.tsx`, and both already exclude `'bottom'` and pay for it with
-`TabBar.clearanceFor`. `result/[id].tsx` and `result/sample.tsx` exclude `'top'` on purpose so the
-hero bleeds — on their LOADED branch; their loading and error branches take all four edges, which is
-also right, since neither renders a hero. Everything else correctly takes all four edges. Writing out ~14 redundant props would
-change nothing at runtime.
+`TabBar.clearanceFor`. `result/[id].tsx` excludes `'top'` on purpose so the hero bleeds — on its
+LOADED branch; its loading and error branches take all four edges, which is also right, since
+neither renders a hero. (`result/sample.tsx` no longer exists — removed 2026-09-06 along with
+the Free-tier sample preview; see "Current — `analyze-form` edge function" below.) Everything else
+correctly takes all four edges. Writing out ~14 redundant props would change nothing at runtime.
 
 **The one real double-inset was elsewhere**, and is fixed: `<OfflineBanner>` sits in normal flow
 above `<Stack>` and pads itself by the top inset, and every screen's `<SafeAreaView>` then applied
@@ -826,8 +834,9 @@ way they are. Full narrative: `docs/change_log.md`'s 2026-09-01 entries.
   the stroke offset moves", proven in `components/__tests__/arc-ring.test.tsx`.
 - **The motif is structural, not pasted.** `<ScreenGradient>` draws the corner ornament itself —
   opt-**out** via `ornament="none"`, over the wash and under the screen's content, with a radius
-  that scales with viewport width and is capped so it cannot swallow a tablet corner. Both result
-  screens (`app/result/[id].tsx`, `app/result/sample.tsx`) opt out; their heroes occupy that corner.
+  that scales with viewport width and is capped so it cannot swallow a tablet corner. The result
+  screen (`app/result/[id].tsx`) opts out; its hero occupies that corner. (`app/result/sample.tsx`
+  did the same before it was removed 2026-09-06 along with the Free-tier sample preview.)
   `<ArcLoader>` replaces the full-screen spinners on result, history and compare and rings the mark
   on Analyzing; `app/capture/extracting.tsx`'s horizontal progress bar became a genuinely
   determinate ring driven by the real frame count, with the indeterminate loader covering the
@@ -844,11 +853,13 @@ way they are. Full narrative: `docs/change_log.md`'s 2026-09-01 entries.
   `scripts/generate-app-assets.js` rasterizes from them, plus `app.json`'s splash and Android
   adaptive-icon background colours (`#F7F1EB` light / `#17120E` dark). Same pipeline as the
   2026-07-12 assets section below; only the artwork and colours changed.
-- **A blurred "locked pillars" treatment for `app/result/sample.tsx` was proposed and rejected**
-  after direct captain confirmation — it would have overridden the 2026-07-26 free-tier ruling
-  recorded in the `analyze-form` flow section below. `result/sample.tsx` ships with no blur;
-  `<SampleResultBanner>` remains unchanged and is the control of record — see
-  `docs/change_log.md`'s 2026-09-01 entry.
+- **Historical: a blurred "locked pillars" treatment for `app/result/sample.tsx` was proposed and
+  rejected** after direct captain confirmation — it would have overridden the 2026-07-26 free-tier
+  ruling recorded in the `analyze-form` flow section below. `result/sample.tsx` shipped with no
+  blur; `<SampleResultBanner>` was the control of record — see `docs/change_log.md`'s 2026-09-01
+  entry. **Both `result/sample.tsx` and `<SampleResultBanner>` were removed 2026-09-06** when the
+  captain's later ruling retired the fabricated sample entirely in favor of a real, capped
+  analysis for Free — see "Current — `analyze-form` edge function" below.
 
 ### UNMERGED — the "Cold Read" redesign (branch `fm/v23-redesign-theme-onboarding`, 2026-09-04)
 
@@ -1139,6 +1150,13 @@ app/capture/
                 # deck names this screen as where it "gates the Source Picker -> Capture/Upload
                 # handoff", and this is the first host that ticks that box (M4/M5 were the other
                 # two named candidates; still open there).
+  # extracting.tsx PRE-FLIGHTS THE ANALYSIS before any thumbnail work: one bounded
+  # `quota-status` read (lib/analysis-preflight.ts) answers BOTH "may this runner start"
+  # and "how many frames does their video get". A cooldown renders the honest paused panel
+  # (Copy.analysisPause, no Retry — retrying cannot succeed until the window clears); an
+  # exhausted allowance replaces into /paywall. Every lookup FAILURE proceeds: the client is
+  # never the authority, and a blip must not fabricate a claim about someone's account. See
+  # docs/status.md Known Issue #44.
   record.tsx    # Capture (screen 4): expo-camera's CameraView, mode="video" + mute (audio is
                 # never captured — app.json's expo-camera/expo-image-picker plugins already had
                 # microphonePermission: false and recordAudioAndroid: false from M1; unchanged),
@@ -1496,7 +1514,9 @@ live project the same day and verified; see "Current — frame-upload ordering f
 has via the normal `analyses` RLS read and diffs them in the client — no new AI call, no quota
 burn, no extra storage, no new edge function or API route.
 
-## API (endpoint status per row — all listed endpoints are built, tested, and DEPLOYED as of 2026-07-26)
+## API (endpoint status per row — all listed endpoints are built, tested, and DEPLOYED as of
+2026-07-26, EXCEPT the 2026-09-06 Free-tier real-analysis change to `analyze-form` below, which is
+code-complete and Deno-tested only — not yet deployed)
 
 The client never talks to Postgres for privileged operations — those go through edge
 functions. Plain reads of the caller's own rows go through the Supabase client, protected by
@@ -1504,10 +1524,10 @@ RLS.
 
 | Method / Route | Auth | Body | Returns | Notes |
 |---|---|---|---|---|
-| `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | Pro/Elite: `{ result, analysisId, isFallback }`. **Free: `{ result, isSample: true }` — no `analysisId`/`isFallback`, no Anthropic call, no `analyses` row** (captain-approved 2026-07-26, live 2026-08-05 — see below). Also `402` over-quota / `403` anon | **Built and Deno-tested since 2026-07-13 (issues #44 + #45); the base function DEPLOYED 2026-07-26 (with #128), but the Free-tier sample short-circuit merged to `main` 2026-07-26 and sat undeployed for ten days — the deployed function kept charging Free signups a real Anthropic call until the `pace_current_tier` migration was applied and `analyze-form` was redeployed to v8 on 2026-08-05 (`docs/status.md` Known Issue #37).** `lib/analyze-form.ts` is bound to the real client. See "Current" below. Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. **Free tier is a zero-Anthropic-spend, honestly-labeled sample preview, not a real analysis** — see "Current — `analyze-form` edge function" below for the `pace_current_tier` short-circuit. |
+| `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | Every tier: `{ result, analysisId, isFallback }`. Also `402` over-quota / `403` anon | **Built and Deno-tested since 2026-07-13 (issues #44 + #45); the base function DEPLOYED 2026-07-26 (with #128).** `lib/analyze-form.ts` is bound to the real client. See "Current" below. Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. **Free now gets a real, model-backed analysis capped at one lifetime delivered result (captain's ruling, 2026-09-06) — the earlier zero-Anthropic-spend fabricated sample is retired.** See "Current — `analyze-form` edge function" below for the normalization step and the deploy-ordering caveat (this change is not yet deployed). |
 | `POST /functions/v1/purchase-tier` | JWT + gate | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` or `404 not_found` (gate off) / `429 rate_limited` / `400 invalid_tier` / `invalid_source` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #51, 2026-07-13; hardened same day, PR #123; deployed with #128) — see "Current" below. **Gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — it was set to `true` on the live project by deliberate captain decision from 2026-07-26, and was unset 2026-08-06; `docs/status.md` Known Issue #21 owns that release gate and its current live state.** Same contract as V2.2; v2 swaps `source` to receipt verification (a non-`dummy` source is refused today). The only legitimate writer to `subscriptions`, via the service-role-only `pace_purchase_tier` RPC — no client-writable INSERT/UPDATE policy exists, and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`. Idempotent: `purchased_at` (the period anchor) is written once on first purchase and never moved (no caller-suppliable `p_as_of` either), so a repurchase cannot reset the quota period. |
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #50, 2026-07-12; deployed with #128) — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
-| `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Redeployed 2026-07-26 from the current repo code, so issue #132's second-purge/`orphans_remaining` behavior is now live** — that deploy also carried the shared-key parse fix (`docs/status.md` Known Issue #35). |
+| `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `409 in_progress` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). `409 in_progress` (2026-09-06, not yet deployed) refuses a row still `'reserved'` with a model call in flight — deleting it then would refund spend; `lib/history.ts` surfaces that code and its retry-after-it-finishes message. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Redeployed 2026-07-26 from the current repo code, so issue #132's second-purge/`orphans_remaining` behavior is now live** — that deploy also carried the shared-key parse fix (`docs/status.md` Known Issue #35). |
 | `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26, verified live** (issue #58, 2026-07-13; response contract fixed post-review, same date; deployed with #128 — see `docs/status.md` Known Issue #35). The client (`lib/delete-account.ts`) has called the real function since PR #122 (2026-07-13, `docs/status.md` Known Issue #23), so the Settings flow reaches it end to end. See "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
 | `POST /functions/v1/signup-with-captcha` | none (pre-auth) | `{ email, password, captchaToken }` | `200 { session, user }` or `400 { error, code }` for `invalid_body` / `captcha_invalid` / `email_in_use` / `weak_password_length` / `weak_password_pwned` / `signup_failed`, or `500` for `signup_unavailable` / `no_session` | **Built, Deno-tested, and DEPLOYED to the live project 2026-08-03** (issue #12/Known Issue #12 — see `docs/status.md`). Verifies a Cloudflare Turnstile token server-side, then — only if valid — proxies a plain `supabase.auth.signUp()` (publishable key, no admin API), so GoTrue's own `minimum_password_length`/`password_hibp_enabled` keep being enforced unchanged. Replaces native `auth.captcha`, which was tried live and reverted the same day for gating sign-in too (project-wide, not per-endpoint). `app/(auth)/sign-in.tsx` calls this in sign-up mode only; sign-in calls `signInWithPassword` directly, untouched. |
 
@@ -1615,6 +1635,18 @@ as a pseudo-directory (`id: null`) and paginates each level, proven by tests cov
 folder and a multi-page listing.
 
 **Verification run**: `npm run typecheck && npm run lint && npm test` clean.
+
+**Refuses a `'reserved'` row outright, before any Storage read (2026-09-06).**
+`AnalysisOwnershipRow` now carries `status` (`public.analysis_status` — `reserved`/`delivered`/
+`released`; the column already existed, no migration needed) alongside `id`/`user_id`/
+`deleted_at`, and `delete-analysis-client.ts` selects it too. `deleteAnalysis()` checks it
+immediately after the ownership check and, for `'reserved'`, returns a new `{ outcome:
+'in_progress' }` — mapped to `409` with code `in_progress` — before touching Storage or mutating
+the row at all. This closes a race where a delete arriving while `analyze-form/flow.ts` still owns
+the row could let that in-flight request go on to settle a result nobody could ever see or purge
+(the row settles to `'delivered'` after the delete would have already run). The client should retry
+once the analysis finishes, or once #47's stale-reservation sweep reclaims a row whose owning
+invocation crashed.
 
 ## Current — `GET /functions/v1/quota-status` (issue #50, 2026-07-12)
 
@@ -1796,21 +1828,24 @@ consents       (id uuid pk default gen_random_uuid(),
 -- "latest row for this user and key".
 ```
 
-**Quota RPC family — `reserve_analysis` / `settle_analysis` / `release_analysis` /
-`pace_current_tier`, live and the sole enforcement point.** All four are `SECURITY DEFINER`,
-`EXECUTE` revoked from `public`/`anon`/`authenticated` and granted only to `service_role` — so
-only a future edge function calling with the service-role key can invoke them, never the client
-directly. **Signatures below reflect #88's migration, applied and verified live 2026-07-12**:
+**Quota RPC family — `reserve_analysis` / `settle_analysis` / `release_analysis`, live and the
+sole enforcement point.** All are `SECURITY DEFINER`, `EXECUTE` revoked from
+`public`/`anon`/`authenticated` and granted only to `service_role` — so only a future edge
+function calling with the service-role key can invoke them, never the client directly.
+**Signatures below reflect #88's migration, applied and verified live 2026-07-12**:
 `reserve_analysis` is 4 args (`p_media_paths` dropped), `settle_analysis` is 5 (gained it, with
 a `{p_user_id}/{p_analysis_id}/` namespace guard).
 
 - **`pace_current_tier(p_user_id)`** (captain-approved 2026-07-26,
-  `20260804120000_pace_current_tier_function.sql`, merged to `main` 2026-07-26 but not applied to
-  the live project until 2026-08-05 — `docs/status.md` Known Issue #37) — a side-effect-free tier
-  lookup, split out of `reserve_analysis` so `analyze-form` can answer "which tier is this caller
-  on" WITHOUT reserving a row or spending a quota slot. Does the identical `subscriptions` lookup
-  `reserve_analysis` does internally (no active row = `'free'`), just with no insert. This is what
-  lets Free tier's sample preview cost nothing — no reservation, no `analyses` row, ever.
+  `20260804120000_pace_current_tier_function.sql`) — a side-effect-free tier lookup, split out of
+  `reserve_analysis` so `analyze-form` could answer "which tier is this caller on" WITHOUT
+  reserving a row or spending a quota slot. **`analyze-form/flow.ts` no longer calls this RPC at
+  all as of 2026-09-06** — the Free-tier pre-reserve tier lookup it existed for was retired along
+  with the fabricated sample it gated; `reserve_analysis`'s own returned `tier` is now the sole
+  place any tier is learned, for every tier alike. The function itself still exists in the schema
+  (no migration dropped it) but is unused. `pace_current_tier_unlimited`, its
+  `ALL_USERS_UNLIMITED_ACCESS`-override counterpart, is likewise unused now — the override path
+  goes through `reserve_analysis_unlimited` alone.
 
 - **`reserve_analysis(p_user_id, p_idempotency_key, p_media_type, p_frame_count)`**
   — the sole write path for new `analyses` rows (4 args as of #88 — the row is minted with an
@@ -2815,7 +2850,7 @@ state with a real link in the same change that publishes the policy.
 Both route to a Paywall (#52) and an IAP flow that do not exist; shipping them would build a dead
 end. #52 adds them back with the route they point at.
 
-## Current — `analyze-form` edge function (issues #44 + #45, built 2026-07-13, deployed 2026-07-26)
+## Current — `analyze-form` edge function (issues #44 + #45, built 2026-07-13, deployed 2026-07-26; Free-tier real analysis, 2026-09-06)
 
 The core of the product, and the first code in this repo that spends money. Written, fully tested,
 and **deployed to the live project 2026-07-26** (issue #128) — both `supabase functions deploy
@@ -2841,37 +2876,120 @@ The model is a **fake queue** in every test. The suite makes **zero Anthropic ca
 client-observed envelope, even though `runAnalyzeForm` begins afterward.
 
 ```
-auth → consent → tier lookup (free short-circuits here) → AI gate → idempotency + reserve
-     → prompt → call (+1 retry) → settle → upload → attach_media_paths
+auth → consent → AI gate → idempotency + reserve (tier is DERIVED here)
+     → prompt → call (+1 retry) → normalize (evidence + tier) → settle → upload → attach_media_paths
                                               ↘ (any failure before the settle) release
 ```
 
-**Free tier makes ZERO Anthropic calls (captain-approved 2026-07-26, live in production
-2026-08-05 — `docs/status.md` Known Issue #37).** `pace_current_tier` —
-a new, side-effect-free RPC (`supabase/migrations/20260804120000_pace_current_tier_function.sql`,
-same `SECURITY DEFINER`/pinned-`search_path`/service-role-only grant pattern as the other four
-quota RPCs) — runs right after consent and before the AI gate, purely to answer "which tier is
-this caller on," with none of `reserve_analysis`'s side effects (no row, no quota slot spent). A
-`'free'` result returns `200 { result: FREE_SAMPLE_PACE_RESULT, isSample: true }` immediately: no
-AI gate, no reserve, no model call, no `analyses` row, no frame upload — this is a hand-authored,
-never-persisted sample result (`supabase/functions/_shared/analyze-form-sample.ts`), honestly
-labeled so it can never be mistaken for a personalized analysis (a cost-control requirement, not
-just UX — the rationale being both an App Store policy risk and a refund-dispute risk if a canned
-result were presented as real). `'pro'`/`'elite'` fall straight through to the unmodified path
-below. On any `pace_current_tier` RPC failure (or an unrecognized returned value), the lookup
-throws and the request fails as a `500 internal_error` — deliberately NOT defaulting to `'free'`
-(would silently swallow a paying user's real analysis on a transient DB blip) and NOT defaulting to
-a paid tier (the actual spend risk). The client (`app/analyzing.tsx`) routes a `kind: 'sample'`
-response to the static `app/result/sample.tsx` route — never `/result/[id]`, since no DB row
-exists to fetch — showing the sample PACE readout next to the user's own just-captured photo (a
-`data:` URI built client-side from the frame already in memory; nothing is uploaded to Storage for
-a sample) inside a `<SampleResultBanner>` that states honestly (copy rewritten 2026-08-06,
-`free-tier-frame-cap` option b) that a real single-photo analysis could only ever score 2 of the 4
-pillars (Posture, Arm swing) — Cadence and Elasticity need multiple frames — framing the full
-4-pillar sample as what Pro/Elite's multi-frame capture unlocks, with an upgrade CTA immediately
-adjacent. See `supabase/functions/analyze-form/__tests__/
-flow.deno.test.ts`'s "FREE-TIER SAMPLE PREVIEW" suite for the regression lock proving zero model/
-gate/reserve calls.
+**HISTORICAL — Free tier used to make ZERO Anthropic calls, via a fabricated sample result
+(captain-approved 2026-07-26, live in production 2026-08-05 — `docs/status.md` Known Issue #37).
+This was retired 2026-09-06; see the ruling immediately below.** The old design ran a
+side-effect-free `pace_current_tier` RPC right after consent, and a `'free'` result short-circuited
+to `200 { result: FREE_SAMPLE_PACE_RESULT, isSample: true }` — a hand-authored, never-persisted
+result served with no model call, no reservation, and no `analyses` row. The client routed that
+`kind: 'sample'` response to a static `app/result/sample.tsx` route, next to the user's own photo,
+inside a `<SampleResultBanner>`. That result fabricated content the certified knowledge files do
+not support for a single frame — a cadence figure, a left/right ground-contact comparison — and,
+because it was never persisted, not one Free signup in five weeks ever produced a real `analyses`
+row.
+
+**Free tier now gets a REAL, model-backed analysis through this exact same path (captain's ruling,
+2026-09-06) — not yet deployed as of this writing.** `pace_current_tier` and its short-circuit are
+gone: there is no more pre-reserve tier lookup of any kind. Every tier — free, pro, elite — runs
+gate → reserve → model (+1 retry) → normalize → settle identically, and `reserve.tier` (returned by
+`reserve_analysis` itself) is the only place tier is ever learned. What makes this safe for Free is
+two things that already existed and are unchanged in shape: `reserve_analysis`'s existing
+one-lifetime-delivered-analysis cap for Free (enforced by its per-user advisory lock, not a new
+counter), and a new, unconditional, server-side **normalization step** —
+`normalizeForEvidenceAndTier()` in `flow.ts` — that runs after the model call and before settle,
+and is never merely prompt-guided:
+
+- **Any one-frame submission** (Free's only allowance, and any photo from any tier) has Cadence and
+  Elasticity forced to not-assessed, discarding EVERYTHING the model claimed about them — score,
+  band, feedback prose, flags, drills — closing exactly the hallucinated-cadence failure mode the
+  old sample shipped, this time for real model output too, not just the canned one. The reason
+  recorded is `'needsVideo'` for a photo and `'singleFrameFromVideo'` when exactly one frame of a
+  submitted video reached this analysis. That server-authored reason states the observable fact,
+  never an unverified cause such as the runner's plan; the client renders one sentence from it, so
+  no surface tells a video submitter to submit a video or blames their entitlement.
+- **The pillar's `safety` declaration is surfaced structurally on every path.** `pace.ts`'s
+  `PaceSafety` is an ADDITIVE per-pillar field — a `signal` id from
+  `knowledge/injury_flags.md`'s certified stop-running list plus the calm `note` to show the
+  runner — and it exists precisely so a
+  stop-running warning is separated from assessment prose AT THE SOURCE rather than classified out
+  of it afterwards. Normalization copies it across and places a certified non-`none` signal's `note`
+  FIRST in that pillar's visible feedback on every tier, frame path, and pillar, keeping whatever
+  coaching prose survived normalization underneath it; no keyword matching is involved, in either
+  direction, and supportable coaching is never deleted because a warning fired. It is never
+  tier-gated.
+- **ABSENT IS INVALID ON A PILLAR THAT DECLARED ANYTHING, and that is what makes the sentence above
+  true.** `PACE_RESULT_SCHEMA` marks `safety` `required`, but a schema is a request to the model,
+  not a guarantee we may lean on — so `analyze-form-validation.ts` refuses to call a response
+  deliverable unless every PRESENT pillar carries a usable declaration. On such a pillar, absent,
+  malformed, ungrounded `signal`, a declared non-`none` signal with a blank `note`, and a real
+  signal on a pillar a salvage would drop all take the identical path: no salvage, the retry runs,
+  and a second failure releases the reservation without charging the user. Reading an absent field
+  as "no signal" would discard a warning written only in the prose with more confidence than the
+  keyword classifier this design replaced ever had. A missing analysis is recoverable; a missing
+  warning is not.
+  The one case scoped OUT is a pillar that is entirely absent, or not an object at all: it asserted
+  nothing about the runner, so there is no warning it could have dropped. That is ordinary schema
+  drift, it stays `invalid_shape` (and, after the retry, `validation_failed`) exactly as it did
+  before `safety` existed, and it does not abort the #45 honest-partial salvage of the pillars that
+  ARE readable — which is the only thing that keeps that fallback reachable against real model
+  output.
+- **A safety-contract failure is ours, not a farming signal, and it says so in its own words.** A
+  response that omits or violates the required structured safety declaration on a present pillar
+  releases as `'invalid_safety'`, so it refunds the reservation and cannot increment the runner's
+  anti-farming counter. It is kept distinct from `'model_error'` because the Anthropic call did not
+  fail — only OUR added requirement did — and the ledger should be able to tell those apart.
+  `20260906120000_invalid_safety_release_reason.sql` adds the value to
+  `analyses_release_reason_known_values`, the same superset-only idiom `'stale_sweep'` and
+  `'zero_pillars_assessed'` already used. This does not broaden or rename `validation_failed`: its
+  existing meaning — the model received a genuine retry and both responses met the established
+  content-failure condition — remains the sole farming signal. `pace_is_farming_signal` needs no
+  change and gets none: it returns true only for `'validation_failed'`, so the already-live
+  `20260712220000_anti_farm_release_reason_fix.sql` migration, including Free's rolling 24-hour
+  window, remains the control of record unchanged.
+- **The prompt states two separate facts**, never one merged one: what the runner SENT (photo or
+  video, their own upload) and what REACHED the model (how many frames). One attached frame always
+  gets the one-instant rules, whatever produced it.
+- **Free additionally strips flags/drills from every pillar**, assessed or not (`pace.ts`'s
+  `PacePillarResult` doc comment marks these paid-tier content).
+- **`overall` is recomputed ONLY when a pillar was actually normalized** (a one-frame submission, or
+  Free's flag/drill strip), via the same `deriveOverall()` the honest-partial fallback path already
+  used — because the model's own `overall` was then computed over pillars that no longer exist. A
+  multi-frame Pro/Elite result passes through with the model's headline intact; rewriting it there
+  would be an unrequested change to paid output.
+
+**A zero-pillar result splits by tier (captain decision,
+`audit-v23-r1-decision-zero-pillar-charge-policy`).** A structurally valid response that ends up
+assessing nothing — a clip that never shows the runner, or a one-frame submission whose only
+"assessed" pillars were Cadence/Elasticity before normalization zeroed them — still `RELEASE`s (and
+refunds the quota slot) for Pro/Elite, exactly as `'validation_failed'`/`'model_error'` already did.
+For Free it instead `SETTLE`s and consumes the one lifetime slot: refunding a blank/unusable
+submission would turn Free's single slot into an unlimited free-form-checking loop.
+`'zero_pillars_assessed'` is excluded from `pace_is_farming_signal` either way, so it never ticks
+the 3-strike anti-farming cap.
+
+See `supabase/functions/analyze-form/__tests__/flow.deno.test.ts` for the regression suite covering
+normalization and the zero-pillar split. **Deployment ordering matters**: `analyze-form` must be
+redeployed before or with the client release — the simplified client (`lib/analyze-form.ts`) now
+rejects the retired `{ result, isSample: true }` shape as malformed, so an old function paired with
+the new client fails closed, and a new function paired with the old client also degrades safely
+(the old client already treated `{ result, analysisId, isFallback }` as its primary case). As of
+this writing **this has not been deployed**, and 0 real Anthropic calls were made anywhere in this
+work — every model call in the test suite is a deterministic fake.
+
+**Local Postgres caveat:** the integration proof in
+`supabase/functions/_shared/integration/quota-rpc.local.ts` was not run because Docker Desktop was
+stopped, and this work did not start it. The database-backed proof remains unverified; the focused
+tests do not substitute for it.
+
+**This depends on `fm/v23-reliability-timeouts`** (a parallel, unmerged branch owning timeout/
+retry/frame-sampling/prompt semantics) for the eventual final frame-sampling and prompt behavior —
+this work does not duplicate or wait on that branch, and frame sampling may further limit what a
+real analysis can honestly claim once it lands.
 
 **Settle before upload (#130).** The last three steps used to run `upload → settle`. They were
 inverted so that a `'reserved'` row can never have frames — see step 10 of the call-ordering list
@@ -3138,12 +3256,14 @@ or Ian. See `docs/design/copy-deck.md`'s new-copy section.
 The M5 dummy paywall. `lib/subscription.ts` reads `GET /functions/v1/quota-status` and calls
 `POST /functions/v1/purchase-tier` (#51, deploy-gated behind `PURCHASE_TIER_DUMMY_ENABLED`,
 default OFF — unset on the live project as of 2026-08-06, `docs/status.md` Known Issue #21), both through
-issue #46's shared `invokeFunction()` wrapper. **No tier limit or frame
-cap is hardcoded anywhere in either file** — every count/limit shown is read fresh off the
-`quota-status` response, and a regression test fails if a numeric tier constant is ever added
-here; this is the exact trap `lib/subscription.ts`'s own header names by name, since Echo V1 once
-mistakenly believed enforcement lived in a file shaped like this one (it lived in the edge
-function, same as here). Registered inside `app/_layout.tsx`'s signed-in `Stack.Protected` block.
+issue #46's shared `invokeFunction()` wrapper. The tier cards state the paid allowances exactly —
+**Pro: 10 analyses per period; Elite: 30 analyses per period** — as cosmetic display copies of
+the server contract, never enforcement inputs. Account-specific remaining counts and renewal dates
+come only from `quota-status`, and no frame cap is stated here; `reserve_analysis` remains the sole
+quota authority. This is the exact trap `lib/subscription.ts`'s own header names by name, since
+Echo V1 once mistakenly believed enforcement lived in a file shaped like this one (it lived in the
+edge function, same as here). Registered inside `app/_layout.tsx`'s signed-in
+`Stack.Protected` block.
 New, uncertified purchase pending/success/failure copy (`paywall.alertDismiss`, `paywall.plan.*`,
 `paywall.purchase.*`) — the deck's Screen 10 table only ever specced the static tier cards and the
 two 402-gate banners, never what happens during/after tapping Upgrade.

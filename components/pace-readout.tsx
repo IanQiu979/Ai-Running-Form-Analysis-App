@@ -171,11 +171,10 @@ export function PaceReadout({ result, firstReveal = false, revealReady = true }:
       {/* `accessibilityRole="header"`, not just `accessible`: `app/result/[id].tsx` states in its
           own body comment that this block IS that screen's heading (the copy deck defines no
           `result.title`, so there is deliberately no other title element). Saying so in a comment
-          did not put it in VoiceOver's rotor — until this role landed, `/result/[id]` and
-          `/result/sample` were the only two screens in the app with ZERO headings, so a screen
-          reader user had no way to jump to the score and had to swipe the hero and both banners
-          to reach it. The role rides on the existing single accessible node; the spoken label is
-          unchanged. */}
+          did not put it in VoiceOver's rotor — until this role landed, `/result/[id]` had zero
+          headings, so a screen reader user had no way to jump to the score and had to swipe the
+          hero and both banners to reach it. The role rides on the existing single accessible
+          node; the spoken label is unchanged. */}
       <View
         style={styles.overallBlock}
         accessible
@@ -344,6 +343,13 @@ function PillarRow({
           score's visual now, and drawing both would encode it twice in two competing shapes.
           M1 (v23-ux-audit-r1)'s requirement that a not-assessed pillar be structurally distinct
           from "filled at 0%" moved with it, into `<ArcRing>`'s dashed empty track. */}
+      {/* ONE statement about the submission, and it lives HERE — in the reason line, whose copy is
+          keyed off `notAssessedReason` and is therefore media-aware ('needsVideo' for a photo,
+          'singleFrameFromVideo' when the runner sent a video and only one frame of it reached the
+          analysis). The server no longer writes a competing sentence into `feedback` for a pillar it
+          normalized, so this line always renders — a not-assessed pillar that also carries prose
+          (a Pro/Elite pillar the model itself could not score, or a stop-running note) shows both,
+          and neither contradicts the other. `pillarA11yLabel` speaks this same reason. */}
       {pillar.score === null || pillar.band === null ? (
         <Text
           testID={`pillar-not-assessed-${pillarId}`}
