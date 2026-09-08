@@ -80,12 +80,9 @@ import {
   type ThemeColors,
 } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import {
-  describeCooldownRemaining,
-  fetchAnalysisPreflight,
-  type AnalysisPreflight,
-} from '@/lib/analysis-preflight';
+import { fetchAnalysisPreflight, type AnalysisPreflight } from '@/lib/analysis-preflight';
 import { setPendingAnalyzeFormRequest, toAnalyzeFormRequest } from '@/lib/analyze-form';
+import { describeCooldownRemaining } from '@/lib/cooldown-remaining';
 import { FALLBACK_VIDEO_FRAME_CAP } from '@/lib/extraction-frame-cap';
 import {
   extractFrames,
@@ -433,7 +430,7 @@ export default function ExtractingScreen() {
           <View style={styles.centered}>
             <SurfaceCard style={styles.panel}>
               <View style={styles.panelStack}>
-                <Text style={styles.errorTitle} accessibilityRole="header" accessibilityLiveRegion="polite">
+                <Text style={styles.pausedTitle} accessibilityRole="header" accessibilityLiveRegion="polite">
                   {Copy.analysisPause.title}
                 </Text>
                 <Text style={styles.caption} testID="analysis-paused-body">
@@ -538,6 +535,17 @@ function createStyles(colors: ThemeColors, scheme: ColorScheme) {
       gap: Spacing.md,
     },
     resultTitle: {
+      fontFamily: FontFamily.display.bold,
+      fontSize: FontSize.xxl,
+      letterSpacing: Tracking.display,
+      lineHeight: FontSize.xxl * LineHeight.display,
+      color: colors.text.primary,
+      textAlign: 'center',
+    },
+    // A pause is not a failure, so it does not wear the failure hue: `text.primary` on the same
+    // `<SurfaceCard>`, the treatment the ready panel already uses. The copy underneath carries the
+    // reason; the colour makes no claim the state does not support.
+    pausedTitle: {
       fontFamily: FontFamily.display.bold,
       fontSize: FontSize.xxl,
       letterSpacing: Tracking.display,

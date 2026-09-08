@@ -30,11 +30,11 @@
 import { PACE_FRAME_CAP } from '@shared/pace';
 
 import {
-  describeCooldownRemaining,
   fetchAnalysisPreflight,
   QUOTA_WAIT_TIMEOUT_MS,
   resolveAnalysisGate,
 } from '../analysis-preflight';
+import { describeCooldownRemaining } from '../cooldown-remaining';
 import { FALLBACK_VIDEO_FRAME_CAP } from '../extraction-frame-cap';
 import type { QuotaStatus, QuotaStatusClient, QuotaStatusErrorCode, QuotaStatusResult } from '../quota';
 

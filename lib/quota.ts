@@ -38,7 +38,7 @@
  */
 import { Copy } from '@/constants/copy';
 
-import { describeCooldownRemaining } from './analysis-preflight';
+import { describeCooldownRemaining } from './cooldown-remaining';
 import { invokeFunction } from './functions-client';
 import type { BlockedReason, QuotaStatus, SubscriptionTier } from '@shared/quota-status';
 

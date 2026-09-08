@@ -1296,8 +1296,22 @@ function normalizeForEvidenceAndTier(
         continue;
       }
 
+      const notAssessedReason =
+        mediaType === 'video' && pillar.notAssessedReason === 'needsVideo'
+          ? ('singleFrameFromVideo' as const)
+          : pillar.notAssessedReason;
+
       if (pillar.score === null || pillar.band === null) {
-        pillars[id] = { ...pillar, score: null, band: null, flags: [], drills: [] };
+        pillars[id] = {
+          ...pillar,
+          score: null,
+          band: null,
+          notAssessedReason,
+          flags: [],
+          drills: [],
+        };
+      } else if (notAssessedReason !== pillar.notAssessedReason) {
+        pillars[id] = { ...pillar, notAssessedReason };
       }
     }
   }

@@ -2424,6 +2424,89 @@ for (const testCase of SAFETY_CASES) {
   });
 }
 
+Deno.test('no pillar tells a VIDEO submitter to send a video', async () => {
+  const h = harness([
+    ok({
+      pillars: {
+        posture: {
+          score: null,
+          band: null,
+          feedback: null,
+          notAssessedReason: 'needsVideo',
+          safety: NO_SAFETY_SIGNAL,
+          flags: [],
+          drills: [],
+        },
+        armSwing: {
+          score: null,
+          band: null,
+          feedback: null,
+          notAssessedReason: 'needsVideo',
+          safety: NO_SAFETY_SIGNAL,
+          flags: [],
+          drills: [],
+        },
+        cadence: { ...scoredPillar(70, 'good'), notAssessedReason: 'needsVideo' },
+        elasticity: { ...scoredPillar(74, 'good'), notAssessedReason: 'needsVideo' },
+      },
+      overall: { score: 72, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_VIDEO_BODY);
+
+  assertEquals(res.status, 200);
+  const pillars = (res.body.result as {
+    pillars: Record<string, { notAssessedReason?: string }>;
+  }).pillars;
+
+  for (const id of ['posture', 'armSwing', 'cadence', 'elasticity']) {
+    assertEquals(
+      pillars[id].notAssessedReason,
+      'singleFrameFromVideo',
+      `${id} must not ask a video submitter for a video`
+    );
+  }
+
+  const settled = h.rpc.to('settle_analysis')[0].args.p_result as {
+    pillars: Record<string, { notAssessedReason?: string }>;
+  };
+  assertEquals(settled.pillars.posture.notAssessedReason, 'singleFrameFromVideo');
+});
+
+Deno.test('a PHOTO submission keeps needsVideo, which is true there', async () => {
+  const h = harness([
+    ok({
+      pillars: {
+        posture: {
+          score: null,
+          band: null,
+          feedback: null,
+          notAssessedReason: 'needsVideo',
+          safety: NO_SAFETY_SIGNAL,
+          flags: [],
+          drills: [],
+        },
+        armSwing: scoredPillar(66, 'mid'),
+        cadence: scoredPillar(70, 'good'),
+        elasticity: scoredPillar(74, 'good'),
+      },
+      overall: { score: 70, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_PHOTO_BODY);
+
+  assertEquals(res.status, 200);
+  const pillars = (res.body.result as {
+    pillars: Record<string, { notAssessedReason?: string }>;
+  }).pillars;
+  assertEquals(pillars.posture.notAssessedReason, 'needsVideo');
+  assertEquals(pillars.cadence.notAssessedReason, 'needsVideo');
+});
+
 Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier and frame path', async () => {
   const paths = [
     { tier: 'free', body: ONE_FRAME_VIDEO_BODY },
