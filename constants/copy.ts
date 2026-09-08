@@ -305,7 +305,7 @@ export const Copy = {
       // than inventing detailed anti-farm messaging the deck was never asked to write.
       //
       // TWO VARIANTS, and which one renders is a statement about what we actually know. The same
-      // response also carries `blocked_until`, so when `lib/analysis-preflight.ts`'s
+      // response also carries `blocked_until`, so when `lib/cooldown-remaining.ts`'s
       // `describeCooldownRemaining` can turn it into a phrase, Home says how long is left rather
       // than an open-ended "later". `blocked` stays as the honest fallback for a missing,
       // unparsable, or already-past expiry — never a guessed or zeroed countdown.

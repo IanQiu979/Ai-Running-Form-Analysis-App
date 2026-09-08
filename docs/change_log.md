@@ -5,6 +5,30 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-08 (review pass on the analysis-limit path)
+
+**On `fm/v23-free-tier-real-analysis`, not yet merged to `main`.** Follow-ups from the review of
+the 2026-09-07 entry below; no model calls were made.
+
+- **The paused panel is a real heading, and it is announced.** The Extracting screen's pause state
+  now carries the panel title as the screen's single `accessibilityRole="header"` (the
+  "Preparing your analysis" eyebrow is skipped there, as it already is for an error — it would
+  contradict "Analyses are paused for now"), and the state is announced on iOS like the ready and
+  error states already were. The title also drops the failure hue for `text.primary`: a pause is
+  not a failure, and the colour must not claim one.
+- **A one-frame VIDEO never reports "needs video, not a photo".** `normalizeForEvidenceAndTier()`
+  now maps a MODEL-supplied `notAssessedReason: 'needsVideo'` to the server-authored
+  `'singleFrameFromVideo'` on a video submission, not just the two motion pillars it forces itself.
+  Same rule as before, applied everywhere it can be reached: state what happened, never tell a
+  video submitter to submit a video, never blame a plan.
+- **`describeCooldownRemaining` moved to its own module**, `lib/cooldown-remaining.ts`. Both
+  `lib/quota.ts` and `lib/analysis-preflight.ts` need it and already import each other's exports;
+  the split is what keeps that from becoming a module cycle, the same shape
+  `lib/extraction-frame-cap.ts` took. No behaviour change.
+- **`lib/pending-analysis.ts`'s "known gap" comment was stale** and is now recorded as CLOSED: it
+  described the retired sample's short-circuit, and no tier bypasses `reserve_analysis` any more,
+  so a killed Free request self-resolves exactly like every other tier's.
+
 ## 2026-09-07 (the analysis-limit path: pre-flight the refusal, tell the truth, drop the dead Retry)
 
 **On `fm/v23-free-tier-real-analysis`, not yet merged to `main`.** The last slice of the

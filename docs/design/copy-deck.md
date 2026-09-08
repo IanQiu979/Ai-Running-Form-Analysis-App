@@ -131,7 +131,8 @@ a draft until certified.
 | `home.quota.error.stale` | "Showing your last known plan status." | Quota-status fetch failed — show the last cached value with this quiet caption, not a blocking error. |
 | `home.quota.error.failed` | "Couldn't load your plan status." | Quota fetch failed and there is no cached value to show (first load). Paired with the retry action. Backfilled 2026-07-11 from the M1 build — the deck originally only covered the has-cache case. |
 | `home.quota.error.retry` | "Retry" | Small text action next to the stale/failed caption — reuse `shared.cta.retry`. |
-| `home.quota.blocked` | "You can't start a new analysis right now. Try again later." | NEW key (issues #54/#15), CERTIFIED by Ian 2026-07-13. `pace_quota_status` can report `blocked: true` (issue #6's anti-farm cap) independently of `remaining` — a user can have quota left and still be refused right now. This deck never specced the state; kept short and generic rather than inventing detailed anti-farm messaging. |
+| `home.quota.blocked` | "You can't start a new analysis right now. Try again later." | NEW key (issues #54/#15), CERTIFIED by Ian 2026-07-13. `pace_quota_status` can report `blocked: true` (issue #6's anti-farm cap) independently of `remaining` — a user can have quota left and still be refused right now. This deck never specced the state; kept short and generic rather than inventing detailed anti-farm messaging. Since 2026-09-07 this is the FALLBACK variant, used only when the expiry is missing, unparsable, or already past. |
+| `home.quota.blockedFor` | "You can't start a new analysis for {remaining}." | NEW key (2026-09-07), not yet certified — mirrored here verbatim from `constants/copy.ts`. Same `blocked: true` state as the row above, but rendered whenever `blocked_until` yields a phrase (`lib/cooldown-remaining.ts`'s `describeCooldownRemaining`), so Home stops saying "later" when the server told us how long is left. `{remaining}` is deliberately coarse and hedged ("about 3 hours"); a countdown is never guessed or zeroed. |
 | `home.recent.label` | "Your last analysis" | Heading above the most-recent gait-plate thumbnail, once history exists. |
 | `home.empty.caption` | "Nothing analyzed yet." | Optional small line under the faint annotated-figure motif, before any history exists. The motif + CTA already carry the empty state per brief §4.2 — this is a one-line reinforcement, not required. |
 
@@ -264,6 +265,24 @@ verbatim from `constants/copy.ts`, a draft until certified (`docs/status.md` Kno
 | `analyzing.error.previousAttemptFailed.body` | "An earlier attempt at this one stopped before it completed. It wasn't counted against your quota — start a new analysis to try again." | Deliberately drops the bare "try again" the `failed`/`timeout` copy carries, which here would name an action that cannot work. |
 | `analyzing.error.cta.startNew` | "Start a new analysis" | Primary action on that panel; routes to `/capture`, where the normal flow mints a fresh idempotency key. Cancel is still the second exit. |
 
+### Analysis paused — the anti-farm cooldown (2026-09-07) — NEW, NOT YET CERTIFIED
+
+Cross-cutting, so it lives under one key rather than per screen: the same fact is reported by
+`app/capture/extracting.tsx`'s pre-flight refusal (before any work starts) and by
+`app/analyzing.tsx`'s panel for a server `429 too_many_failed_attempts` that beat the pre-flight.
+This state used to render `analyzing.error.failed` beside a Retry, which was untrue three times
+over — nothing failed, the model was never called, and Retry resubmitted into the identical
+refusal. There is therefore NO retry CTA here, only the exit. Written to this deck's voice rules
+but **not** reviewed by `ux-copywriter` or Ian — mirrored here verbatim from `constants/copy.ts`,
+a draft until certified (`docs/status.md` Known Issue #34).
+
+| Key | String | Shows when |
+|---|---|---|
+| `analysisPause.title` | "Analyses are paused for now" | Names a pause, not a failure — and takes `text.primary`, not the failure hue, for the same reason. |
+| `analysisPause.bodyFor` | "Several recent analyses couldn't be scored, so new ones are paused for {remaining}. Nothing failed here, and nothing was counted against your quota." | Rendered whenever `blocked_until` yields a phrase (`lib/cooldown-remaining.ts`). |
+| `analysisPause.body` | "Several recent analyses couldn't be scored, so new ones are paused for a short while. Nothing failed here, and nothing was counted against your quota." | The no-time fallback: a missing, unparsable, or already-past expiry, and the Analyzing screen's 429 (whose body carries no expiry at all). Never a guessed or zeroed countdown. |
+| `analysisPause.cta` | "Back to home" | The single honest action; reuses `settings.back`/`paywall.back` wording by value. |
+
 ---
 
 ## Screen 7 — Results
@@ -279,6 +298,7 @@ verbatim from `constants/copy.ts`, a draft until certified (`docs/status.md` Kno
 | `result.pillar.elasticity.label` | "Elasticity" | |
 | `result.pillar.notAssessed.angle` | "Not assessed — film side-on for this." | Pillar not assessable from the framing/angle given. Exact wording from the brief §3. |
 | `result.pillar.notAssessed.needsVideo` | "Not assessed — needs video, not a photo." | Pillar needs motion (Cadence/Elasticity) but only a photo was submitted — preserves `pace_framework.md`'s own phrase, "needs video." |
+| `result.pillar.notAssessed.singleFrameFromVideo` | "Not assessed — only one frame of your video could be analysed." | NEW key (2026-09-06), not yet certified — mirrored here verbatim from `constants/copy.ts`. The runner DID send a video and exactly one frame of it reached the analysis, so neither `needsVideo` ("not a photo") nor `angle` is a true sentence about their upload. Written only by `analyze-form/flow.ts`'s normalization. States WHAT happened, never WHY: the frame count is decided on the device, so naming the plan would be a guess. |
 | `result.pillar.a11yLabel` | "{pillar}, {score} out of 100, {band}." | VoiceOver announcement per pillar row, per brief §7. |
 | `result.hero.altText` | "Your running frame, marked with posture and ground lines." | VoiceOver alt text for the annotated hero frame, per brief §7. |
 
@@ -353,18 +373,18 @@ verbatim from `constants/copy.ts`, a draft until certified (`docs/status.md` Kno
 |---|---|---|
 | `paywall.title` | "Choose your plan" | Screen header, whether reached voluntarily (Settings → See plans) or via a quota gate. |
 | `paywall.gate.free.title` | "You've used your free analysis" | Reached because a 402 fired for a Free user (lifetime analysis already used). |
-| `paywall.gate.free.body` | "Free includes one analysis, ever. Upgrade to Pro or Elite to keep going." | |
+| `paywall.gate.free.body` | "Your one lifetime Free analysis is used. See what Pro and Elite add below." | Rewritten 2026-09-06 with the Free tier's real, model-backed analysis (`docs/status.md` Known Issue #43) — it no longer promises what an upgrade "unlocks" beyond what the product can certify. |
 | `paywall.gate.paid.title` | "You're out of analyses this period" | Reached because a 402 fired for a Pro/Elite user (period quota used up). |
 | `paywall.gate.paid.body` | "You've used all {limit} analyses this period. It renews {date}. Upgrade for more each period." | Never exposes the raw `402`/error code — states what happened, why, and the option. |
 | `paywall.tier.free.name` | "Free" | Reuse `tier.free.name`. |
 | `paywall.tier.free.price` | "$0" | |
-| `paywall.tier.free.detail` | "1 analysis, once — try it before you commit. Certified PACE scores and one line of feedback per pillar. No drills." | |
+| `paywall.tier.free.detail` | "Your 1 real analysis, from a single photo or frame — no injury-risk flags or drills." | Rewritten 2026-09-06. Every `detail` in this block is now scoped to what the product can certify: no promised pillar count, no cadence figure, no left/right ground-contact comparison. |
 | `paywall.tier.pro.name` | "Pro" | Reuse `tier.pro.name`. |
 | `paywall.tier.pro.price` | "$6.99 / month" | Decided by Ian 2026-07-11 (dummy paywall display price; real IAP is post-MVP). |
-| `paywall.tier.pro.detail` | "10 analyses per period. Full PACE analysis, injury-risk flags, and 1–2 corrective drills per issue." | |
+| `paywall.tier.pro.detail` | "10 analyses per period, plus multi-frame evidence when your footage supports it — certified injury-risk flags and drills when supported." | Rewritten 2026-09-06; "when supported" is load-bearing, since the evidence available decides what can be scored. The 10 is a display copy of the server-enforced limit in `public.reserve_analysis`. |
 | `paywall.tier.elite.name` | "Elite" | Reuse `tier.elite.name`. |
 | `paywall.tier.elite.price` | "$14.99 / month" | Decided by Ian 2026-07-11, same caveat as Pro. |
-| `paywall.tier.elite.detail` | "30 analyses per period. Everything in Pro, plus a bit more depth per pillar and side-by-side comparison between two past analyses." | |
+| `paywall.tier.elite.detail` | "30 analyses per period. Everything in Pro, plus deeper feedback per pillar and a side-by-side comparison with your past analyses." | Rewritten 2026-09-06, same discipline as the two rows above. |
 | `paywall.footnote` | "Elite adds a little more detail and comparison — not a different analysis." | The honest detail-gradient line the brief calls for (§4.10): Pro→Elite is "more of it," never sold as a better analysis. |
 | `paywall.cta.upgrade.pro` | "Upgrade to Pro" | Names the destination tier, not "Subscribe" or "Submit." |
 | `paywall.cta.upgrade.elite` | "Upgrade to Elite" | |
