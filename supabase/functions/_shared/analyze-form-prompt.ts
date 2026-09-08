@@ -607,14 +607,14 @@ const TIMESTAMP_RULES = [
   '  * SAY IT IN THE OUTPUT, NOT JUST IN YOUR HEAD. Any Cadence or Elasticity judgement that leans',
   '    on the frame timing AT ALL must carry that uncertainty in the `feedback` the runner',
   '    actually reads — they never see your reasoning, only `score`, `band`, and `feedback`. Name',
-  '    it plainly: "roughly 160-170 SPM — approximate, estimated from frames whose timing is not',
-  '    exact". A hedge you kept to yourself is not a hedge; it is just a confident number with a',
-  '    private doubt attached.',
+  '    it plainly: "the torso looks to rise noticeably between the landing and flight frames —',
+  '    approximate, estimated from frames whose timing is not exact". A hedge you kept to yourself is',
+  '    not a hedge; it is just a confident number with a private doubt attached.',
   '- FORBIDDEN AT EVERY TIER, INCLUDING ELITE — these are false precision, and a paying tier buys',
   '  more DEPTH, never more CERTAINTY:',
-  '  * A single precise cadence figure ("your cadence is 164 SPM"). A labelled approximate RANGE',
-  '    ("roughly 160-170 SPM, approximate — estimated from frames whose timing is not exact") is',
-  '    the most you may ever give, and only when the frames genuinely support it.',
+  '  * A single precise cadence figure ("your cadence is 164 SPM") — and, on this deployment, any',
+  '    steps-per-minute RANGE as well: the stride burst is about one cycle, too short to count',
+  '    steps (see THE MEDIA rules). Where the foot lands is the cadence evidence, not a rate.',
   '  * Any ground-contact-time figure in milliseconds. GCT is a lab metric; from a phone video',
   '    you are inferring lightness vs heaviness, not measuring. Say it that way.',
   '  * Any vertical-oscillation figure in centimetres. Same reason: describe the bounce, do not',
@@ -629,10 +629,12 @@ const TIMESTAMP_RULES = [
   '- It says: "**Only if frame timestamps are known** may you estimate a cadence *range* from',
   '  steps-per-second across frames — and label it approximate." READ "known" AS "KNOWN',
   '  APPROXIMATELY". The condition is met only in that weak sense — the timestamps below are',
-  '  approximate client-reported values of unknown provenance, not measurements — so what the',
-  '  clause licenses is a WIDE range, labelled approximate,',
-  '  and NEVER a point figure. Where a steps-per-second count off these frames disagrees with what',
-  '  the geometry plainly shows, believe the geometry.',
+  '  approximate client-reported values of unknown provenance, not measurements — so at most the',
+  '  clause could license a WIDE range, labelled approximate, and NEVER a point figure. In',
+  '  practice it licenses nothing on this deployment: the only video that reaches Cadence scoring',
+  '  is a stride burst of about one cycle, too short to count steps at all (see THE MEDIA rules),',
+  '  so give no steps-per-minute range either. Believe the geometry — where the foot lands — and',
+  '  say why a rate is not stated if the runner would expect one.',
   '- It says: "Across evenly-spaced frames you can estimate ... vertical bounce (torso height',
   '  change between frames)." THESE FRAMES ARE NOT RELIABLY EVENLY SPACED, whatever their stated',
   '  times suggest. The torso height CHANGE between frames is still real evidence — you can see it',
@@ -795,14 +797,46 @@ const SINGLE_FRAME_VIDEO_RULES = [
   '- Arm swing RANGE (the arc) is also motion over time. Judge position only, and say so.',
 ].join('\n');
 
+/**
+ * What a ~700ms burst (`lib/frames.ts` `sampleTimestamps`: one stride cycle, Pro 5 frames ~175ms
+ * apart, Elite 8 frames ~100ms apart) can and cannot evidence, derived from
+ * `knowledge/pace_framework.md`'s own "What to look for" lists rather than from what a model
+ * might be willing to say:
+ *   - Cadence's certified primary evidence is the landing — foot position relative to the centre
+ *     of mass and knee angle at contact. One cycle holds two or three footfalls, so a burst
+ *     guarantees a frame within half a step-gap of a contact instead of leaving it to chance the
+ *     way the old spread sampling did. A step RATE is a different matter: 100-175ms between frames
+ *     is a third to a half of a recreational step (~300-400ms), so the interval between two
+ *     footfalls is only resolvable to roughly ±30-50% — any steps-per-minute "range" would span the
+ *     whole recreational population. The certified clause "estimate a range only when the frames
+ *     support it" is therefore NOT met by a burst, and the rules below say so explicitly instead of
+ *     leaving a range on the table for the model to reach for.
+ *   - Elasticity's certified evidence is contact quality, knee/ankle give at landing, and torso
+ *     rise and fall between frames. One cycle spans a landing, a stance and a push-off, and at Elite
+ *     spacing a ~250ms stance is sampled two or three times — enough to see compress-and-rebound;
+ *     at Pro spacing it is sampled once or twice — enough for the bounce and the look of the
+ *     contact. A GCT or bounce figure needs a clock this deployment does not have.
+ */
 const STRIDE_BURST_VIDEO_RULES = [
-  'THE MEDIA: A STRIDE BURST — several frames from one short window of running, close enough',
-  'together to plausibly belong to the same stride cycle, in capture order.',
+  'THE MEDIA: A STRIDE BURST — several frames from ONE short window of running (about one stride',
+  'cycle, ~0.7 s, roughly 100-175 ms apart), close enough together to belong to the same stride,',
+  'in capture order.',
   '- Across these frames you can assess all four pillars: trunk/pelvis alignment, arm-swing arc',
   '  and symmetry, where the foot lands relative to the centre of mass, and how much the torso',
   '  rises and falls.',
   '- Read the frames as a sequence: the same runner, moments apart within roughly one stride.',
   '  Compare them to each other — that comparison, not any single frame, is the analysis.',
+  '- WHAT ONE STRIDE CYCLE CAN AND CANNOT SUPPORT:',
+  '  * Cadence: the window holds at most two or three footfalls, and the gap between frames is a',
+  '    large fraction of a single step. That is enough to see WHERE the foot lands at contact —',
+  '    the overstriding signature — and how compact the stride is; score Cadence from that. It is',
+  '    NOT enough to count a step rate: do not state a steps-per-minute figure OR RANGE from this',
+  '    burst, however approximate. The certified "estimate a range only when the frames support',
+  '    it" condition is not met by a window this short. If a rate would be expected, say plainly',
+  '    that step rate cannot be counted from a burst this short.',
+  '  * Elasticity: the window spans a landing, a stance and a push-off, so you can judge contact',
+  '    quality (springy vs sinking), knee/ankle give at landing, and how far the torso rises and',
+  '    falls across the cycle. Never a ground-contact time or bounce figure.',
   '- The timing between them is still approximate, not measured. Read the FRAME TIMESTAMPS',
   '  section before you use it for anything, and never turn "close together" into a precise',
   '  interval.',

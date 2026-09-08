@@ -468,7 +468,8 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
   vo.pillars.elasticity.feedback = 'You are bouncing about 12 cm vertically on each step.';
   assert(failed(checkNoFalsePrecision(vo)), 'A vertical oscillation in centimetres was not caught.');
 
-  // A labelled RANGE is what the prompt explicitly permits. It must NOT fail.
+  // A hedged RANGE used to be permitted; the stride-burst prompt forbids it at every tier, so the
+  // grader has to forbid it too or the two disagree about the same invariant.
   const hedged = honestPhotoResult();
   hedged.pillars.cadence = pillar({
     score: 60,
@@ -476,8 +477,160 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
     feedback: 'Roughly 160-170 SPM — approximate, estimated from frames whose timing is not exact.',
   });
   assert(
-    !failed(checkNoFalsePrecision(hedged)),
-    'A correctly hedged, labelled-approximate RANGE is exactly what the prompt asks for and must pass.'
+    failed(checkNoFalsePrecision(hedged)),
+    'A hedged SPM RANGE is no longer supportable from a ~700ms burst and must fail.'
+  );
+
+  const attributedRange = honestPhotoResult();
+  attributedRange.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Your cadence is roughly 160-170 SPM across the burst.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(attributedRange)),
+    'An attributed SPM range was not caught.'
+  );
+
+  // The range rule also has to hold in an injury flag's detail, which is runner-facing prose.
+  const flagRange = honestPhotoResult();
+  flagRange.pillars.cadence.flags = [
+    { pattern: 'Overstriding', detail: 'Your cadence looks to sit around 160 to 170 steps per minute.' },
+  ];
+  assert(
+    failed(checkNoFalsePrecision(flagRange)),
+    'An SPM range inside a flag detail was not caught.'
+  );
+
+  const barePoint = honestPhotoResult();
+  barePoint.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Roughly 165 SPM — approximate, estimated from frames whose timing is not exact.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(barePoint)),
+    'A bare hedged SPM POINT offered as this runner\'s rate was not caught.'
+  );
+
+  const hedgedAttributed = honestPhotoResult();
+  hedgedAttributed.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Your cadence looks like roughly 160-170 SPM — approximate.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(hedgedAttributed)),
+    'An attributed hedged SPM range was not caught.'
+  );
+
+  // A norm about runners at large states no rate for THIS runner. `pace_framework.md`'s 180-SPM
+  // myth discussion is exactly what a good answer paraphrases; failing it makes the grader the bug.
+  const norm = honestPhotoResult();
+  norm.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback:
+      'Most recreational runners land somewhere around 165 to 180 steps per minute, but that is not a target for you — what matters is where your foot lands.',
+  });
+  assert(
+    !failed(checkNoFalsePrecision(norm)),
+    'A general norm about runners at large is not a claim about this runner and must pass.'
+  );
+
+  // The exemption belongs to the NORM'S CLAUSE, not to the whole sentence — a claim about this
+  // runner may not shelter behind a norm it shares a sentence with.
+  const normThenClaim = honestPhotoResult();
+  normThenClaim.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Most runners sit near 170-180 spm; you look closer to roughly 160 spm.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(normThenClaim)),
+    'A claim about this runner in the clause after a norm must still fail.'
+  );
+
+  const comparedWithNorm = honestPhotoResult();
+  comparedWithNorm.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Compared with most recreational runners, you are turning over at roughly 165 spm.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(comparedWithNorm)),
+    'A claim about this runner after a leading norm clause must still fail.'
+  );
+
+  // …while the norm's subject legitimately carries across a clause boundary of its own.
+  const carriedNorm = honestPhotoResult();
+  carriedNorm.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'For most recreational runners, cadence sits around 165 to 180 steps per minute.',
+  });
+  assert(
+    !failed(checkNoFalsePrecision(carriedNorm)),
+    'A norm whose figure sits in the clause after its subject must pass.'
+  );
+
+  // `~` is this repo's own notation for an approximate figure; it must not be a way out.
+  const tilde = honestPhotoResult();
+  tilde.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'You look like you run at ~165 spm.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(tilde)),
+    'A tilde-hedged SPM figure must fail exactly as "roughly 165 spm" does.'
+  );
+
+  // …but the same sentence may not smuggle an attributed figure past that exemption.
+  const normPlusClaim = honestPhotoResult();
+  normPlusClaim.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Your cadence is 164 SPM, which is quicker than most recreational runners manage.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(normPlusClaim)),
+    'An attributed figure in a sentence that also mentions runners at large must still fail.'
+  );
+
+  const proseRange = honestPhotoResult();
+  proseRange.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback: 'Your cadence across those frames sits between 160 and 170 steps per minute.',
+  });
+  assert(
+    failed(checkNoFalsePrecision(proseRange)),
+    'An SPM range written as prose ("between 160 and 170") was not caught.'
+  );
+
+  // A prescribed DELTA is not a claimed RATE. The certified 5-10%-above-self-selected guidance
+  // (pace_framework.md) is exactly what the model is told to give, and failing it would make the
+  // grader the bug — the same trap the drill-instruction exemption exists to avoid.
+  const prescriptive = honestPhotoResult();
+  prescriptive.pillars.cadence = pillar({
+    score: 60,
+    band: 'mid',
+    feedback:
+      'Lift your step rate about 5 to 10 percent — for most runners that is 10 to 15 steps per minute more than they run now.',
+  });
+  assert(
+    !failed(checkNoFalsePrecision(prescriptive)),
+    'Certified prescriptive cadence advice states no rate for this runner and must pass.'
+  );
+
+  const delta = honestPhotoResult();
+  delta.pillars.cadence.flags = [
+    { pattern: 'Overstriding', detail: 'Raise it by 5-10 SPM and let the foot land closer underneath you.' },
+  ];
+  assert(
+    !failed(checkNoFalsePrecision(delta)),
+    'A prescribed SPM delta is not a rate claim and must pass.'
   );
 });
 

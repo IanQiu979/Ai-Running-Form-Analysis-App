@@ -260,6 +260,29 @@ const STRIDE_BURST_SPAN_MS = 700;
  * between Pro/Elite frames against a ~0.7s stride — no two frames ever belonged to the same
  * stride, so Cadence and Elasticity were single-frame guesses (`v23-core-purpose-audit-r1`).
  *
+ * WHY THIS SHAPE — one window, ~700ms, density set by the tier's frame cap — follows from what
+ * `knowledge/pace_framework.md` says the two motion pillars are scored from, not from taste:
+ *   - Cadence's certified primary evidence is the LANDING: foot position relative to the centre
+ *     of mass and knee angle at contact. A ~700ms window contains at least one complete step
+ *     interval (two consecutive footfalls, ~300-400ms apart) at every recreational cadence, so
+ *     some frame is guaranteed to fall within half a frame-gap of a contact — the old spread left
+ *     that to chance, which is where the audit's run-to-run variance came from.
+ *   - Elasticity's certified evidence is contact quality, knee/ankle give at landing, and torso
+ *     rise and fall between frames. One window spans a landing, a stance (~220-300ms) and a
+ *     push-off. The tier cap sets how finely that is sampled: Pro's 5 frames land ~175ms apart
+ *     (cycle-level — the bounce and the landing), Elite's 8 land ~100ms apart (stance-level —
+ *     two or three frames across one contact, enough to see it compress and rebound).
+ *   - What NO burst supports is a step RATE: 100-175ms between frames is a third to a half of a
+ *     step, so the interval between two footfalls resolves only to ±30-50%. The prompt therefore
+ *     forbids a steps-per-minute figure or range from a burst
+ *     (`supabase/functions/_shared/analyze-form-prompt.ts` `STRIDE_BURST_VIDEO_RULES`) and
+ *     scores Cadence from the landing geometry the burst does show.
+ *   Alternatives weighed and rejected: a DOUBLE burst (two windows of half the frames) halves
+ *   per-window density to ~233-350ms — coarser than a stance and no better than chance at
+ *   catching a contact — for the sake of a second sample the frame caps cannot afford; a WIDER
+ *   window (800-1000ms, a full cycle even at 150 SPM) buys one more footfall at the same density
+ *   cost, and a full cycle is not needed for either pillar's certified evidence.
+ *
  * Exported so its spacing math can be tested directly, without mocking the native frame
  * extractor.
  */

@@ -1,0 +1,402 @@
+[
+  {
+    "runAt": "2026-09-07T10:30:15.648Z",
+    "clip": "s003",
+    "tier": "pro",
+    "frameCount": 5,
+    "spanMs": 700,
+    "base64Bytes": 235464,
+    "model": "claude-sonnet-5",
+    "effort": "low",
+    "maxTokens": 6000,
+    "latencyMs": 24352,
+    "withinLegacy65s": true,
+    "withinCurrentTimeout": true,
+    "stopReason": "end_turn",
+    "failure": null,
+    "usage": {
+      "input_tokens": 4208,
+      "cache_creation_input_tokens": 22877,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 22877,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 1374,
+      "output_tokens_details": {
+        "thinking_tokens": 334
+      },
+      "service_tier": "standard",
+      "inference_geo": "global"
+    },
+    "outputTokenHeadroom": 4626,
+    "costUsd": 0.11902275,
+    "pillars": {
+      "posture": {
+        "score": 75,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [],
+        "feedback": "Across the sequence the trunk shows a slight, consistent forward lean that looks ankle-driven rather than a bend at the waist, which is the target pattern for gravity-assisted propulsion. The head position is hard to read precisely due to the facial blur, but it stays roughly level and not craned down. This is a side-on view only, so pelvis-level and hip-drop cannot be judged — that needs a front or rear angle. The priority fix for this runner overall lives in cadence/foot placement, and posture here is a solid supporting base for that work rather than the limiting factor."
+      },
+      "armSwing": {
+        "score": 76,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [],
+        "feedback": "Through frames 1-5 the elbow stays close to a compact ~90° bend and the hand travels in a fairly tight front-to-back arc without reaching high toward the chin, which is the efficient pattern. From this single side angle it's not possible to confirm whether the hands cross the body's midline or whether left and right sides are symmetric — that call needs a front-on view. No tension or shoulder hike is visible in these frames. Keep reinforcing a compact, relaxed drive; a front-view clip would let you confirm symmetry."
+      },
+      "cadence": {
+        "score": 78,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [],
+        "feedback": "The clearest cadence evidence here is where the foot lands relative to the body, and in frames 2-3 the landing foot touches down close to under the hips rather than out in front with a locked knee — this is the compact, non-overstriding pattern the framework prioritizes. No step rate is stated: this burst is roughly one stride cycle, far too short to count steps per minute, so no SPM figure or range is given even approximately. Keep the priority here on maintaining this under-the-hips landing as fatigue sets in; it's the pillar whose maintenance most protects the knees and shins downstream."
+      },
+      "elasticity": {
+        "score": 72,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Ankle Bounces (Ankling)"
+        ],
+        "feedback": "The stance-leg knee shows visible flexion at landing (frames 2-3) followed by an extended, springy-looking push-off leg trailing behind in frames 1 and 5, which is consistent with a reasonably reactive, non-collapsing contact rather than a stiff pound. Torso height looks fairly steady across the sequence with no obvious big upward launch between frames, though this is a rough visual impression, not a measured oscillation figure — the frame timing is only approximate, so no bounce or contact-time figure is given. Contact looks reasonably light overall; continued low-level plyometric work would reinforce this spring quality safely."
+      }
+    },
+    "overall": {
+      "score": 75,
+      "band": "good"
+    },
+    "spmMentions": []
+  },
+  {
+    "runAt": "2026-09-07T10:30:45.296Z",
+    "clip": "s003",
+    "tier": "elite",
+    "frameCount": 8,
+    "spanMs": 700,
+    "base64Bytes": 378072,
+    "model": "claude-sonnet-5",
+    "effort": "low",
+    "maxTokens": 8000,
+    "latencyMs": 29573,
+    "withinLegacy65s": true,
+    "withinCurrentTimeout": true,
+    "stopReason": "end_turn",
+    "failure": null,
+    "usage": {
+      "input_tokens": 6140,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 22877,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 2173,
+      "output_tokens_details": {
+        "thinking_tokens": 458
+      },
+      "service_tier": "standard",
+      "inference_geo": "global"
+    },
+    "outputTokenHeadroom": 5827,
+    "costUsd": 0.0578781,
+    "pillars": {
+      "posture": {
+        "score": 76,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Wall Forward-Lean Drill"
+        ],
+        "feedback": "Across the burst the trunk shows a modest forward lean that looks like it's coming from the ankles rather than a bend at the waist — the ankle-to-head line stays fairly straight in frames 2-4 and 6-8, which is close to the ~5-8° target that lets gravity assist propulsion. The head stays fairly neutral and the shoulders look relaxed rather than hiked, though there's a touch of forward head carriage in a couple of frames (5-6) that's worth watching under fatigue. This is a solid foundation — because posture is upstream of everything else, keeping this ankle-hinged lean is what will let the arm swing stay quiet and the foot land closer under the hips. Cue: 'tall hips, lean from the ankles, not the waist,' reinforced with a mid-run posture reset every 5-10 minutes."
+      },
+      "armSwing": {
+        "score": 78,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [],
+        "feedback": "The visible arm holds a compact bend close to the ~90° target through most of the sequence (frames 2, 4, 6, 8), with the hand traveling roughly hip-to-lower-rib and not punching across the midline. The motion looks driven from the shoulder with a relaxed hand rather than a clenched fist, which is exactly the low-cost pattern the framework describes. Because this is a side view of one arm, true left-right symmetry and any torso rotation compensating for a weak far-side arm can't be confirmed — that would need a front-on clip. This quiet arm action is a good partner to the posture you're showing: keep the elbow drive going and it will help hold your stride together as fatigue sets in."
+      },
+      "cadence": {
+        "score": 66,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Metronome Runs",
+          "Strides"
+        ],
+        "feedback": "Looking at the footstrike frames (3 and 7), the landing foot touches down slightly ahead of the hips with the knee not fully flexed at contact — not a pronounced heel-first overstride, but not landing squarely under the body either. This is the single most useful thing visible in a burst this short, since a true step-rate figure can't be counted from roughly one stride cycle at ~100 ms (approximate, unreliable) intervals — no SPM number or range is being stated here, only where the foot lands. The mild forward reach is a candidate to tighten before it becomes a habit under fatigue, and doing so would also make the landing spring better (see Elasticity) since a foot landing closer under the hips gives the tendon a more vertical load to work with. Cue: 'quick, light steps landing under your hips,' built gradually rather than jumping cadence numbers."
+      },
+      "elasticity": {
+        "score": 69,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Ankle Bounces (Ankling)"
+        ],
+        "feedback": "Across the landing-to-toe-off sequence (frames 3 through 5, and again 7 through 8) the knee and ankle show some give at contact rather than a stiff, straight-legged pound, which is the visible signature of a landing that's at least partly reloading rather than just braking. The torso does appear to rise and fall a moderate amount between the low point around footstrike and the high point of the swing phase (compare frame 3 to frame 5) — that's a real, visible change, but any sense of how fast that rise happens is not trustworthy given the approximate, possibly uneven frame timing, so no bounce or contact-time figure is being given. What you can act on is the visual: aim for a contact that looks like it 'kisses and springs' rather than sinks, which pairs directly with tightening the cadence landing point above. Start any plyometric work at the gentlest end and build slowly."
+      }
+    },
+    "overall": {
+      "score": 72,
+      "band": "good"
+    },
+    "spmMentions": []
+  },
+  {
+    "runAt": "2026-09-07T10:31:06.945Z",
+    "clip": "arakawa",
+    "tier": "pro",
+    "frameCount": 5,
+    "spanMs": 700,
+    "base64Bytes": 786784,
+    "model": "claude-sonnet-5",
+    "effort": "low",
+    "maxTokens": 6000,
+    "latencyMs": 21369,
+    "withinLegacy65s": true,
+    "withinCurrentTimeout": true,
+    "stopReason": "end_turn",
+    "failure": null,
+    "usage": {
+      "input_tokens": 10378,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 22877,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 1520,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global"
+    },
+    "outputTokenHeadroom": 4480,
+    "costUsd": 0.06079710000000001,
+    "pillars": {
+      "posture": {
+        "score": 74,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [],
+        "feedback": "Across the frames the runner holds a fairly tall trunk with a slight forward lean that looks like it's coming from the ankles/whole body rather than a bend at the waist — a reasonable posture line. The head stays roughly level and forward-facing, and the torso doesn't show a pronounced slump or sway-back. The main thing keeping this from Strong is that the small distant/elevated camera angle makes it hard to confirm exact trunk-flexion degree or pelvis-level detail, so treat this as a solid but not fully confirmed read. Keep reinforcing the tall-hips, ankle-hinged lean cue."
+      },
+      "armSwing": {
+        "score": 62,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Arm-Swing Box Drill"
+        ],
+        "feedback": "Across frames 2-4 the arms swing front-to-back but the elbow angle looks fairly open (more extended than a compact ~90°), and the hands appear to travel somewhat low and away from the body rather than staying tucked in a tight box. There's no clear midline crossing visible, which is good, but the swing looks a little loose/wide rather than compact and driven from the shoulder. Tightening the elbow bend and shortening the arc would help quiet the upper body and better counter the leg rotation."
+      },
+      "cadence": {
+        "score": 58,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [
+          "Overstriding"
+        ],
+        "drills": [
+          "Metronome Runs",
+          "Strides"
+        ],
+        "feedback": "Looking at foot placement at contact (frames 1 and 3, and again frame 5), the landing foot appears to touch down close to or slightly ahead of the body's centre of mass with a knee that isn't fully flexed — not a dramatic overstride, but the leg looks fairly extended at initial contact rather than landing compactly under the hips. This burst is far too short to count a step rate — no steps-per-minute figure or range can be derived from ~700ms of footage — so this score is based purely on landing geometry, not timing. The fix is a slightly quicker, shorter stride so the foot lands closer under the hips."
+      },
+      "elasticity": {
+        "score": 60,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Ankle Bounces (Ankling)"
+        ],
+        "feedback": "Across the sequence the torso does appear to rise and fall somewhat between the landing frames and the mid-flight frames — this is an approximate visual impression from frames whose timing is not exact, not a measured bounce figure. The landing leg looks reasonably absorbing rather than stiff/straight, but combined with the cadence read (foot landing a bit ahead of centre of mass), the contact looks more like it sinks briefly than springs immediately back up. There's no clear sign of a bounding, high-launch stride, but the contact doesn't read as especially quick and reactive either. A conservative entry-level plyometric introduction could help build a quicker, springier contact."
+      }
+    },
+    "overall": {
+      "score": 64,
+      "band": "mid"
+    },
+    "spmMentions": []
+  },
+  {
+    "runAt": "2026-09-07T10:31:42.646Z",
+    "clip": "arakawa",
+    "tier": "elite",
+    "frameCount": 8,
+    "spanMs": 700,
+    "base64Bytes": 1266512,
+    "model": "claude-sonnet-5",
+    "effort": "low",
+    "maxTokens": 8000,
+    "latencyMs": 35601,
+    "withinLegacy65s": true,
+    "withinCurrentTimeout": true,
+    "stopReason": "end_turn",
+    "failure": null,
+    "usage": {
+      "input_tokens": 16012,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 22877,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 2570,
+      "output_tokens_details": {
+        "thinking_tokens": 727
+      },
+      "service_tier": "standard",
+      "inference_geo": "global"
+    },
+    "outputTokenHeadroom": 5430,
+    "costUsd": 0.09344910000000001,
+    "pillars": {
+      "posture": {
+        "score": 72,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Posture Reset (in-run cue)"
+        ],
+        "feedback": "From this side-on angle across the burst you can see a modest forward lean of the whole body from around frame 2 through frame 6, which is the right shape — it looks closer to an ankle-driven lean than a waist-bend, with the head staying roughly level over the shoulders rather than craning down or up. The trunk doesn't show the pronounced C-curve slump or sway-back that would flag anterior pelvic tilt, though at this distance fine pelvis-level detail (hip drop) simply isn't resolvable — that would need a closer front/rear frame. The lean also looks fairly consistent frame to frame rather than collapsing under fatigue, which is a good sign for a short window like this. Because posture is the pillar that everything else builds on, keep reinforcing that ankle-hinge feel (\"fall forward, catch yourself\") rather than letting the upper body ride upright — it's already close to the target ~5-8°, so this is refinement, not a rebuild."
+      },
+      "armSwing": {
+        "score": 68,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Arm-Swing Box Drill"
+        ],
+        "feedback": "Across the frames the arms are visibly moving front-to-back rather than sitting dead, which is the baseline you want, but at this resolution the elbow angle and exact hand height are hard to pin down precisely — what's clearer is that the swing looks a touch narrow and doesn't show a big, confident arc between the earliest and latest frames. There's no obvious sign of the hands crossing the body's midline or the torso twisting to compensate, which is the more serious version of this fault, so this reads as understated rather than actively harmful. Because a quiet, compact arm drive is what helps hold the legs' rhythm together, especially as fatigue creeps in, this is worth deliberate work even though it isn't costing much right now. Think about driving the elbows a bit more purposefully straight back rather than letting the swing stay small and passive — that slightly bigger, still-compact box is what will start to visibly pace the cadence pillar below."
+      },
+      "cadence": {
+        "score": 74,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Strides"
+        ],
+        "feedback": "This is the pillar where the frame-to-frame comparison is most useful, because you're not trying to count steps — you're watching where the foot lands relative to the body, and across this burst the landing foot generally comes down close to under the hips rather than reaching out well ahead with a locked knee. That's the visible signature that matters far more than any step-rate number, and none of these frames show the aggressive heel-first, straight-leg overstride that would be the priority flag here. I want to be explicit that no steps-per-minute figure or range can be responsibly stated from a burst this short (roughly one stride cycle, with only approximate frame timing) — the assessment here is built entirely on foot-placement geometry, not on counting a rate. Given that geometry looks reasonably compact, this sits in Solid territory with room to sharpen further; a slightly quicker, lighter turnover would likely tighten it further and feed directly into better ground-contact quality below."
+      },
+      "elasticity": {
+        "score": 65,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Ankle Bounces (Ankling)"
+        ],
+        "feedback": "Watching the torso height across the eight frames, there's a visible rise-and-fall through the stride cycle rather than a perfectly flat travel line, though I want to flag clearly that this read is approximate — the frame timing here is client-reported and not evenly spaced, so I'm going by how much bounce the sequence shows rather than any measured rate or amount. The landing frames don't show an obviously stiff, straight-legged pounding contact, nor do they show a collapsing sink into the ground, which is a reasonable middle position — not textbook springy, but not the heavier fault pattern either. Because Elasticity depends on Posture and Cadence being sound (you can't load the spring well while bent at the waist or overstriding), and both of those look solid-to-developing here, the raw material for a better spring is there even if it isn't fully showing yet in this clip. I'd treat this as the pillar with the most room to grow: a conservative, entry-level plyometric introduction focused on quick, light ground contact would likely translate into a visibly lower, quieter bounce next time this is filmed."
+      }
+    },
+    "overall": {
+      "score": 70,
+      "band": "good"
+    },
+    "spmMentions": []
+  },
+  {
+    "runAt": "2026-09-07T10:32:12.423Z",
+    "clip": "arakawa",
+    "tier": "elite",
+    "frameCount": 8,
+    "spanMs": 700,
+    "base64Bytes": 1266512,
+    "model": "claude-sonnet-5",
+    "effort": "low",
+    "maxTokens": 8000,
+    "latencyMs": 29774,
+    "withinLegacy65s": true,
+    "withinCurrentTimeout": true,
+    "stopReason": "end_turn",
+    "failure": null,
+    "usage": {
+      "input_tokens": 16012,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 22877,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 2277,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global"
+    },
+    "outputTokenHeadroom": 5723,
+    "costUsd": 0.0890541,
+    "pillars": {
+      "posture": {
+        "score": 72,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Posture Reset (in-run cue)"
+        ],
+        "feedback": "Across the burst the runner holds a reasonably tall trunk with a modest forward lean that looks like it's coming from the ankles rather than a waist-bend — that's the right pattern and it's what lets the stride flow rather than fight gravity. The head stays fairly level and forward-facing across frames 1-8, without craning down or jutting forward. The one thing to tighten is a slight forward drop of the head/shoulders visible in frames 5-7 as the trunk seems to fold a touch more at that point in the cycle — worth watching for consistency rather than a real fault. Because posture is the base the other three pillars build on, keeping this lean steady through the whole stride (not just at initial contact) is the highest-leverage single thing this runner could reinforce, and it will make the arm swing and landing look cleaner too."
+      },
+      "armSwing": {
+        "score": 68,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Arm-Swing Box Drill",
+          "Standing Arm Drive"
+        ],
+        "feedback": "From this side-on angle the arms are moving front-to-back without visibly crossing the midline, which is good, but the swing looks fairly low and short in amplitude across the sequence — the hands don't travel far forward or back relative to the hips, especially visible comparing frames 3-4 and 6-7 where the arm carriage looks almost passive. The elbow angle opens and closes only a little through the cycle rather than holding a crisp ~90 degrees with a clear drive back. This kind of quiet, underpowered arm action tends to let the torso do less counter-rotation work, which over time asks the legs to do more of the timing job on their own, especially as pace or fatigue increases. Working on a slightly bigger, more deliberate elbow-drive-back motion should feed directly into a steadier cadence and a lighter foot strike, since a stronger arm rhythm helps pace the legs."
+      },
+      "cadence": {
+        "score": 58,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [
+          "Overstriding"
+        ],
+        "drills": [
+          "Metronome Runs",
+          "Strides"
+        ],
+        "feedback": "The most useful evidence here is where the foot lands relative to the body, and in several frames (notably 1, 4, and 7) the lead foot is landing visibly ahead of the hips with the knee looking fairly extended and the shin angled forward at contact — the classic overstriding signature described in the framework. This is a geometry read, not a timing one, so it holds regardless of how approximate the frame timestamps are. I want to be clear that this stride burst spans only about one cycle, which is nowhere near enough to count steps, so no steps-per-minute figure or range is being given here, approximate or otherwise — only the landing position is being scored. Given the visible reach-and-land pattern, a slightly quicker, more compact stride landing closer under the hips would shorten that lever and reduce the braking each step is creating."
+      },
+      "elasticity": {
+        "score": 55,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [
+          "Heavy heel strike with an extended knee"
+        ],
+        "drills": [
+          "Ankle Bounces (Ankling)"
+        ],
+        "feedback": "Watching the sequence of landings, the contact looks a little heavier than springy — the trailing leg in frames like 1, 4, and 7 shows a fairly extended knee at touchdown rather than a compliant, flexed absorb-and-rebound shape, and the stance phase looks like it sits and settles rather than quickly popping back off the ground. The torso height does appear to rise and fall somewhat across the cycle (comparing the flight-phase frames like 3 and 6 against the contact frames like 1 and 7), but this is an approximate visual impression only, estimated from frames whose timing isn't exact, not a measured bounce figure. Combined with the overstriding landing seen in Cadence, this points to a stiffer, more braking-style contact rather than a reactive spring, which is consistent with the extended-knee landing limiting how well the leg can absorb and return energy. Building some easy, low-amplitude plyometric work would help teach a quicker, lighter contact, but this should be introduced conservatively at the entry level given no history is available here."
+      }
+    },
+    "overall": {
+      "score": 63,
+      "band": "mid"
+    },
+    "spmMentions": []
+  }
+]

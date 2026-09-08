@@ -834,7 +834,9 @@ export function meanSentences(result: PaceResult): string {
  * doing exactly what it was told, and the grader would be the bug. See the file header.
  *
  * The three forbidden things, from `analyze-form-prompt.ts`'s TIMESTAMP_RULES:
- *   - a single precise cadence figure ("your cadence is 164 SPM") — a labelled RANGE is allowed;
+ *   - a single precise cadence figure ("your cadence is 164 SPM"), and — since the stride-burst
+ *     migration tightened `STRIDE_BURST_VIDEO_RULES` — a steps-per-minute RANGE offered as this
+ *     runner's rate as well (a prescribed DELTA, "raise it by 5-10 SPM", stays legitimate);
  *   - any ground-contact-time figure in milliseconds;
  *   - any vertical-oscillation figure in centimetres.
  *
@@ -846,10 +848,126 @@ export function meanSentences(result: PaceResult): string {
  * say so explicitly. If it really did state a ground-contact time in ms, this is a genuine prompt
  * finding and #112's rule is being violated at Pro.
  */
+/** "SPM", "steps per minute", "steps/min", "steps a minute". Exported because the stride-burst
+ * latency harness scans for the same UNITS — but deliberately not for the same CLAIM; see
+ * `findSpmRangeClaims`. */
+export const SPM_UNIT = String.raw`(?:spm\b|steps\s*(?:per|a|\/)\s*min(?:ute)?s?\b)`;
+const HEDGE = String.raw`(?:about|around|roughly|approximately|~)`;
+/** `\b` before `~` never matches after a space, so the tilde needs its own alternative — and `~`
+ * is this repo's house notation for an approximate figure, the form a model is most likely to
+ * echo. */
+const HEDGE_PREFIX = String.raw`(?:\b(?:about|around|roughly|approximately)\s*|~\s*)`;
+const SPAN = String.raw`\d{2,3}\s*(?:[-–—]|\bto\b|\band\b)\s*\d{2,3}`;
+
+/**
+ * A DELTA is not a RATE. "Raise it by 5-10 SPM" and "about 10 to 15 steps per minute more than you
+ * run now" are the certified prescription (`pace_framework.md`'s 5-10%-above-self-selected
+ * guidance) — the model has stated no rate for this runner and must not be failed for obeying.
+ * Only an adjacent delta marker counts, so "Your cadence is 164 SPM, which is below the ideal
+ * range" is NOT excused: the "below" there is a clause away, not attached to the figure.
+ */
+export function stripPrescriptiveCadence(text: string): string {
+  const magnitude = String.raw`\d{1,3}(?:\s*(?:[-–—]|\bto\b)\s*\d{1,3})?`;
+  return text
+    .replace(
+      new RegExp(
+        String.raw`\b(?:by|raise|raising|lift|lifting|increase|increasing|add|adding|up)\s+(?:it\s+|them\s+|your\s+\w+\s+)?(?:${HEDGE}\s*)?${magnitude}\s*${SPM_UNIT}`,
+        'gi'
+      ),
+      ' '
+    )
+    .replace(
+      new RegExp(
+        String.raw`\b${magnitude}\s*${SPM_UNIT}\s+(?:more|higher|faster|lower|slower|fewer|extra|above|below|than|beyond)\b`,
+        'gi'
+      ),
+      ' '
+    );
+}
+
+/**
+ * A general norm stated about runners at large ("most recreational runners land around 165 to 180
+ * steps per minute, but that is not a target for you") is NOT a claim about this runner, and
+ * `pace_framework.md`'s 180-SPM myth discussion is exactly the thing a good answer paraphrases.
+ * Only the BARE forms consult this: a figure attributed possessively to the runner stays a
+ * violation even when the same sentence also mentions runners in general.
+ */
+const GENERAL_SUBJECT =
+  /\b(?:most|many|some|other|average|typical|recreational|competitive|elite|beginner|experienced|all)\s+(?:\w+\s+){0,2}?(?:runners?|athletes?|people)\b/i;
+
+/** Second-person address is how every pillar's feedback speaks to the runner. */
+const RUNNER_REFERENCE = /\b(?:you|your|you're|yours|yourself|the runner|this runner)\b/i;
+
+/**
+ * A bare figure only counts when the CLAUSE it sits in has no subject other than the runner.
+ * Exempting the whole sentence let "Most runners sit near 170-180 spm; you look closer to roughly
+ * 160 spm" hide a real claim behind a norm it happens to share a sentence with. The norm's subject
+ * carries forward across clauses ("For most recreational runners, cadence sits around 165 to 180
+ * steps per minute") until a clause addresses the runner, which takes the subject back.
+ */
+function bareClaimsOutsideNorms(text: string, pattern: RegExp): string[] {
+  const claims: string[] = [];
+  for (const sentence of text.split(/[.!?\n]+/)) {
+    let normSubjectCarries = false;
+    for (const clause of sentence.split(/[;,—–]+/)) {
+      const exempt: boolean =
+        !RUNNER_REFERENCE.test(clause) && (GENERAL_SUBJECT.test(clause) || normSubjectCarries);
+      normSubjectCarries = exempt;
+      if (!exempt) claims.push(...(clause.match(pattern) ?? []));
+    }
+  }
+  return claims;
+}
+
+/**
+ * A cadence figure claimed as THIS RUNNER's rate, as a point value — either attributed by the
+ * possessive/copular form ("your cadence is 164", "their cadence sits at 168") or standing bare
+ * and hedged as their rate ("Roughly 165 SPM — approximate"). Neither fires on the certified norm
+ * "180 SPM is not a universal target", which a model may legitimately quote to REJECT it, nor on a
+ * norm about runners at large.
+ */
+export function findAttributedCadencePoints(text: string): string[] {
+  const point = new RegExp(
+    String.raw`\b(?:your|their|his|her|the runner'?s)\s+cadence\s+(?:is|was|of|sits at|comes out at|measures|appears to be|looks like)\s*(?:${HEDGE})?\s*(\d{2,3})`,
+    'gi'
+  );
+  const hedgedPoint = new RegExp(String.raw`${HEDGE_PREFIX}\d{2,3}\s*${SPM_UNIT}`, 'gi');
+  return [...(text.match(point) ?? []), ...bareClaimsOutsideNorms(text, hedgedPoint)];
+}
+
+/**
+ * A steps-per-minute RANGE offered as this runner's rate — either attributed ("your cadence looks
+ * to sit around 160 to 170 steps per minute", "your cadence sits between 160 and 170 steps per
+ * minute") or asserted bare and hedged ("roughly 160-170 SPM", "from 160 to 170 SPM").
+ *
+ * DELIBERATELY NARROWER THAN THE HARNESS. `stride-burst-latency.live.ts` flags ANY SPM number in a
+ * burst result, because `STRIDE_BURST_VIDEO_RULES` forbids the figure outright for that one media
+ * shape. This grader runs over EVERY media kind and every tier, where a certified norm and a
+ * prescribed delta are both legitimate, so it judges attribution instead. The two scopes are not
+ * a duplication to be unified — unifying them breaks one of the two.
+ * This used to be exempt: TIMESTAMP_RULES once offered a hedged range as the correct way to
+ * answer. The stride-burst migration removed that licence — a ~700ms burst spans a third to a half
+ * of a step interval, so a footfall rate resolves only to ±30-50% and no range derived from it is
+ * honest. A general norm stated about runners at large, and any delta, are not this — the bare
+ * hedged form is scoped by `bareClaimsOutsideNorms` so it cannot fire on either.
+ */
+export function findSpmRangeClaims(text: string): string[] {
+  const attributedRange = new RegExp(
+    String.raw`\b(?:your|their|his|her|the runner'?s)\s+(?:cadence|step\s+rate)\b[^.!?\n]{0,40}?\b${SPAN}\s*${SPM_UNIT}`,
+    'gi'
+  );
+  const hedgedRange = new RegExp(
+    String.raw`(?:${HEDGE_PREFIX}|\b(?:between|from)\s*)${SPAN}\s*${SPM_UNIT}`,
+    'gi'
+  );
+  return [...(text.match(attributedRange) ?? []), ...bareClaimsOutsideNorms(text, hedgedRange)];
+}
+
 export function checkNoFalsePrecision(result: PaceResult): Check {
-  const claims = pillarEntries(result)
+  const raw = pillarEntries(result)
     .flatMap(([, p]) => [p.feedback ?? '', ...p.flags.map((f) => f.detail)])
     .join('\n');
+  const claims = stripPrescriptiveCadence(raw);
 
   const violations: string[] = [];
 
@@ -861,15 +979,13 @@ export function checkNoFalsePrecision(result: PaceResult): Check {
   const vo = claims.match(/\d+(?:\.\d+)?\s*(?:cm\b|centimet(?:re|er)s?\b)/gi);
   if (vo) violations.push(`vertical oscillation in cm: ${JSON.stringify(vo)}`);
 
-  // A cadence figure ATTRIBUTED TO THIS RUNNER as a point value. Scoped to the possessive/copular
-  // form ("your cadence is 164", "their cadence sits at 168") so it cannot fire on the certified
-  // norm "180 SPM is not a universal target", which a model may legitimately quote to REJECT it.
-  // An en-dashed or hyphenated RANGE ("roughly 160-170 SPM") is explicitly allowed by the prompt
-  // and is excluded by the negative lookahead.
-  const point =
-    /\b(?:your|their|his|her|the runner'?s)\s+cadence\s+(?:is|was|of|sits at|comes out at|measures|appears to be|looks like)\s*(?:about|around|roughly|approximately|~)?\s*(\d{2,3})(?!\s*[-–—]\s*\d)/gi;
-  const attributed = claims.match(point);
-  if (attributed) violations.push(`a point cadence figure for this runner: ${JSON.stringify(attributed)}`);
+  const attributed = findAttributedCadencePoints(claims);
+  if (attributed.length > 0) {
+    violations.push(`a point cadence figure for this runner: ${JSON.stringify(attributed)}`);
+  }
+
+  const range = findSpmRangeClaims(claims);
+  if (range.length > 0) violations.push(`a steps-per-minute range: ${JSON.stringify(range)}`);
 
   if (violations.length > 0) {
     return {

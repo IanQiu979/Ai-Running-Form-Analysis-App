@@ -454,7 +454,7 @@ verbosity dial, and the structured-output contract. M4's blocker: #44 (the edge 
 (validation/fallback) both build on it. **Pure and injectable** — no `Deno` global, no `fetch`, no
 env var, and it never calls Anthropic; it turns `(tier, media, frames)` into a request body, so the
 part most likely to change (prompt wording) is testable with zero network and zero API spend. Same
-pure/client split as `ai-guard.ts`. 44 Deno tests.
+pure/client split as `ai-guard.ts`. 46 Deno tests.
 
 - **Grounded, provably.** The three certified files are injected verbatim from
   `knowledge.generated.ts` (#90) — never inlined, never paraphrased. Importing that module runs
@@ -477,7 +477,15 @@ pure/client split as `ai-guard.ts`. 44 Deno tests.
   Cadence and Elasticity; a legacy/sparse sequence may not and forces both pillars to
   `notAssessedReason: "needsVideo"`. Even for a burst, the prompt treats timing as approximate and
   steers the model toward visible, timestamp-independent evidence such as the overstriding
-  signature and landing quality.
+  signature and landing quality. Since 2026-09-07 the burst rules also spell out **what one
+  ~700ms cycle can and cannot support**: Cadence is scored from the landing (foot relative to the
+  centre of mass, knee at contact) and **no steps-per-minute figure or range may be given from a
+  burst** — 100-175ms between frames is a third to a half of a step, so a footfall interval
+  resolves only to ±30-50%; Elasticity is bounded to contact quality, knee/ankle give and visible
+  torso rise/fall, never a GCT or bounce figure. Five real burst calls on 2026-09-07 produced zero
+  SPM figures or ranges in any pillar's feedback text; injury-flag `detail` text was not scanned by
+  the harness as it ran, and cannot be re-checked offline (that run's results JSON kept only each
+  flag's `pattern`). See `docs/change_log.md`.
 - **`pace_framework.md`'s two timing clauses are amended at the prompt layer, not edited** (#112,
   the same mechanism as the note-conditional clauses below). The certified file — which ships
   byte-for-byte and is not editable without Ian's certification review — says *"**Only if frame
@@ -485,15 +493,18 @@ pure/client split as `ai-guard.ts`. 44 Deno tests.
   can estimate … vertical bounce"*. A model reading the frame manifest would score the first as
   **satisfied** (timestamps are visibly there) and the second as **true** (the requested times look
   evenly spaced); neither holds. So `TIMESTAMP_RULES` quotes both clauses back and re-reads them:
-  *"known"* ⇒ **"known approximately"** (licensing a wide, labelled range — never a point figure),
+  *"known"* ⇒ **"known approximately"** (at most a wide, labelled range — never a point figure —
+  and, since 2026-09-07, stated to license nothing on this deployment: the only video that reaches
+  Cadence scoring is a ~one-cycle burst, too short to count steps, so no SPM range either),
   and *"evenly-spaced"* ⇒ **"not reliably evenly spaced"** (torso height *change* between frames is
   still visible evidence; its *rate* is not). The amendment can only ever **tighten** — it licenses
   nothing the certified file forbids — and the test suite asserts both quoted clauses still exist
   in the shipped bundle byte-for-byte, so a future re-certification that rewords them fails the
   build instead of leaving an amendment aimed at a sentence that no longer exists.
 - **The uncertainty must reach the runner, not just the model.** Any Cadence/Elasticity judgement
-  that leans on the frame timing has to carry the hedge into the user-visible `feedback` ("roughly
-  160–170 SPM — approximate, estimated from frames whose timing is not exact"). The runner sees
+  that leans on the frame timing has to carry the hedge into the user-visible `feedback` ("the
+  torso looks to settle a little between these frames — approximate, estimated from frames whose
+  timing is not exact"; since 2026-09-07 an SPM range is no longer an available hedge). The runner sees
   only `score`, `band`, and `feedback`; a hedge the model keeps to itself is not a hedge.
 - **The note-conditional certified guidance is neutralised at the prompt layer**, not by editing
   certified text (that needs Ian's review — GitHub issues #39/#40). No note field ships (Known Issue #10), so the
@@ -2960,6 +2971,14 @@ audit traced this to genuine work time — `effort: 'medium'`'s thinking spent 2
 4-8k output-token budget before any answer text — not to a number that merely needed raising.
 `ANALYZE_FORM_EFFORT` therefore dropped to `'low'` (adaptive thinking stays ON; see step 8 above)
 and the timing envelope was rebuilt around the client's 120s timeout.
+
+**Measured 2026-09-07 against real stride bursts** (`_shared/evals/stride-burst-latency.live.ts`,
+production request builder and reader, effort `low`, two real side-on clips): Pro 5-frame bursts
+took 21.4s and 24.4s; Elite 8-frame bursts 29.6s, 29.8s and 35.6s — worst case 44% of the 80s cap
+and 55% of the old 65s bound, every stop reason `end_turn`, largest output 2570 of 8000 tokens. The
+constants above are therefore validated for both paid tiers, and `max_tokens` was deliberately
+NOT raised: a real burst at low effort uses under a third of the ceiling, and a raise would have to
+move `gate_ai_call`'s reservation with it for no measured benefit. Five calls, $0.42.
 
 `ANALYZE_FORM_REQUEST_DEADLINE_MS` is 105s from request start. `index.ts` captures that start at
 `Deno.serve` entry before auth and body parsing and passes it to `runAnalyzeForm`; after parsing,
