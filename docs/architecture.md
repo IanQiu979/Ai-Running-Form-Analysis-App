@@ -2962,15 +2962,24 @@ and is never merely prompt-guided:
   multi-frame Pro/Elite result passes through with the model's headline intact; rewriting it there
   would be an unrequested change to paid output.
 
-**A zero-pillar result splits by tier (captain decision,
-`audit-v23-r1-decision-zero-pillar-charge-policy`).** A structurally valid response that ends up
-assessing nothing — a clip that never shows the runner, or a one-frame submission whose only
-"assessed" pillars were Cadence/Elasticity before normalization zeroed them — still `RELEASE`s (and
-refunds the quota slot) for Pro/Elite, exactly as `'validation_failed'`/`'model_error'` already did.
-For Free it instead `SETTLE`s and consumes the one lifetime slot: refunding a blank/unusable
-submission would turn Free's single slot into an unlimited free-form-checking loop.
-`'zero_pillars_assessed'` is excluded from `pace_is_farming_signal` either way, so it never ticks
-the 3-strike anti-farming cap.
+**A zero-pillar result `RELEASE`s (refunds the quota slot) on every tier, including Free
+(2026-09-09, `fm/v23-zero-pillar-cooldown-orphaned-work`, `docs/status.md` Known Issue #45).** A
+structurally valid response that ends up assessing nothing — a clip that never shows the runner, or
+a one-frame submission whose only "assessed" pillars were Cadence/Elasticity before normalization
+zeroed them — refunds the quota slot exactly as `'validation_failed'`/`'model_error'` already did,
+on every tier. This superseded the original captain decision
+(`audit-v23-r1-decision-zero-pillar-charge-policy`) that had Free `SETTLE` and consume its one
+lifetime slot: charging a runner's only analysis for a submission the model could not read was the
+harshest available reading of a result that usually reflects framing or lighting, not intent. What
+now bounds a Free resubmission loop instead of the charge is frequency, not cost: Free waits out a
+15-minute cooldown (`public.pace_zero_pillar_cooldown_seconds()`,
+`20260906130000_free_zero_pillar_cooldown.sql`) after a `zero_pillars_assessed` release before
+`analyze-form` accepts another submission (429 `zero_pillar_cooldown`, see the status-code table
+below), surfaced early via `pace_quota_status`'s `blocked_reason`
+(`20260906140000_quota_status_zero_pillar_cooldown.sql`). `'zero_pillars_assessed'` is excluded from
+`pace_is_farming_signal` on every tier, so it never ticks the 3-strike anti-farming cap; the 15-minute
+cooldown is a separate, much shorter throttle, and when both windows are open the anti-farm one wins
+because it is the longer of the two.
 
 See `supabase/functions/analyze-form/__tests__/flow.deno.test.ts` for the regression suite covering
 normalization and the zero-pillar split. **Deployment ordering matters**: `analyze-form` must be

@@ -1595,7 +1595,7 @@ milestone "done" criteria.
     both blocks apply the anti-farm cap wins, being the longer one.
 
     **Verification, and its limits.** Offline only: `npm run typecheck && npm run lint && npm test`
-    clean (1558 Jest + 493 Deno), plus a PGlite proof that applies the committed migrations verbatim
+    clean (1560 Jest + 493 Deno), plus a PGlite proof that applies the committed migrations verbatim
     and asserts the real Postgres behaviour — Free's zero-pillar release leaves `used` at 0 and
     reports the cooldown until expiry, paid tiers never report it, anti-farm takes precedence. **No
     model calls were made and neither migration has been pushed to the live project**; the two
