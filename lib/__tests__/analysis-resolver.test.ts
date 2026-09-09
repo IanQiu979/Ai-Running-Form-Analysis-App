@@ -1,12 +1,12 @@
 import { supabase } from '../supabase';
 
+import { resolveAnalysisRequest } from '../analysis-resolver';
+
 jest.mock('../supabase', () => ({
   supabase: { rpc: jest.fn() },
 }));
 
 const mockRpc = supabase.rpc as jest.MockedFunction<typeof supabase.rpc>;
-
-import { resolveAnalysisRequest } from '../analysis-resolver';
 
 beforeEach(() => {
   jest.clearAllMocks();

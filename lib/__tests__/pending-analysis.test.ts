@@ -23,11 +23,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { fallbackOutcome, freeTierOutcome } from '../pace-fixtures';
 
-const mockResolveAnalysisRequest = jest.fn();
-jest.mock('../analysis-resolver', () => ({
-  resolveAnalysisRequest: (...args: unknown[]) => mockResolveAnalysisRequest(...args),
-}));
-
 // Re-imported after the mock is registered, matching this repo's established pattern
 // (lib/__tests__/consent.test.ts, lib/__tests__/history.test.ts).
 import {
@@ -38,6 +33,11 @@ import {
   setPendingAnalysisMarker,
   type PendingAnalysisRow,
 } from '../pending-analysis';
+
+const mockResolveAnalysisRequest = jest.fn();
+jest.mock('../analysis-resolver', () => ({
+  resolveAnalysisRequest: (...args: unknown[]) => mockResolveAnalysisRequest(...args),
+}));
 
 const USER_A = 'a0000000-0000-0000-0000-000000000001';
 const USER_B = 'b0000000-0000-0000-0000-000000000002';
