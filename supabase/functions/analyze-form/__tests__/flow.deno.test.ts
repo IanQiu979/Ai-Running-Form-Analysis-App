@@ -2198,9 +2198,13 @@ Deno.test('#130: settle_analysis is called with NO media paths', async () => {
   const h = harness([ok()]);
   await run(h);
 
-  // Not `[]` — absent. There is nothing to pass: the frames do not exist yet. The RPC's own
-  // `p_media_paths text[] default '{}'` covers the omission.
-  assertEquals(h.rpc.to('settle_analysis')[0].args.p_media_paths, undefined);
+  // `[]`, and explicitly so. There is still nothing to pass — the frames do not exist yet — but
+  // the six-argument overload has no defaults, so OMITTING this argument resolves to no function
+  // at all and fails every settle. This assertion is the client half of that contract; the SQL
+  // half is proven against real Postgres in `zero-pillar-uncharged-sql.deno.test.ts`. Asserting
+  // `undefined` here is exactly the CLAUDE.md failure mode where the fixture and the client agree
+  // with each other and neither agrees with the server.
+  assertEquals(h.rpc.to('settle_analysis')[0].args.p_media_paths, []);
 });
 
 Deno.test('#130: a THROWING attach_media_paths still delivers 200 and still does not release', async () => {

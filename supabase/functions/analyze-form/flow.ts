@@ -541,10 +541,15 @@ async function settleAnalysis(
     // DB-first rollout; a defaulted one would make a four-named-argument call ambiguous between
     // the two overloads and fail at resolution time.
     p_zero_pillar: args.zeroPillar,
-    // FOUR args, not five (#130). `p_media_paths` still exists on the RPC and still defaults to
-    // '{}' — we simply have nothing to pass it, because nothing has been uploaded yet. The frames
-    // go up AFTER this call succeeds and `attach_media_paths` records them. THE INVARIANT: a
-    // 'reserved' row can never have frames.
+    // EXPLICITLY EMPTY, and it must stay explicit. Nothing has been uploaded yet — the frames go
+    // up AFTER this call succeeds and `attach_media_paths` records them, and THE INVARIANT from
+    // #130 still holds: a 'reserved' row can never have frames. What changed on 2026-09-10 is that
+    // omitting this argument no longer works. The six-argument overload has NO defaults (that is
+    // what keeps the five-argument one unambiguously callable), so a named call that skips
+    // `p_media_paths` matches neither overload and Postgres rejects the whole statement with
+    // "function ... does not exist" — which would break EVERY settle, scored results included,
+    // not just zero-pillar ones. Passing `[]` is identical in effect to the old `default '{}'`.
+    p_media_paths: [],
   });
   if (error) {
     throw new Error(`settle_analysis failed: ${error.message}`);
