@@ -1,0 +1,354 @@
+/**
+ * Behavioural proof for the Free zero-pillar cooldown. The committed migrations are applied
+ * verbatim to PGlite in filename order, including the later per-user AI-cap migration, and the
+ * assertions exercise Postgres behaviour rather than matching SQL source text.
+ *
+ * PGlite supplies real Postgres 17 SQL, functions, constraints, and privileges. Supabase's
+ * platform-owned auth schema is the only stand-in. Concurrency and PostgREST exposure are outside
+ * this focused test; the function privilege checks cover the database boundary PostgREST obeys.
+ */
+import { assert, assertEquals } from "jsr:@std/assert@1";
+import { PGlite } from "npm:@electric-sql/pglite@0.3.12";
+
+const MIGRATIONS_DIR = new URL("../../../migrations/", import.meta.url);
+
+/** Minimum transitive set for quota status, the cooldown, and the later per-user spend cap. */
+const MIGRATIONS = [
+  "20260711150000_profiles.sql",
+  "20260711150100_subscriptions.sql",
+  "20260711150200_analyses.sql",
+  "20260711150300_quota_period_helpers.sql",
+  "20260711150400_quota_reserve_settle_release.sql",
+  "20260712210000_ai_spend_guardrails.sql",
+  "20260712210100_ai_spend_guardrail_functions.sql",
+  "20260712220000_anti_farm_release_reason_fix.sql",
+  "20260712233000_quota_status_function.sql",
+  "20260804120000_pace_current_tier_function.sql",
+  "20260819120000_zero_pillar_release_reason.sql",
+  "20260906120000_invalid_safety_release_reason.sql",
+  "20260906130000_free_zero_pillar_cooldown.sql",
+  "20260906140000_quota_status_zero_pillar_cooldown.sql",
+  "20260907120000_per_user_ai_daily_cap.sql",
+] as const;
+
+const PLATFORM_PRELUDE = `
+  create role anon;
+  create role authenticated;
+  create role service_role;
+  create schema auth;
+  create table auth.users (id uuid primary key, email text);
+  create or replace function auth.uid() returns uuid language sql stable as $fn$
+    select null::uuid;
+  $fn$;
+`;
+
+interface QuotaStatus {
+  tier: "free" | "pro" | "elite";
+  used: number;
+  blocked: boolean;
+  blocked_reason: string | null;
+  blocked_until: string | null;
+}
+
+interface RpcResult {
+  ok: boolean;
+  id?: string;
+  status?: string;
+  reason?: string;
+}
+
+async function freshDb(): Promise<PGlite> {
+  const db = await new PGlite();
+  await db.exec(PLATFORM_PRELUDE);
+
+  assertEquals(
+    [...MIGRATIONS].sort(),
+    [...MIGRATIONS],
+    "the executable migration fixture must preserve filename application order",
+  );
+
+  for (const name of MIGRATIONS) {
+    const sql = await Deno.readTextFile(new URL(name, MIGRATIONS_DIR));
+    try {
+      await db.exec(sql);
+    } catch (error) {
+      throw new Error(
+        `migration ${name} failed to apply: ${(error as Error).message}`,
+      );
+    }
+  }
+  return db;
+}
+
+async function withDb(run: (db: PGlite) => Promise<void>): Promise<void> {
+  const db = await freshDb();
+  try {
+    await run(db);
+  } finally {
+    await db.close();
+  }
+}
+
+async function createUser(
+  db: PGlite,
+  tier: "free" | "pro" | "elite" = "free",
+): Promise<string> {
+  const { rows } = await db.query<{ id: string }>(
+    `insert into auth.users (id, email) values (gen_random_uuid(), $1) returning id`,
+    [`${tier}-${crypto.randomUUID()}@example.test`],
+  );
+  const userId = rows[0].id;
+  if (tier !== "free") {
+    await db.query(
+      `insert into public.subscriptions (user_id, tier, status, purchased_at)
+       values ($1, $2::public.subscription_tier, 'active', '2026-09-01T00:00:00Z')`,
+      [userId, tier],
+    );
+  }
+  return userId;
+}
+
+async function insertReserved(
+  db: PGlite,
+  userId: string,
+  key: string,
+  tier: "free" | "pro" | "elite" = "free",
+): Promise<string> {
+  const { rows } = await db.query<{ id: string }>(
+    `insert into public.analyses
+       (user_id, media_type, frame_count, tier_at_run, status, idempotency_key)
+     values ($1, 'photo', 1, $3::public.analysis_tier, 'reserved', $2)
+     returning id`,
+    [userId, key, tier],
+  );
+  return rows[0].id;
+}
+
+async function release(
+  db: PGlite,
+  userId: string,
+  analysisId: string,
+  reason:
+    | "zero_pillars_assessed"
+    | "zero_pillar_cooldown"
+    | "validation_failed",
+): Promise<RpcResult> {
+  const { rows } = await db.query<{ out: RpcResult }>(
+    `select public.release_analysis($1::uuid, $2::uuid, $3::text) as out`,
+    [userId, analysisId, reason],
+  );
+  return rows[0].out;
+}
+
+async function quotaStatus(
+  db: PGlite,
+  userId: string,
+  asOf: string,
+): Promise<QuotaStatus> {
+  const { rows } = await db.query<{ out: QuotaStatus }>(
+    `select public.pace_quota_status($1::uuid, $2::timestamptz) as out`,
+    [userId, asOf],
+  );
+  return rows[0].out;
+}
+
+Deno.test("the ordered migrations retain the cooldown release reason through the later AI-cap migration", async () => {
+  await withDb(async (db) => {
+    const userId = await createUser(db);
+    const analysisId = await insertReserved(db, userId, "cooldown-release");
+    const released = await release(
+      db,
+      userId,
+      analysisId,
+      "zero_pillar_cooldown",
+    );
+
+    assertEquals(released.ok, true);
+    assertEquals(released.status, "released");
+
+    const { rows } = await db.query<{ reason: string }>(
+      `select release_reason as reason from public.analyses where id = $1`,
+      [analysisId],
+    );
+    assertEquals(rows[0].reason, "zero_pillar_cooldown");
+
+    // The migration after the cooldown still has its executable cap surface.
+    const { rows: cap } = await db.query<
+      { free: string; pro: string; elite: string }
+    >(
+      `select user_daily_usd_cap_free::text as free,
+              user_daily_usd_cap_pro::text as pro,
+              user_daily_usd_cap_elite::text as elite
+       from public.ai_ops_config where id`,
+    );
+    assertEquals(cap[0], { free: "0.75", pro: "2.00", elite: "4.00" });
+  });
+});
+
+Deno.test("Free reports an active then expired zero-pillar cooldown without consuming quota", async () => {
+  await withDb(async (db) => {
+    const userId = await createUser(db);
+    const analysisId = await insertReserved(db, userId, "zero-pillar-result");
+    assertEquals(
+      (await release(db, userId, analysisId, "zero_pillars_assessed")).ok,
+      true,
+    );
+    await db.query(
+      `update public.analyses set released_at = '2026-09-09T12:00:00Z' where id = $1`,
+      [analysisId],
+    );
+
+    const active = await quotaStatus(db, userId, "2026-09-09T12:05:00Z");
+    assertEquals(active.tier, "free");
+    assertEquals(
+      Number(active.used),
+      0,
+      "a released zero-pillar result must not consume quota",
+    );
+    assertEquals(active.blocked, true);
+    assertEquals(active.blocked_reason, "zero_pillar_cooldown");
+    assertEquals(active.blocked_until, "2026-09-09T12:15:00+00:00");
+
+    const expired = await quotaStatus(db, userId, "2026-09-09T12:15:01Z");
+    assertEquals(Number(expired.used), 0);
+    assertEquals(expired.blocked, false);
+    assertEquals(expired.blocked_reason, null);
+    assertEquals(expired.blocked_until, null);
+  });
+});
+
+Deno.test("paid tiers never report the Free zero-pillar cooldown", async () => {
+  await withDb(async (db) => {
+    for (const tier of ["pro", "elite"] as const) {
+      const userId = await createUser(db, tier);
+      const analysisId = await insertReserved(
+        db,
+        userId,
+        `${tier}-zero-pillar`,
+        tier,
+      );
+      assertEquals(
+        (await release(db, userId, analysisId, "zero_pillars_assessed")).ok,
+        true,
+      );
+      await db.query(
+        `update public.analyses set released_at = '2026-09-09T12:00:00Z' where id = $1`,
+        [analysisId],
+      );
+
+      const status = await quotaStatus(db, userId, "2026-09-09T12:05:00Z");
+      assertEquals(status.tier, tier);
+      assertEquals(Number(status.used), 0);
+      assertEquals(status.blocked, false);
+      assertEquals(status.blocked_reason, null);
+      assertEquals(status.blocked_until, null);
+    }
+  });
+});
+
+Deno.test("the anti-farm block takes precedence over an active zero-pillar cooldown", async () => {
+  await withDb(async (db) => {
+    const userId = await createUser(db);
+
+    for (let i = 0; i < 3; i += 1) {
+      const analysisId = await insertReserved(db, userId, `farming-${i}`);
+      assertEquals(
+        (await release(db, userId, analysisId, "validation_failed")).ok,
+        true,
+      );
+      await db.query(
+        `update public.analyses
+         set released_at = ('2026-09-09T11:00:00Z'::timestamptz + $2::integer * interval '1 minute')
+         where id = $1`,
+        [analysisId, i],
+      );
+    }
+
+    const zeroPillarId = await insertReserved(db, userId, "zero-pillar-too");
+    assertEquals(
+      (await release(db, userId, zeroPillarId, "zero_pillars_assessed")).ok,
+      true,
+    );
+    await db.query(
+      `update public.analyses set released_at = '2026-09-09T12:00:00Z' where id = $1`,
+      [zeroPillarId],
+    );
+
+    const status = await quotaStatus(db, userId, "2026-09-09T12:05:00Z");
+    assertEquals(status.blocked, true);
+    assertEquals(status.blocked_reason, "too_many_failed_attempts");
+    assertEquals(status.blocked_until, "2026-09-10T11:00:00+00:00");
+  });
+});
+
+Deno.test("the one-argument cooldown helper is authoritative and RPCs are service-role-only", async () => {
+  await withDb(async (db) => {
+    const { rows: functions } = await db.query<{
+      seconds: number;
+      one_arg: string | null;
+      two_arg: string | null;
+    }>(
+      `select public.pace_zero_pillar_cooldown_seconds() as seconds,
+              to_regprocedure('public.pace_zero_pillar_cooldown_remaining(uuid)')::text as one_arg,
+              to_regprocedure('public.pace_zero_pillar_cooldown_remaining(uuid,integer)')::text
+                as two_arg`,
+    );
+    assertEquals(functions[0].seconds, 900);
+    assert(
+      functions[0].one_arg !== null,
+      "the authoritative one-argument helper must exist",
+    );
+    assertEquals(
+      functions[0].two_arg,
+      null,
+      "the caller-controlled two-argument overload must not exist",
+    );
+
+    const userId = await createUser(db);
+    const analysisId = await insertReserved(db, userId, "helper-behaviour");
+    assertEquals(
+      (await release(db, userId, analysisId, "zero_pillars_assessed")).ok,
+      true,
+    );
+    const { rows: remaining } = await db.query<{ seconds: number }>(
+      `select public.pace_zero_pillar_cooldown_remaining($1::uuid) as seconds`,
+      [userId],
+    );
+    assert(
+      remaining[0].seconds > 890 && remaining[0].seconds <= 900,
+      `the authoritative helper returned ${
+        remaining[0].seconds
+      }, expected an active 900-second window`,
+    );
+
+    for (
+      const signature of [
+        "public.pace_zero_pillar_cooldown_seconds()",
+        "public.pace_zero_pillar_cooldown_remaining(uuid)",
+        "public.pace_quota_status(uuid,timestamp with time zone)",
+      ]
+    ) {
+      for (const role of ["anon", "authenticated"]) {
+        const { rows } = await db.query<{ allowed: boolean }>(
+          `select has_function_privilege($1, $2, 'EXECUTE') as allowed`,
+          [role, signature],
+        );
+        assertEquals(
+          rows[0].allowed,
+          false,
+          `${role} must not execute ${signature}`,
+        );
+      }
+
+      const { rows } = await db.query<{ allowed: boolean }>(
+        `select has_function_privilege('service_role', $1, 'EXECUTE') as allowed`,
+        [signature],
+      );
+      assertEquals(
+        rows[0].allowed,
+        true,
+        `service_role must execute ${signature}`,
+      );
+    }
+  });
+});
