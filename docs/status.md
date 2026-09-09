@@ -1410,14 +1410,13 @@ milestone "done" criteria.
     from every pillar. `overall` is recomputed only on a path that normalizes pillars (one frame or
     Free's paid-content strip); a multi-frame Pro/Elite result keeps the model's own `overall`.
     A structurally valid response that ends up assessing nothing (a photo that never shows the
-    runner, or a one-frame submission normalized down to zero assessed pillars) `SETTLE`s on
-    **every** tier as of 2026-09-09. For Free that consumes the one lifetime slot — a deliberate
-    asymmetry, since refunding it would turn that single slot into an unlimited free-form-checking
-    loop. Pro/Elite used to `RELEASE` (refund) this case under the 2026-08-19 zero-pillar ruling
-    (`20260819120000_zero_pillar_release_reason.sql`); the captain reversed that for Pro/Elite on
-    2026-09-10 so result pinning could hold, because an unpersisted 200 retires its canonical claim and lets
-    identical evidence reach the model again for a different verdict. See Known Issue #45 for the
-    determinism reasoning; `zero_pillars_assessed` is no longer a reachable release reason.
+    runner, or a one-frame submission normalized down to zero assessed pillars) is **delivered but
+    uncharged** on every tier as of 2026-09-10. It `SETTLE`s — so the verdict is pinned and a
+    canonical replay returns exactly it — and is stamped `zero_pillar_at`, which every quota count
+    excludes, so nobody spends an analysis on it. Free's one lifetime slot survives a blank result
+    intact. `'zero_pillars_assessed'` is consequently no longer a reachable release reason; what
+    bounds a resubmission loop is the 15-minute cooldown (Known Issue #45), not a charge. See Known
+    Issue #46 for why persistence and payment had to be separated.
 
     Safety is a required, per-pillar structured contract, not a prompt-only hope or a prose
     classifier. Every pillar must declare `{ signal, note }` using the certified stop-running

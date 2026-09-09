@@ -158,13 +158,20 @@ export type AttemptFailure =
  * `'zero_pillars_assessed'` (audit-v23-r1-decision-zero-pillar-charge-policy, added by
  * `20260819120000_zero_pillar_release_reason.sql`) is RETAINED IN THE SCHEMA BUT NO LONGER SET.
  * It covered a response that VALIDATED in full — `decideOutcome` never even sees it, because it
- * returns `kind: 'valid'` — but in which every pillar was honestly reported not assessed; on
- * Pro/Elite `flow.ts` used to refund the quota slot for it. The captain reversed that on
- * 2026-09-10 so result pinning could hold: an unpersisted 200 retires its canonical claim, which would let identical evidence reach
- * the model again and come back with a different verdict — the exact launch blocker the pin
- * exists to close. Every HTTP 200 now settles on every tier. The value stays in this union and in
- * the DB CHECK constraint so already-written ledger rows remain readable and a rollback stays
- * possible; it is still deliberately excluded from `pace_is_farming_signal` (20260712220000),
+ * returns `kind: 'valid'` — but in which every pillar was honestly reported not assessed. That
+ * case used to hand the quota slot back by RELEASING, which returns an unpersisted 200.
+ *
+ * Result pinning made an unpersisted 200 untenable: it retires the row's canonical claim, so the
+ * same clip could reach the model again and be judged differently — the exact launch blocker the
+ * pin exists to close. The captain's 2026-09-10 ruling kept BOTH properties by separating
+ * persistence from payment: `flow.ts` now SETTLES the verdict with `p_zero_pillar: true`, which
+ * stamps `zero_pillar_at` (`20260910120000_zero_pillar_delivered_uncharged.sql`) so the row is
+ * pinned but excluded from every quota count. Nobody is charged for a blank result on any tier,
+ * and the verdict is still replayable.
+ *
+ * The value stays in this union and in the DB CHECK constraint so already-written ledger rows
+ * remain readable and a rollback stays possible, and the cooldown lookup still recognises those
+ * legacy rows. It is still deliberately excluded from `pace_is_farming_signal` (20260712220000),
  * because an honest "I could not assess anything in this clip" was never a farming signal. */
 export type ReleaseReason =
   | 'model_error'

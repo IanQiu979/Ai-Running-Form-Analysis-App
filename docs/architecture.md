@@ -1815,6 +1815,10 @@ analyses       (id uuid pk default gen_random_uuid(),
                                                             -- client soft-delete sets this AND
                                                             -- redacts result/media_paths, see
                                                             -- the RLS note below
+                zero_pillar_at timestamptz,                -- non-null = DELIVERED BUT UNCHARGED
+                                                            -- (a zero-pillar verdict, 2026-09-10).
+                                                            -- Doubles as the cooldown anchor;
+                                                            -- every quota count excludes these
                 created_at, delivered_at, released_at, updated_at)
 -- indexes: (user_id, created_at desc) for "list my analyses"; (user_id, status, created_at)
 -- for the quota-window counts the RPCs below run.

@@ -1072,7 +1072,7 @@ function allNotAssessedWithStrayContent(): ModelCallResult {
   });
 }
 
-Deno.test('zero-pillar policy: Free RELEASES a fully valid result with zero assessed pillars', async () => {
+Deno.test('zero-pillar policy: Free SETTLES a zero-pillar result UNCHARGED — the lifetime slot survives', async () => {
   const h = harness([allNotAssessedWithStrayContent()]);
   // `reserve_analysis` is the ONLY source of tier — there is no pre-reserve lookup to disagree
   // with it. Its 'free' is the value the settlement policy must use.
@@ -1090,10 +1090,14 @@ Deno.test('zero-pillar policy: Free RELEASES a fully valid result with zero asse
 
   assertEquals(res.status, 200);
   assertEquals(res.body.analysisId, ANALYSIS_ID, 'Free receives the reservation id with the result body');
-  assertEquals(h.rpc.to('settle_analysis').length, 0, 'an empty result never consumes the lifetime slot');
-  const releases = h.rpc.to('release_analysis');
-  assertEquals(releases.length, 1, 'Free receives the same zero-pillar refund as paid tiers');
-  assertEquals(releases[0].args.p_reason, 'zero_pillars_assessed');
+  // Delivered but UNCHARGED. The verdict is persisted so a canonical replay returns exactly it,
+  // and `p_zero_pillar` stamps `zero_pillar_at`, which every quota count excludes — so Free's one
+  // lifetime slot is still intact after a blank result. Releasing instead (what this test asserted
+  // before 2026-09-10) would return an unpersisted 200 and retire the canonical claim.
+  const settles = h.rpc.to('settle_analysis');
+  assertEquals(settles.length, 1, 'the verdict must be persisted so it can be replayed');
+  assertEquals(settles[0].args.p_zero_pillar, true, 'an empty result never consumes the lifetime slot');
+  assertEquals(h.rpc.to('release_analysis').length, 0, 'releasing would retire the canonical claim');
 
   const result = res.body.result as {
     pillars: Record<string, { score: number | null; flags: unknown[]; drills: unknown[] }>;
@@ -1179,14 +1183,14 @@ for (const lookup of [
   });
 }
 
-Deno.test('zero-pillar policy: every tier SETTLES a zero-pillar verdict, and none of them is charged for it', async () => {
-  for (const tier of ['free', 'pro', 'elite'] as const) {
+Deno.test('zero-pillar policy: paid tiers SETTLE a zero-pillar verdict, and are not charged for it', async () => {
+  // Free's single-frame path is covered separately above, against a one-frame photo body.
+  for (const tier of ['pro', 'elite'] as const) {
     const h = harness([allNotAssessed()]);
     h.rpc.handlers.reserve_analysis = () => ({
       data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
       error: null,
     });
-    h.rpc.handlers.pace_zero_pillar_cooldown_remaining = () => ({ data: 0, error: null });
 
     const res = await run(h);
 
