@@ -12,24 +12,26 @@ import { PGlite } from "npm:@electric-sql/pglite@0.3.12";
 
 const MIGRATIONS_DIR = new URL("../../../migrations/", import.meta.url);
 
-/** Minimum transitive set for quota status, the cooldown, and the later per-user spend cap. */
-const MIGRATIONS = [
-  "20260711150000_profiles.sql",
-  "20260711150100_subscriptions.sql",
-  "20260711150200_analyses.sql",
-  "20260711150300_quota_period_helpers.sql",
-  "20260711150400_quota_reserve_settle_release.sql",
-  "20260712210000_ai_spend_guardrails.sql",
-  "20260712210100_ai_spend_guardrail_functions.sql",
-  "20260712220000_anti_farm_release_reason_fix.sql",
-  "20260712233000_quota_status_function.sql",
-  "20260804120000_pace_current_tier_function.sql",
-  "20260819120000_zero_pillar_release_reason.sql",
-  "20260906120000_invalid_safety_release_reason.sql",
-  "20260906130000_free_zero_pillar_cooldown.sql",
-  "20260906140000_quota_status_zero_pillar_cooldown.sql",
-  "20260907120000_per_user_ai_daily_cap.sql",
-] as const;
+const LAST_MIGRATION = "20260907120000_per_user_ai_daily_cap.sql";
+const PLATFORM_ONLY_MIGRATIONS = {
+  "20260713130000_stale_reservation_sweep.sql":
+    "requires the managed pg_cron extension and cron.schedule",
+  "20260806090000_sweep_orphaned_media_cron.sql":
+    "requires managed pg_net, pg_cron, and Vault integrations",
+} as const;
+
+async function migrationChain(): Promise<string[]> {
+  const names: string[] = [];
+  for await (const entry of Deno.readDir(MIGRATIONS_DIR)) {
+    if (
+      entry.isFile && /^\d{14}.*\.sql$/.test(entry.name) &&
+      entry.name <= LAST_MIGRATION
+    ) {
+      names.push(entry.name);
+    }
+  }
+  return names.sort();
+}
 
 const PLATFORM_PRELUDE = `
   create role anon;
@@ -39,6 +41,27 @@ const PLATFORM_PRELUDE = `
   create table auth.users (id uuid primary key, email text);
   create or replace function auth.uid() returns uuid language sql stable as $fn$
     select null::uuid;
+  $fn$;
+
+  create schema storage;
+  create table storage.buckets (
+    id text primary key,
+    name text not null,
+    public boolean not null default false,
+    file_size_limit bigint,
+    allowed_mime_types text[]
+  );
+  create table storage.objects (
+    id uuid primary key default gen_random_uuid(),
+    bucket_id text not null,
+    name text not null,
+    metadata jsonb,
+    created_at timestamptz not null default now()
+  );
+  alter table storage.objects enable row level security;
+  create or replace function storage.foldername(name text) returns text[]
+  language sql immutable as $fn$
+    select string_to_array(trim(both '/' from name), '/');
   $fn$;
 `;
 
@@ -61,13 +84,16 @@ async function freshDb(): Promise<PGlite> {
   const db = await new PGlite();
   await db.exec(PLATFORM_PRELUDE);
 
+  const migrations = await migrationChain();
+  assertEquals(migrations.at(-1), LAST_MIGRATION);
   assertEquals(
-    [...MIGRATIONS].sort(),
-    [...MIGRATIONS],
-    "the executable migration fixture must preserve filename application order",
+    migrations.filter((name) => Object.hasOwn(PLATFORM_ONLY_MIGRATIONS, name)),
+    Object.keys(PLATFORM_ONLY_MIGRATIONS).sort(),
+    "the platform-only allowlist must be exact and contain no stale migration names",
   );
 
-  for (const name of MIGRATIONS) {
+  for (const name of migrations) {
+    if (Object.hasOwn(PLATFORM_ONLY_MIGRATIONS, name)) continue;
     const sql = await Deno.readTextFile(new URL(name, MIGRATIONS_DIR));
     try {
       await db.exec(sql);
@@ -322,10 +348,19 @@ Deno.test("the one-argument cooldown helper is authoritative and RPCs are servic
     );
 
     for (
-      const signature of [
-        "public.pace_zero_pillar_cooldown_seconds()",
-        "public.pace_zero_pillar_cooldown_remaining(uuid)",
-        "public.pace_quota_status(uuid,timestamp with time zone)",
+      const [signature, expectedSearchPath] of [
+        [
+          "public.pace_zero_pillar_cooldown_seconds()",
+          "search_path=public, pg_temp",
+        ],
+        [
+          "public.pace_zero_pillar_cooldown_remaining(uuid)",
+          "search_path=public, pg_temp",
+        ],
+        [
+          "public.pace_quota_status(uuid,timestamp with time zone)",
+          "search_path=public",
+        ],
       ]
     ) {
       for (const role of ["anon", "authenticated"]) {
@@ -348,6 +383,25 @@ Deno.test("the one-argument cooldown helper is authoritative and RPCs are servic
         rows[0].allowed,
         true,
         `service_role must execute ${signature}`,
+      );
+
+      const { rows: metadata } = await db.query<{
+        securityDefiner: boolean;
+        settings: string[] | null;
+      }>(
+        `select p.prosecdef as "securityDefiner", p.proconfig as settings
+         from pg_proc p where p.oid = to_regprocedure($1)`,
+        [signature],
+      );
+      assertEquals(
+        metadata[0].securityDefiner,
+        true,
+        `${signature} must execute with its hardened owner context`,
+      );
+      assertEquals(
+        metadata[0].settings,
+        [expectedSearchPath],
+        `${signature} must pin its search_path`,
       );
     }
   });

@@ -31,6 +31,8 @@ create or replace function public.pace_zero_pillar_cooldown_seconds()
 returns integer
 language sql
 immutable
+security definer
+set search_path = public, pg_temp
 as $$
   select 900;
 $$;
