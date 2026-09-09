@@ -159,8 +159,8 @@ export type AttemptFailure =
  * `20260819120000_zero_pillar_release_reason.sql`) is RETAINED IN THE SCHEMA BUT NO LONGER SET.
  * It covered a response that VALIDATED in full — `decideOutcome` never even sees it, because it
  * returns `kind: 'valid'` — but in which every pillar was honestly reported not assessed; on
- * Pro/Elite `flow.ts` used to refund the quota slot for it. Result pinning (2026-09-09) superseded
- * that: an unpersisted 200 retires its canonical claim, which would let identical evidence reach
+ * Pro/Elite `flow.ts` used to refund the quota slot for it. The captain reversed that on
+ * 2026-09-10 so result pinning could hold: an unpersisted 200 retires its canonical claim, which would let identical evidence reach
  * the model again and come back with a different verdict — the exact launch blocker the pin
  * exists to close. Every HTTP 200 now settles on every tier. The value stays in this union and in
  * the DB CHECK constraint so already-written ledger rows remain readable and a rollback stays

@@ -1413,8 +1413,9 @@ milestone "done" criteria.
     runner, or a one-frame submission normalized down to zero assessed pillars) `SETTLE`s on
     **every** tier as of 2026-09-09. For Free that consumes the one lifetime slot — a deliberate
     asymmetry, since refunding it would turn that single slot into an unlimited free-form-checking
-    loop. Pro/Elite used to `RELEASE` (refund) this case under the 2026-09-06 zero-pillar ruling;
-    result pinning superseded that, because an unpersisted 200 retires its canonical claim and lets
+    loop. Pro/Elite used to `RELEASE` (refund) this case under the 2026-08-19 zero-pillar ruling
+    (`20260819120000_zero_pillar_release_reason.sql`); the captain reversed that for Pro/Elite on
+    2026-09-10 so result pinning could hold, because an unpersisted 200 retires its canonical claim and lets
     identical evidence reach the model again for a different verdict. See Known Issue #45 for the
     determinism reasoning; `zero_pillars_assessed` is no longer a reachable release reason.
 
