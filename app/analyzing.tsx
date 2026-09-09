@@ -4,10 +4,9 @@
  * Built against `lib/analyze-form.ts`'s injectable seam, originally reviewable without a live
  * `analyze-form` (issue #44) via a dev mock. That seam is now bound to the real client — issue
  * #128, 2026-07-26, see that file's header — and the mock is kept only for tests/dev, `__DEV__`-
- * guarded so it throws in a release bundle. The one exception to "nothing in this file talks to Supabase" is issue #64's
- * reconciliation read below (`supabase.from('analyses')...`) — a plain RLS-scoped SELECT of this
- * user's own row, the same category of read `lib/consent.ts` and `app/result/[id].tsx` already
- * make directly from the client, not a privileged write.
+ * guarded so it throws in a release bundle. The one exception to "nothing in this file talks to
+ * Supabase" is issue #64's reconciliation below, now routed through an authenticated RPC so a
+ * request key that became an alias of a canonical result resolves to the same analysis row.
  *
  * STATE MACHINE: owned by `lib/analyzing-machine.ts` (pure, unit-tested there). This file's jobs
  * are (1) drive that reducer from real events — the `analyzeFormClient.submit()` call, a
@@ -86,12 +85,12 @@ import {
 } from '@/lib/analyzing-machine';
 import { onAppForeground } from '@/lib/app-state';
 import { checkConnectivity } from '@/lib/connectivity';
+import { resolveAnalysisRequest } from '@/lib/analysis-resolver';
 import { cooldownEndsIn } from '@/lib/cooldown';
 import { clearPendingAnalysisMarker, setPendingAnalysisMarker } from '@/lib/pending-analysis';
 import { setPendingAnalysisResult } from '@/lib/pending-analysis-result';
 import { useSession } from '@/lib/session-provider';
 import { signOut, type SignOutResult } from '@/lib/sign-out';
-import { supabase } from '@/lib/supabase';
 import { useAnnounce } from '@/lib/use-announce';
 import { isPaceAnalysisOutcome } from '@shared/pace';
 
@@ -236,11 +235,9 @@ export default function AnalyzingScreen() {
   // Issue #64: reconcile against the persisted `analyses` row whenever the app returns to the
   // foreground while this screen is still waiting — subscribing to issue #10's single AppState
   // listener (lib/app-state.ts) rather than registering a second one. The row is matched by
-  // `idempotency_key`, not `id`: the DB id is never known client-side until a real `succeeded`
-  // response names it, but the idempotency key is known from the moment `request` exists, and
-  // `reserve_analysis` guarantees at most one row per (user, idempotency_key) — see
-  // supabase/migrations/20260711150400_quota_reserve_settle_release.sql. RLS scopes the read to
-  // this user's own rows, so no explicit user_id filter is needed (same idiom as lib/consent.ts).
+  // request key, not `id`: the DB id is never known client-side until a real `succeeded` response
+  // names it. `resolve_analysis_request` derives the owner from auth.uid() and follows either the
+  // original key or a canonical-result alias without exposing the content fingerprint.
   //
   // Three outcomes, matching the issue's own three cases:
   //  - no row yet, a transient read error, or `status: 'reserved'` -> do nothing. The row not
@@ -262,13 +259,8 @@ export default function AnalyzingScreen() {
 
     async function reconcile() {
       try {
-        const { data, error } = await supabase
-          .from('analyses')
-          .select('id, status, result, is_fallback')
-          .eq('idempotency_key', req.idempotencyKey)
-          .maybeSingle();
-
-        if (error || !data) return;
+        const data = await resolveAnalysisRequest(req.idempotencyKey);
+        if (!data) return;
 
         if (data.status === 'delivered') {
           const outcome = { result: data.result, isFallback: data.is_fallback };

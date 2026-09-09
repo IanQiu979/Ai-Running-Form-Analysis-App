@@ -394,13 +394,42 @@ export type Database = {
         Args: { p_analysis_id: string; p_reason?: string; p_user_id: string }
         Returns: Json
       }
+      resolve_analysis_request: {
+        Args: { p_idempotency_key: string }
+        Returns: Json
+      }
       reserve_analysis: {
-        Args: {
-          p_frame_count: number
-          p_idempotency_key: string
-          p_media_type: Database["public"]["Enums"]["media_type"]
-          p_user_id: string
-        }
+        Args:
+          | {
+              p_frame_count: number
+              p_idempotency_key: string
+              p_media_type: Database["public"]["Enums"]["media_type"]
+              p_user_id: string
+            }
+          | {
+              p_analysis_identity: Json
+              p_frame_count: number
+              p_idempotency_key: string
+              p_media_type: Database["public"]["Enums"]["media_type"]
+              p_user_id: string
+            }
+        Returns: Json
+      }
+      reserve_analysis_unlimited: {
+        Args:
+          | {
+              p_frame_count: number
+              p_idempotency_key: string
+              p_media_type: Database["public"]["Enums"]["media_type"]
+              p_user_id: string
+            }
+          | {
+              p_analysis_identity: Json
+              p_frame_count: number
+              p_idempotency_key: string
+              p_media_type: Database["public"]["Enums"]["media_type"]
+              p_user_id: string
+            }
         Returns: Json
       }
       settle_analysis: {

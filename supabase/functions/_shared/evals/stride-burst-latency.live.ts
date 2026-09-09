@@ -35,13 +35,13 @@
  *
  * ── THE COMMITTED RUN ───────────────────────────────────────────────────────────────────────
  *
- * `stride-burst-latency.results.json` next to this file is the `--out` of the run that closed the
- * captain's measurement obligation (5 calls, 2026-09-07, $0.42 at list price), kept in-repo so the
- * numbers in `docs/change_log.md` are auditable — same convention as `grounding-eval.results.json`.
+ * `stride-burst-latency.results.json` next to this file retains both the original latency evidence
+ * (5 calls, 2026-09-07, $0.42 at list price) and the N=5 identical-input Arakawa Elite pre-fix
+ * variance measurement from 2026-09-09. There is deliberately no fabricated post-fix live data.
  * It is text only: latency, stop_reason, usage, cost, the SPM scan and each pillar's prose, plus a
- * base64 BYTE COUNT. No frames and no image data are in it, and none may ever be added.
- * It is ONE author run, NOT a reproducible fixture: re-running spends real money and the model's
- * output is stochastic, so scores and prose will differ. Nothing in `deno test` reads it.
+ * base64 BYTE COUNT. No frames and no image data are in it, and none may ever be added. The file
+ * remains a raw append-only record array, not a reproducible fixture: re-running spends real money
+ * and the model's output is stochastic. Nothing in `deno test` reads it.
  *
  * ── FRAME INPUT ────────────────────────────────────────────────────────────────────────────
  *
@@ -68,7 +68,6 @@
 
 import {
   ANALYZE_FORM_EFFORT,
-  ANALYZE_FORM_MODEL,
   buildAnalyzeFormRequest,
   formatFrameManifest,
   type AnalyzeFormRequest,
@@ -204,6 +203,86 @@ interface CallResult {
   error?: string;
 }
 
+export interface ObservedVarianceConfig {
+  repeat: number;
+  model: string;
+  effort: PaceEffort;
+  maxTokens: number;
+}
+
+interface MetricObservation {
+  score: number | null;
+  band: string | null;
+}
+
+/**
+ * Formats only what this finite run observed. It deliberately says "observed range", never
+ * "maximum" or "bound": repeated model samples can reveal instability, but cannot prove that a
+ * wider future swing is impossible. Its STABLE/UNSTABLE label applies only to the numeric score
+ * and band; runner-facing prose, flags, drills, and safety details remain visible in the raw
+ * records but are not compared by this summary.
+ */
+export function formatObservedVarianceSummary(
+  records: readonly unknown[],
+  config: ObservedVarianceConfig
+): string {
+  const lines = [
+    `observed variance summary — N=${config.repeat} identical-input run${config.repeat === 1 ? '' : 's'}`,
+    `model ${config.model} · effort ${config.effort} · max_tokens ${config.maxTokens}`,
+    'first-attempt direct path (no production retry or fallback)',
+  ];
+
+  for (const id of PACE_PILLARS) {
+    lines.push(formatMetric(id, metricObservations(records, 'pillars', id), config.repeat));
+  }
+  lines.push(formatMetric('overall', metricObservations(records, 'overall'), config.repeat));
+  return lines.join('\n');
+}
+
+function metricObservations(
+  records: readonly unknown[],
+  scope: 'pillars' | 'overall',
+  pillarId?: string
+): MetricObservation[] {
+  const observations: MetricObservation[] = [];
+  for (const value of records) {
+    if (!isRecord(value)) continue;
+    const candidate =
+      scope === 'overall'
+        ? value.overall
+        : isRecord(value.pillars) && pillarId
+          ? value.pillars[pillarId]
+          : undefined;
+    if (!isRecord(candidate)) continue;
+    const score = candidate.score;
+    const band = candidate.band;
+    if ((typeof score !== 'number' && score !== null) || (typeof band !== 'string' && band !== null)) continue;
+    observations.push({ score, band });
+  }
+  return observations;
+}
+
+function formatMetric(label: string, observations: readonly MetricObservation[], expectedN: number): string {
+  const numericScores = observations.flatMap(({ score }) => (typeof score === 'number' ? [score] : []));
+  const scoreValues = new Set(observations.map(({ score }) => score));
+  const bands = [...new Set(observations.map(({ band }) => band ?? 'not-assessed'))].sort();
+  const complete = observations.length === expectedN;
+  const stable = complete && scoreValues.size === 1 && bands.length === 1;
+  const min = numericScores.length ? Math.min(...numericScores) : null;
+  const max = numericScores.length ? Math.max(...numericScores) : null;
+  const range = min === null || max === null ? null : max - min;
+
+  return (
+    `${label.padEnd(10)} min ${min ?? 'n/a'} · max ${max ?? 'n/a'} · observed range ${range ?? 'n/a'} · ` +
+    `unique bands ${bands.length ? bands.join(', ') : 'none'} · score/band verdict ${stable ? 'STABLE' : 'UNSTABLE'} · ` +
+    `observed ${observations.length}/${expectedN}`
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 async function callAnthropic(apiKey: string, request: AnalyzeFormRequest, timeoutMs: number): Promise<CallResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -285,6 +364,7 @@ async function main(): Promise<void> {
       model: request.model,
       effort: args.effort,
       maxTokens: request.max_tokens,
+      attemptPath: 'first_attempt_direct',
       latencyMs: call.latencyMs,
       withinLegacy65s: call.latencyMs <= LEGACY_ATTEMPT_TIMEOUT_MS,
       withinCurrentTimeout: call.latencyMs <= MODEL_CALL_TIMEOUT_MS,
@@ -362,6 +442,15 @@ async function main(): Promise<void> {
     }
     records.push(record);
   }
+
+  console.log(
+    `\n${formatObservedVarianceSummary(records, {
+      repeat: args.repeat,
+      model: request.model,
+      effort: args.effort,
+      maxTokens: request.max_tokens,
+    })}`
+  );
 
   try {
     await Deno.writeTextFile(args.out, JSON.stringify([...existing, ...records], null, 2));

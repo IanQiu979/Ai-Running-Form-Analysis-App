@@ -5,6 +5,73 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-10 (one verdict per clip, and nobody pays for a blank one)
+
+**On `fm/v23-pin-result-variance`, code-complete and not deployed.** The launch blocker — the same
+clip scoring differently on a re-run — was reproduced BEFORE any fix, with five direct
+first-attempt calls through `stride-burst-latency.live.ts` using the exact same eight-frame Arakawa
+Elite request each time. All five responses were structurally valid `end_turn` results; no
+production retry or fallback ran. The finite sample observed these ranges — observations, not upper
+bounds, because repeated samples can reveal instability but cannot prove a wider future swing
+impossible:
+
+| metric | observed scores | observed range | bands |
+|---|---|---:|---|
+| Posture | 68–74 | 6 | mid, good |
+| Arm Swing | 58–72 | 14 | mid, good |
+| Cadence | 42–58 | **16** | low, mid |
+| Elasticity | 48–58 | 10 | low, mid |
+| Overall | 57–63 | 6 | mid only |
+
+- **The three candidates were separated rather than guessed at.** Prompt assembly was
+  byte-identical and uses fixed-order arrays. The model exposes no supported seed, and this model
+  rejects non-default `temperature`, `top_p`, and `top_k`; structured output constrains shape, not
+  semantic judgement. Retry was not the source: every baseline response was valid on its first
+  direct call, and the production retry reuses the same assembled request. The residual variance is
+  therefore model judgement — not sampling, not prompt-order drift, not a retry mutation. The fix
+  does not try to make the model deterministic, because it cannot be.
+- **The product pins the first accepted verdict instead.** `analyze-form` derives a user-scoped
+  content identity from the authenticated user, media kind, exact decoded frame bytes, frame order,
+  and exact timestamps, plus an explicit analyzer revision. The database adds its server-derived
+  tier to that compatibility key. Under the existing per-user advisory lock, a new five-argument
+  `reserve_analysis` overload claims the identity atomically before provider dispatch; a later
+  request key for the same compatible input returns the active reserved/delivered analysis and
+  cannot issue another model call. A deliberate analyzer-revision or tier change permits a fresh
+  verdict.
+- **Transport reconciliation follows the canonical row without exposing the fingerprint.** A
+  service-only claim table owns active identities; a service-only alias table maps every fresh
+  request key to the canonical analysis. New authenticated `resolve_analysis_request` returns only
+  the owner-scoped `{ id, status, result, is_fallback }`, so foreground and cold-start recovery can
+  follow an alias while identity metadata remains unreadable from the client. Releasing or deleting
+  an analysis retires its active claim, deliberately permitting a fresh result. The old
+  four-argument reserve RPCs remain callable for DB-first deployment/rollback compatibility.
+- **A zero-pillar verdict is now DELIVERED BUT UNCHARGED, which is how two rulings both survive.**
+  Pinning requires that every HTTP 200 be persisted: an unpersisted 200 retires its canonical claim
+  in cleanup, letting identical evidence reach the model again for a different verdict. But the
+  2026-09-09 entry below had just established — correctly — that nobody should be charged for a
+  result carrying nothing. Those two collided, and the captain settled it on 2026-09-10 by
+  separating persistence from payment. The row is SETTLED, so the verdict is pinned and replayable,
+  and stamped `zero_pillar_at` (`20260910120000_zero_pillar_delivered_uncharged.sql`), so quota
+  skips it on every tier including Free. `settle_analysis` gains a required sixth argument rather
+  than a defaulted one, which is what keeps the older signature unambiguously callable for a
+  DB-first rollout.
+- **The cooldown had to move with the representation, or it would have failed open silently.**
+  #213's 15-minute frequency bound read `status = 'released' AND release_reason =
+  'zero_pillars_assessed'` — rows this path no longer writes. Left alone it would have returned 0
+  forever and quietly stopped bounding anything, which is exactly the "makes the variance rarer"
+  outcome this work was told not to ship. `pace_zero_pillar_cooldown_remaining` now reads the most
+  recent zero-pillar event from either representation, so the bound survives and legacy rows and a
+  rollback still work.
+- **Executable proof, honestly scoped.** An N=5 flow component test supplies the canonical RPC
+  contract and observes one model dispatch, one settle, one canonical analysis ID, byte-identical
+  HTTP bodies, and score/body range **0**. Separately, PGlite suites apply the committed migrations
+  verbatim and execute owner/alias reuse, tier and revision partitioning, claim retirement, resolver
+  isolation, row-locking reads, four-argument compatibility, and — per the captain's explicit
+  instruction to verify it — that the farming bound still holds under the new uncharged state.
+  These prove the two sides of the boundary. They are NOT a live PostgREST/Supabase integration run
+  and NOT a claim that the not-yet-deployed provider path has been re-run after the fix; there is
+  deliberately no fabricated post-fix live data in the results file.
+
 ## 2026-09-09 (Free zero-pillar: a cooldown instead of a charge)
 
 **On `fm/v23-zero-pillar-cooldown-orphaned-work`, not yet merged to `main`.** Recovered work,

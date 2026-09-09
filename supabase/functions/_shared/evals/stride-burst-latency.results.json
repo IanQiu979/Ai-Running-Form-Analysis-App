@@ -398,5 +398,460 @@
       "band": "mid"
     },
     "spmMentions": []
+  },
+  {
+    "runAt": "2026-09-09T12:59:32.118Z",
+    "clip": "arakawa-variance-baseline",
+    "tier": "elite",
+    "frameCount": 8,
+    "spanMs": 700,
+    "base64Bytes": 1266512,
+    "model": "claude-sonnet-5",
+    "effort": "low",
+    "maxTokens": 8000,
+    "latencyMs": 33379,
+    "withinLegacy65s": true,
+    "withinCurrentTimeout": true,
+    "stopReason": "end_turn",
+    "failure": null,
+    "usage": {
+      "input_tokens": 16012,
+      "cache_creation_input_tokens": 19869,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 19869,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 2270,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global"
+    },
+    "outputTokenHeadroom": 5730,
+    "costUsd": 0.15659475,
+    "pillars": {
+      "posture": {
+        "score": 72,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Wall Forward-Lean Drill",
+          "Posture Reset (in-run cue)"
+        ],
+        "feedback": "Across the sequence the runner holds a fairly consistent slight forward lean that looks like it's coming mostly from the ankles/whole-body rather than a waist bend, which is the right idea. Head stays roughly level and forward-looking in most frames, and the torso doesn't show an obvious slump or sway-back. The main thing keeping this from Strong is that the lean looks a touch upright/vertical at a couple of points (frames 1-2), like the body is briefly running tall rather than leaning into it. Cue: imagine a straight line from ankle through hip to ear, tipped forward a few degrees, and hold that line even as the arms and legs cycle underneath it — this is also the pillar that would most improve everything else here, since a slightly steadier lean would help settle where the foot lands (Cadence) and how the torso rises (Elasticity)."
+      },
+      "armSwing": {
+        "score": 68,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [
+          {
+            "pattern": "Tense, hiked shoulders / crossing-midline arms",
+            "detail": "In several frames (e.g. frames 4-6) the lead arm's hand appears to travel forward and slightly across the body's centerline rather than staying in a straight front-back box, suggesting some torso rotation is compensating for arm drive."
+          }
+        ],
+        "drills": [
+          "Arm-Swing Box Drill",
+          "Standing Arm Drive"
+        ],
+        "feedback": "Across frames 3-6 the trailing arm swings back a reasonable distance, but the elbow angle opens up more than the ~90° target at several points, and the hand travel looks like it drifts a little high and across toward the front of the body rather than staying inside a tight hip-to-rib box. The motion looks somewhat asymmetric frame to frame — one arm's arc looks bigger than the other's — which can be a sign the torso is helping compensate rather than staying quiet. This matters because a loose or crossing arm swing bleeds rotational energy sideways and can nudge cadence and posture off rhythm as fatigue sets in. Work on keeping the elbow bend fixed near 90° and driving straight back rather than swinging wide, which will also help keep the torso still and the stride compact."
+      },
+      "cadence": {
+        "score": 58,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [
+          {
+            "pattern": "Overstriding",
+            "detail": "In frames 1, 4, and 7 the lead foot appears to land a modest distance ahead of the hips with the knee close to straight and the shin angled forward, consistent with a mild overstride pattern rather than landing directly under the centre of mass."
+          }
+        ],
+        "drills": [
+          "Metronome Runs",
+          "Strides"
+        ],
+        "feedback": "This burst is too short to count a step rate, so no steps-per-minute figure or range is given here — that would be false precision from about one stride cycle. What can be judged is where the foot lands: in the landing frames (notably frames 1, 4, and 7) the lead foot contacts the ground somewhat ahead of the hips with a fairly extended knee and the shin angled forward, rather than landing directly under the body. It isn't an extreme overstride, but it's visible enough across more than one landing to call it a mild-to-moderate pattern rather than a one-off. Since Cadence sets up where the body absorbs load, tightening this — landing quicker and closer under the hips — will also make the Elasticity pillar's spring-like contact easier to achieve."
+      },
+      "elasticity": {
+        "score": 55,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Ankle Bounces (Ankling)",
+          "Pogo Hops"
+        ],
+        "feedback": "Watching the landing-to-toe-off sequence (roughly frames 3-5 and 6-8), the contact looks a bit long and the knee doesn't show a lot of visible spring-loaded give — it reads more like a controlled plant than a quick, reactive bounce, though this is an approximate read since the frame timing itself isn't precise. The torso does appear to rise and fall a noticeable amount between the lowest stance frames and the flight frames (e.g. comparing frame 4 to frame 6), suggesting some energy may be going upward rather than staying directed forward — again, only a visual impression of bounce size, not a measured oscillation. Because Elasticity depends on Posture and Cadence setting up a landing close under the body, the mild overstride noted above is likely part of why the contact looks heavier than ideal here. Starting with gentle, high-rep entry-level plyometric work should help build a quicker, springier contact over time."
+      }
+    },
+    "overall": {
+      "score": 63,
+      "band": "mid"
+    },
+    "spmMentions": []
+  },
+  {
+    "runAt": "2026-09-09T13:00:01.571Z",
+    "clip": "arakawa-variance-baseline",
+    "tier": "elite",
+    "frameCount": 8,
+    "spanMs": 700,
+    "base64Bytes": 1266512,
+    "model": "claude-sonnet-5",
+    "effort": "low",
+    "maxTokens": 8000,
+    "latencyMs": 29447,
+    "withinLegacy65s": true,
+    "withinCurrentTimeout": true,
+    "stopReason": "end_turn",
+    "failure": null,
+    "usage": {
+      "input_tokens": 16012,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 19869,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 2375,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global"
+    },
+    "outputTokenHeadroom": 5625,
+    "costUsd": 0.0896217,
+    "pillars": {
+      "posture": {
+        "score": 74,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Wall Forward-Lean Drill",
+          "Posture Reset (in-run cue)"
+        ],
+        "feedback": "Across the burst the runner holds a fairly consistent slight forward lean that looks like it's coming mostly from the ankles/whole body rather than a waist-bend, which is the right pattern. The head stays roughly level and forward through frames 1-8, not craning down or jutting. There's a touch of upper-back rounding visible in the side silhouette (frames 4-6) that nudges the lean slightly waist-ward rather than pure ankle-hinge, but it's mild. This is the pillar underpinning everything else here: tightening the ankle-hinge lean by a few degrees would also make the Cadence overstride issue below easier to correct, since a taller hip position lets the foot land closer to the body. Cue: think 'tall hips, lean the whole plank forward from the ankles,' not 'bend at the ribs.'"
+      },
+      "armSwing": {
+        "score": 62,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Arm-Swing Box Drill",
+          "Standing Arm Drive"
+        ],
+        "feedback": "Across the sequence the trailing arm is barely visible swinging forward while the lead arm shows more visible motion low near the hip, and the overall arc looks modest rather than a full compact box from the shoulder — this reads across frames 2, 4, 6, and 8 where the arm rarely rises much past the hip line. The elbow angle looks reasonably bent rather than locked straight, which is good, but the range of motion looks shorter than ideal for the pace being run, which can let the torso pick up rotational slack that the arms should be absorbing. Because arms and legs run in rhythm, a lazier arm swing is a common reason cadence sags or the stride lengthens under fatigue — so tightening this feeds directly into the Cadence pillar below. Cue: 'drive the elbow straight back like closing a car door,' aiming for a bit more front-to-back travel while keeping the hands relaxed and low, not up near the chest."
+      },
+      "cadence": {
+        "score": 42,
+        "band": "low",
+        "notAssessedReason": null,
+        "flags": [
+          {
+            "pattern": "Overstriding",
+            "detail": "In frames 1, 4, and 8 the lead foot contacts the ground clearly ahead of the torso with the leg extended forward rather than under the hips; this pattern is associated with amplified braking force and higher per-step impact load, and is linked to shin splints, patellofemoral pain, and ITB syndrome."
+          }
+        ],
+        "drills": [
+          "Metronome Runs",
+          "Strides"
+        ],
+        "feedback": "The clearest, timing-independent signal in this burst is the foot-strike geometry: in frames 1, 4, and 8 the lead foot lands visibly ahead of the torso/hips with the lower leg extended out in front rather than landing underneath the body, and the shin looks angled forward at contact rather than vertical. That's the overstriding signature the framework flags as the single most important thing to look for, independent of any step-rate estimate. I cannot and am not stating a steps-per-minute figure or range from this burst — eight frames spanning roughly one stride is far too short a window to count a rate, and the frame timing itself is only approximate. This is the priority fix: shortening the stride so the foot lands closer under the hips will reduce braking load, and it will also make the Elasticity landing below feel springier since the leg won't be absorbing shock from a locked-out position."
+      },
+      "elasticity": {
+        "score": 48,
+        "band": "low",
+        "notAssessedReason": null,
+        "flags": [
+          {
+            "pattern": "Heavy heel strike with an extended knee",
+            "detail": "In frames 1, 4, and 8 the landing leg appears extended rather than flexed at contact, consistent with a firmer, less shock-absorbing touchdown; this is associated with poor shock absorption at the knee and typically travels alongside overstriding."
+          }
+        ],
+        "drills": [
+          "Ankle Bounces (Ankling)",
+          "Pogo Hops"
+        ],
+        "feedback": "Watching the landing frames (roughly 1, 4, 6, 8) against the mid-flight frames, the torso height does appear to travel up and down noticeably across the cycle — this is a visual impression only, since the frame timing is approximate and not reliably even, so I'm not attaching a bounce measurement to it. What is visible without relying on timing is the landing quality itself: the front leg looks fairly straight at contact in several frames (1, 4, 8) rather than showing a flexed, reloading knee/ankle, which reads as a firmer, less springy contact than an elastic 'kiss and rebound.' This connects straight back to Cadence — a foot landing out in front with a near-straight knee is mechanically a stiff, braking contact rather than a compliant spring, so the two faults are really one pattern seen from two angles. Given the possibility of a stiff-landing pattern here, start conservatively with the entry-level plyometric work rather than jumping straight to higher-impact drills."
+      }
+    },
+    "overall": {
+      "score": 57,
+      "band": "mid"
+    },
+    "spmMentions": []
+  },
+  {
+    "runAt": "2026-09-09T13:00:27.301Z",
+    "clip": "arakawa-variance-baseline",
+    "tier": "elite",
+    "frameCount": 8,
+    "spanMs": 700,
+    "base64Bytes": 1266512,
+    "model": "claude-sonnet-5",
+    "effort": "low",
+    "maxTokens": 8000,
+    "latencyMs": 25729,
+    "withinLegacy65s": true,
+    "withinCurrentTimeout": true,
+    "stopReason": "end_turn",
+    "failure": null,
+    "usage": {
+      "input_tokens": 16012,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 19869,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 2011,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global"
+    },
+    "outputTokenHeadroom": 5989,
+    "costUsd": 0.0841617,
+    "pillars": {
+      "posture": {
+        "score": 68,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Wall Forward-Lean Drill"
+        ],
+        "feedback": "Across the burst this runner holds a fairly upright trunk with only a slight forward lean, closer to running tall than the ~5-8° ankle-hinged lean that lets gravity assist propulsion. The head sits level and forward, which is good, but the lean appears to come from a slight bend rather than a full ankle-to-head line. Shoulders look level and not hunched, which is a real positive. Because this is a distant side view, small pelvis-level details (hip drop, anterior tilt) are hard to confirm confidently, so I'm reading trunk alignment as the main evidence here. Cueing a touch more forward lean from the ankles is the priority fix, and it would also help pull the foot-strike back under the hips (see Cadence below)."
+      },
+      "armSwing": {
+        "score": 72,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Arm-Swing Box Drill"
+        ],
+        "feedback": "Across the frames the arms swing front-to-back in a reasonably compact arc without crossing the body's midline, and there's no visible torso twisting to compensate, which tells me the arms are doing their intended counter-rotation job. Elbow bend looks close to the ~90° target rather than fully extended or overly tight. Symmetry between the two sides looks acceptable frame to frame, though the distance and camera angle make fine-grained hand-height judgments a little uncertain. To sharpen this further, cue keeping the hands travelling in a tight vertical 'box' from hip to lower-rib rather than letting them drift wide, which will also help keep the shoulders quiet as fatigue sets in."
+      },
+      "cadence": {
+        "score": 55,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [
+          {
+            "pattern": "Overstriding — foot lands well ahead of the centre of mass",
+            "detail": "In frames 1, 4, and 7-8 the leading foot contacts the path clearly in front of the hips with a near-straight knee and the shin angled forward, distinct from a compact landing under the body seen only briefly in the mid-frames."
+          }
+        ],
+        "drills": [
+          "Metronome Runs",
+          "Strides"
+        ],
+        "feedback": "The most reliable evidence here is where the foot lands relative to the body, and in several frames (notably frames 1, 4, and 7-8) the lead foot contacts the ground visibly ahead of the hips with the knee looking close to straight and the shin angled forward - the classic overstriding signature described in the framework. This is scored from the landing geometry, not from timing: this stride burst spans roughly one cycle and is too short to count steps, so no steps-per-minute figure or range is given, approximate or otherwise. The visible overstride pattern is worth addressing because it's associated with a larger braking impulse and higher per-step loading. Shortening the stride so the foot lands closer under the hips is the single highest-leverage fix available here, and it will also improve how the Elasticity pillar looks (a softer, quicker contact) since cadence and elasticity are two sides of the same foot-ground interaction."
+      },
+      "elasticity": {
+        "score": 58,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Ankle Bounces (Ankling)"
+        ],
+        "feedback": "Watching the torso height across the eight frames, there's a visible up-and-down travel between the flight/landing moments and the mid-stance frames, suggesting a moderate amount of vertical bounce rather than a low, skimming trajectory - this is a size judgment from what's visible, not a measured oscillation figure, since the frame timing here is approximate and can't support a precise rate. The landings paired with the overstride pattern above (extended knee at contact) tend to look more like a brake than a spring, particularly in frames 4 and 7 where the front leg looks fairly straight through contact. There isn't clear evidence of a quick, reactive toe-off in this sequence; it reads more like a longer, heavier stance than a light 'kiss and spring' contact. Because Elasticity depends on Posture and Cadence being sorted first, working on the ankle-driven lean and a shorter stride under the hips should be tackled before adding plyometric loading, and even then the plyo ladder should start at its gentlest, most conservative rung."
+      }
+    },
+    "overall": {
+      "score": 63,
+      "band": "mid"
+    },
+    "spmMentions": []
+  },
+  {
+    "runAt": "2026-09-09T13:00:58.488Z",
+    "clip": "arakawa-variance-baseline",
+    "tier": "elite",
+    "frameCount": 8,
+    "spanMs": 700,
+    "base64Bytes": 1266512,
+    "model": "claude-sonnet-5",
+    "effort": "low",
+    "maxTokens": 8000,
+    "latencyMs": 31187,
+    "withinLegacy65s": true,
+    "withinCurrentTimeout": true,
+    "stopReason": "end_turn",
+    "failure": null,
+    "usage": {
+      "input_tokens": 16012,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 19869,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 2227,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global"
+    },
+    "outputTokenHeadroom": 5773,
+    "costUsd": 0.0874017,
+    "pillars": {
+      "posture": {
+        "score": 74,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Posture Reset (in-run cue)"
+        ],
+        "feedback": "Across the sequence the runner holds a modest forward lean that looks like it's coming mostly from the ankles rather than a waist bend, which is the right pattern. The head stays fairly level and forward-facing across frames 1-8, without obvious craning down or up. Shoulders look slightly rounded/hunched in a few frames (5-7) rather than fully relaxed, which is worth noting but not pronounced. This is a small camera distance and elevated angle, so fine pelvis-level detail (hip drop) isn't reliably visible - treat that part as unconfirmed. Cue: think 'tall hips, relaxed shoulders' every few minutes, since posture is the pillar that sets up everything else - a quiet, aligned trunk is what lets the arms swing freely and the foot land under the hips."
+      },
+      "armSwing": {
+        "score": 68,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Arm-Swing Box Drill",
+          "Standing Arm Drive"
+        ],
+        "feedback": "Across the frames the arm carriage looks compact but on the low/short side for several frames (1-3), with hands not travelling far in front of the hip line, then picking up a touch more range and a slightly higher hand position (4-7) as the stride progresses. Elbow angle looks close to the 90-degree target rather than fully extended, which is good. The distance and angle make it hard to judge midline crossing precisely, but nothing in these frames plainly shows the hands crossing centre. What stands out more is asymmetry-feeling motion frame to frame - one side seems to swing with less amplitude than the other in a couple of frames, though at this resolution that's a soft read, not a confident flag. The fix here is to make the drive from the shoulder more deliberate and consistent stride to stride: a quiet, symmetric arm swing is what helps hold form together as the legs tire, so tightening this pillar up will likely make the leg turnover look steadier too."
+      },
+      "cadence": {
+        "score": 48,
+        "band": "low",
+        "notAssessedReason": null,
+        "flags": [
+          {
+            "pattern": "Overstriding",
+            "detail": "In frames 1, 4, and 7-8 the foot contacts the ground clearly ahead of the hips with the leading knee looking close to straight and the shin angled forward - the classic overstride signature, associated with amplified braking force and higher per-step impact load, and linked to shin splints, patellofemoral pain and ITB issues."
+          }
+        ],
+        "drills": [
+          "Metronome Runs",
+          "Strides"
+        ],
+        "feedback": "This is the pillar with the clearest, timing-independent signal in the burst: in several frames (notably 1, 4, and 7-8) the lead foot is landing visibly ahead of the body's centre of mass, with the leading leg looking close to straight at or just before contact and the shin angled forward rather than vertical. That's the overstriding signature the framework calls out as the single most important thing to look for, and it's present repeatedly across this short window, not just once. I can't and won't state a steps-per-minute figure or range here - this burst is only about one stride cycle, which is too short to count a rate, and the frame timestamps are approximate client-reported values that shouldn't be leaned on for that anyway. But the visible foot-landing geometry alone is enough to score this pillar, and it points to a longer, reaching stride landing out in front rather than a compact one landing under the hips. This is the priority fix: pulling the landing back under the body would shorten the braking phase, reduce the impact each foot absorbs, and directly feed a springier, quieter Elasticity pattern - fixing cadence here is likely the single change that improves the other pillars most."
+      },
+      "elasticity": {
+        "score": 52,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Ankle Bounces (Ankling)"
+        ],
+        "feedback": "Reading contact quality rather than any timed metric: the stance-leg knee in frames 1, 4, and 7-8 looks relatively extended at and just after touchdown, which is more consistent with a firmer, braking-style contact than a compliant, spring-loaded one - this pairs with the overstriding pattern above, since a foot landing out in front makes it much harder for the leg to absorb and rebound smoothly. The torso height does appear to travel up and down somewhat across the sequence (compare the lower-looking body line in frames 3/6 versus the more upright moments in 1/4), but that read is approximate - it's a visual impression of bounce, not a measured oscillation, and the frame timing here is not reliable enough to turn that impression into a rate or a number. I'm not seeing a clearly springy, quick toe-off in any single frame, more a moderately heavy-looking stance. Because this pillar depends so much on cadence and posture upstream, the most efficient path to improving it is fixing the landing position first, then layering in light plyometric work once that's underway."
+      }
+    },
+    "overall": {
+      "score": 61,
+      "band": "mid"
+    },
+    "spmMentions": []
+  },
+  {
+    "runAt": "2026-09-09T13:01:31.320Z",
+    "clip": "arakawa-variance-baseline",
+    "tier": "elite",
+    "frameCount": 8,
+    "spanMs": 700,
+    "base64Bytes": 1266512,
+    "model": "claude-sonnet-5",
+    "effort": "low",
+    "maxTokens": 8000,
+    "latencyMs": 32830,
+    "withinLegacy65s": true,
+    "withinCurrentTimeout": true,
+    "stopReason": "end_turn",
+    "failure": null,
+    "usage": {
+      "input_tokens": 16012,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 19869,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 2614,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global"
+    },
+    "outputTokenHeadroom": 5386,
+    "costUsd": 0.0932067,
+    "pillars": {
+      "posture": {
+        "score": 74,
+        "band": "good",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Wall Forward-Lean Drill",
+          "Posture Reset (in-run cue)"
+        ],
+        "feedback": "Across the burst the runner holds a fairly consistent slight forward lean that looks like it's coming mostly from the ankles/whole body rather than a waist bend, which is the good sign — you can see the ankle-to-head line stay roughly straight in frames 4-6. The head sits reasonably neutral and level, not craned down. What keeps this from Strong is a touch of upper-back rounding and the head/shoulders drifting slightly forward of the hips in a few frames (5, 6), which nudges toward a mild C-curve rather than a pure ankle lean. Cue: think 'tall hips, lean the whole body as one piece from the ankles,' and periodically reset with a shoulders-down, chin-level check — this is the pillar that most improves the others here, since a taller line will also let the arms swing more freely and support a lighter foot strike."
+      },
+      "armSwing": {
+        "score": 58,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [],
+        "drills": [
+          "Arm-Swing Box Drill",
+          "Standing Arm Drive"
+        ],
+        "feedback": "Across the frames the arm swing looks compact but a little restricted and asymmetric — in several frames (2, 3, 6, 7) the trailing arm barely travels back while the front arm carries higher and closer to the torso, giving an uneven front-to-back arc rather than a clean, symmetric box. There's also a suggestion in a few frames that the hands drift toward the body's centerline rather than staying in a clean hip-to-rib channel, though the angle here (side-on, slightly elevated) makes it hard to be fully certain about midline crossing. The visible torso doesn't rotate dramatically to compensate, which is a positive, but the asymmetry itself is worth training since a quiet, even arm swing is what keeps the legs paced and the shoulders relaxed under fatigue. Work the box drill deliberately on both sides to build symmetry, and treat this as feeding directly into Posture — loose, even arms make it much easier to hold that ankle-lean line."
+      },
+      "cadence": {
+        "score": 42,
+        "band": "low",
+        "notAssessedReason": null,
+        "flags": [
+          {
+            "pattern": "Overstriding",
+            "detail": "In several frames the lead foot strikes the ground clearly ahead of the torso with a near-straight knee and forward-angled shin (most visible frames 1, 4, 8), which research associates with an amplified braking impulse (~20-50%) and roughly 30% higher per-step impact load, and is linked to shin splints, patellofemoral pain, and ITB syndrome. Safe next step: shorten and quicken the stride so it lands under the hips."
+          }
+        ],
+        "drills": [
+          "Metronome Runs",
+          "Strides"
+        ],
+        "feedback": "The clearest, timing-independent signal here is where the lead foot contacts the ground relative to the body: in frames 1, 4, and 8 the lead foot lands visibly ahead of the torso/hips with the knee looking close to straight at contact, and the shin angled forward — the classic overstriding signature rather than a foot landing tucked under the hips. This is the priority fault in this analysis, since it's associated with an amplified braking impulse and higher per-step load, and it also explains why the stride looks a bit long and reaching rather than short and light. I can't state a steps-per-minute figure or even an approximate range from a burst this short (it spans roughly one stride cycle, not enough footfalls to count a rate) — the foot-landing geometry is the evidence, not a clock. The fix is to shorten and quicken the stride so the foot lands closer under the hips; this will also shrink the vertical bounce you're carrying into the landing."
+      },
+      "elasticity": {
+        "score": 55,
+        "band": "mid",
+        "notAssessedReason": null,
+        "flags": [
+          {
+            "pattern": "Heavy heel strike with an extended knee",
+            "detail": "The lead leg appears extended at contact in frames 1, 4, and 8 with a heel-first-looking landing, which travels with the overstriding pattern already flagged and is associated with poorer shock absorption at the knee. Safe next step: focus on landing closer under the body rather than changing which part of the foot strikes."
+          }
+        ],
+        "drills": [
+          "Ankle Bounces (Ankling)",
+          "Pogo Hops"
+        ],
+        "feedback": "Watching the sequence, the landing in frames like 1, 4, and 8 looks like it sits down onto a fairly extended leg rather than showing a clearly springy, reactive give at the knee and ankle — consistent with the overstriding pattern feeding into a heavier, more braking-style contact rather than a quick 'kiss and spring' off the ground. The torso height does appear to travel up and down a visible amount across the cycle (comparing the lower body position in frames 2-3 to the more upright/airborne-looking frames like 5), but this is read only as a rough visual impression, not a measured oscillation, since the frame timing here is approximate and not reliable for judging rate. I'm not stating any ground-contact-time or vertical-oscillation figure — just describing what the eye can see: a landing that looks a bit heavier than springy. Since Elasticity depends on Cadence and Posture, fixing where the foot lands (under the hips, not out front) is the fastest way to also make this contact feel lighter and more reactive."
+      }
+    },
+    "overall": {
+      "score": 57,
+      "band": "mid"
+    },
+    "spmMentions": []
   }
 ]
