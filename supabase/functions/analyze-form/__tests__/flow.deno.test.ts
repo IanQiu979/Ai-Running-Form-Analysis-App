@@ -1038,11 +1038,14 @@ Deno.test('cooldown: expiry lets Free run, and paid tiers never query the Free t
   }
 });
 
-Deno.test('cooldown: an unavailable lookup fails open to the existing spend caps', async () => {
-  for (const lookup of [
-    { label: 'error', result: { data: null, error: { message: 'function does not exist' } } },
-    { label: 'malformed value', result: { data: { seconds: 420 }, error: null } },
-  ]) {
+for (const lookup of [
+  { label: 'error', result: { data: null, error: { message: 'function does not exist' } } },
+  { label: 'malformed object', result: { data: { seconds: 420 }, error: null } },
+  { label: 'coercible string', result: { data: '420', error: null } },
+  { label: 'coercible boolean', result: { data: true, error: null } },
+  { label: 'coercible array', result: { data: [420], error: null } },
+]) {
+  Deno.test(`cooldown: ${lookup.label} lookup fails open to the existing spend caps`, async () => {
     const h = cooldownHarness(0);
     h.rpc.handlers.pace_zero_pillar_cooldown_remaining = () => lookup.result;
 
@@ -1056,8 +1059,8 @@ Deno.test('cooldown: an unavailable lookup fails open to the existing spend caps
     assertEquals(res.status, 200, lookup.label);
     assertEquals(h.rpc.to('gate_ai_call').length, 1, `${lookup.label}: the spend cap remains in force`);
     assertEquals(h.model.requests.length, 1, lookup.label);
-  }
-});
+  });
+}
 
 Deno.test('zero-pillar policy: Pro and Elite RELEASE a fully valid result with zero assessed pillars', async () => {
   for (const tier of ['pro', 'elite'] as const) {

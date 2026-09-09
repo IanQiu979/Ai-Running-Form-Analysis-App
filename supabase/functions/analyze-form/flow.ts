@@ -496,8 +496,7 @@ async function zeroPillarCooldownRemaining(
       p_user_id: userId,
     });
     if (error) throw new Error(error.message);
-    const seconds = typeof data === 'number' ? data : Number(data);
-    return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 0;
+    return typeof data === 'number' && Number.isFinite(data) && data > 0 ? Math.ceil(data) : 0;
   } catch (err) {
     logEvent({
       level: 'warn',
