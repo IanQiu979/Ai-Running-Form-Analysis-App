@@ -22,13 +22,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { fallbackOutcome, freeTierOutcome } from '../pace-fixtures';
-import { supabase } from '../supabase';
-
-jest.mock('../supabase', () => ({
-  supabase: { from: jest.fn() },
-}));
-
-const mockFrom = supabase.from as jest.MockedFunction<typeof supabase.from>;
 
 // Re-imported after the mock is registered, matching this repo's established pattern
 // (lib/__tests__/consent.test.ts, lib/__tests__/history.test.ts).
@@ -41,22 +34,19 @@ import {
   type PendingAnalysisRow,
 } from '../pending-analysis';
 
+const mockResolveAnalysisRequest = jest.fn();
+jest.mock('../analysis-resolver', () => ({
+  resolveAnalysisRequest: (...args: unknown[]) => mockResolveAnalysisRequest(...args),
+}));
+
 const USER_A = 'a0000000-0000-0000-0000-000000000001';
 const USER_B = 'b0000000-0000-0000-0000-000000000002';
 const IDEMPOTENCY_KEY = 'idempotency-key-1';
 const ANALYSIS_ID = 'c0000000-0000-0000-0000-000000000003';
 
-/** Mocks `.from('analyses').select(..).eq(..).maybeSingle()`. */
-function mockSelectChain(result: { data: PendingAnalysisRow | null; error: { message: string } | null }) {
-  const maybeSingle = jest.fn().mockResolvedValue(result);
-  const eq = jest.fn().mockReturnValue({ maybeSingle });
-  const select = jest.fn().mockReturnValue({ eq });
-  mockFrom.mockReturnValue({ select } as never);
-  return { select, eq, maybeSingle };
-}
-
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockResolveAnalysisRequest.mockResolvedValue(null);
   await AsyncStorage.clear();
 });
 
@@ -170,7 +160,7 @@ describe('interpretPendingAnalysisRow', () => {
 describe('checkPendingAnalysis', () => {
   it('returns none and makes no query when there is no marker at all', async () => {
     await expect(checkPendingAnalysis(USER_A)).resolves.toEqual({ kind: 'none' });
-    expect(mockFrom).not.toHaveBeenCalled();
+    expect(mockResolveAnalysisRequest).not.toHaveBeenCalled();
   });
 
   describe('cross-account safety', () => {
@@ -179,7 +169,7 @@ describe('checkPendingAnalysis', () => {
 
       await expect(checkPendingAnalysis(USER_B)).resolves.toEqual({ kind: 'none' });
 
-      expect(mockFrom).not.toHaveBeenCalled();
+      expect(mockResolveAnalysisRequest).not.toHaveBeenCalled();
       await expect(getPendingAnalysisMarker()).resolves.toBeNull();
     });
 
@@ -188,26 +178,23 @@ describe('checkPendingAnalysis', () => {
 
       await expect(checkPendingAnalysis(null)).resolves.toEqual({ kind: 'none' });
 
-      expect(mockFrom).not.toHaveBeenCalled();
+      expect(mockResolveAnalysisRequest).not.toHaveBeenCalled();
       await expect(getPendingAnalysisMarker()).resolves.toBeNull();
     });
   });
 
   describe('a matching session', () => {
-    it('queries by idempotency_key, scoped to the analyses table', async () => {
+    it('resolves the request key through the authenticated owner-scoped RPC', async () => {
       await setPendingAnalysisMarker({ idempotencyKey: IDEMPOTENCY_KEY, userId: USER_A });
-      const { select, eq } = mockSelectChain({ data: null, error: null });
 
       await checkPendingAnalysis(USER_A);
 
-      expect(mockFrom).toHaveBeenCalledWith('analyses');
-      expect(select).toHaveBeenCalledWith('id, status, result, is_fallback');
-      expect(eq).toHaveBeenCalledWith('idempotency_key', IDEMPOTENCY_KEY);
+      expect(mockResolveAnalysisRequest).toHaveBeenCalledWith(IDEMPOTENCY_KEY);
     });
 
     it('leaves the marker in place and returns pending when the row is not found yet', async () => {
       await setPendingAnalysisMarker({ idempotencyKey: IDEMPOTENCY_KEY, userId: USER_A });
-      mockSelectChain({ data: null, error: null });
+      mockResolveAnalysisRequest.mockResolvedValue(null);
 
       await expect(checkPendingAnalysis(USER_A)).resolves.toEqual({ kind: 'pending' });
       await expect(getPendingAnalysisMarker()).resolves.toEqual({ idempotencyKey: IDEMPOTENCY_KEY, userId: USER_A });
@@ -215,7 +202,7 @@ describe('checkPendingAnalysis', () => {
 
     it('leaves the marker in place and returns pending on a query error', async () => {
       await setPendingAnalysisMarker({ idempotencyKey: IDEMPOTENCY_KEY, userId: USER_A });
-      mockSelectChain({ data: null, error: { message: 'network down' } });
+      mockResolveAnalysisRequest.mockRejectedValue(new Error('network down'));
 
       await expect(checkPendingAnalysis(USER_A)).resolves.toEqual({ kind: 'pending' });
       await expect(getPendingAnalysisMarker()).resolves.not.toBeNull();
@@ -223,7 +210,7 @@ describe('checkPendingAnalysis', () => {
 
     it('leaves the marker in place and returns pending when the query throws', async () => {
       await setPendingAnalysisMarker({ idempotencyKey: IDEMPOTENCY_KEY, userId: USER_A });
-      mockFrom.mockImplementation(() => {
+      mockResolveAnalysisRequest.mockImplementation(() => {
         throw new Error('boom');
       });
 
@@ -233,9 +220,11 @@ describe('checkPendingAnalysis', () => {
 
     it('leaves the marker in place and returns pending while the row is still reserved', async () => {
       await setPendingAnalysisMarker({ idempotencyKey: IDEMPOTENCY_KEY, userId: USER_A });
-      mockSelectChain({
-        data: { id: ANALYSIS_ID, status: 'reserved', result: null, is_fallback: false },
-        error: null,
+      mockResolveAnalysisRequest.mockResolvedValue({
+        id: ANALYSIS_ID,
+        status: 'reserved',
+        result: null,
+        is_fallback: false,
       });
 
       await expect(checkPendingAnalysis(USER_A)).resolves.toEqual({ kind: 'pending' });
@@ -244,9 +233,11 @@ describe('checkPendingAnalysis', () => {
 
     it('clears the marker and returns the outcome when the row has delivered', async () => {
       await setPendingAnalysisMarker({ idempotencyKey: IDEMPOTENCY_KEY, userId: USER_A });
-      mockSelectChain({
-        data: { id: ANALYSIS_ID, status: 'delivered', result: freeTierOutcome.result, is_fallback: false },
-        error: null,
+      mockResolveAnalysisRequest.mockResolvedValue({
+        id: ANALYSIS_ID,
+        status: 'delivered',
+        result: freeTierOutcome.result,
+        is_fallback: false,
       });
 
       await expect(checkPendingAnalysis(USER_A)).resolves.toEqual({
@@ -260,9 +251,11 @@ describe('checkPendingAnalysis', () => {
     // THE "NEVER A DEAD END" LOCK, the other half of the issue's own framing.
     it('clears the marker and returns released when the server gave up while nothing was watching', async () => {
       await setPendingAnalysisMarker({ idempotencyKey: IDEMPOTENCY_KEY, userId: USER_A });
-      mockSelectChain({
-        data: { id: ANALYSIS_ID, status: 'released', result: null, is_fallback: false },
-        error: null,
+      mockResolveAnalysisRequest.mockResolvedValue({
+        id: ANALYSIS_ID,
+        status: 'released',
+        result: null,
+        is_fallback: false,
       });
 
       await expect(checkPendingAnalysis(USER_A)).resolves.toEqual({ kind: 'released', analysisId: ANALYSIS_ID });
@@ -271,9 +264,11 @@ describe('checkPendingAnalysis', () => {
 
     it('leaves the marker in place when a delivered row fails structural validation', async () => {
       await setPendingAnalysisMarker({ idempotencyKey: IDEMPOTENCY_KEY, userId: USER_A });
-      mockSelectChain({
-        data: { id: ANALYSIS_ID, status: 'delivered', result: { garbage: true }, is_fallback: false },
-        error: null,
+      mockResolveAnalysisRequest.mockResolvedValue({
+        id: ANALYSIS_ID,
+        status: 'delivered',
+        result: { garbage: true },
+        is_fallback: false,
       });
 
       await expect(checkPendingAnalysis(USER_A)).resolves.toEqual({ kind: 'pending' });

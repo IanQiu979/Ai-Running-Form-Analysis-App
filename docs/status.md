@@ -19,6 +19,12 @@ milestone "done" criteria.
 
 ## Done so far
 
+- **Canonical result pinning is code-complete 2026-09-09, not deployed.** The same accepted input
+  now resolves to one active stored verdict per user, server-derived tier, and analyzer revision,
+  even when a re-run carries a fresh request key. The pre-fix N=5 identical-input run observed
+  Cadence 42–58 (range 16); an executable N=5 flow component proof observes one model call, one
+  analysis ID, byte-identical bodies, and range 0 under scripted canonical RPC responses. See Known Issue #46 and
+  `docs/architecture.md`'s canonical-result section for the exact evidence and boundaries.
 - **Settings screen (issue #53, 2026-07-13), which also closes #27.** `app/settings.tsx` — a
   top-level pushed route (not a tab), declared inside the signed-in `Stack.Protected` block, reached
   from Home's header. Carries Account (email), Plan (tier — display-only), Sign out, Delete account,
@@ -832,19 +838,14 @@ milestone "done" criteria.
     header chrome outside `(tabs)`) is still React Navigation's stock palette — out of this
     change's file lane. A full custom `NavigationTheme` object both layouts consume is the
     eventual fix; not built here.
-29. **NEW — foreground reconciliation (issue #64) does not survive a process KILL, only a
-    background/foreground cycle (2026-07-13).** `app/analyzing.tsx` now re-reads the in-flight
-    analysis by `idempotency_key` on every return-to-foreground (via `lib/app-state.ts`'s
-    `onAppForeground`), recovering a result the app was backgrounded for. `lib/analyze-form.ts`'s
-    one-shot pending-request mailbox does not survive a process restart, though, so a genuine
-    app kill followed by a cold relaunch never re-enters this screen with a live `waiting` state
-    to reconcile against — the user gets no "your analysis finished" surfacing at all in that
-    case, even though the server-side `analyze-form` invocation ran to completion regardless.
-    **The known fix, not built**: a persisted (AsyncStorage, not the in-memory mailbox), marker
-    read at app startup — outside `app/analyzing.tsx`'s own file lane, closer to
-    `lib/session-provider.tsx`'s territory. `docs/design/copy-deck.md`'s
-    `toast.analysisFinishedInBackground.*` keys already anticipate this surfacing; nothing
-    currently fires them for the cold-relaunch case.
+29. **RESOLVED — foreground and process-kill reconciliation (issues #64/#140), extended for
+    canonical aliases 2026-09-09.** `app/analyzing.tsx` reconciles the in-flight request on
+    foreground, while `lib/pending-analysis.ts` persists the same request key in AsyncStorage and
+    checks it after a cold launch (the #140 fix that superseded this entry's original "not built"
+    state). Both now call authenticated `resolve_analysis_request` rather than selecting
+    `analyses` directly, so a fresh request key aliased to an older canonical result resolves to
+    that one row. The RPC derives ownership from `auth.uid()` and never exposes the service-only
+    content fingerprint.
 30. **RESOLVED (verified 2026-08-07) — the offline pre-flight gate IS wired in. This entry was
     stale from the day it was written, and the staleness caused real waste.** It read: "built but
     not wired in … called from nowhere." That was true of commit `997070c` (issue #93,
@@ -1352,8 +1353,9 @@ milestone "done" criteria.
     from a verified consecutive stride with zero SPM figures or ranges in any pillar's feedback
     text (injury-flag detail text was not scanned by the harness as it ran). Still not verified: a real
     device/simulator pass of the on-device extractor (the harness feeds ffmpeg-extracted frames at
-    production's timestamps, not `expo-video`'s), and run-to-run variance on identical evidence
-    remains (Cadence 74 vs 58 on the same burst).
+    production's timestamps, not `expo-video`'s). The run-to-run variance it exposed (Cadence 74
+    vs 58 on the same burst) is now addressed in code by Known Issue #46's canonical-result pin;
+    that fix is not deployed.
 
     **Effort eval (2026-09-06, run manually outside the pipeline — the pipeline cannot make paid,
     real Anthropic calls).** 4 real Anthropic Messages API calls, billed, made directly via the
@@ -1408,10 +1410,13 @@ milestone "done" criteria.
     from every pillar. `overall` is recomputed only on a path that normalizes pillars (one frame or
     Free's paid-content strip); a multi-frame Pro/Elite result keeps the model's own `overall`.
     A structurally valid response that ends up assessing nothing (a photo that never shows the
-    runner, or a one-frame submission normalized down to zero assessed pillars) now `SETTLE`s for
-    Free — consuming the one lifetime slot, a deliberate asymmetry, since refunding it would turn
-    that single slot into an unlimited free-form-checking loop — but still `RELEASE`s (refunds) for
-    Pro/Elite, unchanged.
+    runner, or a one-frame submission normalized down to zero assessed pillars) is **delivered but
+    uncharged** on every tier as of 2026-09-10. It `SETTLE`s — so the verdict is pinned and a
+    canonical replay returns exactly it — and is stamped `zero_pillar_at`, which every quota count
+    excludes, so nobody spends an analysis on it. Free's one lifetime slot survives a blank result
+    intact. `'zero_pillars_assessed'` is consequently no longer a reachable release reason; what
+    bounds a resubmission loop is the 15-minute cooldown (Known Issue #45), not a charge. See Known
+    Issue #46 for why persistence and payment had to be separated.
 
     Safety is a required, per-pillar structured contract, not a prompt-only hope or a prose
     classifier. Every pillar must declare `{ signal, note }` using the certified stop-running
@@ -1562,9 +1567,10 @@ milestone "done" criteria.
     harness as it ran scanned `feedback` only, so injury-flag `detail` text was NOT checked, and it
     cannot be re-checked offline either — that run's results JSON persisted only each flag's
     `pattern`. The flag-detail scan and the wider unit forms were added afterwards, without a
-    re-run. The one finding to keep open: identical evidence still produces
-    different judgements run to run (Cadence 74/no flag vs 58/Overstriding on the same eight
-    frames). That is the audit's finding #3, not #2, and is not an extraction problem. Full numbers
+    re-run. The remaining finding at the time was that identical evidence produced different
+    judgements run to run (Cadence 74/no flag vs 58/Overstriding on the same eight frames). That
+    is the audit's finding #3, not #2, and is not an extraction problem. **Known Issue #46 now
+    resolves it in code with canonical-result reuse; that change is not deployed.** Full numbers
     and the burst-shape rationale: `docs/change_log.md` 2026-09-07 and `lib/frames.ts`
     `sampleTimestamps`.
 
@@ -1603,6 +1609,61 @@ milestone "done" criteria.
     Deploy order is self-gating: the function treats a missing lookup as "no cooldown" and fails
     open, so it cannot write a release reason the constraint would reject.
 
+
+46. **RESOLVED IN CODE — byte-identical evidence no longer gets a second verdict
+    (`fm/v23-pin-result-variance`, 2026-09-10); NOT DEPLOYED.** Captain ruling: run-to-run
+    variance is a launch blocker. Before changing behavior, the existing
+    `stride-burst-latency.live.ts` harness sent the exact same Arakawa Elite eight-frame request
+    five times. Every response was valid on its first attempt (`end_turn`), with no retry or
+    fallback. The finite N=5 sample observed Posture 68–74 (range 6, mid/good), Arm Swing 58–72
+    (range 14, mid/good), Cadence 42–58 (range **16**, low/mid), Elasticity 48–58 (range 10,
+    low/mid), and Overall 57–63 (range 6, all mid). These are observed ranges, not statistical or
+    absolute upper bounds.
+
+    **Cause isolated.** Prompt assembly was byte-identical and fixed-order. The model has no
+    supported seed and rejects non-default `temperature`/`top_p`/`top_k`; structured output pins
+    shape, not judgement. Retry was absent from all five baseline calls, and production reuses the
+    same assembled request when a retry is eligible. The residual source is stochastic model
+    judgement, not frame sampling, prompt assembly order, or retry mutation. The fix therefore does
+    not attempt to make the model deterministic.
+
+    **Fix.** The server derives a user-scoped content identity from authenticated user, media kind,
+    exact decoded frame bytes, frame order, and exact timestamps, and pairs it with a versioned
+    analyzer revision. The database derives tier and includes it in compatibility. Under the
+    existing per-user advisory lock, the new five-argument reserve overload resolves request-key
+    aliases and claims one active `(user, fingerprint, revision, tier)` analysis before provider
+    dispatch. A fresh key for compatible evidence returns the reserved/delivered canonical row,
+    so it cannot call the model again. Deliberate analyzer-revision or tier changes allow a fresh
+    verdict. Release or deletion retires the active claim and likewise permits a fresh result.
+
+    Identity metadata lives only in RLS-enabled, policy-free, service-role claim/alias tables. The
+    authenticated `resolve_analysis_request` RPC returns only the caller's
+    `{ id, status, result, is_fallback }`, allowing foreground and lost-response/cold-start
+    reconciliation through aliases without exposing the fingerprint. Existing four-argument
+    reserve RPCs remain callable for DB-first rollout and rollback compatibility.
+
+    **How this meets Known Issue #45 instead of undoing it.** Pinning requires every HTTP 200 to be
+    persisted, but #45 had just established that nobody should be charged for a blank result, and it
+    delivered that by RELEASING — an unpersisted 200, which retires the canonical claim. The captain
+    settled the collision on 2026-09-10 by separating persistence from payment: a zero-pillar verdict
+    is **delivered but uncharged** on every tier including Free
+    (`20260910120000_zero_pillar_delivered_uncharged.sql`). The row settles, so the verdict is
+    pinned; `settle_analysis` gains a REQUIRED sixth argument — not a defaulted one, which would
+    make a four-named-argument call ambiguous between overloads — that stamps `zero_pillar_at`, and
+    every quota count excludes those rows. #45's cooldown keyed on `status = 'released' AND
+    release_reason = 'zero_pillars_assessed'`, rows this path no longer writes, so it would have
+    failed OPEN and silently stopped bounding anything; it now reads the most recent zero-pillar
+    event from either representation, so legacy rows and a rollback still work.
+
+    **Post-fix proof, honestly scoped.** An executable N=5 flow component test supplies scripted
+    canonical RPC responses and observes one provider dispatch, one settle, one analysis ID,
+    byte-identical response bodies, and score/body range **0**. Separately, PGlite suites execute
+    the real SQL migrations and cover canonical reuse, tier/revision partitions, release/delete
+    retirement, row-locking reads, alias resolver isolation, legacy four-argument compatibility,
+    and — per the captain's explicit instruction to verify it — that the farming bound still holds
+    under the uncharged state. This is layered local evidence, not a live PostgREST/Supabase or
+    post-deployment provider run; the migrations and function must still be deployed DB-first
+    before this launch blocker is closed in production.
 
 ## Next action
 

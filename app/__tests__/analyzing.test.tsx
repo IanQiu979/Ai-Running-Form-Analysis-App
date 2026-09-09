@@ -25,11 +25,13 @@ jest.mock('expo-router', () => ({
 
 jest.mock('@/lib/supabase', () => ({
   supabase: {
-    from: () => ({
-      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
-    }),
     functions: { invoke: jest.fn() },
   },
+}));
+
+const mockResolveAnalysisRequest = jest.fn();
+jest.mock('@/lib/analysis-resolver', () => ({
+  resolveAnalysisRequest: (...args: unknown[]) => mockResolveAnalysisRequest(...args),
 }));
 
 jest.mock('@/lib/session-provider', () => ({
@@ -37,10 +39,20 @@ jest.mock('@/lib/session-provider', () => ({
 }));
 
 jest.mock('@/lib/connectivity', () => ({ checkConnectivity: jest.fn(async () => true) }));
-jest.mock('@/lib/app-state', () => ({ onAppForeground: () => () => {} }));
+let mockForegroundHandler: (() => void) | null = null;
+jest.mock('@/lib/app-state', () => ({
+  onAppForeground: (handler: () => void) => {
+    mockForegroundHandler = handler;
+    return () => {
+      mockForegroundHandler = null;
+    };
+  },
+}));
+const mockSetPendingAnalysisMarker = jest.fn();
+const mockClearPendingAnalysisMarker = jest.fn();
 jest.mock('@/lib/pending-analysis', () => ({
-  setPendingAnalysisMarker: jest.fn(),
-  clearPendingAnalysisMarker: jest.fn(),
+  setPendingAnalysisMarker: (...args: unknown[]) => mockSetPendingAnalysisMarker(...args),
+  clearPendingAnalysisMarker: (...args: unknown[]) => mockClearPendingAnalysisMarker(...args),
 }));
 
 const mockSignOut = jest.fn();
@@ -67,9 +79,107 @@ import AnalyzingScreen from '../analyzing';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockResolveAnalysisRequest.mockResolvedValue(null);
+  mockForegroundHandler = null;
 });
 
 describe('AnalyzingScreen terminal branches', () => {
+  it('reconciles a canonical alias through the authenticated resolver on foreground', async () => {
+    const analysisId = 'b144d29b-2348-4043-a96b-581ff4af6dbe';
+    const result = jest.requireActual('@/lib/pace-fixtures').proTierVideoResult;
+    mockSubmit.mockReturnValue(new Promise(() => {}));
+    mockResolveAnalysisRequest.mockResolvedValue({
+      id: analysisId,
+      status: 'delivered',
+      result,
+      is_fallback: false,
+    });
+
+    await render(<AnalyzingScreen />);
+    expect(mockForegroundHandler).not.toBeNull();
+
+    await act(async () => {
+      mockForegroundHandler?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockResolveAnalysisRequest).toHaveBeenCalledWith('idem-1');
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith({
+        pathname: '/result/[id]',
+        params: { id: analysisId, justAnalyzed: '1' },
+      })
+    );
+    expect(mockClearPendingAnalysisMarker).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns a canonical released alias into the terminal start-new state and clears its marker', async () => {
+    const analysisId = 'b144d29b-2348-4043-a96b-581ff4af6dbe';
+    mockSubmit.mockReturnValue(new Promise(() => {}));
+    mockResolveAnalysisRequest.mockResolvedValue({
+      id: analysisId,
+      status: 'released',
+      result: null,
+      is_fallback: false,
+    });
+
+    await render(<AnalyzingScreen />);
+
+    await act(async () => {
+      mockForegroundHandler?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(Copy.analyzing.error.previousAttemptFailed.title)).toBeTruthy()
+    );
+    expect(screen.getByText(Copy.analyzing.error.cta.startNew)).toBeTruthy();
+    expect(screen.queryByText(Copy.analyzing.error.cta.retry)).toBeNull();
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockClearPendingAnalysisMarker).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps waiting and preserves the marker when foreground alias resolution fails', async () => {
+    mockSubmit.mockReturnValue(new Promise(() => {}));
+    mockResolveAnalysisRequest.mockRejectedValue(new Error('network down'));
+
+    await render(<AnalyzingScreen />);
+
+    await act(async () => {
+      mockForegroundHandler?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockClearPendingAnalysisMarker).not.toHaveBeenCalled();
+    expect(screen.getByText(Copy.analyzing.title)).toBeTruthy();
+  });
+
+  it('keeps waiting and preserves the marker when a delivered alias has a malformed result', async () => {
+    mockSubmit.mockReturnValue(new Promise(() => {}));
+    mockResolveAnalysisRequest.mockResolvedValue({
+      id: 'b144d29b-2348-4043-a96b-581ff4af6dbe',
+      status: 'delivered',
+      result: { garbage: true },
+      is_fallback: false,
+    });
+
+    await render(<AnalyzingScreen />);
+
+    await act(async () => {
+      mockForegroundHandler?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockClearPendingAnalysisMarker).not.toHaveBeenCalled();
+    expect(screen.getByText(Copy.analyzing.title)).toBeTruthy();
+  });
+
   it('offers "Start a new analysis" — and no Retry — when the server returns previous_attempt_failed', async () => {
     mockSubmit.mockResolvedValue({
       ok: false,

@@ -61,7 +61,10 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { supabase } from './supabase';
+import {
+  resolveAnalysisRequest,
+  type AnalysisRequestResolution,
+} from './analysis-resolver';
 import { isPaceAnalysisOutcome, type PaceAnalysisOutcome } from '@shared/pace';
 
 const PENDING_ANALYSIS_STORAGE_KEY = 'pace.pendingAnalysis.v1';
@@ -142,23 +145,15 @@ export async function clearPendingAnalysisMarker(): Promise<void> {
 
 // -------------------------------------------------------------------------------------------
 // Reconciliation — a pure interpreter (unit-testable with plain objects, no network, no
-// storage) plus the impure function that wires it to the marker and the live `analyses` row.
+// storage) plus the impure function that wires it to the marker and the authenticated resolver.
 // Mirrors `app/analyzing.tsx`'s own foreground-reconciliation effect (issue #64) so the two stay
 // in obvious lockstep; that effect's inline logic is not exported (it's local to that screen and
 // out of this issue's file lane), so this is a deliberate, parallel re-derivation, not a shared
 // import — same three-way branch, same columns.
 // -------------------------------------------------------------------------------------------
 
-/** The columns `checkPendingAnalysis` selects — identical to `app/analyzing.tsx`'s own
- * reconciliation read, deliberately: `idempotency_key` is not part of the projection because the
- * query already filters on it, matching that screen's own comment on why the DB id is never known
- * until an outcome names it. */
-export interface PendingAnalysisRow {
-  id: string;
-  status: 'reserved' | 'delivered' | 'released';
-  result: unknown;
-  is_fallback: boolean;
-}
+/** The owner-scoped row shape returned for either an original request key or a canonical alias. */
+export type PendingAnalysisRow = AnalysisRequestResolution;
 
 export type PendingAnalysisReconciliation =
   /** Nothing was pending, or what was pending could not be attributed to the current session —
@@ -231,19 +226,9 @@ export async function checkPendingAnalysis(currentUserId: string | null): Promis
 
   let row: PendingAnalysisRow | null;
   try {
-    // No explicit user_id filter: RLS scopes this to the caller's own rows (same idiom
-    // `lib/consent.ts`/`lib/history.ts` document for their own reads), and the cross-account
-    // guard above already refuses to reach this line for a marker that isn't this session's own.
-    const { data, error } = await supabase
-      .from('analyses')
-      .select('id, status, result, is_fallback')
-      .eq('idempotency_key', marker.idempotencyKey)
-      .maybeSingle();
-
-    if (error) {
-      return { kind: 'pending' };
-    }
-    row = data;
+    // The RPC resolves both the original request key and any canonical alias while deriving the
+    // owner from auth.uid(). The underlying content fingerprint never crosses into the client.
+    row = await resolveAnalysisRequest(marker.idempotencyKey);
   } catch {
     return { kind: 'pending' };
   }

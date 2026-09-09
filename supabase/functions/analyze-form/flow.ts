@@ -10,7 +10,8 @@
  *
  * ══ THE CALL ORDER IS THE CONTRACT ══════════════════════════════════════════════════════════
  *
- *   auth → consent → AI GATE → idempotency + quota reserve (tier is DERIVED here)
+ *   auth → consent → derive content identity → AI GATE
+ *        → idempotency + canonical-result + quota reserve (tier is DERIVED here)
  *        → model call (+1 retry) → normalize (evidence + tier)
  *        → settle → upload frames → attach ... and on any failure: release
  *
@@ -49,16 +50,19 @@
  *
  *    The gate enforces TWO daily ceilings: the caller's own per-tier allowance
  *    (`user_daily_cap`), and the platform-wide one (`daily_cap`). The per-user cap counts every
- *    gated call for that user whatever its outcome — including the ones the quota and anti-farm
- *    controls deliberately forgive, `'zero_pillars_assessed'` above all — so this is the only
- *    control standing between a paying account and unlimited free model calls. Its tier is
+ *    gated call for that user whatever its outcome — including a deliverable verdict in which no
+ *    pillar could be assessed — so this is the only control standing between a paying account and
+ *    unlimited free model calls. Its tier is
  *    derived inside the RPC from `public.subscriptions`, never passed in from here. See
  *    `supabase/migrations/20260907120000_per_user_ai_daily_cap.sql` for the numbers and the
  *    total-exposure statement.
  *
- * 4/5. IDEMPOTENCY + ATOMIC RESERVE, both inside `reserve_analysis` (one round trip, one advisory
- *    lock). We branch on the returned `status`, never on `allowed` alone — see `handleExisting()`.
- *    `reserve.tier` is now the SOLE source of tier for the rest of the request.
+ * 4/5. IDEMPOTENCY + CANONICAL RESULT + ATOMIC RESERVE, all inside `reserve_analysis` (one round
+ *    trip, one per-user advisory lock). The server-derived identity binds the exact ordered frame
+ *    bytes/timestamps, authenticated user, media kind, and analyzer revision. A fresh request key
+ *    for identical evidence therefore replays the one active reserved/delivered row instead of
+ *    issuing another model call. We branch on the returned `status`, never on `allowed` alone — see
+ *    `handleExisting()`. `reserve.tier` is the SOLE source of tier for the rest of the request.
  *
  * 6-8. PROMPT → ONE VISION CALL → validate → retry once, only for an eligible failure kind.
  *    `analyze-form-prompt.ts` (#41) builds the request; `analyze-form-validation.ts` (#45) reads
@@ -122,6 +126,10 @@ import {
   type RpcClient,
 } from '../_shared/ai-guard.ts';
 import { estimateTokensForCall } from '../_shared/ai-pricing.ts';
+import {
+  deriveAnalyzeFormIdentity,
+  type AnalyzeFormIdentity,
+} from '../_shared/analyze-form-fingerprint.ts';
 import {
   buildAnalyzeFormRequest,
   type AnalyzeFormRequest as AnthropicRequest,
@@ -451,6 +459,7 @@ async function reserveAnalysis(
     idempotencyKey: string;
     mediaType: PaceMediaKind;
     frameCount: number;
+    analysisIdentity: AnalyzeFormIdentity;
     allUsersUnlimitedAccess?: boolean;
   }
 ): Promise<ReserveResult> {
@@ -462,9 +471,9 @@ async function reserveAnalysis(
     p_idempotency_key: args.idempotencyKey,
     p_media_type: args.mediaType,
     p_frame_count: args.frameCount,
-    // Four args, not five: `p_media_paths` was dropped by #88. The client never names a storage
-    // path, and the frames are not in the bucket yet — they are uploaded, by us, after the model
-    // call succeeds.
+    // Trusted, server-derived content identity. Never accept this from the request body and never
+    // return or log it: the service-only claim table is its sole persistence boundary.
+    p_analysis_identity: args.analysisIdentity,
   });
   if (error) {
     throw new Error(`${fn} failed: ${error.message}`);
@@ -517,6 +526,7 @@ async function settleAnalysis(
     analysisId: string;
     result: PaceResult;
     isFallback: boolean;
+    zeroPillar: boolean;
   }
 ): Promise<{ ok: boolean; reason?: string }> {
   const { data, error } = await rpc.rpc('settle_analysis', {
@@ -524,10 +534,22 @@ async function settleAnalysis(
     p_analysis_id: args.analysisId,
     p_result: args.result,
     p_is_fallback: args.isFallback,
-    // FOUR args, not five (#130). `p_media_paths` still exists on the RPC and still defaults to
-    // '{}' — we simply have nothing to pass it, because nothing has been uploaded yet. The frames
-    // go up AFTER this call succeeds and `attach_media_paths` records them. THE INVARIANT: a
-    // 'reserved' row can never have frames.
+    // Delivered but UNCHARGED when true: the row is persisted so the verdict is pinned, and
+    // stamped `zero_pillar_at` so quota skips it and the cooldown can find it. REQUIRED in SQL,
+    // not defaulted — exactly as `p_analysis_identity` is on the five-argument reserve overload.
+    // A required argument is what keeps the older signature unambiguously callable during a
+    // DB-first rollout; a defaulted one would make a four-named-argument call ambiguous between
+    // the two overloads and fail at resolution time.
+    p_zero_pillar: args.zeroPillar,
+    // EXPLICITLY EMPTY, and it must stay explicit. Nothing has been uploaded yet — the frames go
+    // up AFTER this call succeeds and `attach_media_paths` records them, and THE INVARIANT from
+    // #130 still holds: a 'reserved' row can never have frames. What changed on 2026-09-10 is that
+    // omitting this argument no longer works. The six-argument overload has NO defaults (that is
+    // what keeps the five-argument one unambiguously callable), so a named call that skips
+    // `p_media_paths` matches neither overload and Postgres rejects the whole statement with
+    // "function ... does not exist" — which would break EVERY settle, scored results included,
+    // not just zero-pillar ones. Passing `[]` is identical in effect to the old `default '{}'`.
+    p_media_paths: [],
   });
   if (error) {
     throw new Error(`settle_analysis failed: ${error.message}`);
@@ -773,6 +795,16 @@ export async function runAnalyzeForm(
 
     // ── 3. AI spend gate — BEFORE idempotency and reserve (#91's binding order). ────────────
     //
+    // Derive this only from the JWT subject and exact accepted evidence. The client idempotency
+    // key identifies a transport attempt and the database derives the tier, so neither belongs in
+    // the raw evidence digest. The identity crosses only the service-role RPC boundary and is
+    // never logged or returned.
+    const analysisIdentity = await deriveAnalyzeFormIdentity({
+      authenticatedUserId: callerUserId,
+      media: request.mediaType,
+      frames: request.frames,
+    });
+
     // Tier is not known yet — `reserve_analysis` below is the only place it is derived — so the
     // pre-call estimate deliberately uses the WORST case (elite's 8k output budget) rather than
     // guessing. That errs strictly toward reserving too much headroom, which `ai-pricing.ts` names
@@ -829,6 +861,7 @@ export async function runAnalyzeForm(
       idempotencyKey: request.idempotencyKey,
       mediaType: request.mediaType,
       frameCount: request.frames.length,
+      analysisIdentity,
       allUsersUnlimitedAccess: deps.allUsersUnlimitedAccess,
     });
 
@@ -1125,43 +1158,39 @@ export async function runAnalyzeForm(
       tier,
     });
 
-    // ── 9.5. No charge for a zero-pillar result on any tier. ───────────────────────────────
+    // ── 9.5. A zero-pillar verdict is PINNED but NOT CHARGED (captain's ruling, 2026-09-10). ──
     //
     // A response can reach here fully structurally VALID (`decideOutcome` returned `kind:
     // 'valid'`, never even touching the >= 1-assessed-pillar bar that gates the 'partial' branch
     // above) and yet assess NOTHING — every pillar honestly `score: null`, e.g. a clip that never
     // actually shows the runner, OR a one-frame submission whose only assessed pillars were
     // Cadence/Elasticity before normalization forced them to `needsVideo`. That is a real,
-    // well-formed result the user got zero usable information from, so `release_analysis` hands
-    // the quota slot back (the same mechanism `'validation_failed'`/`'model_error'` already use)
-    // while the computed `normalizedResult` — never persisted — is still returned to the caller
-    // below, so the request is NOT failed outright.
+    // well-formed result the user got zero usable information from.
     //
-    // THE POLICY IS BLANKET, WITH NO FREE EXCEPTION. It is cd8bf97 (PR #194, 2026-08-19,
-    // `20260819120000_zero_pillar_release_reason.sql`) — the decision that named
-    // `'zero_pillars_assessed'` — and that decision has never carved Free out. An earlier version
-    // of this branch settled Free's one lifetime slot on a blank result and attributed the carve-
-    // out to that same decision name under a 2026-09-06 date; that attribution was false, and
-    // charging a runner their ONLY analysis for a result carrying nothing is the harshest possible
-    // reading of a submission we could not read. The free-form-checking-loop worry the carve-out
-    // existed for is answered by frequency instead — see the zero-pillar cooldown above, enforced
-    // before the model is ever called and surfaced on Home before a frame is even extracted.
+    // TWO RULINGS MEET HERE, AND BOTH ARE KEPT.
+    //   * NO CHARGE, ON ANY TIER (PR #213, and cd8bf97/PR #194 before it, 2026-08-19). Charging a
+    //     runner for a result carrying nothing is the harshest available reading of a submission
+    //     we could not read — the failure is usually framing or lighting, not intent.
+    //   * ONE VERDICT PER CLIP (the determinism launch blocker this branch exists for). Identical
+    //     evidence must not be able to come back with a different verdict on a re-run.
     //
-    // `'zero_pillars_assessed'` is excluded from `pace_is_farming_signal` (20260712220000), so
-    // this never ticks the 3-strike anti-farm cap: an honest "nothing to see here" is not an
-    // attack.
-    const assessedPillarCount = PACE_PILLARS.filter(
-      (id) => normalizedResult.pillars[id].score !== null
-    ).length;
-
-    if (assessedPillarCount === 0) {
-      releaseReason = 'zero_pillars_assessed';
-      outcome = 'zero_pillars_assessed';
-      return (response = {
-        status: 200,
-        body: { result: normalizedResult, analysisId, isFallback },
-      });
-    }
+    // PR #213 answered the first by RELEASING the reservation, which returned an unpersisted 200.
+    // That is incompatible with the second: an unpersisted 200 retires the canonical claim in
+    // `finally`, so the same clip could reach the model again and be judged differently. The
+    // captain's 2026-09-10 ruling resolves it by separating persistence from payment — the row is
+    // SETTLED so the verdict is pinned and replayable, and marked zero-pillar so it does not count
+    // against quota. See `20260910120000_zero_pillar_delivered_uncharged.sql`.
+    //
+    // THE COOLDOWN MOVES WITH IT. #213's 15-minute frequency bound read `status = 'released' AND
+    // release_reason = 'zero_pillars_assessed'` — rows this path no longer writes. The same
+    // migration re-points `pace_zero_pillar_cooldown_remaining` at `zero_pillar_at`, which is set
+    // on exactly these settled rows, so the bound survives the representation change instead of
+    // silently failing open. Do not reintroduce an early unpersisted 200 here.
+    //
+    // `'zero_pillars_assessed'` stays excluded from `pace_is_farming_signal` (20260712220000): an
+    // honest "nothing to see here" is not an attack and must never tick the 3-strike cap.
+    const zeroPillarVerdict =
+      PACE_PILLARS.filter((id) => normalizedResult.pillars[id].score !== null).length === 0;
 
     if (isFallback) {
       // Issue #85 — the honest-partial fallback IS #45's promise: some pillars scored, others
@@ -1208,6 +1237,7 @@ export async function runAnalyzeForm(
       analysisId,
       result: normalizedResult,
       isFallback,
+      zeroPillar: zeroPillarVerdict,
     });
 
     if (!settled.ok) {
@@ -1218,7 +1248,10 @@ export async function runAnalyzeForm(
     }
 
     reservationSettled = true;
-    outcome = isFallback ? 'partial' : 'success';
+    // A zero-pillar verdict keeps its own greppable outcome even though it now settles: ops must
+    // still be able to count how often a submission could not be read, and it is neither a plain
+    // 'success' nor the honest-partial 'partial'.
+    outcome = zeroPillarVerdict ? 'zero_pillars_assessed' : isFallback ? 'partial' : 'success';
 
     // Everything from here on is NON-FATAL. The analysis is delivered and the quota is spent.
     framesUploaded = await safeAttachFrames(deps, callerUserId, analysisId, request.frames);

@@ -1344,15 +1344,17 @@ the original video (see "Media pipeline" below).
    `call_id` for step 9. This runs before idempotency deliberately — see the "call ordering"
    note in that section for why the alternative (gate after reserve) would eventually lock out
    legitimate users.
-4. **Idempotency** — an existing `(user_id, idempotency_key)` row is returned as-is instead of
-   re-running the analysis. If this branch fires, the call was never going to happen even though
-   the gate already reserved budget for it — settle that reservation immediately with
-   `recordAiCall({ callId, status: 'cancelled' })` before returning.
+4. **Idempotency + canonical result lookup** — the server derives an identity for the exact
+   accepted evidence. The reserve RPC first resolves this request key, then looks for one active
+   result for the same user, evidence, analyzer revision, and server-derived tier. A match is
+   returned as-is instead of re-running the analysis. If either branch fires, the call was never
+   going to happen even though the gate already reserved budget for it — settle that reservation
+   immediately with `recordAiCall({ callId, status: 'cancelled' })` before returning.
 5. **Atomic reserve** — a `SECURITY DEFINER` RPC checks the tier's limit (Free 1 lifetime / Pro
-   10 / Elite 30 per purchase-anchored period) and frame-count cap, then reserves the analysis
-   atomically, before the model is ever called. Over quota → structured `402`, and — same as
-   step 4 — settle the gate's reservation as `'cancelled'` before returning, since the model is
-   never going to be called for this request either.
+   10 / Elite 30 per purchase-anchored period) and frame-count cap, then atomically reserves both
+   the analysis and its canonical claim before the model is ever called. Over quota → structured
+   `402`, and — same as step 4 — settle the gate's reservation as `'cancelled'` before returning,
+   since the model is never going to be called for this request either.
 6. **Inputs** — photo: one frame. Video: client-extracted, downscaled frames sampled as ONE
    centered ~700ms burst (issue #199, replacing the old "evenly across 5%-95% of the whole clip"
    spacing — see "Current — media pipeline" below for why that spacing was a structural ceiling).
@@ -1420,9 +1422,11 @@ the original video (see "Media pipeline" below).
    that must move the AI spend gate's reservation with it. **#44 must treat `stop_reason:
    'max_tokens'` as a truncation**, never as a usable response.
 
-   Also: this model **rejects any non-default `temperature`/`top_p`/`top_k` with a 400**, so the
-   request sets none of them. Do not add `temperature: 0` for determinism — that buys a 400, not
-   determinism. Determinism comes from `strict: true` (grammar-constrained sampling).
+   Also: this model **rejects any non-default `temperature`/`top_p`/`top_k` with a 400**, exposes
+   no supported seed, and the request sets none of them. Do not add `temperature: 0` for
+   determinism — that buys a 400, not determinism. `strict: true` constrains the response shape;
+   it does not make semantic scores or flags repeatable. Runner-visible repeatability comes from
+   reusing the canonical stored verdict described in the current section below.
 9. **Validate structurally, loosely** — check the expected shape exists, never judge content.
    On failure retry once; on a second failure, a clearly-labelled partial result if ≥2 pillars
    parsed (`is_fallback: true`, never a fabricated score for the rest), else a clean failure.
@@ -1811,6 +1815,10 @@ analyses       (id uuid pk default gen_random_uuid(),
                                                             -- client soft-delete sets this AND
                                                             -- redacts result/media_paths, see
                                                             -- the RLS note below
+                zero_pillar_at timestamptz,                -- non-null = DELIVERED BUT UNCHARGED
+                                                            -- (a zero-pillar verdict, 2026-09-10).
+                                                            -- Doubles as the cooldown anchor;
+                                                            -- every quota count excludes these
                 created_at, delivered_at, released_at, updated_at)
 -- indexes: (user_id, created_at desc) for "list my analyses"; (user_id, status, created_at)
 -- for the quota-window counts the RPCs below run.
@@ -1834,7 +1842,10 @@ sole enforcement point.** All are `SECURITY DEFINER`, `EXECUTE` revoked from
 function calling with the service-role key can invoke them, never the client directly.
 **Signatures below reflect #88's migration, applied and verified live 2026-07-12**:
 `reserve_analysis` is 4 args (`p_media_paths` dropped), `settle_analysis` is 5 (gained it, with
-a `{p_user_id}/{p_analysis_id}/` namespace guard).
+a `{p_user_id}/{p_analysis_id}/` namespace guard). **The code-complete, unapplied
+`20260909120000_canonical_analysis_idempotency.sql` migration adds a non-defaulted fifth-argument
+reserve overload (and the unlimited sibling) for trusted content identity while deliberately
+retaining these live four-argument functions for DB-first rollout and rollback.**
 
 - **`pace_current_tier(p_user_id)`** (captain-approved 2026-07-26,
   `20260804120000_pace_current_tier_function.sql`) — a side-effect-free tier lookup, split out of
@@ -2159,18 +2170,21 @@ only a future edge function calling with the service-role key can invoke these, 
   repo, not production; production still has only the global cap. Before it, `gate_ai_call` had
   exactly one daily ceiling and it was **global**: one shared counter for everybody, so a single
   account could exhaust the day for every other user, and a Pro/Elite account could farm
-  zero-pillar model calls that cost it neither a quota slot (refunded via
+  zero-pillar model calls that cost it neither a quota slot (then refunded via
   `'zero_pillars_assessed'`) nor an anti-farm strike (`pace_is_farming_signal` deliberately
-  forgives that reason). Key points:
+  forgives that reason). The 2026-09-09 canonical-result change separately supersedes that refund:
+  every 200 verdict now settles, so the historical farming path also disappears when both changes
+  are deployed. Key points:
   - **The cap counts every gated call for that user that actually cost money** — `success`,
     `fallback`, `model_error`, `validation_failed`, and a zero-pillar result (which settles as
     `success`) — including the outcomes the quota and anti-farm controls deliberately forgive.
     That is the point: a spend cap may not share an intent classifier's blind spots. A
     `'cancelled'` call settles at $0 and correctly adds nothing once settled (the model was never
     called), though its `'pending'` row holds its estimate against both ceilings until it settles
-    or ages out. Neither `pace_is_farming_signal` nor
-    `reserve_analysis` nor the release-reason taxonomy is touched; the captain's zero-pillar
-    refund decision stands exactly as it was.
+    or ages out. This spend-cap migration did not change `pace_is_farming_signal`,
+    `reserve_analysis`, or the release-reason taxonomy. The later canonical-result migration does
+    change the edge-function outcome: an all-not-assessed 200 settles rather than releases, because
+    a verdict cannot be replayed identically if it was never persisted.
   - **The tier is derived inside the RPC** (`public.pace_current_tier` over
     `public.subscriptions`), never passed in — no edge-function bug can buy a bigger allowance by
     claiming a tier the user does not have. `gate_ai_call` is now a thin wrapper over
@@ -2850,7 +2864,7 @@ state with a real link in the same change that publishes the policy.
 Both route to a Paywall (#52) and an IAP flow that do not exist; shipping them would build a dead
 end. #52 adds them back with the route they point at.
 
-## Current — `analyze-form` edge function (issues #44 + #45, built 2026-07-13, deployed 2026-07-26; Free-tier real analysis, 2026-09-06)
+## Current — `analyze-form` edge function (issues #44 + #45, built 2026-07-13, deployed 2026-07-26; canonical result pin code-complete 2026-09-09, not deployed)
 
 The core of the product, and the first code in this repo that spends money. Written, fully tested,
 and **deployed to the live project 2026-07-26** (issue #128) — both `supabase functions deploy
@@ -2864,7 +2878,7 @@ function flow" above wherever the two disagree.
 | File | Role | Tested |
 |---|---|---|
 | `analyze-form/index.ts` | HTTP + auth glue. Captures request start at `Deno.serve` entry, then verifies the JWT via `auth.getUser()` and passes the timestamp into the flow. | — |
-| `analyze-form/flow.ts` | The whole orchestration, against injected deps. No npm/Deno import. | 96 Deno tests |
+| `analyze-form/flow.ts` | The whole orchestration, against injected deps. No npm/Deno import. | Deno suite |
 | `analyze-form/deps.ts` | Deno wiring: service-role Supabase client, Storage, the Anthropic `fetch`. | — (thin factory) |
 | `_shared/analyze-form-validation.ts` | #45: read the response, validate structurally, salvage, classify. | 43 Deno tests |
 
@@ -2876,10 +2890,56 @@ The model is a **fake queue** in every test. The suite makes **zero Anthropic ca
 client-observed envelope, even though `runAnalyzeForm` begins afterward.
 
 ```
-auth → consent → AI gate → idempotency + reserve (tier is DERIVED here)
+auth → consent → derive content identity → AI gate
+     → request-key + canonical-result + quota reserve (tier is DERIVED here)
      → prompt → call (+1 retry) → normalize (evidence + tier) → settle → upload → attach_media_paths
                                               ↘ (any failure before the settle) release
 ```
+
+**Canonical result pin (2026-09-09; code-complete, not deployed).** The model is stochastic even
+when the request is byte-identical. A five-call pre-fix run through
+`_shared/evals/stride-burst-latency.live.ts` held the eight Arakawa Elite frames and the complete
+request constant. Every call was a valid first-attempt `end_turn` — no retry or fallback — yet the
+observed finite-sample ranges were Posture 68–74 (6, mid/good), Arm Swing 58–72 (14, mid/good),
+Cadence 42–58 (16, low/mid), Elasticity 48–58 (10, low/mid), and Overall 57–63 (6, all mid). These
+are observed ranges across N=5, not upper bounds on future model variance.
+
+The investigation ruled out the other two live candidates. Prompt assembly uses fixed-order arrays
+and serialized identically across the run. The provider exposes no supported seed for this model
+and rejects non-default sampling controls; structured output constrains only shape. The production
+retry reuses the same assembled request, and none of the five baseline calls retried. The fix is
+therefore a persistence contract rather than an unsupported sampling knob:
+
+- `_shared/analyze-form-fingerprint.ts` hashes a domain-separated encoding of the authenticated
+  user, media kind, exact decoded bytes, frame order, and exact timestamps. The client request key
+  and tier are excluded; the database derives tier itself. `ANALYZE_FORM_ANALYZER_REVISION` is part
+  of compatibility and must be deliberately bumped before a model, prompt, knowledge, schema,
+  validation/normalization, fallback, or safety change that can change the visible verdict.
+- `20260909120000_canonical_analysis_idempotency.sql` adds a non-defaulted five-argument overload
+  of both reserve RPCs. Under the existing per-user advisory lock it resolves the request key,
+  derives/enforces tier and frame cap, looks up an active `(user, fingerprint, revision, tier)`
+  claim, and only then applies anti-farm/quota checks and creates a new analysis plus claim. A
+  compatible match is returned before any provider dispatch. Tier and analyzer-revision changes
+  intentionally create a new compatibility partition.
+- `canonical_analysis_claims` holds active ownership; `analysis_request_aliases` ties every new
+  request key to the canonical row so a lost response can reconcile without minting work. Both
+  tables are RLS-enabled, policy-free, and service-role-only. The authenticated
+  `resolve_analysis_request` RPC derives ownership from `auth.uid()` and exposes only
+  `{ id, status, result, is_fallback }`; content identity never enters an owner-readable row,
+  response, log, path, or analytics event.
+- Release or soft-delete retires the active claim; hard delete cascades it. Deletion therefore
+  deliberately releases the pin and permits a fresh analysis later. The old four-argument reserve
+  RPCs stay callable so the migration can be deployed before the edge function and rolled back
+  without breaking the currently deployed caller.
+
+The executable N=5 flow component proof supplies scripted canonical RPC responses for identical
+evidence under five distinct request keys and observes one model dispatch, one settle, one
+canonical analysis ID, byte-identical HTTP bodies, and score/body range 0. Separately, the PGlite
+suite executes the real migration and covers canonical reuse, tier/revision separation,
+release/delete retirement, row-locking reads, authenticated alias resolution, and legacy
+four-argument compatibility. This is layered local evidence, not a live PostgREST/Supabase
+integration or post-fix production-provider measurement; the migration and edge function are not
+live.
 
 **HISTORICAL — Free tier used to make ZERO Anthropic calls, via a fabricated sample result
 (captain-approved 2026-07-26, live in production 2026-08-05 — `docs/status.md` Known Issue #37).
@@ -2962,27 +3022,46 @@ and is never merely prompt-guided:
   multi-frame Pro/Elite result passes through with the model's headline intact; rewriting it there
   would be an unrequested change to paid output.
 
-**A zero-pillar result `RELEASE`s (refunds the quota slot) on every tier, including Free
-(2026-09-09, `fm/v23-zero-pillar-cooldown-orphaned-work`, `docs/status.md` Known Issue #45).** A
-structurally valid response that ends up assessing nothing — a clip that never shows the runner, or
-a one-frame submission whose only "assessed" pillars were Cadence/Elasticity before normalization
-zeroed them — refunds the quota slot exactly as `'validation_failed'`/`'model_error'` already did,
-on every tier. This superseded the original captain decision
-(`audit-v23-r1-decision-zero-pillar-charge-policy`) that had Free `SETTLE` and consume its one
-lifetime slot: charging a runner's only analysis for a submission the model could not read was the
-harshest available reading of a result that usually reflects framing or lighting, not intent. What
-now bounds a Free resubmission loop instead of the charge is frequency, not cost: Free waits out a
-15-minute cooldown (`public.pace_zero_pillar_cooldown_seconds()`,
-`20260906130000_free_zero_pillar_cooldown.sql`) after a `zero_pillars_assessed` release before
-`analyze-form` accepts another submission (429 `zero_pillar_cooldown`, see the status-code table
-below), surfaced early via `pace_quota_status`'s `blocked_reason`
-(`20260906140000_quota_status_zero_pillar_cooldown.sql`). `'zero_pillars_assessed'` is excluded from
-`pace_is_farming_signal` on every tier, so it never ticks the 3-strike anti-farming cap; the 15-minute
-cooldown is a separate, much shorter throttle, and when both windows are open the anti-farm one wins
-because it is the longer of the two.
+**A zero-pillar result is DELIVERED BUT UNCHARGED on every tier, including Free (captain's ruling,
+2026-09-10, `20260910120000_zero_pillar_delivered_uncharged.sql`; `docs/status.md` Known Issue
+#46).** A structurally valid response that ends up assessing nothing — a clip that never shows the
+runner, or a one-frame submission whose only "assessed" pillars were Cadence/Elasticity before
+normalization zeroed them — is still an honest verdict returned to the runner, and two rulings meet
+on it.
+
+It is never CHARGED, on any tier. Charging a runner's only analysis for a submission the model
+could not read is the harshest available reading of a result that usually reflects framing or
+lighting, not intent. That was settled on 2026-09-09
+(`fm/v23-zero-pillar-cooldown-orphaned-work`), superseding the original
+`audit-v23-r1-decision-zero-pillar-charge-policy` split that had Free `SETTLE` and consume its one
+lifetime slot.
+
+It is also PINNED. The determinism launch blocker requires every HTTP 200 to be persisted: an
+unpersisted 200 retires its canonical claim in cleanup, so identical evidence could reach the model
+again and be judged differently. #213 delivered "never charge" by `RELEASE`ing, which is exactly an
+unpersisted 200 — so the two are incompatible as written.
+
+The captain resolved this on 2026-09-10 by separating persistence from payment. The row `SETTLE`s,
+so the verdict is canonical and replayable, and `settle_analysis`'s required sixth argument stamps
+`zero_pillar_at`, which every quota count excludes. Non-200 validation/model failures still release
+normally.
+
+**The cooldown moved with the representation.** What bounds a resubmission loop is frequency, not
+cost: a 15-minute cooldown (`public.pace_zero_pillar_cooldown_seconds()`,
+`20260906130000_free_zero_pillar_cooldown.sql`) before `analyze-form` accepts another Free
+submission (429 `zero_pillar_cooldown`, see the status-code table below), surfaced early via
+`pace_quota_status`'s `blocked_reason`
+(`20260906140000_quota_status_zero_pillar_cooldown.sql`). That lookup keyed on `status = 'released'
+AND release_reason = 'zero_pillars_assessed'` — rows this path no longer writes — so it would have
+failed OPEN and silently stopped bounding anything. It now reads the most recent zero-pillar event
+from either representation, so legacy rows and a rollback still work.
+`'zero_pillars_assessed'` remains excluded from `pace_is_farming_signal` on every tier, so it never
+ticks the 3-strike anti-farming cap; the 15-minute cooldown is a separate, much shorter throttle,
+and when both windows are open the anti-farm one wins because it is the longer of the two.
 
 See `supabase/functions/analyze-form/__tests__/flow.deno.test.ts` for the regression suite covering
-normalization and the zero-pillar split. **Deployment ordering matters**: `analyze-form` must be
+normalization and the all-tier zero-pillar settle. **Deployment ordering matters**: database
+migrations must land before `analyze-form`, and `analyze-form` must be
 redeployed before or with the client release — the simplified client (`lib/analyze-form.ts`) now
 rejects the retired `{ result, isSample: true }` shape as malformed, so an old function paired with
 the new client fails closed, and a new function paired with the old client also degrades safely
@@ -3326,20 +3405,21 @@ not run while JS is suspended, so a backgrounded app can foreground with an expi
 nothing refreshing it) and then notifies every `onAppForeground` subscriber — a pub/sub seam, not
 a second listener.
 
-`app/analyzing.tsx` is the one subscriber today (#64). If the app is backgrounded (not killed)
-while still `waiting`, `analyzeFormClient.submit()`'s promise may never resolve even though the
-server-side `analyze-form` invocation runs to completion regardless. On every foreground it
-re-reads the `analyses` row by `idempotency_key` (never `id` — the DB id isn't known client-side
-until a real response names it, and `reserve_analysis` guarantees at most one row per `(user,
-idempotency_key)`) via a plain RLS-scoped `SELECT`, structurally validates it
-(`isPaceAnalysisOutcome`) before trusting it, and dispatches `succeeded`/`reconciledReleased`
-accordingly; `'reserved'`, no row, or a read error are all no-ops — it never resubmits.
+`app/analyzing.tsx` is the foreground subscriber today (#64). If the app is backgrounded while
+still `waiting`, `analyzeFormClient.submit()`'s promise may never resolve even though the
+server-side `analyze-form` invocation runs to completion. On foreground it calls
+`resolve_analysis_request` with the request key (never an analysis id, which the client does not
+yet know). The authenticated RPC derives the owner from `auth.uid()` and follows either the
+canonical row's original key or an alias created for identical evidence; it exposes no content
+fingerprint. The client structurally validates a delivered result before dispatching
+`succeeded`/`reconciledReleased`; `'reserved'`, no row, or a read error are no-ops, and it never
+resubmits.
 
-**Partial, stated plainly: a process KILL, not just background, is NOT recovered.**
-`lib/analyze-form.ts`'s one-shot mailbox does not survive a process restart, so a cold relaunch
-never re-enters this screen with a live `waiting` state to reconcile against. Surfacing "your
-analysis finished" after a real kill needs a persisted, cross-restart marker read at app startup —
-out of scope here. See `docs/status.md`'s Known Issues.
+**A process kill is recovered too (#140).** `lib/pending-analysis.ts` persists the owner and request
+key in AsyncStorage and checks it on cold launch. It now uses the same authenticated alias-aware
+resolver, so a lost response under a fresh key can surface the canonical result. The marker is not
+a credential, is rejected across accounts, and is cleared only after a terminal delivered/released
+interpretation (not merely because the client timed out).
 
 ## Current — connectivity detection (issue #93, 2026-07-13)
 

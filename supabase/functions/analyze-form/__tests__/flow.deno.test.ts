@@ -482,6 +482,120 @@ Deno.test('rule 2: an unknown future status is treated as not-deliverable, not a
   assertEquals(h.model.sent.length, 0);
 });
 
+Deno.test('canonical result: reserve receives the exact server-derived identity for accepted evidence', async () => {
+  const h = harness([ok()]);
+
+  const res = await run(h);
+
+  assertEquals(res.status, 200);
+  assertEquals(h.rpc.to('reserve_analysis')[0].args.p_analysis_identity, {
+    input_fingerprint: 'd67a7ad536bd482f156a25e4a278cbb26f10cddbc4d00ce59d88f7ce87cde8a9',
+    analyzer_revision: 'analyze-form/2026-09-09-v1',
+  });
+});
+
+Deno.test('canonical orchestration: N=5 scripted canonical RPC replays return one body after one model call', async () => {
+  const h = harness([ok()]);
+  let canonicalResult: unknown;
+  let canonicalIdentity: unknown;
+
+  h.rpc.handlers.reserve_analysis = (args) => {
+    if (canonicalResult === undefined) {
+      canonicalIdentity = args.p_analysis_identity;
+      return {
+        data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'pro' },
+        error: null,
+      };
+    }
+    if (JSON.stringify(args.p_analysis_identity) === JSON.stringify(canonicalIdentity)) {
+      return {
+        data: existing('delivered', { result: canonicalResult, is_fallback: false }),
+        error: null,
+      };
+    }
+    return {
+      data: {
+        allowed: true,
+        existing: false,
+        id: '44444444-4444-4444-8444-444444444444',
+        status: 'reserved',
+        tier: 'pro',
+      },
+      error: null,
+    };
+  };
+  h.rpc.handlers.settle_analysis = (args) => {
+    canonicalResult = args.p_result;
+    return { data: { ok: true }, error: null };
+  };
+
+  const measured = [];
+  for (let index = 0; index < 5; index += 1) {
+    measured.push(
+      await run(h, { ...VIDEO_BODY, idempotencyKey: `canonical-measurement-${index + 1}` })
+    );
+  }
+
+  assertEquals(measured.map((response) => response.status), [200, 200, 200, 200, 200]);
+  assertEquals(
+    new Set(measured.map((response) => JSON.stringify(response.body))).size,
+    1,
+    'N=5 identical inputs must return one byte-equivalent HTTP verdict body'
+  );
+  assertEquals(
+    new Set(measured.map((response) => response.body.analysisId)).size,
+    1,
+    'N=5 identical inputs must resolve to one canonical analysis row'
+  );
+  const postureScores = measured.map(
+    (response) =>
+      (response.body.result as { pillars: { posture: { score: number } } }).pillars.posture.score
+  );
+  assertEquals(
+    Math.max(...postureScores) - Math.min(...postureScores),
+    0,
+    'component proof: the flow returns the scripted canonical verdict with observed posture score range 0'
+  );
+  assertEquals(h.model.sent.length, 1, 'four canonical replays must not dispatch another model call');
+  assertEquals(h.rpc.to('settle_analysis').length, 1, 'the canonical verdict is settled only once');
+  assertEquals(h.rpc.to('release_analysis').length, 0);
+});
+
+Deno.test('canonical result: reusing a request key with changed evidence fails closed before another model call', async () => {
+  const h = harness([ok()]);
+  let firstIdentity: unknown;
+
+  h.rpc.handlers.reserve_analysis = (args) => {
+    if (firstIdentity === undefined) {
+      firstIdentity = args.p_analysis_identity;
+      return {
+        data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'pro' },
+        error: null,
+      };
+    }
+    if (JSON.stringify(args.p_analysis_identity) !== JSON.stringify(firstIdentity)) {
+      return { data: { allowed: false, reason: 'idempotency_identity_mismatch' }, error: null };
+    }
+    return {
+      data: existing('delivered', { result: validToolInput(), is_fallback: false }),
+      error: null,
+    };
+  };
+
+  const first = await run(h, { ...VIDEO_BODY, idempotencyKey: 'same-request-key' });
+  const changed = await run(h, {
+    ...VIDEO_BODY,
+    frames: ['AAAA', 'CCCC'],
+    idempotencyKey: 'same-request-key',
+  });
+
+  assertEquals(first.status, 200);
+  assertEquals(changed.status, 400);
+  assertEquals(changed.body.code, 'idempotency_identity_mismatch');
+  assertEquals(h.model.sent.length, 1, 'changed evidence under the same key must not reach the model');
+  assertEquals(h.rpc.to('settle_analysis').length, 1);
+});
+
 // ===========================================================================
 // CONTRACT RULE 3 — release_analysis on EVERY failure path (a finally, not a branch).
 // ===========================================================================
@@ -927,8 +1041,11 @@ Deno.test('rule 3: the anti-farming refusal is a 429, not a paywall 402', async 
 });
 
 // ===========================================================================
-// A fully valid all-not-assessed result is still an honest model result. Every tier releases it
-// uncharged; Free's repeated-submission risk is bounded by the cooldown below instead.
+// A fully valid all-not-assessed result is still an honest, user-visible verdict, and two rulings
+// meet on it. It is never CHARGED on any tier (#213), and it must still be SETTLED so a canonical
+// replay returns exactly the same verdict without another model call (the determinism blocker).
+// It is therefore delivered-but-uncharged: settled with `p_zero_pillar: true`, which stamps
+// `zero_pillar_at` so quota skips the row and the cooldown below can still find it.
 // ===========================================================================
 
 /** A fully valid but ADVERSARIAL zero-pillar response: every pillar honestly not-assessed, yet the
@@ -955,7 +1072,7 @@ function allNotAssessedWithStrayContent(): ModelCallResult {
   });
 }
 
-Deno.test('zero-pillar policy: Free RELEASES a fully valid result with zero assessed pillars', async () => {
+Deno.test('zero-pillar policy: Free SETTLES a zero-pillar result UNCHARGED — the lifetime slot survives', async () => {
   const h = harness([allNotAssessedWithStrayContent()]);
   // `reserve_analysis` is the ONLY source of tier — there is no pre-reserve lookup to disagree
   // with it. Its 'free' is the value the settlement policy must use.
@@ -973,10 +1090,14 @@ Deno.test('zero-pillar policy: Free RELEASES a fully valid result with zero asse
 
   assertEquals(res.status, 200);
   assertEquals(res.body.analysisId, ANALYSIS_ID, 'Free receives the reservation id with the result body');
-  assertEquals(h.rpc.to('settle_analysis').length, 0, 'an empty result never consumes the lifetime slot');
-  const releases = h.rpc.to('release_analysis');
-  assertEquals(releases.length, 1, 'Free receives the same zero-pillar refund as paid tiers');
-  assertEquals(releases[0].args.p_reason, 'zero_pillars_assessed');
+  // Delivered but UNCHARGED. The verdict is persisted so a canonical replay returns exactly it,
+  // and `p_zero_pillar` stamps `zero_pillar_at`, which every quota count excludes — so Free's one
+  // lifetime slot is still intact after a blank result. Releasing instead (what this test asserted
+  // before 2026-09-10) would return an unpersisted 200 and retire the canonical claim.
+  const settles = h.rpc.to('settle_analysis');
+  assertEquals(settles.length, 1, 'the verdict must be persisted so it can be replayed');
+  assertEquals(settles[0].args.p_zero_pillar, true, 'an empty result never consumes the lifetime slot');
+  assertEquals(h.rpc.to('release_analysis').length, 0, 'releasing would retire the canonical claim');
 
   const result = res.body.result as {
     pillars: Record<string, { score: number | null; flags: unknown[]; drills: unknown[] }>;
@@ -1062,7 +1183,8 @@ for (const lookup of [
   });
 }
 
-Deno.test('zero-pillar policy: Pro and Elite RELEASE a fully valid result with zero assessed pillars', async () => {
+Deno.test('zero-pillar policy: paid tiers SETTLE a zero-pillar verdict, and are not charged for it', async () => {
+  // Free's single-frame path is covered separately above, against a one-frame photo body.
   for (const tier of ['pro', 'elite'] as const) {
     const h = harness([allNotAssessed()]);
     h.rpc.handlers.reserve_analysis = () => ({
@@ -1073,12 +1195,30 @@ Deno.test('zero-pillar policy: Pro and Elite RELEASE a fully valid result with z
     const res = await run(h);
 
     assertEquals(res.status, 200, `${tier} still receives the honest empty result`);
-    assertEquals(h.rpc.to('settle_analysis').length, 0, `${tier} must not charge an empty result`);
-    const release = h.rpc.to('release_analysis');
-    assertEquals(release.length, 1, `${tier} must hand the quota slot back`);
-    assertEquals(release[0].args.p_reason, 'zero_pillars_assessed');
-    assertNotEquals(release[0].args.p_reason, 'validation_failed');
+    assertEquals(h.rpc.to('settle_analysis').length, 1, `${tier} must persist every returned verdict`);
+    assertEquals(h.rpc.to('release_analysis').length, 0, `${tier} must keep the canonical claim active`);
+    assertEquals(
+      h.rpc.to('settle_analysis')[0].args.p_zero_pillar,
+      true,
+      `${tier} must settle this verdict UNCHARGED — pinned, but never counted against quota`
+    );
+    assertEquals(
+      h.rpc.to('settle_analysis')[0].args.p_result,
+      res.body.result,
+      `${tier} must persist exactly the verdict returned to the runner`
+    );
   }
+});
+
+Deno.test('zero-pillar policy: a scored verdict settles CHARGED — the exemption is not blanket', async () => {
+  const h = harness([ok()]);
+
+  assertEquals((await run(h)).status, 200);
+  assertEquals(
+    h.rpc.to('settle_analysis')[0].args.p_zero_pillar,
+    false,
+    'a real verdict must still consume the quota slot it reserved'
+  );
 });
 
 Deno.test('zero-pillar policy: at least one real score still settles normally, even if others are not assessed', async () => {
@@ -2058,9 +2198,13 @@ Deno.test('#130: settle_analysis is called with NO media paths', async () => {
   const h = harness([ok()]);
   await run(h);
 
-  // Not `[]` — absent. There is nothing to pass: the frames do not exist yet. The RPC's own
-  // `p_media_paths text[] default '{}'` covers the omission.
-  assertEquals(h.rpc.to('settle_analysis')[0].args.p_media_paths, undefined);
+  // `[]`, and explicitly so. There is still nothing to pass — the frames do not exist yet — but
+  // the six-argument overload has no defaults, so OMITTING this argument resolves to no function
+  // at all and fails every settle. This assertion is the client half of that contract; the SQL
+  // half is proven against real Postgres in `zero-pillar-uncharged-sql.deno.test.ts`. Asserting
+  // `undefined` here is exactly the CLAUDE.md failure mode where the fixture and the client agree
+  // with each other and neither agrees with the server.
+  assertEquals(h.rpc.to('settle_analysis')[0].args.p_media_paths, []);
 });
 
 Deno.test('#130: a THROWING attach_media_paths still delivers 200 and still does not release', async () => {
