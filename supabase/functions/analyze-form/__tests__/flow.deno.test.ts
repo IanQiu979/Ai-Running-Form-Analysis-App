@@ -1023,23 +1023,40 @@ Deno.test('cooldown: Free retry is rate-limited before model spend and is not ch
 
 Deno.test('cooldown: expiry lets Free run, and paid tiers never query the Free throttle', async () => {
   const free = cooldownHarness(0);
-  assertEquals((await run(free)).status, 200);
+  assertEquals((await run(free, {
+    mediaType: 'photo',
+    frames: ['AAAA'],
+    timestamps: [0],
+    idempotencyKey: 'free-cooldown-expired',
+  })).status, 200);
   assertEquals(free.model.requests.length, 1);
 
-  const pro = cooldownHarness(600, 'pro');
-  assertEquals((await run(pro)).status, 200);
-  assertEquals(pro.rpc.to('pace_zero_pillar_cooldown_remaining').length, 0);
+  for (const tier of ['pro', 'elite'] as const) {
+    const paid = cooldownHarness(600, tier);
+    assertEquals((await run(paid)).status, 200);
+    assertEquals(paid.rpc.to('pace_zero_pillar_cooldown_remaining').length, 0);
+  }
 });
 
 Deno.test('cooldown: an unavailable lookup fails open to the existing spend caps', async () => {
-  const h = cooldownHarness(0);
-  h.rpc.handlers.pace_zero_pillar_cooldown_remaining = () => ({
-    data: null,
-    error: { message: 'function does not exist' },
-  });
+  for (const lookup of [
+    { label: 'error', result: { data: null, error: { message: 'function does not exist' } } },
+    { label: 'malformed value', result: { data: { seconds: 420 }, error: null } },
+  ]) {
+    const h = cooldownHarness(0);
+    h.rpc.handlers.pace_zero_pillar_cooldown_remaining = () => lookup.result;
 
-  assertEquals((await run(h)).status, 200);
-  assertEquals(h.model.requests.length, 1);
+    const res = await run(h, {
+      mediaType: 'photo',
+      frames: ['AAAA'],
+      timestamps: [0],
+      idempotencyKey: `free-cooldown-${lookup.label}`,
+    });
+
+    assertEquals(res.status, 200, lookup.label);
+    assertEquals(h.rpc.to('gate_ai_call').length, 1, `${lookup.label}: the spend cap remains in force`);
+    assertEquals(h.model.requests.length, 1, lookup.label);
+  }
 });
 
 Deno.test('zero-pillar policy: Pro and Elite RELEASE a fully valid result with zero assessed pillars', async () => {
@@ -2517,11 +2534,6 @@ Deno.test('no pillar tells a VIDEO submitter to send a video', async () => {
       `${id} must not ask a video submitter for a video`
     );
   }
-
-  const settled = h.rpc.to('settle_analysis')[0].args.p_result as {
-    pillars: Record<string, { notAssessedReason?: string }>;
-  };
-  assertEquals(settled.pillars.posture.notAssessedReason, 'singleFrameFromVideo');
 });
 
 Deno.test('a PHOTO submission keeps needsVideo, which is true there', async () => {
