@@ -217,6 +217,7 @@ export type Database = {
           tier_at_run: Database["public"]["Enums"]["analysis_tier"]
           updated_at: string
           user_id: string
+          zero_pillar_at: string | null
         }
         Insert: {
           created_at?: string
@@ -235,6 +236,7 @@ export type Database = {
           tier_at_run: Database["public"]["Enums"]["analysis_tier"]
           updated_at?: string
           user_id: string
+          zero_pillar_at?: string | null
         }
         Update: {
           created_at?: string
@@ -253,6 +255,7 @@ export type Database = {
           tier_at_run?: Database["public"]["Enums"]["analysis_tier"]
           updated_at?: string
           user_id?: string
+          zero_pillar_at?: string | null
         }
         Relationships: [
           {
@@ -439,6 +442,7 @@ export type Database = {
           p_media_paths?: string[]
           p_result: Json
           p_user_id: string
+          p_zero_pillar: boolean
         }
         Returns: Json
       }
