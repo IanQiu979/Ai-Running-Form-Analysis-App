@@ -1568,6 +1568,42 @@ milestone "done" criteria.
     and the burst-shape rationale: `docs/change_log.md` 2026-09-07 and `lib/frames.ts`
     `sampleTimestamps`.
 
+45. **NEW — a Free zero-pillar result is now rate-limited instead of charged. 2026-09-09,
+    `fm/v23-zero-pillar-cooldown-orphaned-work`, NOT YET DEPLOYED.**
+
+    **What was wrong.** `analyze-form` *settled* (charged) an all-null result on `free` while
+    *releasing* it uncharged on `pro`/`elite`, and attributed that split to
+    `20260819120000_zero_pillar_release_reason.sql`. That attribution was wrong — cd8bf97 is a
+    blanket policy with no tier exception — so the carve-out was never the stated policy, and it
+    spent a runner's ONE lifetime analysis on a submission we could not read, which is usually a
+    framing or lighting problem rather than intent.
+
+    **What replaces it.** The same mechanism the captain already chose for the sibling Pro/Elite
+    zero-pillar decision (2026-09-06, "a resubmission rate-limit instead of a charge"), extended to
+    Free: the result is refunded like every other tier's, and a 15-minute cooldown bounds how OFTEN
+    a Free account may resubmit after one. A scripted loop is capped at four model calls an hour per
+    account; the honest retry is never blocked. `pace_zero_pillar_cooldown_remaining` is read-only
+    over rows `release_analysis` already writes — no cooldown table, no column, no state that can
+    drift from the ledger.
+
+    **This is a THIRD refusal path, and it is NOT enforced in `reserve_analysis`.** Known Issue #44
+    above is accurate for the two checks it describes (the allowance cap and issue #6's anti-farm
+    cooldown, both inside `reserve_analysis`); this one is enforced in `analyze-form` itself, before
+    the model call, returning `429 { code: 'zero_pillar_cooldown', retryAfterSeconds }`. It is
+    surfaced to clients early through `pace_quota_status`'s `blocked_reason` — the same channel #44's
+    pre-flight already reads — so a cooling-down runner is refused before extracting frames. When
+    both blocks apply the anti-farm cap wins, being the longer one.
+
+    **Verification, and its limits.** Offline only: `npm run typecheck && npm run lint && npm test`
+    clean (1558 Jest + 493 Deno), plus a PGlite proof that applies the committed migrations verbatim
+    and asserts the real Postgres behaviour — Free's zero-pillar release leaves `used` at 0 and
+    reports the cooldown until expiry, paid tiers never report it, anti-farm takes precedence. **No
+    model calls were made and neither migration has been pushed to the live project**; the two
+    migrations and the `analyze-form` redeploy are what remains before this is true in production.
+    Deploy order is self-gating: the function treats a missing lookup as "no cooldown" and fails
+    open, so it cannot write a release reason the constraint would reject.
+
+
 ## Next action
 
 **RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the

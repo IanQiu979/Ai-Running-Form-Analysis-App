@@ -9,10 +9,17 @@
 -- lifetime analysis for a result that carried nothing is also the harshest available reading of a
 -- submission we could not read — the failure is usually framing or lighting, not intent.
 --
+-- SUPERSEDED IN PART BY 20260906140000 (review ruling r8-1), which is in the same branch and must
+-- be read with this one. The two-argument shape below — caller owns the number, this function
+-- holds no policy — did not survive: `pace_quota_status` also needs the interval, to warn Home
+-- before a runner extracts frames, so the number moved INTO SQL as
+-- `public.pace_zero_pillar_cooldown_seconds()` and the authoritative lookup became one-argument.
+-- Nothing else here changed: the taxonomy addition in §2 and the read-only-over-the-ledger design
+-- are still current. Do not reintroduce a TypeScript constant for this interval.
+--
 -- WHAT REPLACES IT. A cooldown, bounding how OFTEN a free account may resubmit after a zero-pillar
--- result rather than how many times ever. 15 minutes (`FREE_ZERO_PILLAR_COOLDOWN_SECONDS` in
--- flow.ts, which owns the number — this function takes it as an argument and holds no policy of
--- its own): long enough that a scripted loop is capped at four model calls an hour per account,
+-- result rather than how many times ever. 15 minutes (justified in 20260906140000): long enough
+-- that a scripted loop is capped at four model calls an hour per account,
 -- short enough that the honest fix (film again, side-on, in better light) is never blocked by it.
 -- Deliberately far shorter than the 24h anti-farm window of
 -- 20260712220000_anti_farm_release_reason_fix.sql — this is not an abuse finding and must not read
