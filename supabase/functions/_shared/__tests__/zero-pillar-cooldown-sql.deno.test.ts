@@ -4,8 +4,10 @@
  * assertions exercise Postgres behaviour rather than matching SQL source text.
  *
  * PGlite supplies real Postgres 17 SQL, functions, constraints, and privileges. Supabase's
- * platform-owned auth schema is the only stand-in. Concurrency and PostgREST exposure are outside
- * this focused test; the function privilege checks cover the database boundary PostgREST obeys.
+ * platform-owned Auth/Storage catalogs and managed cron scheduler are narrow stand-ins. Only the
+ * unavailable extension-install statements are bypassed; every migration's public-schema DDL
+ * executes in order. Concurrency and PostgREST exposure are outside this focused test; the
+ * function privilege checks cover the database boundary PostgREST obeys.
  */
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { PGlite } from "npm:@electric-sql/pglite@0.3.12";
@@ -13,12 +15,16 @@ import { PGlite } from "npm:@electric-sql/pglite@0.3.12";
 const MIGRATIONS_DIR = new URL("../../../migrations/", import.meta.url);
 
 const LAST_MIGRATION = "20260907120000_per_user_ai_daily_cap.sql";
-const PLATFORM_ONLY_MIGRATIONS = {
-  "20260713130000_stale_reservation_sweep.sql":
-    "requires the managed pg_cron extension and cron.schedule",
-  "20260806090000_sweep_orphaned_media_cron.sql":
-    "requires managed pg_net, pg_cron, and Vault integrations",
-} as const;
+const MANAGED_EXTENSION_INSTALL_STATEMENTS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  "20260713130000_stale_reservation_sweep.sql": [
+    "create extension if not exists pg_cron with schema pg_catalog;",
+  ],
+  "20260806090000_sweep_orphaned_media_cron.sql": [
+    "create extension if not exists pg_net;",
+  ],
+};
 
 async function migrationChain(): Promise<string[]> {
   const names: string[] = [];
@@ -31,6 +37,19 @@ async function migrationChain(): Promise<string[]> {
     }
   }
   return names.sort();
+}
+
+function sqlForPGlite(name: string, source: string): string {
+  let sql = source;
+  for (const statement of MANAGED_EXTENSION_INSTALL_STATEMENTS[name] ?? []) {
+    assertEquals(
+      sql.split(statement).length - 1,
+      1,
+      `${name}'s managed-extension bypass must match exactly one statement`,
+    );
+    sql = sql.replace(statement, "");
+  }
+  return sql;
 }
 
 const PLATFORM_PRELUDE = `
@@ -63,6 +82,25 @@ const PLATFORM_PRELUDE = `
   language sql immutable as $fn$
     select string_to_array(trim(both '/' from name), '/');
   $fn$;
+
+  create schema cron;
+  create table cron.job (
+    jobid bigint generated always as identity primary key,
+    jobname text not null unique,
+    schedule text not null,
+    command text not null
+  );
+  create or replace function cron.schedule(
+    p_job_name text,
+    p_schedule text,
+    p_command text
+  ) returns bigint language sql as $fn$
+    insert into cron.job (jobname, schedule, command)
+    values (p_job_name, p_schedule, p_command)
+    on conflict (jobname) do update
+      set schedule = excluded.schedule, command = excluded.command
+    returning jobid;
+  $fn$;
 `;
 
 interface QuotaStatus {
@@ -87,14 +125,16 @@ async function freshDb(): Promise<PGlite> {
   const migrations = await migrationChain();
   assertEquals(migrations.at(-1), LAST_MIGRATION);
   assertEquals(
-    migrations.filter((name) => Object.hasOwn(PLATFORM_ONLY_MIGRATIONS, name)),
-    Object.keys(PLATFORM_ONLY_MIGRATIONS).sort(),
-    "the platform-only allowlist must be exact and contain no stale migration names",
+    migrations.filter((name) =>
+      Object.hasOwn(MANAGED_EXTENSION_INSTALL_STATEMENTS, name)
+    ),
+    Object.keys(MANAGED_EXTENSION_INSTALL_STATEMENTS).sort(),
+    "the managed-extension statement map must contain no stale migration names",
   );
 
   for (const name of migrations) {
-    if (Object.hasOwn(PLATFORM_ONLY_MIGRATIONS, name)) continue;
-    const sql = await Deno.readTextFile(new URL(name, MIGRATIONS_DIR));
+    const source = await Deno.readTextFile(new URL(name, MIGRATIONS_DIR));
+    const sql = sqlForPGlite(name, source);
     try {
       await db.exec(sql);
     } catch (error) {
@@ -208,6 +248,66 @@ Deno.test("the ordered migrations retain the cooldown release reason through the
        from public.ai_ops_config where id`,
     );
     assertEquals(cap[0], { free: "0.75", pro: "2.00", elite: "4.00" });
+  });
+});
+
+Deno.test("the cron shim still executes stale-sweep public DDL in migration order", async () => {
+  await withDb(async (db) => {
+    const { rows } = await db.query<{
+      sweep: string | null;
+      indexName: string | null;
+    }>(
+      `select
+         to_regprocedure('public.sweep_stale_reservations(interval,integer)')::text as sweep,
+         to_regclass('public.analyses_reserved_created_idx')::text as "indexName"`,
+    );
+    assert(
+      rows[0].sweep !== null,
+      "stale_reservation_sweep's service RPC must not disappear with its pg_cron setup",
+    );
+    assertEquals(rows[0].indexName, "analyses_reserved_created_idx");
+
+    for (const role of ["anon", "authenticated"]) {
+      const { rows: privilege } = await db.query<{ allowed: boolean }>(
+        `select has_function_privilege(
+           $1, 'public.sweep_stale_reservations(interval,integer)', 'EXECUTE'
+         ) as allowed`,
+        [role],
+      );
+      assertEquals(privilege[0].allowed, false);
+    }
+    const { rows: servicePrivilege } = await db.query<{ allowed: boolean }>(
+      `select has_function_privilege(
+         'service_role', 'public.sweep_stale_reservations(interval,integer)', 'EXECUTE'
+       ) as allowed`,
+    );
+    assertEquals(servicePrivilege[0].allowed, true);
+
+    const userId = await createUser(db);
+    const analysisId = await insertReserved(db, userId, "stale-reservation");
+    await db.query(
+      `update public.analyses set created_at = now() - interval '16 minutes' where id = $1`,
+      [analysisId],
+    );
+    const { rows: swept } = await db.query<{ count: number }>(
+      `select public.sweep_stale_reservations(interval '15 minutes', 500) as count`,
+    );
+    assertEquals(swept[0].count, 1);
+    const { rows: released } = await db.query<
+      { status: string; reason: string }
+    >(
+      `select status::text, release_reason as reason from public.analyses where id = $1`,
+      [analysisId],
+    );
+    assertEquals(released[0], { status: "released", reason: "stale_sweep" });
+
+    const { rows: scheduled } = await db.query<{ names: string[] }>(
+      `select array_agg(jobname order by jobname) as names from cron.job`,
+    );
+    assertEquals(scheduled[0].names, [
+      "sweep-orphaned-media-daily",
+      "sweep-stale-analysis-reservations",
+    ]);
   });
 });
 
