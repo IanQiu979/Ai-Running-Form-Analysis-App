@@ -156,13 +156,16 @@ export type AttemptFailure =
  * schema.
  *
  * `'zero_pillars_assessed'` (audit-v23-r1-decision-zero-pillar-charge-policy, added by
- * `20260819120000_zero_pillar_release_reason.sql`) is set only by `flow.ts`, not by anything in
- * this file: it covers a response that VALIDATED in full — `decideOutcome` never even sees it,
- * because it returns `kind: 'valid'` — but in which every pillar was honestly reported not
- * assessed. Nothing useful was delivered, so the captain's decision is to refund the quota slot
- * rather than charge it, while still handing the (empty) result back to the caller. It is
- * deliberately excluded from `pace_is_farming_signal` (20260712220000): an honest "I could not
- * assess anything in this clip" is not a farming signal, and must never tick the 3-strike cap. */
+ * `20260819120000_zero_pillar_release_reason.sql`) is RETAINED IN THE SCHEMA BUT NO LONGER SET.
+ * It covered a response that VALIDATED in full — `decideOutcome` never even sees it, because it
+ * returns `kind: 'valid'` — but in which every pillar was honestly reported not assessed; on
+ * Pro/Elite `flow.ts` used to refund the quota slot for it. Result pinning (2026-09-09) superseded
+ * that: an unpersisted 200 retires its canonical claim, which would let identical evidence reach
+ * the model again and come back with a different verdict — the exact launch blocker the pin
+ * exists to close. Every HTTP 200 now settles on every tier. The value stays in this union and in
+ * the DB CHECK constraint so already-written ledger rows remain readable and a rollback stays
+ * possible; it is still deliberately excluded from `pace_is_farming_signal` (20260712220000),
+ * because an honest "I could not assess anything in this clip" was never a farming signal. */
 export type ReleaseReason =
   | 'model_error'
   | 'provider_timeout'

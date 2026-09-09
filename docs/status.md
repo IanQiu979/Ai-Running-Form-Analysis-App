@@ -1410,10 +1410,13 @@ milestone "done" criteria.
     from every pillar. `overall` is recomputed only on a path that normalizes pillars (one frame or
     Free's paid-content strip); a multi-frame Pro/Elite result keeps the model's own `overall`.
     A structurally valid response that ends up assessing nothing (a photo that never shows the
-    runner, or a one-frame submission normalized down to zero assessed pillars) now `SETTLE`s for
-    Free — consuming the one lifetime slot, a deliberate asymmetry, since refunding it would turn
-    that single slot into an unlimited free-form-checking loop — but still `RELEASE`s (refunds) for
-    Pro/Elite, unchanged.
+    runner, or a one-frame submission normalized down to zero assessed pillars) `SETTLE`s on
+    **every** tier as of 2026-09-09. For Free that consumes the one lifetime slot — a deliberate
+    asymmetry, since refunding it would turn that single slot into an unlimited free-form-checking
+    loop. Pro/Elite used to `RELEASE` (refund) this case under the 2026-09-06 zero-pillar ruling;
+    result pinning superseded that, because an unpersisted 200 retires its canonical claim and lets
+    identical evidence reach the model again for a different verdict. See Known Issue #45 for the
+    determinism reasoning; `zero_pillars_assessed` is no longer a reachable release reason.
 
     Safety is a required, per-pillar structured contract, not a prompt-only hope or a prose
     classifier. Every pillar must declare `{ signal, note }` using the certified stop-running
