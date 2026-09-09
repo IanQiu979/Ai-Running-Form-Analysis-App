@@ -174,7 +174,10 @@ export type ReleaseReason =
    * tell "the provider broke" from "our new field was not honoured", and deliberately outside
    * `pace_is_farming_signal`'s vocabulary — see
    * `20260906120000_invalid_safety_release_reason.sql`. */
-  | 'invalid_safety';
+  | 'invalid_safety'
+  /** A Free resubmission refused by the zero-pillar cooldown before any model call. The reserved
+   * quota slot is released, and this remains outside the anti-farming signal vocabulary. */
+  | 'zero_pillar_cooldown';
 
 // -------------------------------------------------------------------------------------------
 // Score bands — the ONE piece of arithmetic this module does, and why it is not fabrication

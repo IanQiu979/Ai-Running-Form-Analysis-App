@@ -38,8 +38,10 @@
  */
 import { Copy } from '@/constants/copy';
 
+import { cooldownEndsAt } from './cooldown';
 import { describeCooldownRemaining } from './cooldown-remaining';
 import { invokeFunction } from './functions-client';
+import { isBlockedReason } from '@shared/quota-status';
 import type { BlockedReason, QuotaStatus, SubscriptionTier } from '@shared/quota-status';
 
 export type { BlockedReason, QuotaStatus, SubscriptionTier };
@@ -118,7 +120,7 @@ export function parseQuotaStatusResponse(body: unknown): QuotaStatus | null {
 
   const blocked = unlimited ? false : Boolean(record.blocked);
   const blockedReason: BlockedReason | null =
-    blocked && record.blockedReason === 'too_many_failed_attempts' ? 'too_many_failed_attempts' : null;
+    blocked && isBlockedReason(record.blockedReason) ? record.blockedReason : null;
 
   return {
     tier,
@@ -250,6 +252,15 @@ export function describeQuota(quota: QuotaStatus, now: number = Date.now()): Quo
   const primary = describePrimaryCaption(quota);
 
   if (quota.blocked) {
+    if (quota.blockedReason === 'zero_pillar_cooldown') {
+      const time = cooldownEndsAt(quota.blockedUntil, new Date(now));
+      return {
+        primary,
+        secondary: time
+          ? Copy.home.quota.zeroPillarCooldown.replace('{time}', time)
+          : Copy.home.quota.blocked,
+      };
+    }
     // The same `blocked_until` the analysis pre-flight reads (`lib/analysis-preflight.ts`), used
     // here so Home is the EARLIEST surface that says how long is left rather than an open-ended
     // "later". `describeCooldownRemaining` returns null for a missing, unparsable, or already-past

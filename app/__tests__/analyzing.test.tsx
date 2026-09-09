@@ -218,3 +218,106 @@ describe('AnalyzingScreen terminal branches', () => {
     expect(mockSubmit).toHaveBeenCalledTimes(1); // pressing sign-out must not resubmit the form
   });
 });
+
+/**
+ * The Free zero-pillar cooldown's 429 (review r8-1). Before this branch existed the response fell
+ * into the generic panel, which says "Your analysis failed / the analysis service didn't return a
+ * usable result" — false on every count, since the cooldown is refused before any model call — and
+ * offered a Retry that reuses this request's idempotency key and can only ever come back 409.
+ */
+describe('AnalyzingScreen — the zero-pillar cooldown 429', () => {
+  const COOLDOWN_ERROR = {
+    ok: false as const,
+    error: {
+      error: 'Nothing in that last clip could be read.',
+      code: 'zero_pillar_cooldown',
+      retryAfterSeconds: 900,
+    },
+  };
+
+  it("states the server's own reason and when to come back — never the generic failure copy", async () => {
+    mockSubmit.mockResolvedValue(COOLDOWN_ERROR);
+
+    await render(<AnalyzingScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(Copy.analyzing.error.zeroPillarCooldown.title)).toBeTruthy()
+    );
+    const body = screen.getByText(/Nothing in that last clip could be read\./);
+    // The server's sentence, verbatim, and a clock time — not a duration that goes stale on screen.
+    expect(body.props.children).toContain('Nothing in that last clip could be read.');
+    expect(body.props.children).toMatch(/You can try again at .+\.$/);
+    expect(screen.queryByLabelText(Copy.analyzing.error.failed.title)).toBeNull();
+    expect(screen.queryByText(Copy.analyzing.error.failed.body)).toBeNull();
+  });
+
+  it('offers no button that cannot work — no Retry, no "start a new analysis"', async () => {
+    mockSubmit.mockResolvedValue(COOLDOWN_ERROR);
+
+    await render(<AnalyzingScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(Copy.analyzing.error.zeroPillarCooldown.title)).toBeTruthy()
+    );
+    expect(screen.queryByText(Copy.analyzing.error.cta.retry)).toBeNull();
+    expect(screen.queryByText(Copy.analyzing.error.cta.startNew)).toBeNull();
+    expect(screen.getByText(Copy.analyzing.error.cta.backHome)).toBeTruthy();
+  });
+
+  it('names no time at all when the server sent none, rather than inventing one', async () => {
+    mockSubmit.mockResolvedValue({
+      ok: false,
+      error: { error: 'Nothing in that last clip could be read.', code: 'zero_pillar_cooldown' },
+    });
+
+    await render(<AnalyzingScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(Copy.analyzing.error.zeroPillarCooldown.title)).toBeTruthy()
+    );
+    expect(screen.getByText(/Give it a few minutes and try again\.$/)).toBeTruthy();
+  });
+
+  /**
+   * Skew insurance, not a path the current server takes: its 429 always carries a sentence. But
+   * this code is excluded from the generic retryable branch, so a body whose `error` is blank must
+   * still produce a panel — the alternative is not worse copy, it is a screen with no text and no
+   * way off it, on the one path that has already removed Retry and "start a new analysis".
+   */
+  it.each([
+    ['an empty sentence', ''],
+    ['a whitespace-only sentence', '   '],
+  ])('still renders a panel with a way out when the server sends %s', async (_label, error) => {
+    mockSubmit.mockResolvedValue({
+      ok: false,
+      error: { error, code: 'zero_pillar_cooldown', retryAfterSeconds: 900 },
+    });
+
+    await render(<AnalyzingScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(Copy.analyzing.error.zeroPillarCooldown.title)).toBeTruthy()
+    );
+    // The deck's own lead sentence stands in, and the clock time the server DID send survives.
+    const body = screen.getByText(
+      new RegExp(Copy.analyzing.error.zeroPillarCooldown.fallbackMessage)
+    );
+    expect(body.props.children).toMatch(/You can try again at .+\.$/);
+    // The exit is the point: without it this state traps the user.
+    expect(screen.getByText(Copy.analyzing.error.cta.backHome)).toBeTruthy();
+    expect(screen.queryByLabelText(Copy.analyzing.error.failed.title)).toBeNull();
+  });
+
+  it('leaves Home to state the same wait — the panel is the backstop, not the gate', async () => {
+    mockSubmit.mockResolvedValue(COOLDOWN_ERROR);
+
+    await render(<AnalyzingScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(Copy.analyzing.error.zeroPillarCooldown.title)).toBeTruthy()
+    );
+    // Pressing the one action leaves this screen instead of resubmitting.
+    fireEvent.press(screen.getByText(Copy.analyzing.error.cta.backHome));
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
+  });
+});

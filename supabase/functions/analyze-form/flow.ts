@@ -191,6 +191,23 @@ export const MIN_RETRY_BUDGET_MS = 80_000;
  * self-classifies as `model_error`, never as a farming strike. */
 export const MIN_CONTENT_RETRY_BUDGET_MS = 20_000;
 
+/**
+ * THE FREE ZERO-PILLAR COOLDOWN — the replacement for the Free-specific charge that used to sit on
+ * the zero-pillars branch (see §9.5). That carve-out bounded the free-form-checking loop by TOTAL
+ * count — one blank result and Free's single lifetime analysis was gone — which punished the
+ * honest case (a badly framed clip) exactly as hard as the abusive one. A cooldown bounds the same
+ * loop by FREQUENCY instead, which is the axis the worry was actually about.
+ *
+ * THE INTERVAL IS NOT DECLARED HERE. It lives in `public.pace_zero_pillar_cooldown_seconds()`
+ * (`20260906140000_quota_status_zero_pillar_cooldown.sql`, 15 minutes, justified there) because
+ * two callers need it: this function, to refuse, and `pace_quota_status`, to warn Home BEFORE a
+ * runner extracts frames and uploads them. A TypeScript constant passed into one of them would be
+ * a second source of truth, and the drift it invites is Home saying "try again at 3:15" while the
+ * server refuses until 3:30.
+ *
+ * Free only. Pro/Elite pay per period and their zero-pillar refund is already bounded by quota.
+ */
+
 /** The client sends raw base64 with no per-frame media type (`lib/analyze-form.ts`'s wire shape is
  * `frames: string[]`), and `lib/frames.ts` emits JPEG at q≈0.7. Both the vision call and the
  * Storage upload therefore assume JPEG. If the extractor ever emits another format, the wire
@@ -453,6 +470,44 @@ async function reserveAnalysis(
     throw new Error(`${fn} failed: ${error.message}`);
   }
   return data as ReserveResult;
+}
+
+/**
+ * Seconds still to wait before this user may resubmit after a zero-pillar result, or 0.
+ *
+ * FAILS OPEN, deliberately. `pace_zero_pillar_cooldown_remaining`
+ * (`20260906130000_free_zero_pillar_cooldown.sql`, narrowed to one argument by
+ * `20260906140000_quota_status_zero_pillar_cooldown.sql`) is a read-only lookup over rows `release_
+ * analysis` already writes — it holds no state of its own and adds no counter. If it is missing
+ * (the function deployed ahead of its migration) or errors, this returns 0 and the request runs:
+ * a throttle is not worth failing a legitimate analysis over, and the un-throttled behaviour is
+ * exactly the blanket no-charge policy Pro/Elite already get. That also means the
+ * `'zero_pillar_cooldown'` release reason is never written before the migration that permits it
+ * exists — the reason and the function that produces it land in the same migration.
+ */
+async function zeroPillarCooldownRemaining(
+  deps: AnalyzeFormDeps,
+  userId: string,
+  requestId: string,
+  userIdHash: string
+): Promise<number> {
+  try {
+    const { data, error } = await deps.rpc.rpc('pace_zero_pillar_cooldown_remaining', {
+      p_user_id: userId,
+    });
+    if (error) throw new Error(error.message);
+    return typeof data === 'number' && Number.isFinite(data) && data > 0 ? Math.ceil(data) : 0;
+  } catch (err) {
+    logEvent({
+      level: 'warn',
+      fn: 'analyze-form',
+      event: 'zero_pillar_cooldown_unavailable',
+      requestId,
+      userId: userIdHash,
+      errorClass: errorClassOf(err),
+    });
+    return 0;
+  }
 }
 
 async function settleAnalysis(
@@ -812,6 +867,34 @@ export async function runAnalyzeForm(
     reservation = analysisId;
     const modelDeadline = Math.min(now() + ANALYZE_FORM_DEADLINE_MS, requestDeadline);
 
+    // Free zero-pillar cooldown: after the fresh reserve establishes the server-derived tier and
+    // before the prompt/model call. `finally` releases this reservation and cancels the open AI
+    // gate row at $0 when a retry is refused.
+    if (tier === 'free') {
+      const cooldownSeconds = await zeroPillarCooldownRemaining(
+        deps,
+        callerUserId,
+        requestId,
+        userIdHash
+      );
+      if (cooldownSeconds > 0) {
+        releaseReason = 'zero_pillar_cooldown';
+        outcome = 'zero_pillar_cooldown';
+        return (response = {
+          status: 429,
+          body: {
+            // ONE SHORT SENTENCE, and no more (captain's standing style rule). The client owns
+            // saying WHEN — it renders this alongside a clock time derived from
+            // `retryAfterSeconds` — and neither surface explains the throttle's purpose: a runner
+            // whose clip could not be read is not an abuser and must not be addressed as one.
+            error: 'Nothing in that last clip could be read.',
+            code: 'zero_pillar_cooldown',
+            retryAfterSeconds: cooldownSeconds,
+          },
+        });
+      }
+    }
+
     // ── 6/7. The grounded prompt (#41). Server-derived tier; never the client's word for it. ──
     // Both facts go to the builder — what the runner SENT (`mediaType`) and what actually reached
     // us (`frames`) — and `analyze-form-prompt.ts` keeps them apart: one attached frame gets the
@@ -1042,27 +1125,36 @@ export async function runAnalyzeForm(
       tier,
     });
 
-    // ── 9.5. Captain decision (audit-v23-r1-decision-zero-pillar-charge-policy). ────────────
+    // ── 9.5. No charge for a zero-pillar result on any tier. ───────────────────────────────
     //
     // A response can reach here fully structurally VALID (`decideOutcome` returned `kind:
     // 'valid'`, never even touching the >= 1-assessed-pillar bar that gates the 'partial' branch
     // above) and yet assess NOTHING — every pillar honestly `score: null`, e.g. a clip that never
     // actually shows the runner, OR a one-frame submission whose only assessed pillars were
     // Cadence/Elasticity before normalization forced them to `needsVideo`. That is a real,
-    // well-formed result the user got zero usable information from. For Pro/Elite,
-    // `release_analysis` hands the quota slot back (same mechanism `'validation_failed'`/
-    // `'model_error'` failures already use), while the computed `normalizedResult` — never
-    // persisted — is still returned to the caller below, so the request is NOT failed outright.
-    // Free instead SETTLES a zero-pillar result (2026-09-06 ruling): Free has exactly one lifetime
-    // delivered analysis, and refunding a blank/unusable submission would turn that single slot
-    // into an unlimited free-form-checking loop. `'zero_pillars_assessed'` is excluded from
-    // `pace_is_farming_signal` (20260712220000) either way, so this never ticks the 3-strike
-    // anti-farm cap: an honest "nothing to see here" is not an attack.
+    // well-formed result the user got zero usable information from, so `release_analysis` hands
+    // the quota slot back (the same mechanism `'validation_failed'`/`'model_error'` already use)
+    // while the computed `normalizedResult` — never persisted — is still returned to the caller
+    // below, so the request is NOT failed outright.
+    //
+    // THE POLICY IS BLANKET, WITH NO FREE EXCEPTION. It is cd8bf97 (PR #194, 2026-08-19,
+    // `20260819120000_zero_pillar_release_reason.sql`) — the decision that named
+    // `'zero_pillars_assessed'` — and that decision has never carved Free out. An earlier version
+    // of this branch settled Free's one lifetime slot on a blank result and attributed the carve-
+    // out to that same decision name under a 2026-09-06 date; that attribution was false, and
+    // charging a runner their ONLY analysis for a result carrying nothing is the harshest possible
+    // reading of a submission we could not read. The free-form-checking-loop worry the carve-out
+    // existed for is answered by frequency instead — see the zero-pillar cooldown above, enforced
+    // before the model is ever called and surfaced on Home before a frame is even extracted.
+    //
+    // `'zero_pillars_assessed'` is excluded from `pace_is_farming_signal` (20260712220000), so
+    // this never ticks the 3-strike anti-farm cap: an honest "nothing to see here" is not an
+    // attack.
     const assessedPillarCount = PACE_PILLARS.filter(
       (id) => normalizedResult.pillars[id].score !== null
     ).length;
 
-    if (assessedPillarCount === 0 && tier !== 'free') {
+    if (assessedPillarCount === 0) {
       releaseReason = 'zero_pillars_assessed';
       outcome = 'zero_pillars_assessed';
       return (response = {

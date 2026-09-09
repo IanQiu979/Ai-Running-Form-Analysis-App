@@ -71,6 +71,7 @@ class FakeRpc implements RpcClient {
     settle_analysis: () => ({ data: { ok: true }, error: null }),
     attach_media_paths: () => ({ data: { ok: true }, error: null }),
     release_analysis: () => ({ data: { ok: true }, error: null }),
+    pace_zero_pillar_cooldown_remaining: () => ({ data: 0, error: null }),
   };
 
   // deno-lint-ignore require-await
@@ -926,9 +927,8 @@ Deno.test('rule 3: the anti-farming refusal is a 429, not a paywall 402', async 
 });
 
 // ===========================================================================
-// A fully valid all-not-assessed result is still an honest model result. Free has only one
-// lifetime analysis, so settling it prevents repeated zero-evidence submissions from becoming an
-// unlimited model-spend bypass. Pro/Elite retain the existing refund policy.
+// A fully valid all-not-assessed result is still an honest model result. Every tier releases it
+// uncharged; Free's repeated-submission risk is bounded by the cooldown below instead.
 // ===========================================================================
 
 /** A fully valid but ADVERSARIAL zero-pillar response: every pillar honestly not-assessed, yet the
@@ -955,7 +955,7 @@ function allNotAssessedWithStrayContent(): ModelCallResult {
   });
 }
 
-Deno.test('zero-pillar policy: Free SETTLES a fully valid result with zero assessed pillars', async () => {
+Deno.test('zero-pillar policy: Free RELEASES a fully valid result with zero assessed pillars', async () => {
   const h = harness([allNotAssessedWithStrayContent()]);
   // `reserve_analysis` is the ONLY source of tier — there is no pre-reserve lookup to disagree
   // with it. Its 'free' is the value the settlement policy must use.
@@ -972,9 +972,11 @@ Deno.test('zero-pillar policy: Free SETTLES a fully valid result with zero asses
   });
 
   assertEquals(res.status, 200);
-  assertEquals(res.body.analysisId, ANALYSIS_ID, 'Free must receive the persisted row id');
-  assertEquals(h.rpc.to('settle_analysis').length, 1, 'the one lifetime Free slot is consumed');
-  assertEquals(h.rpc.to('release_analysis').length, 0, 'Free zero-pillar results are not refunded');
+  assertEquals(res.body.analysisId, ANALYSIS_ID, 'Free receives the reservation id with the result body');
+  assertEquals(h.rpc.to('settle_analysis').length, 0, 'an empty result never consumes the lifetime slot');
+  const releases = h.rpc.to('release_analysis');
+  assertEquals(releases.length, 1, 'Free receives the same zero-pillar refund as paid tiers');
+  assertEquals(releases[0].args.p_reason, 'zero_pillars_assessed');
 
   const result = res.body.result as {
     pillars: Record<string, { score: number | null; flags: unknown[]; drills: unknown[] }>;
@@ -986,12 +988,79 @@ Deno.test('zero-pillar policy: Free SETTLES a fully valid result with zero asses
     assertEquals(result.pillars[id].drills, [], `${id}: Free strips drills even when the model attached them`);
   }
   assertEquals(result.overall, { score: null, band: null }, 'no pillar survived, so overall stays null');
-  assertEquals(
-    h.rpc.to('settle_analysis')[0].args.p_result,
-    result,
-    'exactly what was returned is exactly what was persisted'
-  );
 });
+
+function cooldownHarness(remainingSeconds: unknown, tier = 'free') {
+  const h = harness([ok()]);
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
+    error: null,
+  });
+  h.rpc.handlers.pace_zero_pillar_cooldown_remaining = () => ({ data: remainingSeconds, error: null });
+  return h;
+}
+
+Deno.test('cooldown: Free retry is rate-limited before model spend and is not charged', async () => {
+  const h = cooldownHarness(420);
+  const res = await run(h, {
+    mediaType: 'photo',
+    frames: ['AAAA'],
+    timestamps: [0],
+    idempotencyKey: 'free-cooldown',
+  });
+
+  assertEquals(res.status, 429);
+  assertEquals(res.body.code, 'zero_pillar_cooldown');
+  assertEquals(res.body.retryAfterSeconds, 420);
+  assertEquals(h.rpc.to('pace_zero_pillar_cooldown_remaining')[0].args, { p_user_id: CALLER });
+  assertEquals(h.model.requests.length, 0, 'the model is never called inside the cooldown');
+  assertEquals(h.rpc.to('settle_analysis').length, 0, 'the lifetime slot is never charged');
+  assertEquals(h.rpc.to('release_analysis')[0].args.p_reason, 'zero_pillar_cooldown');
+  const records = h.rpc.to('record_ai_call');
+  assertEquals(records.length, 1);
+  assertEquals(records[0].args.p_status, 'cancelled', 'the pre-model AI gate hold is cancelled at $0');
+});
+
+Deno.test('cooldown: expiry lets Free run, and paid tiers never query the Free throttle', async () => {
+  const free = cooldownHarness(0);
+  assertEquals((await run(free, {
+    mediaType: 'photo',
+    frames: ['AAAA'],
+    timestamps: [0],
+    idempotencyKey: 'free-cooldown-expired',
+  })).status, 200);
+  assertEquals(free.model.requests.length, 1);
+
+  for (const tier of ['pro', 'elite'] as const) {
+    const paid = cooldownHarness(600, tier);
+    assertEquals((await run(paid)).status, 200);
+    assertEquals(paid.rpc.to('pace_zero_pillar_cooldown_remaining').length, 0);
+  }
+});
+
+for (const lookup of [
+  { label: 'error', result: { data: null, error: { message: 'function does not exist' } } },
+  { label: 'malformed object', result: { data: { seconds: 420 }, error: null } },
+  { label: 'coercible string', result: { data: '420', error: null } },
+  { label: 'coercible boolean', result: { data: true, error: null } },
+  { label: 'coercible array', result: { data: [420], error: null } },
+]) {
+  Deno.test(`cooldown: ${lookup.label} lookup fails open to the existing spend caps`, async () => {
+    const h = cooldownHarness(0);
+    h.rpc.handlers.pace_zero_pillar_cooldown_remaining = () => lookup.result;
+
+    const res = await run(h, {
+      mediaType: 'photo',
+      frames: ['AAAA'],
+      timestamps: [0],
+      idempotencyKey: `free-cooldown-${lookup.label}`,
+    });
+
+    assertEquals(res.status, 200, lookup.label);
+    assertEquals(h.rpc.to('gate_ai_call').length, 1, `${lookup.label}: the spend cap remains in force`);
+    assertEquals(h.model.requests.length, 1, lookup.label);
+  });
+}
 
 Deno.test('zero-pillar policy: Pro and Elite RELEASE a fully valid result with zero assessed pillars', async () => {
   for (const tier of ['pro', 'elite'] as const) {
@@ -2468,11 +2537,6 @@ Deno.test('no pillar tells a VIDEO submitter to send a video', async () => {
       `${id} must not ask a video submitter for a video`
     );
   }
-
-  const settled = h.rpc.to('settle_analysis')[0].args.p_result as {
-    pillars: Record<string, { notAssessedReason?: string }>;
-  };
-  assertEquals(settled.pillars.posture.notAssessedReason, 'singleFrameFromVideo');
 });
 
 Deno.test('a PHOTO submission keeps needsVideo, which is true there', async () => {

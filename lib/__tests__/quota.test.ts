@@ -106,6 +106,13 @@ const ELITE_BLOCKED: QuotaStatus = {
   blockedUntil: '2026-07-14T00:00:00.000Z',
 };
 
+const FREE_ZERO_PILLAR_COOLDOWN: QuotaStatus = {
+  ...FREE_AVAILABLE,
+  blocked: true,
+  blockedReason: 'zero_pillar_cooldown',
+  blockedUntil: '2026-09-06T15:15:00.000Z',
+};
+
 describe('parseQuotaStatusResponse', () => {
   it.each([
     ['free, unused', FREE_AVAILABLE],
@@ -114,6 +121,7 @@ describe('parseQuotaStatusResponse', () => {
     // `_shared/quota-status.ts`'s own header calls this case out by name as one #54 must render
     // honestly rather than collapse into a single boolean.
     ['elite, remaining but anti-farm blocked', ELITE_BLOCKED],
+    ['free, zero-pillar cooldown', FREE_ZERO_PILLAR_COOLDOWN],
     ['temporary unlimited Elite override', UNLIMITED_ELITE],
   ])('parses a well-formed %s response', (_label, quota) => {
     expect(parseQuotaStatusResponse({ ...quota })).toEqual(quota);
@@ -325,6 +333,18 @@ describe('describeQuota', () => {
     const caption = describeQuota(ELITE_BLOCKED, twoHoursBefore);
     expect(caption.primary).toBe('28 of 30 analyses left this period');
     expect(caption.secondary).toBe(Copy.home.quota.blockedFor.replace('{remaining}', 'about 2 hours'));
+  });
+
+  it('renders a non-accusatory zero-pillar cooldown sentence with the server expiry', () => {
+    const caption = describeQuota(
+      FREE_ZERO_PILLAR_COOLDOWN,
+      Date.parse('2026-09-06T15:05:00.000Z')
+    );
+    expect(caption.secondary).toMatch(
+      /^Nothing in your last clip could be read\. You can try again at /
+    );
+    expect(caption.secondary).not.toContain('Several recent analyses');
+    expect(isPrimaryCtaEnabled(FREE_ZERO_PILLAR_COOLDOWN)).toBe(false);
   });
 
   // Home is the earliest surface that can say how long is left, and it says it from the SAME

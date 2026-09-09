@@ -136,7 +136,13 @@ export function captionPhaseForElapsed(elapsedMs: number): AnalyzingCaptionPhase
 export type AnalyzingState =
   | { phase: 'waiting'; attempt: number }
   | { phase: 'succeeded'; outcome: PaceAnalysisOutcome; analysisId: string }
-  | { phase: 'failed'; attempt: number; code?: AnalyzeFormError['code'] }
+  | {
+      phase: 'failed';
+      attempt: number;
+      code?: AnalyzeFormError['code'];
+      message?: AnalyzeFormError['error'];
+      retryAfterSeconds?: AnalyzeFormError['retryAfterSeconds'];
+    }
   | { phase: 'timedOut'; attempt: number }
   | { phase: 'offline'; attempt: number }
   | { phase: 'released'; analysisId: string };
@@ -150,7 +156,16 @@ export type AnalyzingEvent =
    * `AnalyzingState`'s `failed` doc comment above for what carries it and what doesn't, and why
    * this reducer never inspects the value itself.
    */
-  | { type: 'failed'; attempt: number; code?: AnalyzeFormError['code'] }
+  | {
+      type: 'failed';
+      attempt: number;
+      code?: AnalyzeFormError['code'];
+      /** The server's own sentence, carried untouched. Only the panels that quote it read it —
+       * every other failure branch renders its own copy-deck string, because a server message is
+       * not guaranteed to be written for a reader. */
+      message?: AnalyzeFormError['error'];
+      retryAfterSeconds?: AnalyzeFormError['retryAfterSeconds'];
+    }
   | { type: 'timedOut'; attempt: number }
   /**
    * Issue #93: dispatched by `app/analyzing.tsx`'s submit effect when its pre-flight
@@ -191,7 +206,13 @@ export function analyzingReducer(state: AnalyzingState, event: AnalyzingEvent): 
         : state;
     case 'failed':
       return isCurrentAttempt(state, event.attempt)
-        ? { phase: 'failed', attempt: event.attempt, code: event.code }
+        ? {
+            phase: 'failed',
+            attempt: event.attempt,
+            code: event.code,
+            message: event.message,
+            retryAfterSeconds: event.retryAfterSeconds,
+          }
         : state;
     case 'timedOut':
       return isCurrentAttempt(state, event.attempt) ? { phase: 'timedOut', attempt: event.attempt } : state;

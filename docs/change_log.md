@@ -5,6 +5,69 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-09 (Free zero-pillar: a cooldown instead of a charge)
+
+**On `fm/v23-zero-pillar-cooldown-orphaned-work`, not yet merged to `main`.** Recovered work,
+rebased onto current `main`. No model calls were made; every claim below is verified offline
+(Deno/Jest) or against real Postgres via PGlite.
+
+- **A Free zero-pillar result no longer costs the lifetime analysis.** `analyze-form` used to
+  *settle* (charge) an all-null result on `free` while *releasing* it uncharged on `pro`/`elite`.
+  That split was attributed to `20260819120000_zero_pillar_release_reason.sql`, which is in fact a
+  blanket policy with no tier exception — so the carve-out was never the stated policy. Free now
+  takes the same `release_analysis` refund under `zero_pillars_assessed` that the paid tiers
+  already took. Charging someone their one lifetime analysis for a submission we could not read is
+  the harshest available reading of what is usually a framing or lighting problem.
+- **What the charge used to defend against is answered by FREQUENCY instead.** New
+  `pace_zero_pillar_cooldown_remaining(uuid, integer)`
+  (`20260906130000_free_zero_pillar_cooldown.sql`): after a `zero_pillars_assessed` release, a Free
+  account waits 15 minutes before another submission is accepted. That interval lives in exactly
+  one place, `public.pace_zero_pillar_cooldown_seconds()`, because two callers need it —
+  `analyze-form` to refuse and `pace_quota_status` to warn — and a TypeScript constant passed into
+  one of them would be the second source of truth that lets Home say "try again at 3:15" while the
+  server refuses until 3:30. That caps a scripted loop at four
+  model calls an hour per account while never blocking the honest fix of filming again, side-on, in
+  better light. Deliberately far shorter than the 24h anti-farm window, because this is not an
+  abuse finding and must not read like one.
+- **No new counter and no new schema.** The lookup is read-only over rows `release_analysis`
+  already writes: the cooldown IS the ledger, read back, so there is no state that can drift from
+  it. `zero_pillar_cooldown` joins the `analyses_release_reason_known_values` taxonomy as a
+  superset-only change, and is not a farming signal.
+- **The refusal happens BEFORE any model spend.** A resubmission inside the window returns
+  `429 { code: 'zero_pillar_cooldown', retryAfterSeconds }`, hands its reservation straight back
+  (`release_analysis`, reason `zero_pillar_cooldown`), and cancels the pre-model AI-gate hold at
+  $0. The lookup fails OPEN on an error or any non-`number` payload — a throttle we cannot read
+  must never become an outage, and the existing spend caps stay in force underneath it.
+- **It is reported early, on the channel that already exists.** `pace_quota_status` gains
+  `zero_pillar_cooldown` as a second `blocked_reason`
+  (`20260906140000_quota_status_zero_pillar_cooldown.sql`), so Home and the analysis pre-flight can
+  refuse before the device extracts frames and uploads megabytes it is about to be told to discard.
+  When both blocks apply the anti-farm cap wins — it is the longer one, so its `blocked_until` is
+  the only instant at which anything actually works. `BlockedReason` widened to a union with one
+  narrowing helper, `isBlockedReason`, replacing the two hand-written string equality checks.
+- **Copy states a clock time, never a countdown.** New `lib/cooldown.ts` (`cooldownEndsAt` from
+  `quota-status`'s `blockedUntil`, `cooldownEndsIn` from the 429's `retryAfterSeconds`) formats
+  "at 3:42 PM" rather than "in 14 minutes", because a duration is stale the moment it renders and
+  turns a lingering panel into a lie. It returns `null` — never a guess, never "soon" — for a
+  missing, unparsable, non-finite, or already-past value. This is distinct from
+  `lib/cooldown-remaining.ts`, which still produces the deliberately coarse duration phrase for the
+  anti-farm window; the two blocks have different precision and get different wording.
+- **The cooldown panel degrades instead of trapping.** Its lead sentence comes from the server's
+  429, and `buildCooldownBody` returned `null` when that sentence was missing or blank. Because
+  this code deliberately excludes itself from the generic retryable branch (a Retry there reuses
+  the idempotency key and can only 409), a `null` body rendered NO panel and NO CTA — a screen with
+  no way off it, on the one path that has already removed both other exits. It now falls back to a
+  deck-owned sentence and always renders. Not reachable against the current server, which always
+  sends the sentence; the point is that Known Issue #39 is precisely a client and a deployed server
+  disagreeing about a body while every offline test agrees with itself, and the failure mode here
+  was a trap rather than worse wording. Locked by two cases in `app/__tests__/analyzing.test.tsx`.
+- **Proven against real Postgres, not a regex over the migration.**
+  `supabase/functions/_shared/__tests__/zero-pillar-cooldown-sql.deno.test.ts` applies the
+  committed migrations verbatim to PGlite and asserts the whole loop: a Free `zero_pillars_assessed`
+  release leaves `used` at 0 (not charged) and reports `blocked_reason = 'zero_pillar_cooldown'`
+  with `blocked_until` at +15 minutes, which clears one second past expiry; paid tiers never report
+  it; and the anti-farm block takes precedence when both apply.
+
 ## 2026-09-08 (review pass on the analysis-limit path)
 
 **On `fm/v23-free-tier-real-analysis`, not yet merged to `main`.** Follow-ups from the review of
