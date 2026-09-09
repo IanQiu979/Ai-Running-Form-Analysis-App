@@ -52,6 +52,15 @@ rebased onto current `main`. No model calls were made; every claim below is veri
   missing, unparsable, non-finite, or already-past value. This is distinct from
   `lib/cooldown-remaining.ts`, which still produces the deliberately coarse duration phrase for the
   anti-farm window; the two blocks have different precision and get different wording.
+- **The cooldown panel degrades instead of trapping.** Its lead sentence comes from the server's
+  429, and `buildCooldownBody` returned `null` when that sentence was missing or blank. Because
+  this code deliberately excludes itself from the generic retryable branch (a Retry there reuses
+  the idempotency key and can only 409), a `null` body rendered NO panel and NO CTA — a screen with
+  no way off it, on the one path that has already removed both other exits. It now falls back to a
+  deck-owned sentence and always renders. Not reachable against the current server, which always
+  sends the sentence; the point is that Known Issue #39 is precisely a client and a deployed server
+  disagreeing about a body while every offline test agrees with itself, and the failure mode here
+  was a trap rather than worse wording. Locked by two cases in `app/__tests__/analyzing.test.tsx`.
 - **Proven against real Postgres, not a regex over the migration.**
   `supabase/functions/_shared/__tests__/zero-pillar-cooldown-sql.deno.test.ts` applies the
   committed migrations verbatim to PGlite and asserts the whole loop: a Free `zero_pillars_assessed`

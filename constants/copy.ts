@@ -445,6 +445,13 @@ export const Copy = {
         title: 'Nothing to read yet',
         body: '{message} You can try again at {time}.',
         bodyUnknownTime: '{message} Give it a few minutes and try again.',
+        // The lead sentence normally comes from the server (its 429 owns the one-sentence style
+        // rule). This is the local stand-in for the one case that would otherwise render NOTHING:
+        // a body carrying this `code` with a blank `error`. The panel excludes itself from the
+        // generic retryable branch, so an empty body there is not a worse message — it is no
+        // panel and no CTA at all, on a screen whose other exits are gone. Deliberately says only
+        // what the code itself already tells us, and never guesses a time.
+        fallbackMessage: 'Nothing in your last clip could be read.',
       },
       cta: {
         // The deck says "Reuse shared.cta.retry" / "shared.cta.cancel" — no Copy.shared

@@ -388,9 +388,9 @@ export default function AnalyzingScreen() {
   // clock time its `retryAfterSeconds` names — and no time at all when that field was unreadable,
   // because a guessed "try again at" is worse than none. Computed once per render off state the
   // panel already has; nothing here counts down or re-derives the server's decision.
-  const cooldownBody =
+  const cooldown =
     state.phase === 'failed' && state.code === 'zero_pillar_cooldown'
-      ? buildCooldownBody(state.message, cooldownEndsIn(state.retryAfterSeconds))
+      ? { body: buildCooldownBody(state.message, cooldownEndsIn(state.retryAfterSeconds)) }
       : null;
 
   // L7 follow-up (v23-ux-audit-r1, review-1): the `unauthorized` panel's copy tells the user to
@@ -600,11 +600,11 @@ export default function AnalyzingScreen() {
             the same cooldown. Neither button can work inside the window, so neither is offered —
             the one honest way forward is out of this screen. Home states the same wait, from
             `quota-status`'s `blockedUntil`, before a frame is ever extracted. */}
-        {state.phase === 'failed' && state.code === 'zero_pillar_cooldown' && cooldownBody && (
+        {cooldown && (
           <ErrorPanel
             styles={styles}
             title={Copy.analyzing.error.zeroPillarCooldown.title}
-            body={cooldownBody}
+            body={cooldown.body}
             primary={{ label: Copy.analyzing.error.cta.backHome, onPress: handleCancel }}
           />
         )}
@@ -687,9 +687,14 @@ export default function AnalyzingScreen() {
  * message at all, which is the caller's signal to render nothing rather than a sentence with a
  * hole in it.
  */
-function buildCooldownBody(message: string | undefined, time: string | null): string | null {
-  const sentence = message?.trim();
-  if (!sentence) return null;
+function buildCooldownBody(message: string | undefined, time: string | null): string {
+  // Falls back to the deck's own sentence rather than returning nothing. The server always sends
+  // one today, so this is skew insurance — but the failure it insures against is not a worse
+  // message, it is a panel that never renders: this code is excluded from the generic retryable
+  // branch below, so an empty body would leave the screen with no text and no way off it. Known
+  // Issue #39's lesson is that a client and a deployed server CAN disagree about a body while
+  // every offline test agrees with itself.
+  const sentence = message?.trim() || Copy.analyzing.error.zeroPillarCooldown.fallbackMessage;
   const template = time
     ? Copy.analyzing.error.zeroPillarCooldown.body.replace('{time}', time)
     : Copy.analyzing.error.zeroPillarCooldown.bodyUnknownTime;

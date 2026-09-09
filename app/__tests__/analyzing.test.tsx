@@ -278,6 +278,36 @@ describe('AnalyzingScreen — the zero-pillar cooldown 429', () => {
     expect(screen.getByText(/Give it a few minutes and try again\.$/)).toBeTruthy();
   });
 
+  /**
+   * Skew insurance, not a path the current server takes: its 429 always carries a sentence. But
+   * this code is excluded from the generic retryable branch, so a body whose `error` is blank must
+   * still produce a panel — the alternative is not worse copy, it is a screen with no text and no
+   * way off it, on the one path that has already removed Retry and "start a new analysis".
+   */
+  it.each([
+    ['an empty sentence', ''],
+    ['a whitespace-only sentence', '   '],
+  ])('still renders a panel with a way out when the server sends %s', async (_label, error) => {
+    mockSubmit.mockResolvedValue({
+      ok: false,
+      error: { error, code: 'zero_pillar_cooldown', retryAfterSeconds: 900 },
+    });
+
+    await render(<AnalyzingScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(Copy.analyzing.error.zeroPillarCooldown.title)).toBeTruthy()
+    );
+    // The deck's own lead sentence stands in, and the clock time the server DID send survives.
+    const body = screen.getByText(
+      new RegExp(Copy.analyzing.error.zeroPillarCooldown.fallbackMessage)
+    );
+    expect(body.props.children).toMatch(/You can try again at .+\.$/);
+    // The exit is the point: without it this state traps the user.
+    expect(screen.getByText(Copy.analyzing.error.cta.backHome)).toBeTruthy();
+    expect(screen.queryByLabelText(Copy.analyzing.error.failed.title)).toBeNull();
+  });
+
   it('leaves Home to state the same wait — the panel is the backstop, not the gate', async () => {
     mockSubmit.mockResolvedValue(COOLDOWN_ERROR);
 
