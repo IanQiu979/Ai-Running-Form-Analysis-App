@@ -54,7 +54,15 @@ first TestFlight submission**, never after (see #67 below).
    `docs/status.md` Known Issue #21 for the live verification). If a closed tester group ever
    needs dummy purchases again before submission, re-set `PURCHASE_TIER_DUMMY_ENABLED=true`
    deliberately (optionally narrowed with `PURCHASE_TIER_ALLOWED_USER_IDS`) and re-add this item.
-8. **`eas submit` → TestFlight.** Beta excludes EU/UK testers (recorded decision — keeps GDPR out
+8. **Real in-app purchases (StoreKit via `react-native-iap` or RevenueCat).** Added 2026-09-12
+   from the captain's user-audit (`docs/status.md` Known Issue #48): the paywall's "Upgrade"
+   CTAs call only the dummy `purchase-tier` self-grant, which is deliberately off in production,
+   so paid plans cannot actually be bought in any build today. Real IAP needs App Store Connect
+   products (Pro $6.99 / Elite $14.99 per `docs/design/copy-deck.md`), a sandbox tester, and a
+   dev build (StoreKit does not run in Expo Go); `purchase-tier`'s `source: "apple"` branch is the
+   pre-built seam for receipt verification (`supabase/functions/_shared/purchase-tier.ts`).
+   Until then the honest in-app copy is "Buying a plan isn't possible in the app yet."
+9. **`eas submit` → TestFlight.** Beta excludes EU/UK testers (recorded decision — keeps GDPR out
    of scope for the beta and avoids needing an Art. 27 representative).
 
 ---

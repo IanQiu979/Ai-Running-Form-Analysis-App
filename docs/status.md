@@ -1697,6 +1697,42 @@ milestone "done" criteria.
       the 2026-07-12 bullet under "Done so far" above all carry this correction. #216 can be
       closed as expected-on-Free once this lands.
 
+48. **RESOLVED IN CODE (copy only) — the paywall's "Upgrade" CTAs dead-end by design, and the
+    old alert misdescribed why.** Captain's user-audit 2026-09-12 (on `fm/v23-paid-plans-unreachable`):
+    tapping Upgrade to Pro/Elite in Expo Go showed "Upgrading isn't available yet / This build
+    can't complete an upgrade right now. Check back soon." and nothing happened. **Diagnosed, not
+    guessed — and it is NOT an Expo Go/StoreKit limitation and NOT the Supabase Free-plan move.**
+    There is no in-app purchase in this app at all: no `react-native-iap`/RevenueCat/StoreKit
+    module anywhere in `package.json` or `app/`/`lib/`. The CTA calls the **dummy** self-grant
+    endpoint `POST /functions/v1/purchase-tier { tier, source: 'dummy' }`, which is deployed but
+    gated behind `PURCHASE_TIER_DUMMY_ENABLED` — **deliberately unset on the live project since
+    2026-08-06 (Known Issue #21, captain decision `purchase-tier-dummy-flag-now`)**. The gate
+    answers `404 {"error":"Not found.","code":"not_found"}` before the HTTP method or auth are
+    even read, so the result is identical from Expo Go, a dev build, or TestFlight. Reproduced
+    live 2026-09-12 with a bare `curl` to `vputdomdlknvthnzritt`: `purchase-tier` → 404
+    `not_found`; `quota-status` → 401 `unauthorized` to an anon key (i.e. the function is up and
+    the Free-plan move broke nothing on this path — the 404 fires before any DB or Pro-only
+    feature is touched). `lib/subscription.ts` maps that 404 to `PurchaseErrorCode 'not_found'`
+    and `app/paywall.tsx` shows the `unavailable` alert — exactly as designed in issue #52.
+    **What was wrong was the copy**: "this build" blamed the client build (false — the server
+    refuses every build) and "check back soon" promised the state would clear on its own (false
+    — it clears only when the captain either re-enables the dummy flag for a closed tester group
+    or real IAP ships). **Fixed:** `Copy.paywall.purchase.error.unavailable.body` now reads
+    "Buying a plan isn't possible in the app yet. Your plan hasn't changed, and nothing was
+    charged." (`docs/design/copy-deck.md` mirrored), locked by a new screen-level test in
+    `app/__tests__/paywall.test.tsx` that presses the real CTA against a `not_found` result and
+    asserts the alert body neither mentions the build nor promises a retry. The purchase path
+    itself is unchanged and already proven: `lib/__tests__/subscription.test.ts` (client mapping,
+    success + every error code), `supabase/functions/_shared/__tests__/purchase-tier.deno.test.ts`
+    (server gate + orchestration), and the live grant verified 2026-08-06 (Known Issue #35).
+    **What remains is captain-owned, not code:** (a) real Apple IAP is Apple-Developer-gated —
+    now listed in [`docs/blocked-on-apple.md`](blocked-on-apple.md) — and (b) whether the paywall
+    should keep showing "Upgrade" buttons that cannot succeed until then (hide them, replace with a
+    "coming soon" state, or keep as-is) is a product/design call the captain reserved. Note a
+    client-side pre-flight cannot be added silently either: the only probe that distinguishes
+    "gate off" from "gate on" is an unauthenticated `GET` (405 vs 404), which would make the
+    master flag's state observable to anyone — a deliberate widening of the gate's leak surface.
+
 ## Next action
 
 **RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the
