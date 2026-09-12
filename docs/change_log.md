@@ -5,6 +5,21 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-12 (History keeps its last list during focus refreshes)
+
+- **History no longer reloads from scratch on every tab return.** The tab screen was already kept
+  mounted and its focus effect correctly refetched, but each fetch immediately overwrote the
+  mounted screen's successful `ready` state with `loading` and cleared its signed thumbnails.
+  History now leaves the last successful list (including an empty one) visible while that refresh
+  runs silently, and preserves it if the refresh fails; the full loading or error state appears
+  only when there is no last-known successful list. Every successful refresh still regenerates
+  fresh short-TTL signed thumbnails, with the previous URLs bridging only until their replacements
+  resolve. The mounted cache is keyed to `session.user.id`, so a direct account replacement clears
+  the prior account's rows and signed thumbnails, and a late refresh from that account cannot
+  update the new account's screen. Screen-level regressions prove both identity isolation and that
+  the old row remains visible without the loader during a second same-user fetch before yielding
+  to the refreshed row. No History design or copy changed.
+
 ## 2026-09-12 (paid plans: the "can't complete an upgrade" alert was honest about nothing)
 
 **On `fm/v23-paid-plans-unreachable`.** Captain's user-audit item: tapping a paid plan shows
