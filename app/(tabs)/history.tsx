@@ -70,6 +70,7 @@ import {
   signFrameStrip,
   type HistoryListItem,
 } from '@/lib/history';
+import { useSession } from '@/lib/session-provider';
 import { useAnnounce } from '@/lib/use-announce';
 
 /** The empty state's ring. Composition, not a token — the same call `components/pace-readout.tsx`
@@ -90,6 +91,13 @@ type ScreenState =
 type ActiveFlag = { active: boolean };
 
 export default function HistoryScreen() {
+  const { session } = useSession();
+  const userId = session?.user.id;
+
+  return <HistoryScreenContent key={userId ?? 'signed-out'} userId={userId} />;
+}
+
+function HistoryScreenContent({ userId }: { userId: string | undefined }) {
   const scheme: ColorScheme = useColorScheme() ?? 'light';
   const colors = Colors[scheme];
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -121,14 +129,18 @@ export default function HistoryScreen() {
   );
 
   const load = useCallback(async (active: ActiveFlag) => {
-    setState({ status: 'loading' });
-    setThumbnails({});
+    // A focus refresh keeps the last successful list on screen. Loading is only a full-screen
+    // state before this mounted screen has any ready result (including a ready empty result), or
+    // while retrying an error that has no stale list to show.
+    setState((current) => (current.status === 'ready' ? current : { status: 'loading' }));
 
     let items: HistoryListItem[];
     try {
       items = await fetchHistoryList();
     } catch {
-      if (active.active) setState({ status: 'error' });
+      if (active.active) {
+        setState((current) => (current.status === 'ready' ? current : { status: 'error' }));
+      }
       return;
     }
 
@@ -137,9 +149,9 @@ export default function HistoryScreen() {
 
     // Best-effort, per row, resolved AFTER the list itself renders — a slow or failed signing
     // pass for one row must never delay or fail the whole list (lib/history.ts's header: "handle
-    // a row whose media is gone without crashing"). Fresh signed URLs every load, never cached
-    // across a re-focus, matching "short-TTL (~1h, regenerated on open)"
-    // (docs/architecture.md).
+    // a row whose media is gone without crashing"). Every successful list refresh signs fresh
+    // short-TTL URLs; the previous URLs remain only in this mounted screen's memory as a bridge
+    // until each refreshed strip resolves (docs/architecture.md).
     for (const item of items) {
       signFrameStrip(item.mediaPaths).then((urls) => {
         if (!active.active) return;
@@ -154,13 +166,15 @@ export default function HistoryScreen() {
   // button below, which calls load() directly, outside this effect.
   useFocusEffect(
     useCallback(() => {
+      if (!userId) return;
+
       const active: ActiveFlag = { active: true };
       activeFlagRef.current = active;
       load(active);
       return () => {
         active.active = false;
       };
-    }, [load])
+    }, [load, userId])
   );
 
   function confirmDelete(item: HistoryListItem) {

@@ -14,12 +14,31 @@
  *     screen-reader user their only way to delete an analysis.
  *   - The frame deck must stay capped. Uncapped, a six-frame analysis overflows the row.
  */
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { act, render, screen, waitFor } from '@testing-library/react-native';
 
 import { Copy } from '@/constants/copy';
 import type { HistoryListItem } from '@/lib/history';
 
 import HistoryScreen from '../history';
+
+type FocusEffectCallback = () => void | (() => void);
+
+const mockHistoryFocus = {
+  callback: null as FocusEffectCallback | null,
+  cleanup: null as (() => void) | null,
+};
+let mockCurrentUserId = 'user-a';
+
+function mockBlurHistoryScreen() {
+  const cleanup = mockHistoryFocus.cleanup;
+  mockHistoryFocus.cleanup = null;
+  cleanup?.();
+}
+
+function mockFocusHistoryScreen() {
+  const cleanup = mockHistoryFocus.callback?.();
+  mockHistoryFocus.cleanup = typeof cleanup === 'function' ? cleanup : null;
+}
 
 jest.mock('react-native-safe-area-context', () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -31,7 +50,21 @@ jest.mock('expo-router', () => {
   const react = require('react');
   return {
     router: { push: jest.fn(), replace: jest.fn() },
-    useFocusEffect: (cb: () => void | (() => void)) => react.useEffect(cb, [cb]),
+    useFocusEffect: (cb: FocusEffectCallback) => {
+      react.useEffect(() => {
+        const focus = () => cb();
+        mockHistoryFocus.callback = focus;
+        const cleanup = focus();
+        mockHistoryFocus.cleanup = typeof cleanup === 'function' ? cleanup : null;
+
+        return () => {
+          if (mockHistoryFocus.callback === focus) {
+            mockHistoryFocus.callback = null;
+          }
+          mockBlurHistoryScreen();
+        };
+      }, [cb]);
+    },
   };
 });
 
@@ -45,6 +78,14 @@ jest.mock('@expo/vector-icons/MaterialIcons', () => {
 
 jest.mock('@/lib/supabase', () => ({
   supabase: { functions: { invoke: jest.fn() }, from: jest.fn(), storage: { from: jest.fn() } },
+}));
+
+jest.mock('@/lib/session-provider', () => ({
+  useSession: () => ({
+    session: { user: { id: mockCurrentUserId } },
+    isLoading: false,
+    isPasswordRecovery: false,
+  }),
 }));
 
 const mockFetchHistoryList = jest.fn();
@@ -87,6 +128,14 @@ function item(id: string, score: number | null): HistoryListItem {
 }
 
 describe('history render smoke', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFetchHistoryList.mockReset();
+    mockHistoryFocus.callback = null;
+    mockHistoryFocus.cleanup = null;
+    mockCurrentUserId = 'user-a';
+  });
+
   it('loading', async () => {
     mockFetchHistoryList.mockImplementation(() => new Promise(() => {}));
     await render(<HistoryScreen />);
@@ -125,5 +174,75 @@ describe('history render smoke', () => {
     await waitFor(() =>
       expect(screen.getByTestId('history-frame-strip-a').props.children.length).toBe(3)
     );
+  });
+
+  it('keeps the last list visible while a focus refresh loads and then replaces it', async () => {
+    let resolveRefresh!: (items: HistoryListItem[]) => void;
+    const refresh = new Promise<HistoryListItem[]>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    mockFetchHistoryList
+      .mockResolvedValueOnce([item('a', 88)])
+      .mockImplementationOnce(() => refresh);
+
+    await render(<HistoryScreen />);
+    await waitFor(() => expect(screen.getByTestId('history-row-a')).toBeTruthy());
+
+    await act(async () => {
+      mockBlurHistoryScreen();
+      mockFocusHistoryScreen();
+    });
+
+    expect(screen.getByTestId('history-row-a')).toBeTruthy();
+    expect(screen.queryByTestId('history-loading', { includeHiddenElements: true })).toBeNull();
+    expect(screen.queryByText(Copy.history.loading)).toBeNull();
+
+    await act(async () => {
+      resolveRefresh([item('b', 72)]);
+    });
+    await waitFor(() => expect(screen.getByTestId('history-row-b')).toBeTruthy());
+    expect(screen.queryByTestId('history-row-a')).toBeNull();
+  });
+
+  it('clears the prior user list on an identity switch and ignores their late refresh', async () => {
+    let resolveUserARefresh!: (items: HistoryListItem[]) => void;
+    const userARefresh = new Promise<HistoryListItem[]>((resolve) => {
+      resolveUserARefresh = resolve;
+    });
+    let resolveUserBLoad!: (items: HistoryListItem[]) => void;
+    const userBLoad = new Promise<HistoryListItem[]>((resolve) => {
+      resolveUserBLoad = resolve;
+    });
+    mockFetchHistoryList
+      .mockResolvedValueOnce([item('a', 88)])
+      .mockImplementationOnce(() => userARefresh)
+      .mockImplementationOnce(() => userBLoad);
+
+    const { rerender } = await render(<HistoryScreen />);
+    await waitFor(() => expect(screen.getByTestId('history-row-a')).toBeTruthy());
+
+    await act(async () => {
+      mockBlurHistoryScreen();
+      mockFocusHistoryScreen();
+    });
+
+    mockCurrentUserId = 'user-b';
+    await rerender(<HistoryScreen />);
+
+    expect(screen.queryByTestId('history-row-a')).toBeNull();
+    expect(screen.getByTestId('history-loading', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByText(Copy.history.loading)).toBeTruthy();
+
+    await act(async () => {
+      resolveUserBLoad([item('b', 72)]);
+    });
+    await waitFor(() => expect(screen.getByTestId('history-row-b')).toBeTruthy());
+    expect(screen.queryByTestId('history-row-a')).toBeNull();
+
+    await act(async () => {
+      resolveUserARefresh([item('a', 91)]);
+    });
+    expect(screen.getByTestId('history-row-b')).toBeTruthy();
+    expect(screen.queryByTestId('history-row-a')).toBeNull();
   });
 });
