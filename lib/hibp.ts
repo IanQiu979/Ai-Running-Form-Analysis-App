@@ -1,17 +1,20 @@
 /**
  * Client-side HaveIBeenPwned leaked-password check (issue #70).
  *
- * Supabase's built-in server-side leaked-password protection (the same HIBP data) is now
- * ENABLED and is the authority: the org moved to the Pro plan and `password_hibp_enabled` was
- * turned on for this project (`vputdomdlknvthnzritt`) on 2026-07-12 — confirmed live
- * (`password_hibp_enabled = true`; the security advisor's `auth_leaked_password_protection`
- * lint is gone). A breached password is now hard-rejected server-side on `signUp` with HTTP
- * 422, `error_code: 'weak_password'`, `reasons: ['pwned']` — see `lib/auth-errors.ts`'s
- * `mapAuthError`, which maps that rejection to `Copy.auth.error.passwordBreached`.
+ * **As of 2026-09-12 this is the ONLY compromised-password screening V2.3 has.** Supabase's
+ * built-in server-side leaked-password protection (`password_hibp_enabled`, the same HIBP data)
+ * was enabled on 2026-07-12 while the org was on the Pro plan, but the plan was cancelled on
+ * 2026-09-12 and that feature is Pro-only, so it is now OFF and cannot be re-enabled on Free —
+ * the security advisor's `auth_leaked_password_protection` lint is back and is expected. There
+ * is nothing to configure server-side; the 422 `weak_password` / `reasons: ['pwned']` rejection
+ * that `lib/auth-errors.ts`'s `mapAuthError` still maps to `Copy.auth.error.passwordBreached`
+ * no longer fires. It stays mapped so that if the org ever returns to Pro and re-enables the
+ * setting, the server path lights up again with no client change.
  *
- * This function stays for two reasons now that the server enforces the real rule: (1) it gives
- * instant inline feedback on submit, before the `signUp` round-trip, which the server-only path
- * can't; and (2) it's defense-in-depth if `password_hibp_enabled` is ever flipped off again. It
+ * So this check is no longer a courtesy pre-check ahead of an authoritative server rule; it is
+ * the control of record — still bypassable by a hostile client (it runs on the device), but the
+ * thing that stops an ordinary user from choosing a known-breached password. It gives instant
+ * inline feedback on submit, before the `signUp` round-trip, and it
  * reimplements the check against HIBP's free, keyless Pwned Passwords **range API**, which is
  * built on k-anonymity: only the first 5 hex characters of the password's SHA-1 hash ever leave
  * the device. The plaintext password and the full 40-char hash never do. `Add-Padding: true`
@@ -49,13 +52,41 @@
  * that canary runs THIS function against the real range API and files an issue when it rots.
  * If you change this file's parsing, response handling, or the range-API URL, the canary is
  * what tells you whether it still works against the real thing.
+ *
+ * The one concession to observability is the `reason` on `unavailable`: a fixed string naming
+ * WHICH fail-open path was taken (deadline, network, non-2xx, wrong content-type, unparseable
+ * body, ...). It carries no status code, no header, no body fragment and nothing derived from
+ * the password or its hash, so it is safe to surface anywhere. It exists because the 2026-09-05
+ * canary outage produced a week of `unavailable` with no way to tell "HIBP changed" from "our
+ * request never left the process" without instrumenting this file by hand — the canary now
+ * prints it on failure, and a caller that ever grows telemetry may report it as-is.
  */
 import { CryptoDigestAlgorithm, digestStringAsync } from 'expo-crypto';
+
+/**
+ * Why a check fell open. Every value is a fixed literal — never a status code, header, body
+ * fragment, or anything derived from the password/hash — so it is safe to log or report.
+ *   - `hash`: the digest was not a 40-char SHA-1 hex string (never reaches the network).
+ *   - `timeout`: the shared deadline (`TOTAL_TIMEOUT_MS`) fired before a body was read.
+ *   - `network`: `fetch` threw or the body read failed, on both attempts, before the deadline.
+ *   - `bad-status`: HIBP (or whatever answered) returned a non-2xx status. Not retried.
+ *   - `bad-content-type`: 2xx, but not `text/plain` — a captive portal or challenge page.
+ *   - `unparseable`: `text/plain`, but not one well-formed range row in it.
+ *   - `unexpected`: something threw outside the paths above (the catch-all).
+ */
+export type BreachCheckUnavailableReason =
+  | 'hash'
+  | 'timeout'
+  | 'network'
+  | 'bad-status'
+  | 'bad-content-type'
+  | 'unparseable'
+  | 'unexpected';
 
 export type BreachCheck =
   | { status: 'safe' }
   | { status: 'breached'; count: number }
-  | { status: 'unavailable' };
+  | { status: 'unavailable'; reason: BreachCheckUnavailableReason };
 
 const RANGE_API_URL = 'https://api.pwnedpasswords.com/range/';
 // One shared deadline for the whole check — both the initial attempt and its retry, and the
@@ -77,7 +108,8 @@ const RANGE_ROW_PATTERN = /^[0-9A-F]{35}:\d+$/i;
 // retried (a non-2xx or wrong-content-type response, which a retry would just get again).
 type RangeFetch =
   | { outcome: 'network-failure' } // fetch threw, was aborted, or the body read failed
-  | { outcome: 'bad-response' } // responded, but non-2xx or not text/plain — retrying is pointless
+  | { outcome: 'bad-status' } // responded, but non-2xx — retrying is pointless
+  | { outcome: 'bad-content-type' } // responded 2xx, but not text/plain — retrying is pointless
   | { outcome: 'body'; body: string };
 
 async function fetchRangeAttempt(prefix: string, signal: AbortSignal): Promise<RangeFetch> {
@@ -103,7 +135,7 @@ async function fetchRangeAttempt(prefix: string, signal: AbortSignal): Promise<R
   }
 
   if (!response.ok) {
-    return { outcome: 'bad-response' };
+    return { outcome: 'bad-status' };
   }
 
   // A captive portal or Cloudflare challenge can return HTTP 200 with an HTML body — that
@@ -112,7 +144,7 @@ async function fetchRangeAttempt(prefix: string, signal: AbortSignal): Promise<R
   // require a text/plain content-type before trusting the body at all.
   const contentType = response.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().startsWith('text/plain')) {
-    return { outcome: 'bad-response' };
+    return { outcome: 'bad-content-type' };
   }
 
   try {
@@ -141,7 +173,7 @@ export async function checkPasswordBreached(password: string): Promise<BreachChe
     const rawHash = await digestStringAsync(CryptoDigestAlgorithm.SHA1, password);
     const hash = rawHash.toUpperCase();
     if (!FULL_HASH_PATTERN.test(hash)) {
-      return { status: 'unavailable' };
+      return { status: 'unavailable', reason: 'hash' };
     }
 
     const prefix = hash.slice(0, 5);
@@ -156,8 +188,13 @@ export async function checkPasswordBreached(password: string): Promise<BreachChe
     if (attempt.outcome === 'network-failure' && !controller.signal.aborted) {
       attempt = await fetchRangeAttempt(prefix, controller.signal);
     }
+    if (attempt.outcome === 'network-failure') {
+      // `fetchRangeAttempt` deliberately cannot tell an abort from a socket error (see its
+      // catch); the shared controller can, after the fact.
+      return { status: 'unavailable', reason: controller.signal.aborted ? 'timeout' : 'network' };
+    }
     if (attempt.outcome !== 'body') {
-      return { status: 'unavailable' };
+      return { status: 'unavailable', reason: attempt.outcome };
     }
 
     const lines = attempt.body.split(/\r?\n/);
@@ -194,11 +231,11 @@ export async function checkPasswordBreached(password: string): Promise<BreachChe
     if (sawParseableLine) {
       return { status: 'safe' };
     }
-    return { status: 'unavailable' };
+    return { status: 'unavailable', reason: 'unparseable' };
   } catch {
     // Catch-all: never let any failure here throw (see header note 2) — everything not
     // resolved to `safe`/`breached` above falls open to `unavailable`.
-    return { status: 'unavailable' };
+    return { status: 'unavailable', reason: 'unexpected' };
   } finally {
     // Only cleared once every attempt and the body read have settled — clearing it any
     // earlier (e.g. right after `fetch()` resolves, before the body is read) would leave the

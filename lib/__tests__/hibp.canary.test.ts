@@ -14,8 +14,15 @@
  * stay hermetic, so `jest.config.js` explicitly ignores this file and `jest.canary.config.js`
  * is the only config that runs it.
  *
- * Both assertions below must reject `unavailable`, not merely accept `breached`/`safe`. A
- * canary that cannot go red is the bug it was built to catch, wearing a different hat.
+ * Both lookup assertions below must reject `unavailable`, not merely accept `breached`/`safe`. A
+ * canary that cannot go red is the bug it was built to catch, wearing a different hat. And it
+ * has one more way to be blind that took a week to diagnose in 2026-09: the test process itself
+ * not being on the network. The first test guards that — see it and `jest.canary.config.js`.
+ *
+ * Since 2026-09-12 this canary watches the ONLY leaked-password screening V2.3 has: the
+ * server-side `password_hibp_enabled` is Pro-only and the org is on the Free plan (see the
+ * header of `lib/hibp.ts`). A red run here is no longer "the pre-check is gone"; it is "the
+ * control is gone".
  *
  * Exactly ONE thing is faked: `expo-crypto`'s `digestStringAsync`, a native module with no Node
  * build. Its stand-in is a real `node:crypto` SHA-1 returning LOWERCASE hex — exactly what the
@@ -46,14 +53,38 @@ jest.mock('expo-crypto', () => ({
 // a canary that fails on its own impatience is a canary that gets muted.
 const LIVE_TIMEOUT_MS = 30_000;
 
+// `installGlobal` in `expo/src/winter` tags every global it installs with this symbol. It is the
+// one honest way to tell Node's own `fetch` from Expo's replacement without inspecting source
+// text or function names.
+const EXPO_BUILTIN = Symbol.for('expo.builtin');
+
 describe('HIBP live-endpoint canary', () => {
+  // Environment precondition, and a regression lock for the 2026-09-05 outage: from SDK 57 the
+  // `jest-expo` preset loads `expo/src/winter`, which installs `expo/fetch` as `globalThis.fetch`
+  // even under `testEnvironment: 'node'` — and `jest-expo` stubs its native module, so every
+  // "request" resolved instantly to a response with `status: undefined` and an empty body, and
+  // the two assertions below went red for a week reading as "HIBP rot". `jest.canary.config.js`
+  // opts out with Expo's documented `EXPO_PUBLIC_USE_RN_FETCH=1`; this proves the opt-out is
+  // still holding. If it fails, the canary is not on the network at all, and NOTHING the other
+  // two assertions say can be trusted — fix this first.
+  it('is using the runtime\'s real fetch, not Expo\'s stubbed replacement', () => {
+    expect(typeof globalThis.fetch).toBe('function');
+    expect((globalThis.fetch as unknown as Record<symbol, unknown>)[EXPO_BUILTIN]).toBeUndefined();
+  });
+
   it('still reports a known-breached password as breached', async () => {
     const result = await checkPasswordBreached('password');
 
     // The load-bearing assertion. A Cloudflare challenge page, a content-type change, a
     // rate-limit on our egress, or any parse breakage all collapse to `unavailable` or `safe`
     // right here — which is precisely the rot that is invisible in production today.
-    expect(result.status).toBe('breached');
+    // `toEqual` on the whole result rather than `toBe` on `.status` is at least as strict about
+    // `status`, but on failure Jest diffs the entire received object — including the `reason`
+    // an `unavailable` carries (`bad-status`, `bad-content-type`, `timeout`, ...), which is the
+    // difference between "HIBP rot" and "our request never left the process" being readable
+    // straight off the red run instead of needing a hand-instrumented probe. (`toMatchObject`
+    // would not do: it only diffs the keys it was asked about, so `reason` stays hidden.)
+    expect(result).toEqual({ status: 'breached', count: expect.any(Number) });
     // A count of 0 would mean we matched an `Add-Padding` decoy row rather than the real one.
     expect(result.status === 'breached' && result.count > 0).toBe(true);
   }, LIVE_TIMEOUT_MS);
@@ -64,7 +95,8 @@ describe('HIBP live-endpoint canary', () => {
     // `safe` is a positive assertion in `lib/hibp.ts`: it is returned only after at least one
     // well-formed range row has parsed. So if this is not `safe`, the parser has stopped
     // recognising HIBP's response shape — even in a world where the `breached` case above
-    // somehow still passed.
-    expect(result.status).toBe('safe');
+    // somehow still passed. Whole-object `toEqual` for the same reason as above: a failure
+    // shows the `reason`.
+    expect(result).toEqual({ status: 'safe' });
   }, LIVE_TIMEOUT_MS);
 });

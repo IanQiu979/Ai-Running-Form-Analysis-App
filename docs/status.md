@@ -85,7 +85,8 @@ milestone "done" criteria.
   breadcrumbs would fingerprint the passwords `lib/hibp.ts` protects). See
   `docs/architecture.md`'s "Current — CI" section.
 - **Issue #70 closed 2026-07-12 — server-side leaked-password protection is genuinely fixed, not
-  just mitigated.** The blocker (org on the Supabase Free plan; enabling
+  just mitigated.** **SUPERSEDED 2026-09-12 — see Known Issue #47: the org left Pro that day, the
+  setting is Pro-only and is OFF again, and `lib/hibp.ts` is now the only screening.** The blocker (org on the Supabase Free plan; enabling
   `password_hibp_enabled` returned HTTP 402 during the M1 audit) is gone — `Echo_Running_Final`
   is now on the **Pro plan**, and `password_hibp_enabled = true` was applied live and verified: a
   breached password hard-fails `signUp` with HTTP 422 / `reasons: ['pwned']`, a strong one still
@@ -1664,6 +1665,37 @@ milestone "done" criteria.
     under the uncharged state. This is layered local evidence, not a live PostgREST/Supabase or
     post-deployment provider run; the migrations and function must still be deployed DB-first
     before this launch blocker is closed in production.
+47. **RESOLVED IN CODE — the HIBP canary was blind for a week, and `lib/hibp.ts` is now the ONLY
+    leaked-password screening. 2026-09-12, `fm/v23-leaked-password-protection-off`, issues #199
+    and #216.** Two separate facts landed together:
+    - **Canary (#199).** Red every day from 2026-09-05 with both assertions reading `unavailable`.
+      The cause was NOT HIBP, Cloudflare, or rate-limiting — a live `curl` on 2026-09-12 returned
+      `200`, `text/plain; charset=utf-8`, `vary: Add-Padding`, and the real `5BAA6` row. It was
+      the 2026-09-05 Expo SDK 54→57 bump (`959bfd0`…`1b20113`): from SDK 57, `expo/src/winter`
+      installs `expo/fetch` as `globalThis.fetch` on native platforms, the `jest-expo` preset
+      loads that runtime even under `testEnvironment: 'node'`, and `jest-expo` stubs `expo/fetch`'s
+      native module — so every canary `fetch()` resolved in ~1 ms to a response with
+      `status: undefined` and an empty body without touching the network. `lib/hibp.ts` correctly
+      read that as `unavailable` (`bad-status`), and the shipped app was never affected (on device
+      `expo/fetch` is real and supports everything `lib/hibp.ts` uses). Fix:
+      `jest.canary.config.js` sets Expo's documented opt-out `EXPO_PUBLIC_USE_RN_FETCH=1`, and the
+      canary gained a first test asserting `fetch` is not Expo's installed builtin, so this class
+      of blindness reads as itself next time. `unavailable` now carries a fixed-string `reason`
+      (`hash` / `timeout` / `network` / `bad-status` / `bad-content-type` / `unparseable` /
+      `unexpected` — never a status code, header, or anything derived from the hash), and the
+      canary's failure diff prints it. `npm run test:canary` is green against the live endpoint.
+      #199 self-closes on the next green scheduled run.
+    - **Server-side control (#216).** `password_hibp_enabled` is Pro-only; the captain cancelled
+      Pro on 2026-09-12, so it is OFF and cannot be re-enabled on Free — the
+      `auth_leaked_password_protection` advisor lint is back and expected. The workflow's
+      "assert it is true" step is retired into an informational notice (it would fail daily for a
+      billing reason and bury the client canary's signal); if the setting ever reads `true`
+      again, the notice says to restore the assertion from git history. **`lib/hibp.ts` is
+      therefore the control of record**: still client-side and bypassable by a hostile client, but
+      the only thing stopping an ordinary sign-up with a known-breached password. Its header,
+      the "Current — Supabase config" and "Current — CI" sections of `docs/architecture.md`, and
+      the 2026-07-12 bullet under "Done so far" above all carry this correction. #216 can be
+      closed as expected-on-Free once this lands.
 
 ## Next action
 
