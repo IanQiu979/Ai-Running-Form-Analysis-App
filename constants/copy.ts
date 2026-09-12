@@ -1068,12 +1068,22 @@ export const Copy = {
       error: {
         // lib/subscription.ts's PurchaseErrorCode 'not_found' — the dummy purchase-tier endpoint
         // is deployed and live (docs/architecture.md, issue #51) but gated behind
-        // PURCHASE_TIER_DUMMY_ENABLED (default OFF; currently unset on the live project — Known
-        // Issue #21). This code gets this honest, non-alarming copy: it does not say "something
-        // went wrong" (nothing did) and it does not name the feature flag.
+        // PURCHASE_TIER_DUMMY_ENABLED (default OFF; Known Issue #21 has the live project's
+        // current state — on 2026-09-12 it was re-set with a captain-only allowlist, so every
+        // non-allowlisted account still lands here). This code gets this honest, non-alarming
+        // copy: it does not say "something went wrong" (nothing did) and it does not name the
+        // feature flag.
+        //
+        // 2026-09-12 user-audit: the body used to read "This build can't complete an upgrade
+        // right now. Check back soon." Both halves were false — there is no in-app purchase in
+        // this app at all (no StoreKit/RevenueCat module; real IAP is Apple-gated,
+        // docs/blocked-on-apple.md), so the 404 comes back from EVERY build, Expo Go or not, and
+        // it will not clear on its own. Never blame the build here and never promise a retry
+        // will succeed. "Your plan hasn't changed" rather than "you're still on Free": a Pro
+        // account tapping Elite reaches this same branch. Locked by app/__tests__/paywall.test.tsx.
         unavailable: {
           title: "Upgrading isn't available yet",
-          body: "This build can't complete an upgrade right now. Check back soon.",
+          body: "Buying a plan isn't possible in the app yet. Your plan hasn't changed, and nothing was charged.",
         },
         // code: 'rate_limited' — the same account called purchase-tier again within 3 seconds of
         // its own last write.

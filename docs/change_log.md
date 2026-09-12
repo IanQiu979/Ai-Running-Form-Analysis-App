@@ -5,6 +5,39 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-12 (paid plans: the "can't complete an upgrade" alert was honest about nothing)
+
+**On `fm/v23-paid-plans-unreachable`.** Captain's user-audit item: tapping a paid plan shows
+"This build can't complete an upgrade right now. Check back soon." and nothing proceeds. Full
+record: `docs/status.md` Known Issue #48.
+
+- **Root cause, with evidence — not Expo Go, not StoreKit, not the Supabase Free plan.** There
+  is no in-app purchase module in this app; the CTA calls the dummy `purchase-tier` self-grant,
+  gated behind `PURCHASE_TIER_DUMMY_ENABLED`, which the captain deliberately unset on the live
+  project on 2026-08-06 (Known Issue #21). A live `curl` on 2026-09-12 confirms:
+  `POST /functions/v1/purchase-tier` → `404 {"code":"not_found"}` (the gate fires before method
+  or auth, so every build gets it); `GET /functions/v1/quota-status` → `401 unauthorized` to an
+  anon key (the function is up; nothing on this path depends on a Pro-only feature). The client
+  and screen handled that 404 exactly as designed — only the copy was wrong.
+- **Copy fix:** `Copy.paywall.purchase.error.unavailable.body` → "Buying a plan isn't possible
+  in the app yet. Your plan hasn't changed, and nothing was charged." It no longer blames the
+  build (the server refuses every build) or says "check back soon" (nothing clears on its own).
+  "Your plan hasn't changed" rather than "you're still on Free" because a Pro account tapping
+  Elite reaches the same branch. `docs/design/copy-deck.md` mirrored.
+- **Test:** `app/__tests__/paywall.test.tsx` now presses the real "Upgrade to Pro" CTA with
+  `purchaseTier` resolving `not_found`, and asserts the exact alert title/body, that the body
+  matches neither `/build/i` nor `/check back/i`, that the plan is not re-fetched, and that the
+  CTA returns from "Upgrading…". It failed on the old copy before the fix.
+- **Captain decision (option b) — dummy gate re-enabled on the live project, allowlisted.**
+  `PURCHASE_TIER_DUMMY_ENABLED=true` and `PURCHASE_TIER_ALLOWED_USER_IDS=<captain's
+  200154@ucis.ac.th id>` set 2026-09-12 14:59Z on `vputdomdlknvthnzritt`, no redeploy needed.
+  Keyed by user id, not the requested emails: the id is JWT-verified, while with confirmations
+  off an email allowlist could be claimed by whoever registered a not-yet-taken address first.
+  Verified live: anon `POST` → `401` (flag on); a throwaway account → `404` + still `free`
+  (allowlist holds); throwaway deleted afterwards. **Known Issue #21 reopened as the release
+  gate** — unset both before any TestFlight/public build; `docs/blocked-on-apple.md` item 7
+  re-opened to match. Real IAP stays Apple-Developer-gated (item 8 there).
+
 ## 2026-09-12 (the HIBP canary was blind, not HIBP; and the client check is now the only check)
 
 **On `fm/v23-leaked-password-protection-off`.** Issues #199 (canary red since 2026-09-05) and

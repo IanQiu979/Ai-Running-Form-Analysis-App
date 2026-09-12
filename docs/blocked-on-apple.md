@@ -47,14 +47,20 @@ first TestFlight submission**, never after (see #67 below).
    it at a public URL, and attach it to the App Store Connect record.
 6. **Enter the App Store privacy labels** from `docs/app-store-privacy-labels.md` — the answers are
    already derived, so this is a lookup, not a re-derivation.
-7. ~~**🚨 UNSET `PURCHASE_TIER_DUMMY_ENABLED` BEFORE THE FIRST SUBMISSION**~~ **RESOLVED
-   2026-08-06** — both `PURCHASE_TIER_DUMMY_ENABLED` and `PURCHASE_TIER_ALLOWED_USER_IDS` are
-   unset on the live project (captain decision `purchase-tier-dummy-flag-now`: the captain is the
-   only tester right now, so the allowlist approach was declined rather than adopted — see
-   `docs/status.md` Known Issue #21 for the live verification). If a closed tester group ever
-   needs dummy purchases again before submission, re-set `PURCHASE_TIER_DUMMY_ENABLED=true`
-   deliberately (optionally narrowed with `PURCHASE_TIER_ALLOWED_USER_IDS`) and re-add this item.
-8. **`eas submit` → TestFlight.** Beta excludes EU/UK testers (recorded decision — keeps GDPR out
+7. **🚨 UNSET `PURCHASE_TIER_DUMMY_ENABLED` AND `PURCHASE_TIER_ALLOWED_USER_IDS` BEFORE THE
+   FIRST SUBMISSION — RE-OPENED 2026-09-12.** Both were unset 2026-08-06, then set again on
+   2026-09-12 by captain decision (allowlisted to his own user id) so paid tiers can be tested
+   in-app — see `docs/status.md` Known Issue #21 for the live state, the verification, and the
+   exact unset command. The gate check is a step of the submission checklist, not a suggestion.
+8. **Real in-app purchases (StoreKit via `react-native-iap` or RevenueCat).** Added 2026-09-12
+   from the captain's user-audit (`docs/status.md` Known Issue #48): the paywall's "Upgrade"
+   CTAs call only the dummy `purchase-tier` self-grant, which is deliberately off in production,
+   so paid plans cannot actually be bought in any build today. Real IAP needs App Store Connect
+   products (Pro $6.99 / Elite $14.99 per `docs/design/copy-deck.md`), a sandbox tester, and a
+   dev build (StoreKit does not run in Expo Go); `purchase-tier`'s `source: "apple"` branch is the
+   pre-built seam for receipt verification (`supabase/functions/_shared/purchase-tier.ts`).
+   Until then the honest in-app copy is "Buying a plan isn't possible in the app yet."
+9. **`eas submit` → TestFlight.** Beta excludes EU/UK testers (recorded decision — keeps GDPR out
    of scope for the beta and avoids needing an Art. 27 representative).
 
 ---
