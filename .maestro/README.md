@@ -147,14 +147,14 @@ against a real build — see that section for what passed vs. hit driver flakine
 - Sign-up (email/password) → Home.
 - The consent gate (`components/consent-gate.tsx`) — fully wired.
 - Source picker → in-app Record → camera permission dance → a recorded clip → frame extraction
-  → "Frames ready" → **"Analyze my form" → `/analyzing` → mock resolves (~4s, hardcoded
+  → "Frames ready" → **"Start analysis" → `/analyzing` → mock resolves (~4s, hardcoded
   `'success'`) → Result screen with the mock's clearly-fake data → "Back to Home"** (#135, new).
 - **History tab** (#55, new) — `(tabs)/history` is a real route; the happy path proves its
   EMPTY state honestly (the mock never writes an `analyses` row).
 - **The offline dead-end at `/analyzing`** (#93, partial) — a real, live pre-flight
   `checkConnectivity()` gate in `app/analyzing.tsx`, wired into the ONE call site that exists so
   far (not the source picker). `setAirplaneMode: true` before tapping the ready-screen's
-  "Analyze my form" CTA reaches a genuine `offline.blocked.*` panel with a working Retry
+  "Start analysis" CTA reaches a genuine `offline.blocked.*` panel with a working Retry
   (re-checks connectivity, resumes) and Cancel (returns to Home). See `dead-end-offline.yaml`'s
   header for the exact call-site and what's still NOT wired (the source picker itself).
 - **The quota-exhausted paywall UI** (#52/#54, new) — Home's CTA genuinely relabels and routes

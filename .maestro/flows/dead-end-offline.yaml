@@ -16,8 +16,8 @@
 #   2. `lib/connectivity.ts`'s `checkConnectivity()` — a ONE-SHOT pre-flight gate. It is wired
 #      into exactly ONE call site today: app/analyzing.tsx's submit effect, which checks
 #      connectivity BEFORE calling `analyzeFormClient.submit()`. An offline reading dispatches
-#      the machine's `offline` phase, renders `offline.blocked.*` (title "You're offline", body
-#      literally true here — "nothing has been sent yet" — because submit() is never called),
+#      the machine's `offline` phase, renders `offline.blocked.*` (title "Offline", body
+#      literally true here — "nothing has been sent" — because submit() is never called),
 #      and offers a live Retry (re-runs the same pre-flight check) and Cancel (returns to Home,
 #      clearing the #140 pending-analysis marker). Confirmed by reading app/analyzing.tsx lines
 #      ~140-165 and ~399-405 directly — this is real code, not aspirational.
@@ -48,8 +48,8 @@ appId: com.ian.paceanalysisai
 
 - runFlow: subflows/sign-up.yaml
 
-- tapOn: "Analyze my form"
-- assertVisible: "Add your run"
+- tapOn: "Start analysis"
+- assertVisible: "Add footage"
 - tapOn:
     id: "source-card-record"
 - runFlow: subflows/grant-consent.yaml
@@ -70,15 +70,15 @@ appId: com.ian.paceanalysisai
 # racing it.
 - setAirplaneMode: true
 
-- tapOn: "Analyze my form" # upload.ready.cta -> hands off into /analyzing
+- tapOn: "Start analysis" # upload.ready.cta -> hands off into /analyzing
 - assertVisible: "Analyzing" # analyzing.title renders immediately; the pre-flight check runs
                               # inside the 'waiting' phase, so this is not itself proof of
                               # anything yet — the next assertion is.
 
 # The actual no-dead-end assertion: offline.blocked.* must render, with a live Retry and Cancel,
 # NOT a spinner that hangs forever.
-- assertVisible: "You're offline" # offline.blocked.title
-- assertVisible: "This needs an internet connection. Reconnect and try again — nothing has been sent yet." # offline.blocked.body
+- assertVisible: "Offline" # offline.blocked.title
+- assertVisible: "This requires an internet connection. Reconnect and try again. Nothing has been sent." # offline.blocked.body
 - assertVisible: "Retry" # analyzing.error.cta.retry (shared label, reused for this phase)
 - assertVisible: "Cancel" # analyzing.error.cta.cancel
 
@@ -96,7 +96,7 @@ appId: com.ian.paceanalysisai
 - extendedWaitUntil:
     visible: "Back to Home"
     timeout: 15000
-- assertVisible: "We couldn't find this analysis." # result.error.notFound — see note above
+- assertVisible: "Analysis not found." # result.error.notFound — see note above
 
 # ============================================================================================
 # ALSO WORTH TESTING, NOT DONE HERE: Cancel's own exit (asserting it returns to Home rather than

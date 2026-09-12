@@ -1,5 +1,12 @@
 /**
- * In-app copy, lifted verbatim by key from `docs/design/copy-deck.md`.
+ * In-app copy, keyed by `docs/design/copy-deck.md`.
+ *
+ * TONE (2026-09-12, captain's user-audit): professional and restrained. Short sentences, no
+ * contractions, no exclamation marks, no emoji, no jokes; technical terms (cadence, stride, ground
+ * contact, pillar) used precisely. Every string below was rewritten to that register in one pass;
+ * the deck's string columns predate it and this file is the live source of truth for wording. Key
+ * names and the deck's "shows when" rules are unchanged. Consent/legal sentences (`consent.*`, the
+ * medical disclaimer, the privacy summary) were shortened without changing what they assert.
  *
  * The deck keys every string `screen.section.element.state` and says to lift them verbatim
  * as each screen is built, grouped by screen in the order the brief lists them (§4) — this
@@ -22,7 +29,7 @@ export const Copy = {
     // asset is future work (issue #30 only routes the existing string through the deck).
     wordmark: 'Pace Analysis AI',
     valueProp:
-      'Submit a photo or video of your run and get clear, specific feedback on your form.',
+      'Submit a photo or video of your run for a precise assessment of your form.',
     cta: {
       google: 'Continue with Google',
       email: 'Continue with email',
@@ -40,7 +47,7 @@ export const Copy = {
     },
     signIn: {
       submit: 'Sign in',
-      link: 'Already have an account? Sign in',
+      link: 'Have an account? Sign in',
     },
     // ---------------------------------------------------------------------------------------
     // THE ENTRY-SCREEN SCROLL CONTENT (2026-09-04, the V2.3 redesign). NOT in
@@ -62,26 +69,26 @@ export const Copy = {
     // a screen gets ONE primary action (see `Accent` in constants/theme.ts).
     // ---------------------------------------------------------------------------------------
     about: {
-      eyebrow: 'What it reads',
-      heading: 'Four things, every time.',
+      eyebrow: 'What is assessed',
+      heading: 'Four pillars. Every analysis.',
       intro:
-        'Every analysis looks at the same four things in the same order, so a run you submit today and one you submit in a month are actually comparable.',
+        'Every analysis scores the same four pillars in the same order, so results remain comparable over time.',
       pillar: {
         posture: {
           label: 'Posture',
-          body: 'Where your head, chest and hips sit over your feet — the line everything else is built on.',
+          body: 'The alignment of head, torso and hips over the feet. The base every other pillar depends on.',
         },
         armSwing: {
           label: 'Arm swing',
-          body: 'What your arms are doing, and whether they are working with your legs or against them.',
+          body: 'Arm path and elbow angle, and whether the swing supports or opposes the stride.',
         },
         cadence: {
           label: 'Cadence',
-          body: 'How often your feet land. Usually the one thing you can change this week and feel.',
+          body: 'Steps per minute. Typically the most immediately adjustable pillar.',
         },
         elasticity: {
           label: 'Elasticity',
-          body: 'How much you get back from the ground — whether you spring off it or sink into it.',
+          body: 'Ground contact and energy return. How efficiently the stride rebounds from each footstrike.',
         },
       },
       // The limit, stated before anyone has spent anything on it. `lib/frames.ts` and the
@@ -89,17 +96,17 @@ export const Copy = {
       // deliberately says which two rather than "some pillars may not be assessed".
       limit: {
         eyebrow: 'What a photo can tell you',
-        body: 'A single photo can answer posture and arm swing. Cadence and elasticity need movement, so they need video. Either way the result says which of the four it actually assessed — it never fills the gap with a guess.',
+        body: 'A single photo supports posture and arm swing. Cadence and elasticity require video. Each result states which pillars were assessed; none is estimated.',
       },
       // The negative space. Kept last because it is the closing argument, not the opening one.
       scope: {
         eyebrow: 'What it is not',
-        body: 'No training plans. No mileage log. No chat. One careful read of your form, and what to do about it.',
+        body: 'No training plans. No mileage log. No chat. One assessment of your form and the corrections it calls for.',
       },
     },
     signUp: {
       submit: 'Create account',
-      link: 'New here? Create an account',
+      link: 'No account? Create one',
       // Issue #12/Known Issue #12 — shown INSTEAD of the Turnstile widget on either of the two
       // ways `lib/turnstile-config.ts` can fail to resolve a usable config: `EXPO_PUBLIC_
       // TURNSTILE_SITE_KEY` is unset, OR a site key is set but no base URL can be derived from
@@ -116,9 +123,9 @@ export const Copy = {
       // on the disabled button itself, because a sighted user infers the link between the button
       // and the adjacent card from proximity and a screen-reader user cannot.
       unavailable: {
-        title: "Creating an account isn't available right now",
-        body: "This build can't run the security check new accounts need. If you already have an account, you can still sign in.",
-        a11yHint: "Disabled — creating an account isn't available in this build.",
+        title: 'Account creation is unavailable',
+        body: 'This build cannot run the verification step new accounts require. Existing accounts can still sign in.',
+        a11yHint: 'Disabled. Account creation is unavailable in this build.',
       },
     },
     error: {
@@ -151,11 +158,11 @@ export const Copy = {
       // possibility (not a fact about this email) fixes the dead end while leaking nothing —
       // this string is shown for EVERY credential failure, so it discloses no account state.
       invalidCredentials:
-        "Email or password doesn't match. Try again, reset your password, or use Continue with Google if that's how you signed up.",
-      emailInUse: 'An account already exists with this email. Sign in instead.',
-      generic: "Sign-in didn't go through. Try again.",
+        'Email or password is incorrect. Try again, reset your password, or use Continue with Google if the account was created that way.',
+      emailInUse: 'An account with this email already exists. Sign in instead.',
+      generic: 'Sign-in failed. Try again.',
       passwordBreached:
-        'That password has shown up in a data breach before. Pick a different one to keep your account secure.',
+        'This password appears in a known data breach. Choose a different one.',
       // Templated off `PASSWORD_MIN_LENGTH` (constants/auth.ts) rather than a hardcoded "8" —
       // that constant is itself just a client-side echo, not the authority. The real rule is
       // `minimum_password_length` in supabase/config.toml; if that value ever changes,
@@ -172,13 +179,13 @@ export const Copy = {
       // exact error classes/codes this covers. Previously this failure was silently swallowed
       // (lib/session-provider.tsx's `.catch(() => {})`); the user landed back on sign-in with
       // no session and no explanation.
-      signInExpired: 'Sign-in expired before it could finish. Try again.',
+      signInExpired: 'Sign-in expired before completing. Try again.',
       // --- issue #12 NEW keys start — NOT in docs/design/copy-deck.md, NOT copy-certified.
       // Sign-up only (see supabase/functions/signup-with-captcha) — sign-in never shows the
       // Turnstile widget, so never surfaces these.
-      captchaLoadFailed: "The verification check couldn't load. Check your connection and try again.",
-      captchaExpired: 'The verification check expired. Please complete it again.',
-      captchaInvalid: "That verification check didn't go through. Please try again.",
+      captchaLoadFailed: 'The verification check failed to load. Check your connection and try again.',
+      captchaExpired: 'The verification check expired. Complete it again.',
+      captchaInvalid: 'The verification check failed. Try again.',
       // --- issue #12 NEW keys end ---
     },
     // Issue #81: password-reset flow. `reset.cta.forgotPassword` is the link
@@ -195,8 +202,8 @@ export const Copy = {
         forgotPassword: 'Forgot password?',
       },
       request: {
-        title: 'Reset your password',
-        body: "Enter your email and we'll send you a link to reset it.",
+        title: 'Reset password',
+        body: 'Enter your email to receive a reset link.',
         cta: {
           send: 'Send reset link',
           backToSignIn: 'Back to sign in',
@@ -207,14 +214,14 @@ export const Copy = {
         // branched on account existence.
         success: {
           title: 'Check your email',
-          body: "If an account exists for {email}, we've sent a link to reset your password.",
+          body: 'If an account exists for {email}, a reset link has been sent.',
         },
         error: {
           // Not an enumeration risk despite being a distinct message: `auth.rate_limit.email_sent`
           // (supabase/config.toml) is a per-project/IP limit, not a per-account one, so hitting it
           // says nothing about whether `{email}` itself has an account.
           rateLimited: 'Too many attempts. Wait a few minutes and try again.',
-          generic: "We couldn't send that email. Check your connection and try again.",
+          generic: 'The email could not be sent. Check your connection and try again.',
         },
       },
       update: {
@@ -229,24 +236,24 @@ export const Copy = {
         // Shown while app/(auth)/update-password.tsx is waiting to confirm the recovery link
         // (the `PASSWORD_RECOVERY` auth event) — a bounded wait, not a spinner-forever, per the
         // same "no fake progress, no spinner-forever" rule `analyzing.longWait` follows.
-        checking: 'Confirming your link…',
+        checking: 'Confirming link…',
         success: {
           title: 'Password updated',
-          body: "You're all set — signed in with your new password.",
+          body: 'You are signed in with your new password.',
         },
         error: {
           // Covers both a link Supabase reports as expired/already-used AND a link with no
           // recovery params at all (e.g. opened directly, not via the emailed link) — both are
           // honestly the same actionable state: nothing here can be recovered, request a new one.
           expiredLink: {
-            title: 'This link has expired',
-            body: 'Password reset links only work once and expire after a while. Request a new one.',
+            title: 'Link expired',
+            body: 'Reset links are single-use and time-limited. Request a new one.',
             cta: 'Request a new link',
           },
           // `mapAuthError`'s generic fallback (`Copy.auth.error.generic`) says "Sign-in didn't go
           // through" — wrong frame for a failed password *update*, so this gets its own string
           // rather than reusing that one.
-          generic: "We couldn't update your password. Try again.",
+          generic: 'The password could not be updated. Try again.',
         },
       },
     },
@@ -259,11 +266,11 @@ export const Copy = {
     // label at all is a separate open design question, not resolved by this change.
     title: 'Home',
     cta: {
-      analyze: 'Analyze my form',
+      analyze: 'Start analysis',
       // --- issues #54/#15 additions start — lifted verbatim from docs/design/copy-deck.md
       // §Screen 2, "Ambiguities and calls made" #1. Three branch states for a used-up quota:
       // Free (no tier below it) and Pro (Elite exists above it) get a relabeled, actionable
-      // CTA; Elite (nothing above it) keeps the plain "Analyze my form" label and renders
+      // CTA; Elite (nothing above it) keeps the plain "Start analysis" label and renders
       // disabled instead — see `analyzeDisabled` below.
       upgradeToAnalyze: 'Upgrade to analyze',
       upgradeForMore: 'Upgrade for more',
@@ -271,7 +278,7 @@ export const Copy = {
       // "Render disabled/greyed rather than relabeled") — kept as its own key anyway, matching
       // this file's established convention of lifting every deck key even when two share one
       // literal string (see `quota.pro.remaining` / `quota.elite.remaining` below).
-      analyzeDisabled: 'Analyze my form',
+      analyzeDisabled: 'Start analysis',
       // --- issues #54/#15 additions end ---
     },
     quota: {
@@ -282,20 +289,20 @@ export const Copy = {
         available: '1 free analysis available',
       },
       exhausted: {
-        free: "You've used your free analysis",
+        free: 'Free analysis used',
         // --- issues #54/#15 additions start — lifted verbatim from the deck §Screen 2.
-        pro: "You've used all {limit} analyses this period — renews {date}",
-        elite: "You've used all {limit} analyses this period — renews {date}",
+        pro: 'All {limit} analyses used this period. Renews {date}',
+        elite: 'All {limit} analyses used this period. Renews {date}',
         // --- issues #54/#15 additions end ---
       },
       // --- issues #54/#15 additions start — lifted verbatim from the deck §Screen 2. Pro and
       // Elite get their own key even though the string is identical, matching the deck's own
       // separate table rows rather than collapsing them into one shared key it doesn't define.
       pro: {
-        remaining: '{remaining} of {limit} analyses left this period',
+        remaining: '{remaining} of {limit} analyses remaining this period',
       },
       elite: {
-        remaining: '{remaining} of {limit} analyses left this period',
+        remaining: '{remaining} of {limit} analyses remaining this period',
       },
       renewsOn: 'Renews {date}',
       // NEW key, not in the deck. `pace_quota_status`'s response
@@ -309,23 +316,23 @@ export const Copy = {
       // `describeCooldownRemaining` can turn it into a phrase, Home says how long is left rather
       // than an open-ended "later". `blocked` stays as the honest fallback for a missing,
       // unparsable, or already-past expiry — never a guessed or zeroed countdown.
-      blocked: "You can't start a new analysis right now. Try again later.",
-      blockedFor: "You can't start a new analysis for {remaining}.",
-      zeroPillarCooldown: 'Nothing in your last clip could be read. You can try again at {time}.',
+      blocked: 'New analyses are unavailable at the moment. Try again later.',
+      blockedFor: 'New analyses are unavailable for {remaining}.',
+      zeroPillarCooldown: 'The last clip could not be read. Try again at {time}.',
       // --- issues #54/#15 additions end ---
-      loading: 'Checking your plan…',
+      loading: 'Checking plan…',
       error: {
-        stale: 'Showing your last known plan status.',
+        stale: 'Showing last known plan status.',
         // `home.quota.error.retry` is defined verbatim in the deck (§Screen 2), reusing
         // `shared.cta.retry`'s "Retry" string. `failed` has no deck entry — the deck only
         // covers the "stale" case (a prior successful fetch to fall back to); this is the
         // narrower case where the very first fetch fails and there is nothing to show yet.
         retry: 'Retry',
-        failed: "Couldn't load your plan status.",
+        failed: 'Plan status unavailable.',
       },
     },
     empty: {
-      caption: 'Nothing analyzed yet.',
+      caption: 'No analyses yet.',
     },
     // NEW key group, nested inside the existing `home:` namespace (issue #140's own instruction:
     // no new top-level namespace). Not in the copy deck — #64/#140's process-kill recovery is
@@ -337,8 +344,8 @@ export const Copy = {
     // than inventing a second voice for the same underlying fact.
     pending: {
       released: {
-        title: "Your last analysis didn't go through",
-        body: "It wasn't counted against your quota — start a new one whenever you're ready.",
+        title: 'Last analysis did not complete',
+        body: 'It was not counted against your quota. Start a new one when ready.',
         dismiss: 'Dismiss',
       },
     },
@@ -346,15 +353,15 @@ export const Copy = {
   consent: {
     upload: {
       title: 'Before you upload',
-      body: 'Your frames are stored privately until you delete them. We send them to Anthropic, our AI provider, to analyse your form. The analysis produces health-related feedback about you, including injury-risk flags.',
+      body: 'Your frames are stored privately until you delete them. We send them to Anthropic, our AI provider, to analyze your form. The analysis produces health-related feedback about you, including injury-risk flags.',
       checkbox:
-        'I consent to my images being analysed to produce health-related feedback, and to Anthropic processing them to do so.',
+        'I consent to my images being analyzed to produce health-related feedback, and to Anthropic processing them to do so.',
       // NEW key (issue #94). `docs/privacy-policy.md`'s "Age and other people in your media"
       // section already states a 16+ minimum; nothing asked or recorded it anywhere in the app.
       // Shown alongside `checkbox` above, on the same once-ever first-upload screen — both must
       // be ticked before the primary CTA enables (see components/consent-gate.tsx).
       age: {
-        checkbox: "I confirm I'm 16 or older.",
+        checkbox: 'I confirm I am 16 or older.',
       },
       link: {
         privacy: 'Privacy details in Settings',
@@ -365,7 +372,7 @@ export const Copy = {
       },
       error: {
         record:
-          "We couldn't record your consent, so nothing has been uploaded. Check your connection and try again.",
+          'Your consent could not be recorded. Nothing has been uploaded. Check your connection and try again.',
       },
       // NEW namespace (issue #94). The gap #68's self-consent copy above doesn't cover: that
       // checkbox is "I consent to MY images" by construction, so it says nothing when the
@@ -374,8 +381,8 @@ export const Copy = {
       // once-ever like the block above — see components/consent-gate.tsx's docblock for why),
       // and requires a fresh attestation whenever the answer is "someone else."
       subject: {
-        title: "Who's in this photo or video?",
-        body: "Let us know if you're submitting your own running form, or someone else's — like an athlete you coach or a friend.",
+        title: 'Who is in this photo or video?',
+        body: "Indicate whether this is your own running form or someone else's, such as an athlete you coach.",
         option: {
           me: 'This is me',
           other: 'Someone else',
@@ -395,7 +402,7 @@ export const Copy = {
         },
         error: {
           record:
-            "We couldn't record your confirmation, so nothing has been uploaded. Check your connection and try again.",
+            'Your confirmation could not be recorded. Nothing has been uploaded. Check your connection and try again.',
         },
       },
     },
@@ -404,30 +411,30 @@ export const Copy = {
   analyzing: {
     title: 'Analyzing',
     step: {
-      reading: 'Reading your form…',
-      scoring: 'Scoring the four pillars…',
+      reading: 'Reading form…',
+      scoring: 'Scoring four pillars…',
     },
-    longWait: 'Still analyzing — a full read takes a moment.',
+    longWait: 'Still analyzing. A full read takes a moment.',
     error: {
       failed: {
         // Design polish pass: the deck's "Your analysis didn't go through" wraps to two lines
         // at `FontSize.xxl` in `app/analyzing.tsx`'s ErrorPanel — shortened to fit one line
         // without losing the "your analysis, not a system-wide failure" framing. Deviates from
         // docs/design/copy-deck.md; that doc is updated to match in the same pass.
-        title: 'Your analysis failed',
-        body: "The analysis service didn't return a usable result. This one wasn't counted against your quota — try again.",
+        title: 'Analysis failed',
+        body: 'The analysis service did not return a usable result. This attempt was not counted against your quota. Try again.',
       },
       timeout: {
         title: 'Analysis timed out',
-        body: "The read took too long to finish. This one wasn't counted against your quota — try again.",
+        body: 'The read exceeded the time limit. This attempt was not counted against your quota. Try again.',
       },
       // NEW — not in the deck. L7 (v23-ux-audit-r1): a session that expired mid-wait used to
       // collapse into the same generic "service didn't return a usable result" copy as a real
       // server error, even though the honest, actionable difference (sign in again, not just
       // retry) is already known client-side via the server's own `unauthorized` error code.
       unauthorized: {
-        title: "You've been signed out",
-        body: "Your session ended before this could finish. This one wasn't counted against your quota — sign in and try again.",
+        title: 'Signed out',
+        body: 'Your session ended before the analysis could finish. This attempt was not counted against your quota. Sign in and try again.',
       },
       // NEW (not in docs/design/copy-deck.md): both released-reservation dead ends — the server's
       // 409 `previous_attempt_failed`, and issue #64's `released` phase found by foreground
@@ -439,19 +446,19 @@ export const Copy = {
         // — shortened to fit one line down to the narrowest supported width (iPhone SE/mini,
         // 375pt). Deviates from docs/design/copy-deck.md; updated there too.
         title: 'Analysis stopped',
-        body: "An earlier attempt at this one stopped before it completed. It wasn't counted against your quota — start a new analysis to try again.",
+        body: 'An earlier attempt stopped before completing. It was not counted against your quota. Start a new analysis to try again.',
       },
       zeroPillarCooldown: {
-        title: 'Nothing to read yet',
-        body: '{message} You can try again at {time}.',
-        bodyUnknownTime: '{message} Give it a few minutes and try again.',
+        title: 'No readable frames',
+        body: '{message} Try again at {time}.',
+        bodyUnknownTime: '{message} Try again in a few minutes.',
         // The lead sentence normally comes from the server (its 429 owns the one-sentence style
         // rule). This is the local stand-in for the one case that would otherwise render NOTHING:
         // a body carrying this `code` with a blank `error`. The panel excludes itself from the
         // generic retryable branch, so an empty body there is not a worse message — it is no
         // panel and no CTA at all, on a screen whose other exits are gone. Deliberately says only
         // what the code itself already tells us, and never guesses a time.
-        fallbackMessage: 'Nothing in your last clip could be read.',
+        fallbackMessage: 'The last clip could not be read.',
       },
       cta: {
         // The deck says "Reuse shared.cta.retry" / "shared.cta.cancel" — no Copy.shared
@@ -462,7 +469,7 @@ export const Copy = {
         // from this screen's issue (out of scope per issue #80: "do NOT reorganize
         // constants/copy.ts").
         retry: 'Retry',
-        startNew: 'Start a new analysis',
+        startNew: 'Start new analysis',
         cancel: 'Cancel',
         // NEW — not in the deck. Distinct from `retry`: the `unauthorized` panel's primary
         // action signs the user out (via lib/sign-out.ts) rather than resubmitting under the
@@ -488,8 +495,8 @@ export const Copy = {
       cadence: { label: 'Cadence' },
       elasticity: { label: 'Elasticity' },
       notAssessed: {
-        angle: 'Not assessed — film side-on for this.',
-        needsVideo: 'Not assessed — needs video, not a photo.',
+        angle: 'Not assessed. Requires a side-on view.',
+        needsVideo: 'Not assessed. Requires video.',
         // NEW key, not in the deck (2026-09-06). The runner DID send a video and exactly one
         // frame of it reached the analysis, so neither `needsVideo` ("not a photo") nor `angle` is
         // a true sentence about their upload. Written only by `analyze-form/flow.ts`'s
@@ -498,39 +505,40 @@ export const Copy = {
         // `lib/extraction-frame-cap.ts` falls back to a single frame whenever it cannot read the
         // caller's quota — so "your plan only allowed one" would be a guess, and a false one for a
         // paying user whose lookup failed.
-        singleFrameFromVideo: 'Not assessed — only one frame of your video could be analysed.',
+        singleFrameFromVideo: 'Not assessed. Only one frame of the video was analyzed.',
         // NEW key, not in the deck. `supabase/functions/_shared/pace.ts`'s own doc comment on
         // `PaceNotAssessedReason` says a model response is NOT structurally required to report
         // exactly 'angle' | 'needsVideo' — an honest "couldn't assess this" that names some
         // other reason (or none at all) must still render as not-assessed, never be dropped or
         // treated as a shape violation. Also doubles as the overall headline's not-assessed
         // fallback text when every pillar comes back null (`PaceOverall.band === null`).
-        generic: "Not assessed — the media didn't support scoring this.",
+        generic: 'Not assessed. The media did not support scoring.',
       },
       a11yLabel: '{pillar}, {score} out of 100, {band}.',
       // --- pillar-detail-modal NEW keys start — NOT in docs/design/copy-deck.md, NOT
       // copy-certified. `flagsLabel`/`drillsLabel` distinguish the injury-risk-flag sub-list from
       // the corrective-drill sub-list, which previously rendered with byte-identical styling and
       // no label at all — a user couldn't tell "this is a risk to watch for" from "this is an
-      // exercise to try" at a glance. Chosen to match the app's calm, non-alarmist tone (see
-      // `constants/theme.ts`'s notes on "caution not alarm") rather than clinical headings like
-      // "Flags"/"Drills". `detail.*` covers the new per-pillar detail modal's own controls.
-      flagsLabel: 'Watch for',
-      drillsLabel: 'Try this',
+      // exercise to try" at a glance. Originally "Watch for"/"Try this"; renamed to the plain
+      // technical terms on 2026-09-12 (captain's audit: the app's copy read too informal). The
+      // labels now name the thing precisely rather than softening it. `detail.*` covers the new
+      // per-pillar detail modal's own controls.
+      flagsLabel: 'Risk flags',
+      drillsLabel: 'Drills',
       detail: {
         a11yLabel: '{pillar} details',
-        a11yHint: 'Opens the full detail for this pillar.',
+        a11yHint: 'Opens full detail for this pillar.',
         close: 'Close',
       },
       // --- pillar-detail-modal NEW keys end ---
     },
     hero: {
-      altText: 'Your running frame, marked with posture and ground lines.',
+      altText: 'Running frame with posture and ground lines marked.',
     },
     partial: {
       banner: {
         title: 'Partial read',
-        body: "We could confidently score {n} of 4 pillars from this {medium}. The rest are marked not assessed — we don't guess at a score.",
+        body: '{n} of 4 pillars scored from this {medium}. The rest are marked not assessed; no score is estimated.',
       },
     },
     // NEW keys, not in the deck. The deck covers this screen's happy/partial/disclaimer states
@@ -538,8 +546,8 @@ export const Copy = {
     // the states, not just the happy view") and issue #56's own "Retry/Cancel must never trap
     // the user in a dead end."
     error: {
-      notFound: "We couldn't find this analysis.",
-      loadFailed: "Couldn't load this analysis.",
+      notFound: 'Analysis not found.',
+      loadFailed: 'Analysis could not be loaded.',
       retry: 'Retry',
     },
     cta: {
@@ -553,10 +561,10 @@ export const Copy = {
     // Analyses) heading, but the key's own namespace (`result.*`, not `history.*`) and its
     // "Shows when" column ("Opening a stored result cold") both name this screen, not Screen 8's
     // list — kept under `result` here to match the key's actual namespace.
-    loadingFromHistory: 'Loading your result…',
+    loadingFromHistory: 'Loading result…',
     disclaimer: {
       footer:
-        'This is not medical advice. PACE analyzes visible running form and flags movement patterns that research associates with elevated injury risk — it does not diagnose injuries or conditions. Form assessment from a photo or short video is an estimate, not a lab measurement. If you have pain, swelling, or a persistent problem, or before making a big change to how you run, consult a doctor or a qualified sports physiotherapist.',
+        'This is not medical advice. PACE assesses visible running form and flags movement patterns that research associates with elevated injury risk. It does not diagnose injuries or conditions. Form assessment from a photo or short video is an estimate, not a laboratory measurement. If you have pain, swelling or a persistent problem, or before making a significant change to how you run, consult a doctor or a qualified sports physiotherapist.',
     },
     // --- issue #56 additions end ---
   },
@@ -571,11 +579,11 @@ export const Copy = {
     // both this screen's KineticText header and the tab bar label — shortened to fit one line.
     // Deviates from docs/design/copy-deck.md; that doc is updated to match in the same pass.
     title: 'History',
-    loading: 'Loading your analyses…',
+    loading: 'Loading analyses…',
     empty: {
       title: 'No analyses yet',
-      body: 'Your analyses will live here.',
-      cta: 'Analyze my form',
+      body: 'Completed analyses appear here.',
+      cta: 'Start analysis',
     },
     item: {
       a11yLabel: 'Analysis from {date}, overall {score} out of 100, {band}.',
@@ -604,7 +612,7 @@ export const Copy = {
     delete: {
       confirm: {
         title: 'Delete this analysis?',
-        body: "This removes the result and its saved frames. This can't be undone.",
+        body: 'This removes the result and its stored frames. This cannot be undone.',
         cta: {
           primary: 'Delete analysis',
           // Deck says "Reuse shared.cta.cancel" — no Copy.shared namespace exists in this
@@ -617,7 +625,7 @@ export const Copy = {
       // not a failed delete's own outcome, a real state per CLAUDE.md ("build the states, not
       // just the happy view").
       error: {
-        title: "Couldn't delete this analysis",
+        title: 'Analysis could not be deleted',
         body: 'Check your connection and try again.',
         // Reuses `settings.alertDismiss`'s wording ("OK") by value, not by reference — same
         // no-Copy.shared convention as `delete.confirm.cta.secondary` above.
@@ -629,7 +637,7 @@ export const Copy = {
     // list" as a LOADING state but not a load-FAILURE state; mirrors `result.error.*`'s identical
     // addition for the single-result screen.
     error: {
-      loadFailed: "Couldn't load your past analyses.",
+      loadFailed: 'Analyses could not be loaded.',
       retry: 'Retry',
     },
     // The Compare screen existed but History exposed no route to it, leaving the feature
@@ -652,12 +660,12 @@ export const Copy = {
   compare: {
     title: 'Compare',
     picker: {
-      prompt: 'Pick two analyses to compare.',
+      prompt: 'Select two analyses to compare.',
       cta: 'Compare',
     },
     empty: {
       title: 'Not enough analyses yet',
-      body: 'Save two analyses to compare them side by side.',
+      body: 'Two analyses are required for a comparison.',
     },
     vs: 'vs',
     delta: {
@@ -684,9 +692,9 @@ export const Copy = {
     // this screen too, not trusted from how the user navigated here — CLAUDE.md: "the client ...
     // is never the authority"). Mirrors `history.error.*` / `result.error.*`'s identical
     // additions for their own screens.
-    loading: 'Loading your analyses…',
+    loading: 'Loading analyses…',
     error: {
-      loadFailed: "Couldn't load your past analyses.",
+      loadFailed: 'Analyses could not be loaded.',
       retry: 'Retry',
     },
     // Duplicated BY VALUE from the deck's `history.compare.locked.*` (§ Screen 8) rather than
@@ -696,7 +704,7 @@ export const Copy = {
     // back non-Elite, independent of whichever entry point got the user here.
     locked: {
       title: 'Compare is an Elite feature',
-      body: 'Upgrade to Elite to compare two of your analyses side by side.',
+      body: 'Upgrade to Elite to compare two analyses side by side.',
       cta: 'See plans',
     },
     // Reuses `settings.back`/`paywall.back`'s exact wording, by value, same no-Copy.shared
@@ -731,7 +739,7 @@ export const Copy = {
       cta: 'Sign out',
       confirm: {
         title: 'Sign out?',
-        body: 'You can sign back in anytime with the same account.',
+        body: 'You can sign in again at any time.',
         cta: {
           primary: 'Sign out',
           secondary: 'Cancel',
@@ -742,7 +750,7 @@ export const Copy = {
       cta: 'Delete account',
       confirm: {
         title: 'Delete your account?',
-        body: "This permanently deletes your account, every analysis, and every stored frame. This can't be undone.",
+        body: 'This permanently deletes your account, every analysis and every stored frame. This cannot be undone.',
         cta: {
           primary: 'Delete account and data',
           secondary: 'Cancel',
@@ -750,7 +758,7 @@ export const Copy = {
       },
     },
     privacy: {
-      body: 'Your original photo or video never leaves your device. We extract a small number of still frames from it on your phone, and only those frames are uploaded — stored in a private location only you can access, and kept there until you delete the analysis or your account. To generate your results, the stored frames are sent to Anthropic, our AI provider, to analyze your form.',
+      body: 'Your original photo or video never leaves your device. A small number of still frames are extracted on your phone, and only those frames are uploaded. They are stored in a private location only you can access, until you delete the analysis or your account. To generate results, the stored frames are sent to Anthropic, our AI provider, to analyze your form.',
       deleteNote:
         'Deleting an analysis removes its stored frames immediately. Deleting your account removes everything.',
     },
@@ -777,15 +785,15 @@ export const Copy = {
     plan: {
       // Same string as `home.quota.loading`, reused by value rather than through a shared
       // namespace — matching how this file already reuses "Retry" across screens.
-      loading: 'Checking your plan…',
-      error: "Couldn't load your plan.",
+      loading: 'Checking plan…',
+      error: 'Plan could not be loaded.',
       retry: 'Retry',
       // Screen-reader-only label. The VISIBLE text stays the deck's "Retry", but this screen can
       // show two Retry buttons at once (plan + consent, if both reads fail), and two controls
       // whose accessible name is the bare word "Retry" are indistinguishable to a screen reader —
       // you hear "Retry… Retry" and cannot tell which does what. Naming the target fixes that
       // without changing what anyone sees. Same pattern as the deck's own `result.pillar.a11yLabel`.
-      retryA11yLabel: 'Retry loading your plan',
+      retryA11yLabel: 'Retry loading plan',
       // The deck's `settings.plan.cta`. It was written but deliberately left unrendered until
       // there was a Paywall route for it to point at (issue #52) — that route now exists.
       cta: 'See plans',
@@ -802,15 +810,15 @@ export const Copy = {
       // revoke look like a clean sign-out: on a shared or stolen device, "signed out" is the one
       // claim that has to be true. No jargon: no "token", no "revoke", no "session" as a noun.
       globalRevokeFailed: {
-        title: 'Signed out here — but maybe not everywhere',
-        body: "You're signed out on this device. We couldn't reach the server to end your other sessions, so they may still be active. Sign in again while you have a connection, then sign out to end them everywhere.",
+        title: 'Signed out on this device',
+        body: 'You are signed out on this device. The server could not be reached to end your other sessions, so they may still be active. Sign in again with a connection, then sign out to end them everywhere.',
       },
       // `stillSignedIn`: the state the audit found missing. Here retrying is NOT theatre — the
       // local session a retry would authenticate with is still fully intact, unlike the case
       // above — so this offers a real retry instead of just an acknowledgement.
       stillSignedIn: {
-        title: "You're still signed in",
-        body: "We couldn't reach the server, so nothing changed — you're still signed in here and everywhere else. Check your connection and try again.",
+        title: 'Still signed in',
+        body: 'The server could not be reached, so nothing changed. You remain signed in here and on other devices. Check your connection and try again.',
         cta: {
           primary: 'Try again',
           secondary: 'Cancel',
@@ -818,7 +826,7 @@ export const Copy = {
       },
     },
     deleteAccountState: {
-      pending: 'Deleting your account…',
+      pending: 'Deleting account…',
       // `orphansRemaining: true` is a SUCCESS, not a failure (audit finding F2) — the account IS
       // gone, irreversibly. The only thing that didn't finish is clearing a handful of stray
       // objects (almost always a concurrent upload landing mid-delete), which is why there is no
@@ -826,11 +834,11 @@ export const Copy = {
       success: {
         orphansRemaining: {
           title: 'Account deleted',
-          body: 'Your account and everything in it are deleted. A small amount of stored media may take a little longer to finish clearing — contact support if that concerns you.',
+          body: 'Your account and its data are deleted. A small amount of stored media may take longer to clear. Contact support if that is a concern.',
         },
       },
       error: {
-        title: "We couldn't delete your account",
+        title: 'Account could not be deleted',
         // Rewritten per audit finding F2: the previous string claimed "the account is still
         // active" as if that were always true on any failure. It is not — #58's purge runs
         // storage objects → rows → auth user in strict order, so DIFFERENT failure codes mean
@@ -848,16 +856,16 @@ export const Copy = {
       // where consent can be withdrawn (GDPR Art. 7(3): withdrawal must be as easy as giving it —
       // hence a plain row here, not a support email).
       status: {
-        granted: "You've consented to health-related analysis of your uploaded frames.",
-        withdrawn: "You haven't consented to health-related analysis. We'll ask again before your next upload.",
-        loading: 'Checking your consent…',
+        granted: 'You have consented to health-related analysis of your uploaded frames.',
+        withdrawn: 'You have not consented to health-related analysis. You will be asked again before your next upload.',
+        loading: 'Checking consent…',
         // hasConsented() THROWS on any query failure and must not be guessed either way (see
         // lib/consent.ts — it fails closed on purpose). So we say we don't know, rather than
         // rendering either status falsely.
-        error: "Couldn't load your consent status.",
+        error: 'Consent status could not be loaded.',
         retry: 'Retry',
         // Screen-reader-only — see `settings.plan.retryA11yLabel` for why both Retries need one.
-        retryA11yLabel: 'Retry loading your consent status',
+        retryA11yLabel: 'Retry loading consent status',
       },
       withdraw: {
         cta: 'Withdraw consent',
@@ -867,19 +875,19 @@ export const Copy = {
           // erasure. Art. 7(3) withdrawal stops future processing; it does not retroactively
           // delete what is already stored. Saying so plainly — and pointing at the control that
           // DOES erase — is the difference between an honest control and a false comfort.
-          body: "We'll ask for your consent again before your next upload, and won't analyze anything until you give it. This doesn't delete frames or analyses you've already stored — use Delete account for that.",
+          body: 'You will be asked for consent again before your next upload, and nothing will be analyzed until you give it. This does not delete frames or analyses already stored. Use Delete account for that.',
           cta: {
             primary: 'Withdraw consent',
             secondary: 'Cancel',
           },
         },
         error: {
-          title: "We couldn't withdraw your consent",
+          title: 'Consent could not be withdrawn',
           // Mirrors `consent.upload.error.record`'s rule for the grant path: say plainly that
           // nothing changed, so the user never walks away believing they withdrew when they
           // didn't. The consent row is append-only — a failed write means no row, means the
           // previous grant still stands, so "nothing has changed" is literally true here.
-          body: "Nothing has changed — your consent is still on record. Check your connection and try again.",
+          body: 'Nothing has changed. Your consent remains on record. Check your connection and try again.',
         },
       },
     },
@@ -894,7 +902,7 @@ export const Copy = {
       // exists to prevent. Instead we say where things stand and point at the disclosure that IS
       // certified and true today — the summary directly above it on this screen.
       pending:
-        "The full policy isn't published yet. The summary above is the complete, current description of what we do with your data.",
+        'The full policy is not yet published. The summary above is the complete, current description of how your data is handled.',
     },
     // --- issue #53 NEW copy ends ---
 
@@ -912,8 +920,8 @@ export const Copy = {
     // ----------------------------------------------------------------------------------------
     reauth: {
       passwordPrompt: {
-        title: "Confirm it's you",
-        body: 'For your security, deleting your account needs a recent sign-in. Enter your password to continue.',
+        title: 'Confirm your identity',
+        body: 'Deleting your account requires a recent sign-in. Enter your password to continue.',
         placeholder: 'Password',
         cta: {
           primary: 'Confirm and delete',
@@ -921,9 +929,9 @@ export const Copy = {
         },
       },
       googlePrompt: {
-        title: "Confirm it's you",
+        title: 'Confirm your identity',
         body:
-          "For your security, deleting your account needs a recent sign-in. You'll be asked to sign in with Google again, then your account will be deleted.",
+          'Deleting your account requires a recent sign-in. You will be asked to sign in with Google again; your account will then be deleted.',
         cta: {
           primary: 'Continue with Google',
           secondary: 'Cancel',
@@ -932,25 +940,25 @@ export const Copy = {
       // The screen has no reauthentication flow for a provider other than password/Google today —
       // said plainly rather than silently doing nothing when `getReauthProvider` returns 'unknown'.
       unsupportedProvider: {
-        title: "We can't confirm it's you",
-        body: 'Sign out and sign back in, then try deleting your account again.',
+        title: 'Identity could not be confirmed',
+        body: 'Sign out and sign in again, then retry deleting your account.',
       },
       error: {
-        title: "That didn't work",
-        genericBody: "We couldn't confirm it's you. Check your connection and try again.",
+        title: 'Confirmation failed',
+        genericBody: 'Your identity could not be confirmed. Check your connection and try again.',
         // The sign-in screen's `auth.error.invalidCredentials` cannot be reused here: it offers
         // "Continue with Google" as a possibility, which is true at sign-in (any account may be
         // Google-backed) but known-false in this sheet — it opens only when `getReauthProvider`
         // says the signed-in account is a password account, and it has no Google button to press.
         // The email is not in question here either; the user is already signed in.
-        wrongPassword: "That password doesn't match. Try again.",
+        wrongPassword: 'Incorrect password. Try again.',
         // Reached only if the RETRY after a successful reauthentication is ALSO rejected as stale
         // (e.g. clock skew) — distinct from genericBody because the user just did what was asked
         // and it still didn't take, which deserves its own honest explanation rather than looking
         // like the same generic failure.
         stillRequired: {
-          title: "We still couldn't confirm it's you",
-          body: "That didn't go through in time. Wait a moment, then try deleting your account again.",
+          title: 'Confirmation still required',
+          body: 'The confirmation did not complete in time. Wait a moment, then retry deleting your account.',
         },
       },
     },
@@ -977,7 +985,7 @@ export const Copy = {
   // key's own comment) for a screen that needs a tier label before/without pulling in the whole
   // `Copy.tier` namespace as a dependency.
   paywall: {
-    title: 'Choose your plan',
+    title: 'Choose a plan',
     // Same string as settings.back / shared.cta.back (deck §0) — reused by value, matching how
     // every screen before this one has handled shared.cta.* (see settings.back's own comment).
     back: 'Back',
@@ -987,16 +995,16 @@ export const Copy = {
       // unlocks anything this product cannot certify: no promised pillar count, no cadence figure,
       // no ground-contact comparison — see `paywall.tier.*` below for the same discipline.
       free: {
-        title: "You've used your free analysis",
-        body: 'Your one lifetime Free analysis is used. See what Pro and Elite add below.',
+        title: 'Free analysis used',
+        body: 'Your single lifetime Free analysis has been used. Pro and Elite are outlined below.',
       },
       paid: {
-        title: "You're out of analyses this period",
+        title: 'No analyses remaining this period',
         // {limit} and {renewsOn} are always live values read off a fresh quota-status response
         // (lib/subscription.ts's QuotaStatus.limit / formatRenewalDate(periodEnd)) — never a
         // constant here, per CLAUDE.md's "never authoritative on the client" rule.
         body: (limit: number, renewsOn: string) =>
-          `You've used all ${limit} analyses this period. It renews ${renewsOn}. Upgrade for more each period.`,
+          `All ${limit} analyses used this period. Renews ${renewsOn}. Upgrade for more each period.`,
       },
     },
     tier: {
@@ -1008,22 +1016,22 @@ export const Copy = {
       free: {
         name: 'Free',
         price: '$0',
-        detail: 'Your 1 real analysis, from a single photo or frame — no injury-risk flags or drills.',
+        detail: 'One analysis, from a single photo or frame. No injury-risk flags or drills.',
       },
       pro: {
         name: 'Pro',
         price: '$6.99 / month',
         detail:
-          '10 analyses per period, plus multi-frame evidence when your footage supports it — certified injury-risk flags and drills when supported.',
+          '10 analyses per period. Multi-frame evidence where footage supports it. Certified injury-risk flags and drills where supported.',
       },
       elite: {
         name: 'Elite',
         price: '$14.99 / month',
         detail:
-          '30 analyses per period. Everything in Pro, plus deeper feedback per pillar and a side-by-side comparison with your past analyses.',
+          '30 analyses per period. Everything in Pro, plus deeper per-pillar feedback and side-by-side comparison of past analyses.',
       },
     },
-    footnote: 'Elite adds a little more detail and comparison — not a different analysis.',
+    footnote: 'Elite adds detail and comparison, not a different analysis.',
     cta: {
       upgrade: {
         pro: 'Upgrade to Pro',
@@ -1051,18 +1059,18 @@ export const Copy = {
     // ----------------------------------------------------------------------------------------
     alertDismiss: 'OK',
     plan: {
-      loading: 'Checking your plan…',
-      error: "Couldn't load your plan.",
+      loading: 'Checking plan…',
+      error: 'Plan could not be loaded.',
       retry: 'Retry',
       // Screen-reader-only label — same reasoning as settings.plan.retryA11yLabel (this screen
       // can show this Retry next to a purchase-error Retry, and two controls both named "Retry"
       // are indistinguishable to a screen reader).
-      retryA11yLabel: 'Retry loading your plan',
+      retryA11yLabel: 'Retry loading plan',
     },
     purchase: {
       pending: 'Upgrading…',
       success: {
-        title: (tierName: string) => `You're on ${tierName} now`,
+        title: (tierName: string) => `Upgraded to ${tierName}`,
         body: 'Your new plan is active.',
       },
       error: {
@@ -1082,20 +1090,20 @@ export const Copy = {
         // will succeed. "Your plan hasn't changed" rather than "you're still on Free": a Pro
         // account tapping Elite reaches this same branch. Locked by app/__tests__/paywall.test.tsx.
         unavailable: {
-          title: "Upgrading isn't available yet",
-          body: "Buying a plan isn't possible in the app yet. Your plan hasn't changed, and nothing was charged.",
+          title: 'Upgrades are not available yet',
+          body: 'Purchasing a plan is not yet supported. Your plan has not changed, and you were not charged.',
         },
         // code: 'rate_limited' — the same account called purchase-tier again within 3 seconds of
         // its own last write.
         rateLimited: {
-          title: 'One at a time',
-          body: 'Give it a moment before trying again.',
+          title: 'Too soon',
+          body: 'Wait a moment before trying again.',
         },
         // Every other failure (network, an unrecognized code, a malformed response) — honest and
         // retryable, matching this file's other generic-failure strings (e.g. the "check your
         // connection and try again" idiom in settings.deleteAccountState.error.body).
         generic: {
-          title: "Your upgrade didn't go through",
+          title: 'Upgrade failed',
           body: 'Nothing was charged. Check your connection and try again.',
         },
       },
@@ -1119,26 +1127,26 @@ export const Copy = {
   // interpolation in one place instead of every call site re-building the same string.
   // ---------------------------------------------------------------------------------------
   sourcePicker: {
-    title: 'Add your run',
+    title: 'Add footage',
     card: {
       upload: {
         title: 'Upload',
-        subtitle: 'Choose a photo or video from your library.',
+        subtitle: 'Select a photo or video from your library.',
       },
       record: {
         title: 'Record',
-        subtitle: 'Film a new clip in the app — muted, no microphone.',
+        subtitle: 'Record a new clip in the app. Muted; no microphone access.',
       },
     },
-    framingTip: 'Best read comes from a side-on shot — full body, good light.',
+    framingTip: 'Side-on, full body, good light.',
     permission: {
       library: {
-        title: 'Pace Analysis AI needs your photo library',
-        body: 'To choose a running photo or video already saved on your phone. We only access what you pick.',
+        title: 'Photo library access required',
+        body: 'To select a running photo or video saved on your phone. Only the item you select is accessed.',
         cta: 'Allow library access',
         denied: {
           title: 'Photo library access is off',
-          body: 'Turn on photo library access in Settings to upload a clip.',
+          body: 'Enable photo library access in Settings to upload a clip.',
           // Same string as shared.cta.openSettings in the deck; reused by value rather than
           // through a Copy.shared namespace, matching how app/(tabs)/index.tsx already
           // reuses "Retry" (home.quota.error.retry) instead of introducing one.
@@ -1153,37 +1161,37 @@ export const Copy = {
     // `lib/media-caps.ts`'s `'clipTooLong'` violation.
     error: {
       clipTooLong: {
-        title: 'This clip is longer than 15 seconds',
-        body: 'Pick a shorter clip, or record a new one in the app — recording stops automatically at 15 seconds.',
+        title: 'Clip exceeds 15 seconds',
+        body: 'Select a shorter clip, or record one in the app. Recording stops automatically at 15 seconds.',
       },
       // NEW — not in the deck. Shared with app/capture/extracting.tsx's pre-flight check
       // (a library pick this large is caught here, before ever navigating to Extracting).
       fileTooLarge: {
-        title: 'This file is too large to analyze',
-        body: 'Choose a smaller photo or video, or record a new clip in the app.',
+        title: 'File too large to analyze',
+        body: 'Select a smaller photo or video, or record a new clip in the app.',
       },
     },
   },
   capture: {
     title: 'Record your run',
     overlay: {
-      tip: 'Stand side-on, full body in frame, about 10 metres back. Level the camera and shoot in good light.',
-      muted: 'Recording is muted — no audio, no microphone.',
+      tip: 'Side-on, full body in frame, about 10 metres back. Level camera, good light.',
+      muted: 'Recording is muted. No audio is captured.',
     },
     recording: {
-      autoCap: 'Clips stop automatically at 15 seconds.',
+      autoCap: 'Recording stops automatically at 15 seconds.',
       // {elapsed} is templated at the call site (app/capture/record.tsx), not here — it's a
       // live value, same convention as home.quota.pro.remaining's {remaining}/{limit}.
       timer: (elapsedSeconds: number) => `${elapsedSeconds}s / 15s`,
     },
     permission: {
       camera: {
-        title: 'Pace Analysis AI needs your camera',
-        body: 'To record your running form. Recording is muted — we never access your microphone.',
+        title: 'Camera access required',
+        body: 'To record your running form. Recording is muted; the microphone is never accessed.',
         cta: 'Allow camera access',
         denied: {
           title: 'Camera access is off',
-          body: 'Turn on camera access in Settings to record your form. Recording is muted — we never access your microphone.',
+          body: 'Enable camera access in Settings to record your form. Recording is muted; the microphone is never accessed.',
           cta: 'Open Settings', // same string as shared.cta.openSettings — see the note above.
           secondary: 'Upload from library instead',
         },
@@ -1198,7 +1206,7 @@ export const Copy = {
   // this order as superseded by the Ruling-1 pipeline; this file follows the live contract,
   // extraction only.
   upload: {
-    title: 'Preparing your analysis',
+    title: 'Preparing analysis',
     step: {
       extracting: (current: number, total: number) => `Extracting frames ${current} / ${total}`,
     },
@@ -1208,8 +1216,8 @@ export const Copy = {
     // the same result, so there is no retry CTA here — only a way back to choose differently.
     error: {
       budgetExceeded: {
-        title: 'This clip is too large to analyze',
-        body: 'Its extracted frames add up to more data than one analysis can send. Try a shorter clip or a lower-resolution recording.',
+        title: 'Clip too large to analyze',
+        body: 'The extracted frames exceed the data limit for one analysis. Use a shorter clip or a lower-resolution recording.',
       },
       // NEW — not in the deck. `lib/frames.ts`'s InsufficientFramesError: the clip decoded, but
       // too few of its frames landed on genuinely different instants to read motion from. Like
@@ -1218,24 +1226,24 @@ export const Copy = {
       // only a way back to choose different footage. Worded for a runner, not a decoder: no
       // "frame rate", no "fps", no "decoder".
       unsupportedFootage: {
-        title: "This clip won't work for a full analysis",
-        body: 'Its frames are too close to identical to show your body moving between them — that usually means the clip was re-recorded or exported from another app. Try a clip recorded straight from your camera at normal speed.',
+        title: 'Clip unsuitable for full analysis',
+        body: 'Consecutive frames are too similar to show movement, which usually indicates the clip was re-recorded or exported from another app. Use a clip recorded directly from the camera at normal speed.',
       },
       // NEW — not in the deck. Any other extraction failure (a corrupt file, a native-module
       // error) — distinct from budgetExceeded because retrying the same input CAN succeed here.
       extractionFailed: {
-        title: "Couldn't process this clip",
-        body: 'Something went wrong preparing your frames. Try again or choose a different clip.',
+        title: 'Clip could not be processed',
+        body: 'Frame extraction failed. Try again or select a different clip.',
       },
     },
     // NEW — not in the deck. Was a genuine stopping point ("Done" -> Home) until issue #135
     // wired this screen's one control to hand off into `/analyzing` — reuses `home.cta.analyze`'s
-    // exact wording ("Analyze my form") rather than inventing a distinct label for what is, from
+    // exact wording ("Start analysis") rather than inventing a distinct label for what is, from
     // the user's point of view, the same action: starting an analysis of what's now ready.
     ready: {
       title: 'Frames ready',
       body: (frameCount: number) => `${frameCount} frame${frameCount === 1 ? '' : 's'} extracted and ready for analysis.`,
-      cta: 'Analyze my form',
+      cta: 'Start analysis',
     },
   },
   // Cross-cutting — Offline (issue #93). Lifted verbatim from copy-deck.md's own "Cross-cutting —
@@ -1249,10 +1257,10 @@ export const Copy = {
   // claim 'saved' when it isn't," and this is the one state guaranteed to be shown BEFORE any
   // network attempt, so it's the one place that claim is always true by construction.
   offline: {
-    banner: "You're offline — capture still works, but upload and analysis need a connection.",
+    banner: 'Offline. Capture is available; upload and analysis require a connection.',
     blocked: {
-      title: "You're offline",
-      body: 'This needs an internet connection. Reconnect and try again — nothing has been sent yet.',
+      title: 'Offline',
+      body: 'This requires an internet connection. Reconnect and try again. Nothing has been sent.',
       // Deck says "Reuse shared.cta.retry" — no Copy.shared namespace exists (see the note at
       // `analyzing.error.cta` above); every other reuse of this string duplicates it by value
       // instead, so this matches that established convention rather than introducing the first
@@ -1281,12 +1289,12 @@ export const Copy = {
   // exactly that reason — selling a plan to someone we just throttled would be both wrong and
   // useless, since a purchase does not lift this window for the tier they are already on.
   analysisPause: {
-    title: 'Analyses are paused for now',
+    title: 'Analyses paused',
     bodyFor: (remaining: string) =>
-      `Several recent analyses couldn't be scored, so new ones are paused for ${remaining}. Nothing failed here, and nothing was counted against your quota.`,
-    body: "Several recent analyses couldn't be scored, so new ones are paused for a short while. Nothing failed here, and nothing was counted against your quota.",
+      `Several recent analyses could not be scored, so new ones are paused for ${remaining}. Nothing was counted against your quota.`,
+    body: 'Several recent analyses could not be scored, so new ones are paused for a short period. Nothing was counted against your quota.',
     // Reuses `settings.back`/`paywall.back`'s wording by value, this file's established convention
     // for a shared string (see `analyzing.error.cta`'s note on the absent Copy.shared namespace).
-    cta: 'Back to home',
+    cta: 'Back to Home',
   },
 } as const;

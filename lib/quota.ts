@@ -289,7 +289,7 @@ export type PrimaryCtaKind = 'analyze' | 'upgradeToAnalyze' | 'upgradeForMore' |
  * Which of Home's four CTA branches a given quota reading maps to — the deck's own
  * "Ambiguities and calls made" #1 (`docs/design/copy-deck.md` §Screen 2): Free-exhausted and
  * Pro-exhausted (an Elite ceiling still exists above it) get a relabeled, actionable CTA;
- * Elite-exhausted (nothing above it) keeps the plain "Analyze my form" label and renders
+ * Elite-exhausted (nothing above it) keeps the plain "Start analysis" label and renders
  * disabled instead of relabeled.
  */
 export function primaryCtaKind(quota: QuotaStatus): PrimaryCtaKind {

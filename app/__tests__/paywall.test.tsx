@@ -51,17 +51,17 @@ describe('PaywallScreen plan promises', () => {
   it('shows a Free user the exact paid limits and only supported upgrade capabilities', async () => {
     await render(<PaywallScreen />);
 
-    await waitFor(() => expect(screen.getByText("You've used your free analysis")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Free analysis used')).toBeTruthy());
 
-    expect(screen.getByText(/1 real analysis/i)).toBeTruthy();
+    expect(screen.getByText(/^One analysis, from a single photo or frame/i)).toBeTruthy();
     expect(
       screen.getByText(
-        '10 analyses per period, plus multi-frame evidence when your footage supports it — certified injury-risk flags and drills when supported.'
+        '10 analyses per period. Multi-frame evidence where footage supports it. Certified injury-risk flags and drills where supported.'
       )
     ).toBeTruthy();
     expect(
       screen.getByText(
-        '30 analyses per period. Everything in Pro, plus deeper feedback per pillar and a side-by-side comparison with your past analyses.'
+        '30 analyses per period. Everything in Pro, plus deeper per-pillar feedback and side-by-side comparison of past analyses.'
       )
     ).toBeTruthy();
 
@@ -89,7 +89,7 @@ describe('PaywallScreen purchase unavailable (purchase-tier gate off)', () => {
     });
 
     await render(<PaywallScreen />);
-    await waitFor(() => expect(screen.getByText("You've used your free analysis")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Free analysis used')).toBeTruthy());
 
     // Same `act` wrap app/__tests__/analyzing.test.tsx uses: the press starts an async purchase
     // whose settling setState would otherwise land outside React's act() scope.
@@ -101,9 +101,9 @@ describe('PaywallScreen purchase unavailable (purchase-tier gate off)', () => {
     expect(mockPurchaseTier).toHaveBeenCalledWith('pro');
 
     const [title, body] = alertSpy.mock.calls[0] as [string, string];
-    expect(title).toBe("Upgrading isn't available yet");
+    expect(title).toBe('Upgrades are not available yet');
     expect(body).toBe(
-      "Buying a plan isn't possible in the app yet. Your plan hasn't changed, and nothing was charged."
+      'Purchasing a plan is not yet supported. Your plan has not changed, and you were not charged.'
     );
     // The two claims the old copy made that were false: it is not the build, and it will not
     // clear on its own.

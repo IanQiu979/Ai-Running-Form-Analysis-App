@@ -36,7 +36,7 @@ describe('an assessed pillar (proTierVideoResult.posture)', () => {
     ).toBeTruthy();
   });
 
-  it('renders the "Watch for"/"Try this" labeled flags and drills for a pillar that has them (cadence)', async () => {
+  it('renders the "Risk flags"/"Drills" labeled flags and drills for a pillar that has them (cadence)', async () => {
     await render(
       <PillarDetailModal
         visible

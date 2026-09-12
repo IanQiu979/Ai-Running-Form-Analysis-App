@@ -14,7 +14,7 @@
 # `lib/analyze-form.ts` directly just now — this is the one remaining, genuine reason this flow
 # cannot be made to pass:
 #   1. ~~app/capture/extracting.tsx's "Frames ready" screen never hands off to /analyzing~~ FIXED
-#      by #135: the ready-state CTA now reads "Analyze my form" and calls
+#      by #135: the ready-state CTA now reads "Start analysis" and calls
 #      `setPendingAnalyzeFormRequest()` + `router.replace('/analyzing')`. See
 #      ../flows/happy-path.yaml, which exercises this same handoff for the success case. So this
 #      flow's `tapOn: "Done"` below is now WRONG and has been updated to match.
@@ -60,9 +60,9 @@ appId: com.ian.paceanalysisai
 - tapOn: "Password"
 - inputText: "${MAESTRO_ANALYSIS_FAILURE_TEST_PASSWORD}"
 - tapOn: "Sign in"
-- assertVisible: "Analyze my form"
+- assertVisible: "Start analysis"
 
-- tapOn: "Analyze my form"
+- tapOn: "Start analysis"
 - tapOn:
     id: "source-card-record"
 - runFlow: subflows/grant-consent.yaml
@@ -81,19 +81,19 @@ appId: com.ian.paceanalysisai
 # --- The handoff itself is real now (#135) — this line runs fine. Everything AFTER it still
 # needs the fix described in the header comment (#2: no way to force a non-success outcome). ---
 
-- tapOn: "Analyze my form" # upload.ready.cta — the real handoff, matches happy-path.yaml
+- tapOn: "Start analysis" # upload.ready.cta — the real handoff, matches happy-path.yaml
 # TODO: some documented, deterministic way to force a failure/timeout outcome for THIS
 # analysis — e.g. `- inputText: "${MAESTRO_FORCE_ANALYZE_OUTCOME}"` into a to-be-designed
 # test-only field, or an env-configured build. Nothing in the current app takes such a signal —
 # without it, the two assertions below will FAIL (loudly, correctly) against the mock's
 # hardcoded 'success' outcome: "Analyzing" resolves straight to the result screen instead of
-# ever showing "Your analysis didn't go through".
+# ever showing "Analysis failed".
 
 - assertVisible: "Analyzing" # analyzing.title
 - extendedWaitUntil:
-    visible: "Your analysis didn't go through" # analyzing.error.failed.title
+    visible: "Analysis failed" # analyzing.error.failed.title
     timeout: 30000
-- assertVisible: "This one wasn't counted against your quota — try again" # analyzing.error.failed.body — the specific quota-honesty clause issue #86 calls out by name
+- assertVisible: "The analysis service did not return a usable result. This attempt was not counted against your quota. Try again." # analyzing.error.failed.body — the specific quota-honesty clause issue #86 calls out by name
 
 # Retry must be live, not decorative.
 - tapOn: "Retry" # analyzing.error.cta.retry
@@ -101,7 +101,7 @@ appId: com.ian.paceanalysisai
 
 # Force the SAME failure again (whatever mechanism landed above) so Cancel can be proven too.
 - extendedWaitUntil:
-    visible: "Your analysis didn't go through"
+    visible: "Analysis failed"
     timeout: 30000
 - tapOn: "Cancel" # analyzing.error.cta.cancel — "Retry/Cancel must never trap the user"
-- assertVisible: "Analyze my form" # back on Home, not stuck on Analyzing
+- assertVisible: "Start analysis" # back on Home, not stuck on Analyzing

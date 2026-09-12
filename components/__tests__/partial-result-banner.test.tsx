@@ -17,7 +17,7 @@ it('interpolates the assessed-pillar count into the body and never fabricates a 
   await render(<PartialResultBanner assessedCount={2} mediaType="video" />);
 
   expect(screen.getByTestId('partial-banner-body').props.children).toBe(
-    "We could confidently score 2 of 4 pillars from this clip. The rest are marked not assessed — we don't guess at a score."
+    '2 of 4 pillars scored from this clip. The rest are marked not assessed; no score is estimated.'
   );
 });
 
@@ -33,6 +33,6 @@ it('says "photo" instead of "clip" for a photo submission (M3, v23-ux-audit-r1)'
   await render(<PartialResultBanner assessedCount={2} mediaType="photo" />);
 
   expect(screen.getByTestId('partial-banner-body').props.children).toBe(
-    "We could confidently score 2 of 4 pillars from this photo. The rest are marked not assessed — we don't guess at a score."
+    '2 of 4 pillars scored from this photo. The rest are marked not assessed; no score is estimated.'
   );
 });

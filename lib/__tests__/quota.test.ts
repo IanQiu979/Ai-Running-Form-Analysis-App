@@ -300,27 +300,27 @@ describe('describeQuota', () => {
 
   it('tells an exhausted Free account that its real analysis has been used', () => {
     expect(describeQuota(FREE_EXHAUSTED)).toEqual({
-      primary: "You've used your free analysis",
+      primary: 'Free analysis used',
       secondary: null,
     });
   });
 
   it('renders Pro remaining with a "Renews {date}" secondary line', () => {
     const caption = describeQuota(PRO_REMAINING);
-    expect(caption.primary).toBe('7 of 10 analyses left this period');
+    expect(caption.primary).toBe('7 of 10 analyses remaining this period');
     expect(caption.secondary).toMatch(/^Renews /);
   });
 
   it('renders Elite remaining the same way as Pro, off its own deck key', () => {
     const eliteRemaining: QuotaStatus = { ...PRO_REMAINING, tier: 'elite', used: 3, limit: 30, remaining: 27 };
     const caption = describeQuota(eliteRemaining);
-    expect(caption.primary).toBe('27 of 30 analyses left this period');
+    expect(caption.primary).toBe('27 of 30 analyses remaining this period');
     expect(caption.secondary).toMatch(/^Renews /);
   });
 
   it('renders Pro exhausted with the renewal date folded into the primary line, no secondary', () => {
     const caption = describeQuota(PRO_EXHAUSTED);
-    expect(caption.primary).toMatch(/^You've used all 10 analyses this period — renews /);
+    expect(caption.primary).toMatch(/^All 10 analyses used this period\. Renews /);
     expect(caption.secondary).toBeNull();
   });
 
@@ -331,7 +331,7 @@ describe('describeQuota', () => {
     // exact rather than dependent on when the suite runs.
     const twoHoursBefore = Date.parse('2026-07-13T22:00:00.000Z');
     const caption = describeQuota(ELITE_BLOCKED, twoHoursBefore);
-    expect(caption.primary).toBe('28 of 30 analyses left this period');
+    expect(caption.primary).toBe('28 of 30 analyses remaining this period');
     expect(caption.secondary).toBe(Copy.home.quota.blockedFor.replace('{remaining}', 'about 2 hours'));
   });
 
@@ -340,9 +340,7 @@ describe('describeQuota', () => {
       FREE_ZERO_PILLAR_COOLDOWN,
       Date.parse('2026-09-06T15:05:00.000Z')
     );
-    expect(caption.secondary).toMatch(
-      /^Nothing in your last clip could be read\. You can try again at /
-    );
+    expect(caption.secondary).toMatch(/^The last clip could not be read\. Try again at /);
     expect(caption.secondary).not.toContain('Several recent analyses');
     expect(isPrimaryCtaEnabled(FREE_ZERO_PILLAR_COOLDOWN)).toBe(false);
   });
