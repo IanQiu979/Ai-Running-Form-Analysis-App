@@ -160,7 +160,7 @@ describe('updateRecoveryPassword', () => {
 
   // lib/hibp.ts fails open by design (issue #74) — 'unavailable' must not block the update.
   it('treats an unavailable breach check as safe to proceed, same as sign-up does', async () => {
-    mockCheckPasswordBreached.mockResolvedValue({ status: 'unavailable' });
+    mockCheckPasswordBreached.mockResolvedValue({ status: 'unavailable', reason: 'network' });
     mockUpdateUser.mockResolvedValue({ data: { user: {} }, error: null } as never);
 
     await expect(updateRecoveryPassword(validPassword)).resolves.toEqual({ status: 'updated' });

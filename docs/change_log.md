@@ -5,6 +5,52 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-12 (the HIBP canary was blind, not HIBP; and the client check is now the only check)
+
+**On `fm/v23-leaked-password-protection-off`.** Issues #199 (canary red since 2026-09-05) and
+#216 (server-side leaked-password protection OFF). Full record: `docs/status.md` Known Issue #47.
+
+- **Root cause of the red canary, with evidence — not HIBP.** A live `curl` to
+  `api.pwnedpasswords.com/range/5BAA6` on 2026-09-12 returned `HTTP/2 200`,
+  `content-type: text/plain; charset=utf-8`, `vary: Add-Padding`, no challenge, and the real
+  `1E4C…8FD8:52372427` row. Inside the canary, though, `fetch()` resolved in ~1 ms to a response
+  with `status: undefined`, no headers, and `text()` → `undefined`. `globalThis.fetch` under
+  `jest.canary.config.js` was no longer Node's: the 2026-09-05 Expo SDK 54→57 bump brought
+  `expo/src/winter/runtime.native.ts`'s `install('fetch', …)` (SDK 54's had none), the `jest-expo`
+  preset `require`s that runtime under its default `ios` haste platform regardless of
+  `testEnvironment: 'node'`, and `jest-expo` stubs `expo/fetch`'s `NativeResponse` with no-ops.
+  `lib/hibp.ts` correctly read `ok === false` as `unavailable`. Last green run 33870974941, first
+  red 33962757161, both 2026-09-05. The shipped app was never affected — on device `expo/fetch`
+  is real and supports every option and getter `lib/hibp.ts` uses (`method`, `headers`, `signal`,
+  `credentials: 'omit'`, `ok`, `headers.get`, `text()`).
+- **Fix: `jest.canary.config.js` sets `EXPO_PUBLIC_USE_RN_FETCH=1`** — Expo's documented opt-out
+  ("To keep React Native's built-in `fetch` as the global…", SDK 57 `expo` reference, § `expo/fetch`
+  API) — at config-load time, the only point early enough since the runtime reads it at module
+  load inside the preset's `setupFiles`. Verified to propagate both in-band and to forked jest
+  workers. `jest-expo/node` was tried first and rejected: without a project `babel.config.js` its
+  platform override drops the babel presets and TypeScript fails to parse.
+- **The canary can no longer be blind without saying so.** New first test asserts
+  `globalThis.fetch` does not carry `Symbol.for('expo.builtin')` (the tag `installGlobal` puts on
+  everything Expo installs). It fails when the opt-out is removed — verified. The two HIBP-lookup
+  assertions are unchanged in strictness (`toEqual` on the whole result instead of `toBe` on
+  `.status`, so a red diff now shows the `reason`).
+- **`lib/hibp.ts`: `unavailable` carries a `reason`** — `hash` / `timeout` / `network` /
+  `bad-status` / `bad-content-type` / `unparseable` / `unexpected`. Fixed literals only: never a
+  status code, header, body fragment, or anything derived from the password or hash; the never-log
+  and never-throw-with-context rules are untouched. Fail-open behaviour is unchanged — `status`
+  is still the only discriminant callers read. `lib/__tests__/hibp.test.ts`'s eight `unavailable`
+  expectations each now pin their specific reason (strictly stronger); one mock in
+  `password-reset.test.ts` gained the field.
+- **Server-side control is OFF and stays off (#216).** `password_hibp_enabled` is Pro-only; Pro
+  was cancelled 2026-09-12. `lib/hibp.ts` is now the ONLY leaked-password screening — its header,
+  `docs/architecture.md`'s "Current — Supabase config" / "Current — CI" sections and
+  `docs/status.md`'s 2026-07-12 bullet are corrected to say so. The `hibp-canary` workflow's
+  "assert `password_hibp_enabled === true`" step and its separate alarm issue are retired into an
+  informational read that never fails the job and prints a notice to restore the assertion if
+  the value ever reads `true` again. `SERVER_TITLE` and the `steps.server` gates are removed;
+  the client canary's own alarm/recovery steps are untouched (#199 self-closes on the next green
+  scheduled run). Nothing in Supabase auth configuration was touched.
+
 ## 2026-09-10 (one verdict per clip, and nobody pays for a blank one)
 
 **On `fm/v23-pin-result-variance`, code-complete and not deployed.** The launch blocker — the same

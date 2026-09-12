@@ -1031,8 +1031,21 @@ uptime.
   back at an unobservable control). Only sustained failure across all 3 attempts opens or
   updates a labelled `hibp-canary` + `security` GitHub issue; recovery auto-closes it. See the
   design rationale in `docs/superpowers/specs/2026-07-12-hibp-canary-design.md`.
-- **Also asserts the server-side setting, not just the client-side check (added 2026-07-12, issue
-  #70).** A second, read-only step GETs the hosted project's auth config via the Management API
+- **The canary itself can be blind, and now says so (2026-09-12, `docs/status.md` Known Issue
+  #47).** From Expo SDK 57 the `jest-expo` preset installs `expo/fetch` as the global `fetch` with
+  a stubbed native module, so from 2026-09-05 the canary's "network call" resolved in-process to
+  `status: undefined` and both assertions read `unavailable` for a week while HIBP was healthy.
+  `jest.canary.config.js` now sets Expo's documented `EXPO_PUBLIC_USE_RN_FETCH=1` opt-out, the
+  canary's first test asserts `globalThis.fetch` is not an Expo-installed builtin, and
+  `checkPasswordBreached`'s `unavailable` carries a fixed-string `reason` that the failure diff
+  prints — so "HIBP changed" and "our request never left the process" are distinguishable off
+  the red run.
+- **~~Also asserts the server-side setting, not just the client-side check (added 2026-07-12, issue
+  #70).~~ RETIRED 2026-09-12 into an informational notice: `password_hibp_enabled` is Pro-only, the
+  org cancelled Pro on 2026-09-12, and the setting cannot be enabled on Free, so the assertion
+  would fail daily for a billing reason and bury the client canary's signal. The step still reads
+  the value and, if it is ever `true` again, prints a notice to restore the assertion from git
+  history. The description below is of the retired step.** A second, read-only step GETs the hosted project's auth config via the Management API
   and asserts `password_hibp_enabled === true`, filing a distinct `security`-labelled issue
   (self-healing on recovery, same as the canary above) if it ever reverts. It deliberately does
   **not** probe by attempting a real signup with a known-breached password — in the exact
@@ -2303,8 +2316,14 @@ to own).
 - **Dashboard-only, never pushed from this file**: which providers are enabled (`google` +
   `email` on; `apple` and `anonymous_users` off — set directly in the dashboard, `docs/status.md`
   Known Issue #3), the Google OAuth client ID/secret, and any future Apple Services ID/key.
-- **Server-side HaveIBeenPwned leaked-password rejection: ENABLED and is the authority (issue
-  #70, closed 2026-07-12).** Attempting to enable it during the M1 security audit
+- **Server-side HaveIBeenPwned leaked-password rejection: ~~ENABLED and is the authority (issue
+  #70, closed 2026-07-12)~~ OFF again since 2026-09-12 and not re-enableable — the captain
+  cancelled the Pro plan that day and `password_hibp_enabled` is Pro-only. The
+  `auth_leaked_password_protection` advisor lint is back and expected; nothing server-side can be
+  configured on Free. `lib/hibp.ts` (client-side, k-anonymity range API, fails open) is the
+  control of record now — see its header and `docs/status.md` Known Issue #47. `mapAuthError`'s
+  `pwned` mapping stays so the server path lights up again with no client change if the org
+  ever returns to Pro. What follows is the 2026-07-12 record.** Attempting to enable it during the M1 security audit
   (2026-07-11) returned HTTP 402 ("available on Pro Plans and up") because the org
   (`Echo_Running_Final`) was on the Free plan. The org has since moved to **Pro**, which removed
   the gate: `password_hibp_enabled = true` was set via the same scoped Management API PATCH

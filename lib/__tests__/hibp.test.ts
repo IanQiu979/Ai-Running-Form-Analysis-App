@@ -128,7 +128,7 @@ describe('checkPasswordBreached', () => {
 
       const result = await checkPasswordBreached(PASSWORD);
 
-      expect(result).toEqual({ status: 'unavailable' });
+      expect(result).toEqual({ status: 'unavailable', reason: 'hash' });
       expect(global.fetch).not.toHaveBeenCalled();
     }
   );
@@ -145,7 +145,7 @@ describe('checkPasswordBreached', () => {
 
     const result = await checkPasswordBreached(PASSWORD);
 
-    expect(result).toEqual({ status: 'unavailable' });
+    expect(result).toEqual({ status: 'unavailable', reason: 'bad-content-type' });
   });
 
   it('parses a CRLF-delimited response body and finds the match (case 3)', async () => {
@@ -195,7 +195,7 @@ describe('checkPasswordBreached', () => {
 
     const result = await checkPasswordBreached(PASSWORD);
 
-    expect(result).toEqual({ status: 'unavailable' });
+    expect(result).toEqual({ status: 'unavailable', reason: 'bad-status' });
     // A non-2xx is never retried — only a network failure/abort is. Only one mock response is
     // queued above; if this were ever 2, an accidental retry-on-non-2xx would silently consume
     // it and this assertion is what would catch that regression.
@@ -207,7 +207,7 @@ describe('checkPasswordBreached', () => {
 
     const result = await checkPasswordBreached(PASSWORD);
 
-    expect(result).toEqual({ status: 'unavailable' });
+    expect(result).toEqual({ status: 'unavailable', reason: 'network' });
   });
 
   it('returns unavailable when the request times out and is aborted, without retrying', async () => {
@@ -230,7 +230,7 @@ describe('checkPasswordBreached', () => {
     await jest.advanceTimersByTimeAsync(4000);
     const result = await resultPromise;
 
-    expect(result).toEqual({ status: 'unavailable' });
+    expect(result).toEqual({ status: 'unavailable', reason: 'timeout' });
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -256,7 +256,7 @@ describe('checkPasswordBreached', () => {
 
     const result = await checkPasswordBreached(PASSWORD);
 
-    expect(result).toEqual({ status: 'unavailable' });
+    expect(result).toEqual({ status: 'unavailable', reason: 'bad-content-type' });
   });
 
   it('does not retry a bad content-type response, even though a retry is queued', async () => {
@@ -268,7 +268,7 @@ describe('checkPasswordBreached', () => {
 
     const result = await checkPasswordBreached(PASSWORD);
 
-    expect(result).toEqual({ status: 'unavailable' });
+    expect(result).toEqual({ status: 'unavailable', reason: 'bad-content-type' });
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -277,7 +277,7 @@ describe('checkPasswordBreached', () => {
 
     const result = await checkPasswordBreached(PASSWORD);
 
-    expect(result).toEqual({ status: 'unavailable' });
+    expect(result).toEqual({ status: 'unavailable', reason: 'unparseable' });
   });
 
   it('sends only the 5-char hash prefix in the request URL — never the suffix, full hash, or password', async () => {
