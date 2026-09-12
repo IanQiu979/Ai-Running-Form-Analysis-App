@@ -52,12 +52,12 @@ describe('OfflineBanner', () => {
     expect(screen.getByTestId('offline-banner-text').props.children).toBe(Copy.offline.banner);
   });
 
-  it('never claims capture/upload is blocked outright — the copy says capture still works', async () => {
+  it('never claims capture is blocked outright — the copy says capture is available', async () => {
     mockUseIsOffline.mockReturnValue(true);
 
     await render(<OfflineBanner />);
 
-    expect(Copy.offline.banner).toContain('capture still works');
+    expect(Copy.offline.banner).toContain('Capture is available');
   });
 
   it('is announced to screen readers as a live region, not a silent visual-only change', async () => {

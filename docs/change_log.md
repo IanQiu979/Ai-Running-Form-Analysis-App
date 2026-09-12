@@ -38,6 +38,36 @@ record: `docs/status.md` Known Issue #48.
   gate** — unset both before any TestFlight/public build; `docs/blocked-on-apple.md` item 7
   re-opened to match. Real IAP stays Apple-Developer-gated (item 8 there).
 
+## 2026-09-12 (in-app copy rewritten to a professional, restrained register)
+
+**On `fm/v23-copy-professional`.** Captain's user-audit of 2026-09-12: "too informal, can be made a
+lot better and a lot more professional." Text only — no layout, component, colour, font, animation
+or screen change.
+
+- **`constants/copy.ts`: 167 strings rewritten** (short sentences, no contractions, no exclamation
+  marks, no emoji, no jokes; cadence/stride/ground contact/pillar used as plain technical terms).
+  Key names unchanged, so every call site is untouched. Notable label changes: the primary CTA
+  "Analyze my form" → "Start analysis" (Home, History empty state, Extracting); the result screen's
+  "Watch for"/"Try this" sub-list labels → "Risk flags"/"Drills"; "What it reads" → "What is
+  assessed"; permission titles no longer restate the app name ("Camera access required").
+- **Consent/legal meaning preserved.** `consent.upload.body`/`checkbox` changed only in spelling
+  ("analysed" → "analyzed", matching the rest of the app); the 16+ line lost only a contraction;
+  the third-party attestation checkbox and the two consent-act buttons ("I consent — continue",
+  "I confirm — continue") are byte-identical. The medical disclaimer and the Settings privacy
+  summary were shortened without dropping or softening any clause.
+- **Tone lock added: `constants/__tests__/copy-tone.test.ts`** walks the whole `Copy` tree
+  (template functions included) and fails on any exclamation mark, emoji or contraction, with the
+  two consent strings exempted by name. Verified to fail against the previous copy (69 checks red).
+- Six existing tests that pinned old literals were updated to the new strings; each still proves
+  interpolation or key selection, not just the string.
+- `docs/design/copy-deck.md`'s voice rule now names this register; its per-string columns predate
+  the pass and `constants/copy.ts` is the wording source of truth.
+- **Rebase note:** `Copy.paywall.purchase.error.unavailable` landed on `main` after this branch
+  diverged (previous entry above). Rebased onto it with the same tone pass applied: title
+  "Upgrades are not available yet", body "Purchasing a plan is not yet supported. Your plan has
+  not changed, and you were not charged." — still avoids "build" and "check back", per that
+  entry's own test assertions.
+
 ## 2026-09-12 (the HIBP canary was blind, not HIBP; and the client check is now the only check)
 
 **On `fm/v23-leaked-password-protection-off`.** Issues #199 (canary red since 2026-09-05) and

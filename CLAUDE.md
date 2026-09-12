@@ -164,6 +164,11 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
     `<SurfaceCard>`/`<GlassCard>` already encode all of this — prefer them over hand-rolling a
     `Pressable`. The captain widened this contract on 2026-08-02; `constants/theme.ts`'s `Glass`
     block names what it cost.
+- **In-app copy is professional and restrained** (captain's user-audit, 2026-09-12): short
+  sentences, no contractions, no exclamation marks, no emoji, no jokes; technical terms used
+  precisely. Every string lives in `constants/copy.ts` (never inline in JSX) and
+  `constants/__tests__/copy-tone.test.ts` walks the whole tree and fails on any drift — the only
+  exemptions are the consent/legal strings it names, whose wording is frozen by meaning.
 - No business rules in the client. Tier, quota, frame cap, and analysis are server-only (edge
   functions); the client may display tier/quota state but is never the authority for it.
 - AI output validation is structural, not strict-content: validate shape, retry once, then

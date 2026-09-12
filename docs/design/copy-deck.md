@@ -6,9 +6,13 @@
 > stop-running language, and tier labels. `frontend-builder` should lift these verbatim — keyed
 > `screen.section.element.state`, grouped by screen in the order the brief lists them (§4).
 >
-> **Voice, held everywhere:** plain, calm, specific, coach-not-scold. No "Oops," no exclamation
-> marks in errors, no apologizing twice, no judgment-loaded language about bodies. Buttons name
-> the outcome, not "Submit" / "OK." Sentence case throughout. App display name is exactly
+> **Voice, held everywhere (revised 2026-09-12, captain's user-audit):** professional and
+> restrained. Short sentences; no contractions, no exclamation marks anywhere, no emoji, no jokes,
+> no apologizing; technical terms (cadence, stride, ground contact, pillar) used precisely; no
+> judgment-loaded language about bodies. Buttons name the outcome, not "Submit" / "OK." Sentence
+> case throughout. **The string columns below predate that revision — `constants/copy.ts` is the
+> wording source of truth and `constants/__tests__/copy-tone.test.ts` enforces the register.**
+> Keys and the "shows when" rules here are still authoritative. App display name is exactly
 > **Pace Analysis AI** — that casing, everywhere it appears as a string (not "PACE AnalysisAI" or
 > the glued "Pace AnalysisAI").
 > Free tier copy never promises more than 1 lifetime analysis, and paid-tier quota copy never

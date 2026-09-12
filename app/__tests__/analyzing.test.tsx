@@ -356,7 +356,7 @@ describe('AnalyzingScreen — the zero-pillar cooldown 429', () => {
     const body = screen.getByText(/Nothing in that last clip could be read\./);
     // The server's sentence, verbatim, and a clock time — not a duration that goes stale on screen.
     expect(body.props.children).toContain('Nothing in that last clip could be read.');
-    expect(body.props.children).toMatch(/You can try again at .+\.$/);
+    expect(body.props.children).toMatch(/Try again at .+\.$/);
     expect(screen.queryByLabelText(Copy.analyzing.error.failed.title)).toBeNull();
     expect(screen.queryByText(Copy.analyzing.error.failed.body)).toBeNull();
   });
@@ -385,7 +385,7 @@ describe('AnalyzingScreen — the zero-pillar cooldown 429', () => {
     await waitFor(() =>
       expect(screen.getByLabelText(Copy.analyzing.error.zeroPillarCooldown.title)).toBeTruthy()
     );
-    expect(screen.getByText(/Give it a few minutes and try again\.$/)).toBeTruthy();
+    expect(screen.getByText(/Try again in a few minutes\.$/)).toBeTruthy();
   });
 
   /**
@@ -412,7 +412,7 @@ describe('AnalyzingScreen — the zero-pillar cooldown 429', () => {
     const body = screen.getByText(
       new RegExp(Copy.analyzing.error.zeroPillarCooldown.fallbackMessage)
     );
-    expect(body.props.children).toMatch(/You can try again at .+\.$/);
+    expect(body.props.children).toMatch(/Try again at .+\.$/);
     // The exit is the point: without it this state traps the user.
     expect(screen.getByText(Copy.analyzing.error.cta.backHome)).toBeTruthy();
     expect(screen.queryByLabelText(Copy.analyzing.error.failed.title)).toBeNull();
