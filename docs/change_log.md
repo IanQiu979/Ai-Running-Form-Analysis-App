@@ -67,6 +67,10 @@ or screen change.
   "Upgrades are not available yet", body "Purchasing a plan is not yet supported. Your plan has
   not changed, and you were not charged." — still avoids "build" and "check back", per that
   entry's own test assertions.
+- **`.maestro/flows/**` literals updated to match** (e.g. "Analyze my form" → "Start analysis",
+  "Add your run" → "Add footage", "You're offline" → "Offline"). These flows have never been
+  executed on this Mac (known issue #31), so this keeps them textually consistent with
+  `constants/copy.ts`, not newly verified.
 
 ## 2026-09-12 (the HIBP canary was blind, not HIBP; and the client check is now the only check)
 

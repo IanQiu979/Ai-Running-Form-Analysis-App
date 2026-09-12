@@ -56,4 +56,4 @@ appId: com.ian.paceanalysisai
 # should exist immediately, and app/_layout.tsx's Stack.Protected should swap straight from
 # (auth) to (tabs). If this hangs, the most likely cause is `auth.error.generic` rendering
 # instead (see sign-in.tsx's signUp branch) — check for that text before assuming a Maestro bug.
-- assertVisible: "Analyze my form"
+- assertVisible: "Start analysis"

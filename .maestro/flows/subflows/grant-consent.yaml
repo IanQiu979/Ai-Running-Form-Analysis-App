@@ -26,12 +26,12 @@ appId: com.ian.paceanalysisai
 ---
 # --- Phase 1 ('health'): two once-ever checkboxes, both required. ------------------------------
 - assertVisible: "Before you upload" # consent.upload.title
-- assertVisible: "I consent to my images being analysed to produce health-related feedback, and to Anthropic processing them to do so." # consent.upload.checkbox
+- assertVisible: "I consent to my images being analyzed to produce health-related feedback, and to Anthropic processing them to do so." # consent.upload.checkbox
 
 - tapOn:
     id: "consent-checkbox"
 - tapOn:
-    id: "consent-age-checkbox" # consent.upload.age.checkbox — "I confirm I'm 16 or older."
+    id: "consent-age-checkbox" # consent.upload.age.checkbox — "I confirm I am 16 or older."
                                 # (issue #94) — the primary CTA stays disabled without this one
                                 # too; omitting it is exactly the bug this rewrite fixes.
 
@@ -43,7 +43,7 @@ appId: com.ian.paceanalysisai
 # --- Phase 2 ('subject'): always shown, every presentation, no once-ever shortcut. Picking
 # "This is me" is the simplest path a self-filming stranger takes and needs no extra checkbox
 # (that's only for "Someone else" -> consent-subject-checkbox) --------------------------------
-- assertVisible: "Who's in this photo or video?" # consent.upload.subject.title
+- assertVisible: "Who is in this photo or video?" # consent.upload.subject.title
 - tapOn:
     id: "consent-subject-option-me" # consent.upload.subject.option.me — "This is me"
 - tapOn:
@@ -54,4 +54,4 @@ appId: com.ian.paceanalysisai
 # whichever card was originally tapped. Proving THAT happened is the caller's job (it knows
 # which action it started), not this subflow's.
 - assertNotVisible: "Before you upload"
-- assertNotVisible: "Who's in this photo or video?"
+- assertNotVisible: "Who is in this photo or video?"

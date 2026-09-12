@@ -4,11 +4,11 @@
 # READ ../README.md BEFORE RUNNING THIS. This flow was rewritten 2026-07-13 (same day as the
 # rest of this directory) after re-reading the CURRENT screens, because several things the
 # original version of this file assumed as blocked have since landed:
-#   - #135: app/capture/extracting.tsx's "Frames ready" CTA now reads "Analyze my form"
+#   - #135: app/capture/extracting.tsx's "Frames ready" CTA now reads "Start analysis"
 #     (Copy.upload.ready.cta) and hands off into /analyzing via the
 #     setPendingAnalyzeFormRequest() + router.replace('/analyzing') mailbox — confirmed by
 #     reading that file directly, not inferred.
-#   - #55: (tabs)/history is a real registered tab ("Past Analyses" — Copy.history.title).
+#   - #55: (tabs)/history is a real registered tab ("History" — Copy.history.title).
 #   - #52/#54: app/paywall.tsx exists and Home's quota-exhausted CTA routes to it — not exercised
 #     by THIS flow (a fresh stranger never exhausts quota), but recorded here so the next reader
 #     doesn't re-discover it from scratch.
@@ -30,8 +30,8 @@
 # WHAT THIS FLOW PROVES, TODAY, given the dev-mock binding (see lib/analyze-form.ts's header —
 # `analyzeFormClient` is hardcoded to `createMockAnalyzeFormClient()`'s zero-arg defaults,
 # `outcome: 'success'`, `delayMs: 4000` — #44's real edge function is written but not deployed):
-#   sign-up -> consent -> record a clip -> extract frames -> "Frames ready" -> tap "Analyze my
-#   form" -> Analyzing (mock waits ~4s) -> Result screen's honest not-found state (no real
+#   sign-up -> consent -> record a clip -> extract frames -> "Frames ready" -> tap "Start
+#   analysis" -> Analyzing (mock waits ~4s) -> Result screen's honest not-found state (no real
 #   `analyses` row exists for the mock's id) -> "Back to Home" -> Home -> History tab (EMPTY — the
 #   mock never writes an `analyses` row, so this genuinely proves the empty state, not a
 #   stubbed-out list) -> Settings -> sign out.
@@ -55,8 +55,8 @@ appId: com.ian.paceanalysisai
 - runFlow: subflows/sign-up.yaml
 
 # --- Home -> source picker ----------------------------------------------------------------------
-- tapOn: "Analyze my form"
-- assertVisible: "Add your run"
+- tapOn: "Start analysis"
+- assertVisible: "Add footage"
 
 # --- Capture via in-app record (chosen over the library-upload path — see README's "Why record,
 # not upload" note: no native Photos-picker grid to blindly tap, and `record-button` already
@@ -87,7 +87,7 @@ appId: com.ian.paceanalysisai
     id: "record-button"
 
 # --- Extraction ---------------------------------------------------------------------------------
-- assertVisible: "Preparing your analysis" # upload.title
+- assertVisible: "Preparing analysis" # upload.title
 - assertVisible: "Extracting frames" # upload.step.extracting(current, total) — substring match
 - extendedWaitUntil:
     visible: "Frames ready" # upload.ready.title
@@ -97,7 +97,7 @@ appId: com.ian.paceanalysisai
 # reuses home.cta.analyze's exact wording, since from the user's POV this IS starting the
 # analysis). Not "Done" anymore — if this line starts failing, check whether the copy changed
 # again before assuming the handoff regressed. -----------------------------------------------
-- tapOn: "Analyze my form" # upload.ready.cta
+- tapOn: "Start analysis" # upload.ready.cta
 - assertVisible: "Analyzing" # analyzing.title
 
 # The mock waits ~4s (lib/analyze-form.ts's default delayMs) before resolving 'success'. 15s
@@ -109,21 +109,21 @@ appId: com.ian.paceanalysisai
 
 # --- Result screen — NOT the real readout; see the header note above for why the mock's success
 # path lands here (a real UUID id, but no matching `analyses` row to fetch). ---------------------
-- assertVisible: "We couldn't find this analysis." # result.error.notFound
+- assertVisible: "Analysis not found." # result.error.notFound
 - assertVisible: "Retry" # result.error.retry — real, not decorative
 - assertVisible: "Back to Home" # result.cta.done
 - tapOn: "Back to Home"
-- assertVisible: "Analyze my form" # back on Home
+- assertVisible: "Start analysis" # back on Home
 
 # --- History tab (issue #55, now real) — EMPTY is the honest, correct assertion here: the mock
 # client never talks to Supabase (lib/analyze-form.ts's header: "nothing here calls the Anthropic
 # API, Supabase, or any edge function"), so no `analyses` row was ever created for this account,
 # no matter how many times the block above runs in this same launch. ---------------------------
-- tapOn: "Past Analyses" # history.title — the tab bar label, matched by text (no `tab-history`
-                          # testID exists yet; see ../README.md's HANDOFF)
+- tapOn: "History" # history.title — the tab bar label, matched by text (no `tab-history`
+                    # testID exists yet; see ../README.md's HANDOFF)
 - assertVisible: "No analyses yet" # history.empty.title
-- assertVisible: "Analyze my form" # history.empty.cta — proves History's own empty state isn't
-                                    # a dead end either, independent of Home's identical CTA
+- assertVisible: "Start analysis" # history.empty.cta — proves History's own empty state isn't
+                                   # a dead end either, independent of Home's identical CTA
 
 # --- Settings -> sign out (independently real and reachable — does not depend on an analysis
 # existing, so it's exercised here even though no analysis was ever persisted). -----------------

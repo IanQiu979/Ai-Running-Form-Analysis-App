@@ -57,7 +57,7 @@ appId: com.ian.paceanalysisai
 - inputText: "${MAESTRO_QUOTA_EXHAUSTED_PASSWORD}"
 - tapOn: "Sign in"
 
-- assertVisible: "You've used your free analysis" # home.quota.exhausted.free
+- assertVisible: "Free analysis used" # home.quota.exhausted.free
 
 # #54 landed — this is now real, wired UI, not an aspirational assertion.
 - assertVisible: "Upgrade to analyze" # home.cta.upgradeToAnalyze
@@ -67,10 +67,10 @@ appId: com.ian.paceanalysisai
 # against docs/design/copy-deck.md's Screen 10; re-verify the exact strings against
 # constants/copy.ts's `paywall` namespace before trusting this block if paywall.tsx's copy has
 # been re-certified since — this flow was not able to run to confirm it (see ../README.md).
-- assertVisible: "Choose your plan" # paywall.title
-- assertVisible: "You've used your free analysis" # paywall.gate.free.title — restates why we're
-                                                    # here, per the deck's "never expose the raw
-                                                    # 402/code" rule
+- assertVisible: "Choose a plan" # paywall.title
+- assertVisible: "Free analysis used" # paywall.gate.free.title — restates why we're
+                                       # here, per the deck's "never expose the raw
+                                       # 402/code" rule
 - assertVisible: "Upgrade to Pro" # paywall.cta.upgrade.pro
 - assertVisible: "Upgrade to Elite" # paywall.cta.upgrade.elite
 
@@ -79,5 +79,5 @@ appId: com.ian.paceanalysisai
 # (Copy.paywall.back, styled like app/settings.tsx's own back button) calls `router.back()`.
 - assertVisible: "Back" # paywall.back
 - tapOn: "Back"
-- assertVisible: "You've used your free analysis" # home.quota.exhausted.free — back on Home,
-                                                    # not stuck on the paywall
+- assertVisible: "Free analysis used" # home.quota.exhausted.free — back on Home,
+                                       # not stuck on the paywall
