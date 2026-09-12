@@ -1542,7 +1542,7 @@ RLS.
 | Method / Route | Auth | Body | Returns | Notes |
 |---|---|---|---|---|
 | `POST /functions/v1/analyze-form` | JWT | `{ mediaType: "photo"\|"video", frames: [base64...], timestamps: number[], idempotencyKey }` | Every tier: `{ result, analysisId, isFallback }`. Also `402` over-quota / `403` anon | **Built and Deno-tested since 2026-07-13 (issues #44 + #45); the base function DEPLOYED 2026-07-26 (with #128).** `lib/analyze-form.ts` is bound to the real client. See "Current" below. Core call. **No `mediaPaths`** — the client never names a storage path (#88). The server uploads the frames itself, after the model call, and derives their paths. Enforces tier + frame cap + atomic quota reserve, injects certified knowledge, validates, persists. Idempotent on `idempotencyKey`. **Free now gets a real, model-backed analysis capped at one lifetime delivered result (captain's ruling, 2026-09-06) — the earlier zero-Anthropic-spend fabricated sample is retired.** See "Current — `analyze-form` edge function" below for the normalization step and the deploy-ordering caveat (this change is not yet deployed). |
-| `POST /functions/v1/purchase-tier` | JWT + gate | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` or `404 not_found` (gate off) / `429 rate_limited` / `400 invalid_tier` / `invalid_source` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #51, 2026-07-13; hardened same day, PR #123; deployed with #128) — see "Current" below. **Gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — it was set to `true` on the live project by deliberate captain decision from 2026-07-26, and was unset 2026-08-06; `docs/status.md` Known Issue #21 owns that release gate and its current live state.** Same contract as V2.2; v2 swaps `source` to receipt verification (a non-`dummy` source is refused today). The only legitimate writer to `subscriptions`, via the service-role-only `pace_purchase_tier` RPC — no client-writable INSERT/UPDATE policy exists, and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`. Idempotent: `purchased_at` (the period anchor) is written once on first purchase and never moved (no caller-suppliable `p_as_of` either), so a repurchase cannot reset the quota period. |
+| `POST /functions/v1/purchase-tier` | JWT + gate | `{ tier, source: "dummy" }` | `{ tier, periodStart, periodEnd }` or `404 not_found` (gate off) / `429 rate_limited` / `400 invalid_tier` / `invalid_source` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #51, 2026-07-13; hardened same day, PR #123; deployed with #128) — see "Current" below. **Gated behind `PURCHASE_TIER_DUMMY_ENABLED` (default OFF) — toggled live by deliberate captain decision more than once; `docs/status.md` Known Issue #21 owns that release gate and its current live state.** Same contract as V2.2; v2 swaps `source` to receipt verification (a non-`dummy` source is refused today). The only legitimate writer to `subscriptions`, via the service-role-only `pace_purchase_tier` RPC — no client-writable INSERT/UPDATE policy exists, and the default grant-all to `authenticated`/`anon` was revoked on both `subscriptions` and `profiles`. Idempotent: `purchased_at` (the period anchor) is written once on first purchase and never moved (no caller-suppliable `p_as_of` either), so a repurchase cannot reset the quota period. |
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #50, 2026-07-12; deployed with #128) — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `409 in_progress` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). `409 in_progress` (2026-09-06, not yet deployed) refuses a row still `'reserved'` with a model call in flight — deleting it then would refund spend; `lib/history.ts` surfaces that code and its retry-after-it-finishes message. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Redeployed 2026-07-26 from the current repo code, so issue #132's second-purge/`orphans_remaining` behavior is now live** — that deploy also carried the shared-key parse fix (`docs/status.md` Known Issue #35). |
 | `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26, verified live** (issue #58, 2026-07-13; response contract fixed post-review, same date; deployed with #128 — see `docs/status.md` Known Issue #35). The client (`lib/delete-account.ts`) has called the real function since PR #122 (2026-07-13, `docs/status.md` Known Issue #23), so the Settings flow reaches it end to end. See "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
@@ -2456,8 +2456,8 @@ is in `docs/status.md` Known Issue #38 (server/Turnstile) and Known Issue #39 (t
 The M5 gate, and the **only legitimate writer to `public.subscriptions`**. Built and Deno-tested
 on `feat/51-purchase-tier`; **deployed to the live project 2026-07-26**, and its migration was
 found **already applied** there — as were all 24 repo migrations. **The deployment gate below is a
-release blocker; it was switched ON in production secrets by deliberate decision, then unset
-2026-08-06 — see `docs/status.md` Known Issue #21, which owns that live state.**
+release blocker; it has been switched on and off in production secrets by deliberate captain
+decision more than once — see `docs/status.md` Known Issue #21, which owns that live state.**
 
 ```
 POST /functions/v1/purchase-tier   { tier, source: "dummy" }
@@ -2496,14 +2496,14 @@ indistinguishable from one that doesn't exist.** SQL cannot host this gate (a da
 a TestFlight build and a production build identically; there is no "which build is this" concept
 at that layer), so it lives in `purchase-tier/index.ts`, the only file that reads it. **This
 variable must never be set in production secrets** — `supabase secrets set` should scope it no
-wider than a closed TestFlight tester group. **It was set to `true` on the live project from
-2026-07-26 as a deliberate, temporary development decision, and was unset 2026-08-06 (captain
-decision `purchase-tier-dummy-flag-now` — the allowlist approach was declined, not adopted);
-`docs/status.md` Known Issue #21 owns that live state.** An optional `PURCHASE_TIER_ALLOWED_USER_IDS`
-(comma-separated user ids) narrows eligibility further once the flag is on; a miss gets the exact
-same `404` a disabled flag would, so a prober cannot distinguish "off" from "on but you're not
-listed." Decision logic (`checkDeploymentGate`) lives in `_shared/purchase-tier.ts`, portable and
-unit-tested; only the two `Deno.env.get()` calls live in `index.ts`.
+wider than a closed TestFlight tester group. **Its live value has been toggled more than once by
+deliberate captain decision, most recently paired with the `PURCHASE_TIER_ALLOWED_USER_IDS`
+allowlist below; `docs/status.md` Known Issue #21 owns that live state.** An optional
+`PURCHASE_TIER_ALLOWED_USER_IDS` (comma-separated user ids) narrows eligibility further once the
+flag is on; a miss gets the exact same `404` a disabled flag would, so a prober cannot distinguish
+"off" from "on but you're not listed." Decision logic (`checkDeploymentGate`) lives in
+`_shared/purchase-tier.ts`, portable and unit-tested; only the two `Deno.env.get()` calls live in
+`index.ts`.
 
 ### Basic per-user rate limiting — honestly scoped
 
@@ -3365,7 +3365,7 @@ or Ian. See `docs/design/copy-deck.md`'s new-copy section.
 
 The M5 dummy paywall. `lib/subscription.ts` reads `GET /functions/v1/quota-status` and calls
 `POST /functions/v1/purchase-tier` (#51, deploy-gated behind `PURCHASE_TIER_DUMMY_ENABLED`,
-default OFF — unset on the live project as of 2026-08-06, `docs/status.md` Known Issue #21), both through
+default OFF — see `docs/status.md` Known Issue #21 for current live state), both through
 issue #46's shared `invokeFunction()` wrapper. The tier cards state the paid allowances exactly —
 **Pro: 10 analyses per period; Elite: 30 analyses per period** — as cosmetic display copies of
 the server contract, never enforcement inputs. Account-specific remaining counts and renewal dates
