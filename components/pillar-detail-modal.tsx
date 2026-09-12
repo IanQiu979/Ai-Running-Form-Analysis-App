@@ -10,8 +10,8 @@
  * are read here, at length, under their own labels.
  *
  * WHAT THIS DOES NOT DO: it renders exactly the `PacePillarResult` it is handed — the same
- * score/band/feedback/flags/drills/notAssessedReason fields `<PillarRow>` already renders, just
- * with room to read them. It never fabricates additional explanatory copy the `@shared/pace`
+ * score/band/safety/feedback/flags/drills/notAssessedReason fields `<PillarRow>` already renders,
+ * just with room to read them. It never fabricates additional explanatory copy the `@shared/pace`
  * contract doesn't carry, and it upholds the same rule `pace-readout.tsx`'s own header states:
  * `score: null` renders NO numeral, ever — only the honest not-assessed reason. Business logic
  * (tier, quota, which fields a Free vs. Pro/Elite result carries) stays out of this file too — it
@@ -34,7 +34,7 @@ import { SquareIconButton } from '@/components/ui/square-icon-button';
 import { Copy } from '@/constants/copy';
 import { ScoreBandLabel } from '@/constants/theme';
 import { Font, Ink, Layout, Space, Type } from '@/constants/v23-theme';
-import { notAssessedCopy, pillarLabel, pillarLetter } from '@/lib/pace-readout';
+import { notAssessedCopy, pillarLabel, pillarLetter, safetyNote } from '@/lib/pace-readout';
 import type { PacePillarId, PacePillarResult } from '@shared/pace';
 
 /** The page's close glyph: `400 22px/1 'Inter Tight'`, a text "×" rather than an icon. */
@@ -52,6 +52,9 @@ export function PillarDetailModal({ visible, onDismiss, pillarId, pillar }: Prop
   const insets = useSafeAreaInsets();
   const label = pillarLabel(pillarId);
   const hasFlagsOrDrills = pillar.flags.length > 0 || pillar.drills.length > 0;
+  // THE SAME READ `<PillarRow>` makes — one helper, one structured field (`pillar.safety`), so
+  // the row and this panel cannot disagree about the warning. Never parsed out of `feedback`.
+  const note = safetyNote(pillar);
 
   return (
     <Modal
@@ -112,6 +115,23 @@ export function PillarDetailModal({ visible, onDismiss, pillarId, pillar }: Prop
                 {notAssessedCopy(pillar.notAssessedReason)}
               </Text>
             )}
+
+            {/* The stop-running note, above the coaching and visibly not part of it — same
+                element, same source field, same order and same one-node a11y shape as
+                `<PillarRow>` (see the comment there). */}
+            {note ? (
+              <View
+                testID={`pillar-detail-safety-${pillarId}`}
+                style={styles.safetyBlock}
+                accessible
+                accessibilityRole="alert"
+                accessibilityLabel={`${Copy.result.pillar.safetyLabel}. ${note}`}>
+                <Text style={[Type.label, styles.danger]}>{Copy.result.pillar.safetyLabel}</Text>
+                <Text testID={`pillar-detail-safety-note-${pillarId}`} style={[Type.body, styles.ink]}>
+                  {note}
+                </Text>
+              </View>
+            ) : null}
 
             {pillar.feedback ? (
               <Text testID={`pillar-detail-feedback-${pillarId}`} style={[Type.body, styles.ink2]}>
@@ -193,6 +213,12 @@ const styles = StyleSheet.create({
   },
   ink2: {
     color: Ink.ink2,
+  },
+  danger: {
+    color: Ink.danger,
+  },
+  safetyBlock: {
+    gap: Space.xs,
   },
   rule: {
     backgroundColor: Ink.line,

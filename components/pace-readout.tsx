@@ -18,6 +18,12 @@
  * elements are only ever mounted when `pillar.score !== null`. There is no code path that
  * stringifies `null` into "0", and no code path that turns it into a 0 % fill.
  *
+ * THE SAFETY NOTE. A pillar can carry a certified stop-running declaration (`pillar.safety`,
+ * `@shared/pace`'s `PaceSafety`). When it does, `<PillarRow>` draws the note as its OWN block
+ * above the coaching — labelled, in the sheet's one chromatic value, one VoiceOver node — read
+ * through `lib/pace-readout.ts`'s `safetyNote()` and never recovered from `feedback`. When it
+ * does not (`signal: 'none'`, or no declaration at all), nothing mounts. Issue #212.
+ *
  * FLAGS AND DRILLS ARE NOT HERE. The page puts them in the pillar detail modal only
  * (`components/pillar-detail-modal.tsx`, opened by each row's info control); a row carries the
  * score, the band and the one line of prose. Tier gating is never re-derived here (CLAUDE.md:
@@ -65,6 +71,7 @@ import {
   pillarDetailA11yLabel,
   pillarLabel,
   pillarLetter,
+  safetyNote,
 } from '@/lib/pace-readout';
 import { PACE_PILLARS, type PacePillarId, type PacePillarResult, type PaceResult } from '@shared/pace';
 
@@ -177,6 +184,9 @@ function PillarRow({
   // Owned locally, not lifted to `<PaceReadout>` (only one pillar's modal can be open from one
   // row's own button at a time — no cross-row coordination needed).
   const [detailVisible, setDetailVisible] = useState(false);
+  // THE ONE READ of the pillar's certified stop-running note — the same call the detail modal
+  // makes, so the two surfaces cannot disagree about whether there is one or what it says.
+  const note = safetyNote(pillar);
 
   // The fill's first frame: empty when this row will animate, full otherwise. `scaleX` from a
   // left origin — the fill's layout width IS the score from the first frame (see the header).
@@ -271,10 +281,39 @@ function PillarRow({
         <View testID={`pillar-bar-track-${pillarId}`} style={styles.barTrackNotAssessed} />
       )}
 
+      {/* THE STOP-RUNNING NOTE — its own element, ABOVE the coaching, and never part of it. This is
+          the one piece of prose on this screen that is not advice about form, and a runner who
+          reads only one of the two lines must read this one. It is read STRUCTURALLY off
+          `pillar.safety` (`safetyNote()`), never recovered from `feedback`: the server used to
+          compose "note\n\ncoaching" into one string, which left the warning indistinguishable
+          from the coaching it led — one paragraph, one tone, one node. The label is the sheet's
+          single chromatic value (`Ink.danger`, proven as text on `bgRaised`); the note itself is
+          primary `ink`, a step above the coaching's `ink2`, in the calm register the prompt asks
+          for — a notice, not an error banner.
+
+          A11Y: ONE node, deliberately. The label and the sentence are one utterance ("Safety
+          notice. <note>"), so they collapse into a single `accessible` node with a role of
+          `alert`, a SIBLING of the header group above — not a child of it, which is issue #62's
+          failure mode (a collapsed row swallowing its own content), and not hidden the way the
+          not-assessed line is, because nothing else on this row announces it. */}
+      {note ? (
+        <View
+          testID={`pillar-safety-${pillarId}`}
+          style={styles.safetyBlock}
+          accessible
+          accessibilityRole="alert"
+          accessibilityLabel={`${Copy.result.pillar.safetyLabel}. ${note}`}>
+          <Text style={[Type.label, styles.danger]}>{Copy.result.pillar.safetyLabel}</Text>
+          <Text testID={`pillar-safety-note-${pillarId}`} style={[Type.body, styles.ink]}>
+            {note}
+          </Text>
+        </View>
+      ) : null}
+
       {/* The coach's own line — the one sentence the user paid for. Plain text: the page does not
-          reveal it word by word. Present on a scored pillar, and on a not-assessed Pro/Elite
-          pillar the model wrote a note for (a stop-running note, say) — the reason line above and
-          this prose are two facts, not two accounts of the same one. */}
+          reveal it word by word. Coaching only: a stop-running warning never travels in this
+          string (it has its own block above), so on a not-assessed pillar this is absent and the
+          reason line stands alone. */}
       {pillar.feedback ? (
         <Text testID={`pillar-feedback-${pillarId}`} style={[Type.body, styles.ink2]}>
           {pillar.feedback}
@@ -296,6 +335,9 @@ const styles = StyleSheet.create({
   },
   ink3: {
     color: Ink.ink3,
+  },
+  danger: {
+    color: Ink.danger,
   },
   overallBlock: {
     gap: Space.sm,
@@ -330,6 +372,11 @@ const styles = StyleSheet.create({
   pillarNameBlock: {
     flex: 1,
     gap: NAME_BAND_GAP,
+  },
+  // Label over sentence, spaced as one unit — the same `gap` a flag or drill item uses in the
+  // detail modal, so the notice reads as one block on both surfaces.
+  safetyBlock: {
+    gap: Space.xs,
   },
   barTrack: {
     backgroundColor: Ink.line,

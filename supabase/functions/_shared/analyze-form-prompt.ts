@@ -320,9 +320,9 @@ function pillarSchema(): Record<string, unknown> {
       safety: {
         type: 'object',
         description:
-          "This pillar's stop-running declaration, kept OUT of `feedback` so it survives when the " +
-          'server strips claims a single frame cannot support. Say it in `feedback` too, first, ' +
-          'as the safety rules require — this is the machine-readable copy, not a replacement.',
+          "This pillar's stop-running declaration. It is the ONE place the warning lives: the app " +
+          'renders `note` as its own labelled notice above the coaching, so do not repeat it in ' +
+          '`feedback`, and it survives when the server strips claims a single frame cannot support.',
         properties: {
           signal: {
             type: 'string',
@@ -574,15 +574,17 @@ const SAFETY_RULES = [
   '  risk. "This landing pattern is associated with higher knee load" — NEVER "you have runner\'s',
   '  knee." Never name a condition as present. Never prescribe treatment.',
   '- STOP-RUNNING SIGNALS OVERRIDE THE TIER DIAL. If the frames plainly show a stop-running',
-  '  signal from injury_flags.md (visible swelling, a limp, clear favouring of one side), say so',
-  "  FIRST, in the `feedback` of the pillar it shows up in, at EVERY tier including Free — in",
-  '  calm, plain language, telling the runner to get it looked at before running on it. It is',
-  '  never buried under form feedback and never withheld because a tier is cheap.',
-  '- AND DECLARE IT IN THE `safety` FIELD of that same pillar: pick the matching certified',
-  '  `signal` from injury_flags.md\'s stop-running list and put the calm sentence in `note`.',
-  '  Prose alone is not enough — the server strips claims a single frame cannot support, and the',
-  '  `safety` field is what carries the warning through that strip untouched. A stop-running',
-  '  signal you write ONLY into `feedback` can be lost; one you declare here cannot.',
+  '  signal from injury_flags.md (visible swelling, a limp, clear favouring of one side), declare',
+  '  it in the `safety` FIELD of the pillar it shows up in, at EVERY tier including Free: pick the',
+  '  matching certified `signal` from injury_flags.md\'s stop-running list and put ONE calm,',
+  '  plain-language sentence in `note`, telling the runner to get it looked at before running on',
+  '  it. It is never withheld because a tier is cheap.',
+  '- `safety.note` IS WHERE THE WARNING LIVES. The app renders it as its own labelled notice',
+  '  ABOVE that pillar\'s `feedback`, on every surface, so it is never buried under form feedback.',
+  '  Do NOT repeat the warning in `feedback` — that would show it twice. `feedback` stays coaching',
+  '  about form. The `safety` field is also what carries the warning through the server\'s strip of',
+  '  claims a single frame cannot support: a stop-running signal written ONLY into `feedback` can',
+  '  be lost; one declared here cannot.',
   '- `signal: "none"` (with an empty `note`) is the normal answer and is required whenever no',
   '  stop-running signal is visible. Never declare a signal to be safe: a false alarm on every',
   '  result is how a real one stops being read.',

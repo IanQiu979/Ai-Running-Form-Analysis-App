@@ -489,8 +489,8 @@ Deno.test('canonical result: reserve receives the exact server-derived identity 
 
   assertEquals(res.status, 200);
   assertEquals(h.rpc.to('reserve_analysis')[0].args.p_analysis_identity, {
-    input_fingerprint: 'd67a7ad536bd482f156a25e4a278cbb26f10cddbc4d00ce59d88f7ce87cde8a9',
-    analyzer_revision: 'analyze-form/2026-09-09-v1',
+    input_fingerprint: '7b981636f0249235274907d5c6f6ab6636228ad2d6ff23798b69823e0082e893',
+    analyzer_revision: 'analyze-form/2026-09-16-v1',
   });
 });
 
@@ -2613,9 +2613,11 @@ for (const testCase of SAFETY_CASES) {
     };
     const elasticity = result.pillars.elasticity;
 
-    // THE WARNING IS THERE, in the runner's face, and unaltered.
-    assertEquals(elasticity.feedback, testCase.note);
+    // THE WARNING IS THERE, unaltered, on the STRUCTURED field the client renders as its own notice
+    // (`lib/pace-readout.ts`'s `safetyNote()`). It is never concatenated into `feedback` — a
+    // composed string is exactly what the readout drew as one indistinguishable paragraph (#212).
     assertEquals(elasticity.safety, { signal: testCase.signal, note: testCase.note });
+    assertEquals(elasticity.feedback, null, 'a one-frame motion pillar keeps no prose; the note stands alone on `safety`');
 
     // AND THE ASSESSMENT CLAIM IS GONE — score, band, and the model's prose about a bounce cycle
     // and a cadence figure a single frame cannot support.
@@ -2632,7 +2634,8 @@ for (const testCase of SAFETY_CASES) {
 
     // And it is what was PERSISTED, not just what was returned.
     const settled = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
-    assertEquals(settled.pillars.elasticity.feedback, testCase.note);
+    assertEquals(settled.pillars.elasticity.safety, { signal: testCase.signal, note: testCase.note });
+    assertEquals(settled.pillars.elasticity.feedback, null);
     assertEquals(settled.pillars.elasticity.score, null);
   });
 }
@@ -2715,7 +2718,7 @@ Deno.test('a PHOTO submission keeps needsVideo, which is true there', async () =
   assertEquals(pillars.cadence.notAssessedReason, 'needsVideo');
 });
 
-Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier and frame path', async () => {
+Deno.test('a certified safety note is carried STRUCTURALLY, never composed into feedback, on every tier and frame path', async () => {
   const paths = [
     { tier: 'free', body: ONE_FRAME_VIDEO_BODY },
     { tier: 'pro', body: ONE_FRAME_VIDEO_BODY },
@@ -2730,8 +2733,9 @@ Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier 
     elasticity: 'Elasticity safety note from the certified declaration.',
   } as const;
   // The two motion pillars are forced not-assessed on a one-frame submission, which discards their
-  // prose outright; the warning then stands alone. Everywhere else the prose is supportable and
-  // must survive UNDER the warning.
+  // prose outright; the warning then stands alone on `safety`. Everywhere else the prose is
+  // supportable and must survive — as `feedback`, UNTOUCHED, with the note beside it and never
+  // inside it (#212: the client draws the two as separate elements, note first).
   const MOTION = ['cadence', 'elasticity'] as const;
 
   for (const { tier, body } of paths) {
@@ -2764,27 +2768,22 @@ Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier 
       const strippedByNormalization = oneFrame && (MOTION as readonly string[]).includes(id);
 
       assertEquals(
-        feedback.startsWith(notes[id]),
-        true,
-        `${label}: the certified warning must come FIRST, not after the coaching`
+        result.pillars[id].safety?.note,
+        notes[id],
+        `${label}: the certified warning must survive on the structured field`
       );
       assertEquals(
-        feedback.includes(SAFETY_FIXTURE_COACHING),
-        !strippedByNormalization,
+        feedback.includes(notes[id]),
+        false,
+        `${label}: the warning must never be composed into feedback`
+      );
+      assertEquals(
+        result.pillars[id].feedback,
+        strippedByNormalization ? null : SAFETY_FIXTURE_COACHING,
         strippedByNormalization
           ? `${label}: prose one frame cannot support must stay discarded`
-          : `${label}: supportable coaching must survive under the warning`
+          : `${label}: supportable coaching must survive, untouched`
       );
-      if (!strippedByNormalization) {
-        assertEquals(
-          feedback,
-          `${notes[id]}\n\n${SAFETY_FIXTURE_COACHING}`,
-          `${label}: warning, blank line, then the coaching`
-        );
-      } else {
-        assertEquals(feedback, notes[id], `${label}: the warning stands alone`);
-      }
-      assertEquals(result.pillars[id].safety?.note, notes[id]);
     }
     assertEquals(
       h.rpc.to('settle_analysis')[0].args.p_result,

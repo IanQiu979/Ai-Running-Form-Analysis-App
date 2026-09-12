@@ -24,6 +24,8 @@ import {
   photoResult,
   poorFramingPhotoResult,
   proTierVideoResult,
+  safetySignalPhotoResult,
+  SAFETY_NOTE_FIXTURE,
 } from '@/lib/pace-fixtures';
 import { pillarDetailA11yLabel, pillarLabel } from '@/lib/pace-readout';
 import type { PaceResult } from '@shared/pace';
@@ -332,5 +334,95 @@ describe('readout typography', () => {
     const overall = StyleSheet.flatten(screen.getByTestId('overall-score').props.style);
     expect(overall.fontFamily).toBe(Font.condensed.extraBold);
     expect(overall.fontSize).toBe(Type.score.fontSize);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// THE STOP-RUNNING NOTE on the actual result screen (issue #212).
+//
+// The regression these lock: the server used to compose `"note\n\ncoaching"` into `feedback`,
+// and the row drew that one string as one paragraph in one tone, so the warning was
+// indistinguishable from the coaching it led. A server-side assertion about the string could not
+// see any of this, which is exactly how the defect reached review. So these render the real
+// component and assert what a reader — sighted or VoiceOver — can actually tell apart: the note
+// is its OWN node, it is NOT inside the coaching, it is styled apart from it, and when there is no
+// signal nothing mounts at all.
+// ---------------------------------------------------------------------------------------------
+describe('a certified stop-running note (safetySignalPhotoResult)', () => {
+  it('renders the note as its own element, above and outside the coaching', async () => {
+    await render(<PaceReadout result={safetySignalPhotoResult} />);
+
+    expect(screen.getByTestId('pillar-safety-note-posture').props.children).toBe(SAFETY_NOTE_FIXTURE);
+    expect(screen.getByText(Copy.result.pillar.safetyLabel)).toBeTruthy();
+
+    // The coaching is still there and carries NONE of the warning's words — the two are separate
+    // fields rendered as separate nodes, not one string split back apart.
+    const feedback = screen.getByTestId('pillar-feedback-posture').props.children;
+    expect(feedback).toBe(safetySignalPhotoResult.pillars.posture.feedback);
+    expect(feedback).not.toContain(SAFETY_NOTE_FIXTURE);
+
+    // ORDER: the notice precedes the coaching inside the row.
+    const row = screen.getByTestId('pillar-row-posture');
+    const kids = JSON.stringify(row.toJSON());
+    expect(kids.indexOf(SAFETY_NOTE_FIXTURE)).toBeGreaterThan(-1);
+    expect(kids.indexOf(SAFETY_NOTE_FIXTURE)).toBeLessThan(kids.indexOf(feedback));
+  });
+
+  it('is ONE VoiceOver node of its own — a sibling of the header group, never inside it', async () => {
+    await render(<PaceReadout result={safetySignalPhotoResult} />);
+
+    const block = screen.getByTestId('pillar-safety-posture');
+    expect(block.props.accessible).toBe(true);
+    expect(block.props.accessibilityRole).toBe('alert');
+    expect(block.props.accessibilityLabel).toBe(`${Copy.result.pillar.safetyLabel}. ${SAFETY_NOTE_FIXTURE}`);
+    // Not hidden the way the row's not-assessed line is: nothing else announces it.
+    expect(block.props.accessibilityElementsHidden).toBeUndefined();
+    // And issue #62's lesson: the collapsed header group must not have swallowed it.
+    const header = screen.getByTestId('pillar-header-posture');
+    expect(JSON.stringify(header.toJSON())).not.toContain(SAFETY_NOTE_FIXTURE);
+    expect(header.props.accessibilityLabel).not.toContain(SAFETY_NOTE_FIXTURE);
+  });
+
+  it('sets the notice apart from the coaching — a danger label and a primary-ink sentence', async () => {
+    await render(<PaceReadout result={safetySignalPhotoResult} />);
+
+    const label = StyleSheet.flatten(screen.getByText(Copy.result.pillar.safetyLabel).props.style);
+    const note = StyleSheet.flatten(screen.getByTestId('pillar-safety-note-posture').props.style);
+    const coaching = StyleSheet.flatten(screen.getByTestId('pillar-feedback-posture').props.style);
+
+    expect(label.color).toBe(Ink.danger);
+    expect(label.fontFamily).toBe(Type.label.fontFamily);
+    expect(note.color).toBe(Ink.ink);
+    expect(note.fontSize).toBe(Type.body.fontSize);
+    // THE ASSERTION THAT WOULD HAVE FAILED BEFORE: composed into `feedback`, the warning was drawn
+    // in the coaching's own tone, so these two were necessarily equal.
+    expect(note.color).not.toBe(coaching.color);
+  });
+
+  it('renders nothing at all for a `none` declaration or for no declaration', async () => {
+    await render(<PaceReadout result={safetySignalPhotoResult} />);
+
+    // armSwing declares `signal: 'none'`; cadence carries no `safety` field at all.
+    expect(screen.queryByTestId('pillar-safety-armSwing')).toBeNull();
+    expect(screen.queryByTestId('pillar-safety-cadence')).toBeNull();
+    expect(screen.queryByTestId('pillar-safety-elasticity')).toBeNull();
+    expect(screen.getAllByText(Copy.result.pillar.safetyLabel)).toHaveLength(1);
+  });
+
+  it('renders no notice anywhere on a result with no signal at all', async () => {
+    await render(<PaceReadout result={proTierVideoResult} />);
+
+    expect(screen.queryByText(Copy.result.pillar.safetyLabel)).toBeNull();
+    expect(screen.queryByTestId(/^pillar-safety-/)).toBeNull();
+  });
+
+  it('shows the SAME note in the detail modal, read from the same structured field', async () => {
+    await render(<PaceReadout result={safetySignalPhotoResult} />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('pillar-detail-button-posture'));
+    });
+
+    expect(screen.getByTestId('pillar-detail-safety-note-posture').props.children).toBe(SAFETY_NOTE_FIXTURE);
   });
 });

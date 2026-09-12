@@ -5,6 +5,37 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-16 (safety notes render structurally — issue #212)
+
+**On `fm/v23-safety-notes-rendering-orphan`.** The second feature orphaned on the parked
+zero-pillar-cooldown branch (commit `312bc45`, left out of #213 on purpose), landed on its own per
+the captain's 2026-09-13 decision, rebuilt on the V23 result components #223 shipped.
+
+- **A pillar's certified stop-running note is its own element on the result screen and in the
+  pillar detail modal.** `lib/pace-readout.ts`'s new `safetyNote()` is the one read of the
+  structured `pillar.safety` field (`hasSafetySignal`: a non-`none` signal AND a non-blank note;
+  otherwise `null`). `components/pace-readout.tsx`'s `PillarRow` and
+  `components/pillar-detail-modal.tsx` both render it as a "Safety notice" block (new
+  `Copy.result.pillar.safetyLabel`, in the 2026-09-12 register) ABOVE the coaching: `Type.label`
+  in `Ink.danger` over the sentence in `Type.body` primary `ink`, a step above the coaching's
+  `ink2`. A `none` declaration, or no declaration, mounts nothing. Tests on both surfaces prove
+  present-when-declared, absent otherwise, the note precedes and is not inside the coaching, and
+  the styling differs from the coaching's; `lib/pace-fixtures.ts` gained `safetySignalPhotoResult`
+  and `SAFETY_NOTE_FIXTURE`.
+- **VoiceOver reads the notice as ONE node of its own** — `accessible` +
+  `accessibilityRole="alert"` + a label of "Safety notice. <note>" — a sibling of the row's
+  collapsed header group, never inside it (issue #62's `PillarRow` lesson), and never hidden the
+  way the not-assessed line is, because nothing else on the row announces it.
+- **The server no longer composes the note into `feedback`.** `analyze-form/flow.ts`'s
+  `normalizeForEvidenceAndTier` used to write `"note\n\ncoaching"` into `feedback`, which the
+  row drew as one paragraph in one tone; `composeSafetyLedFeedback` is gone, `feedback` is coaching
+  only, and the note travels solely on `safety`. The prompt's SAFETY rules and the schema's
+  `safety` description now say the warning lives in `safety.note` and must not be repeated in
+  `feedback`. `ANALYZE_FORM_ANALYZER_REVISION` → `analyze-form/2026-09-16-v1` (a wire-shape
+  change; zero persisted rows carried a signal, verified live). **Not deployed** — `supabase
+  functions deploy analyze-form` must ship before or with the client, or a live result would show
+  the note twice (once structurally, once at the head of the still-composed `feedback`).
+
 ## 2026-09-16 (Expo SDK 57 patch bumps)
 
 **On `fm/v23-expo-sdk57-patch-bumps`.** Dependency versions only — no application behaviour

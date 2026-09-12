@@ -152,7 +152,6 @@ import {
   PACE_FRAME_CAP,
   PACE_MAX_REQUEST_BODY_BYTES,
   PACE_PILLARS,
-  hasSafetySignal,
   isPaceResult,
   type PacePillarResult,
   type PaceResult,
@@ -1360,18 +1359,22 @@ const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
  *     feedback prose, flags, drills. That prose is exactly the failure mode the retired sample
  *     shipped (a hallucinated "mid-170s spm" and a left/right ground-contact comparison neither
  *     pillar's certified knowledge file supports), so none of it survives, however it is phrased.
- *   - A certified non-`none` `safety` declaration LEADS that pillar's feedback on EVERY path — all
- *     pillars, all tiers, one or many frames. No reading of prose, keyword matching, or judgement
- *     call: the certified `note` is placed first, unmissable, and whatever coaching prose SURVIVED
- *     the normalization above is kept underneath it (captain's ruling: a warning never deletes
- *     supportable coaching, and never trails behind it). Prose the normalization already discarded
- *     as unsupportable — a motion pillar on one frame — stays discarded, so the note stands alone
- *     there. This function may assume the declaration is THERE:
+ *   - A certified non-`none` `safety` declaration is carried STRUCTURALLY, on the pillar's own
+ *     `safety` field, on EVERY path — all pillars, all tiers, one or many frames. It is never
+ *     composed into `feedback` (this function did that until 2026-09-16: `"note\n\ncoaching"`, one
+ *     string — which the client then drew as one paragraph in one tone, so the warning was
+ *     indistinguishable from the coaching it led). The client renders `pillar.safety.note` as its
+ *     own labelled element ABOVE the coaching (`lib/pace-readout.ts`'s `safetyNote()`, read
+ *     identically by `components/pace-readout.tsx` and `components/pillar-detail-modal.tsx`), so
+ *     the captain's ruling holds by construction — a warning never deletes supportable coaching
+ *     and never trails behind it — without any string a text layer could flatten. `feedback` is
+ *     coaching only; on a motion pillar one frame cannot assess it is discarded and the note
+ *     stands alone. This function may assume the declaration is THERE:
  *     `analyze-form-validation.ts` refuses to call a response
  *     deliverable unless every pillar carries a usable one, so an absent, malformed, ungrounded,
  *     or blank-note `safety` never reaches this code — it fails closed into a retry and then a
- *     release. `hasSafetySignal(null)` below is therefore only ever reached for a pillar WE
- *     produced (a salvage drop), never for one whose warning we might be discarding.
+ *     release. The only `safety: null` that reaches this code is on a pillar WE produced (a
+ *     salvage drop), never one whose warning we might be discarding.
  *   - The `notAssessedReason` names what we can actually vouch for: `'needsVideo'` for a photo,
  *     and `'singleFrameFromVideo'` when the runner sent a video and exactly one frame of it
  *     arrived. It does NOT claim WHY only one frame arrived — the frame count is chosen on the
@@ -1447,36 +1450,11 @@ function normalizeForEvidenceAndTier(
     }
   }
 
-  // The UI renders `feedback`, not the machine-readable `safety` sibling, so the certified note is
-  // composed into it here — in exactly ONE place, for every pillar, tier and frame count. The note
-  // is copied structurally (no keyword inference) and placed FIRST; any coaching prose still
-  // standing after the normalization above follows it, separated by a blank line.
-  for (const id of PACE_PILLARS) {
-    const pillar = pillars[id];
-    const safety = pillar.safety ?? null;
-    if (hasSafetySignal(safety)) {
-      pillars[id] = { ...pillar, feedback: composeSafetyLedFeedback(safety.note, pillar.feedback) };
-    }
-  }
-
   const normalizedPillars = pillars as PaceResult['pillars'];
   return {
     pillars: normalizedPillars,
     overall: normalizesPillars ? deriveOverall(normalizedPillars) : result.overall,
   };
-}
-
-/**
- * Warning first, coaching below. The certified `note` is never merged into, reworded around, or
- * appended after the model's prose — a runner who reads only the first line still reads the
- * warning — and supportable coaching is never deleted just because a warning fired.
- */
-function composeSafetyLedFeedback(note: string, feedback: string | null): string {
-  const coaching = feedback?.trim() ?? '';
-  if (coaching.length === 0 || coaching === note.trim()) {
-    return note;
-  }
-  return `${note}\n\n${coaching}`;
 }
 
 async function callModel(
