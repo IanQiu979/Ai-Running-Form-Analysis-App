@@ -3400,7 +3400,20 @@ cached long-lived) and never logged. A row whose media can't be shown (an honest
 `media_paths` from a non-fatal post-settle frame-upload failure, or a path that fails to sign)
 folds into a per-row "no thumbnail" state rather than crashing the whole list. Delete routes
 through `DELETE /functions/v1/analysis/:id` (see its section above, including issue #132's second
-purge). New, uncertified `history.item.a11yLabelNotAssessed`, `history.item.deleteCta`,
+purge).
+
+**Current — cache-first focus refresh (2026-09-12, `docs/change_log.md`).** The tab screen stays
+mounted and its `useFocusEffect` refetches on every return, but a refetch no longer clobbers the
+screen's last successful `ready` state (including a ready empty list) with the full-screen loader —
+that state only appears before this mounted screen has any ready result, or on a retry with no
+stale list to fall back to. A failed refresh preserves the last-known list rather than replacing it
+with the error state. Every successful refresh still mints fresh short-TTL signed thumbnails
+(previous URLs bridge only until their replacements resolve). The mounted screen is keyed to
+`session.user.id` (`HistoryScreen` remounts `HistoryScreenContent` under a `key`), so an
+authenticated user swap discards the prior account's cached rows and thumbnails outright and a late
+in-flight fetch from the old user cannot land on the new user's screen.
+
+New, uncertified `history.item.a11yLabelNotAssessed`, `history.item.deleteCta`,
 `history.delete.error.*`, and `history.error.*` — states the deck never specced. The Elite Compare
 screen (`app/compare.tsx`, `lib/compare.ts`, issue #60) was built after #55 but stayed unreachable
 from navigation until the 2026-08-07 comprehensive audit added a "Compare two analyses" entry
