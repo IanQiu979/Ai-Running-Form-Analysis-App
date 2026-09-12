@@ -1,6 +1,6 @@
 /**
- * The single motion primitive behind all three redesign moments (spec 2026-07-26 §4/§5): app
- * launch, first run, and the result reveal each mount this with a different set of lines and a
+ * The single motion primitive behind the first-run and result reveals (spec 2026-07-26 §4/§5).
+ * Each mounts this with a different set of lines and a
  * different trigger, but none of them know how a line is drawn — only this file does.
  *
  * THE STANDING RULING AGAINST `react-native-svg` WAS LIFTED BY THE CAPTAIN ON 2026-08-02. This
@@ -65,8 +65,7 @@ type AnnotationLinesProps = {
    * in lockstep — every line otherwise shares the same fixed `Motion.duration.slow`, so a caller
    * with more than one line MUST pass this to reach its own intended total duration (moment 2's
    * ~2000ms budget across three lines is exactly this: 0ms stagger silently collapsed it to one
-   * line's ~320ms, which is why it was never observed). Default 0 — every existing single-line
-   * caller (moment 1) and any caller that hasn't opted in is unaffected. Ignored under reduced
+   * line's ~320ms, which is why it was never observed). Default 0. Ignored under reduced
    * motion, which never staggers (see this file's header). */
   staggerMs?: number;
   /** Delay (ms) before the FIRST line starts, on top of `staggerMs`. Added 2026-08-02 so the result

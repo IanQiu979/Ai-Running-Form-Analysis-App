@@ -323,11 +323,14 @@ stays closed at three — nothing else in this app animates.
 entries). The captain asked for a more expressive motion register on top of, not instead of, the
 three moments above — this section's "no ambient motion, no per-word reveals, no marquees or
 tickers" line is no longer the rule and is kept here only as a record of what Phase 2 shipped
-against. Current budget: the three moments above, plus `components/kinetic-text.tsx` (per-word
-arrival, used on every screen's heading) and `components/marquee.tsx` (Home's pillar ticker) as
-ongoing UI chrome, plus `components/low-poly-field.tsx`'s per-vertex morph as the ambient "alive"
-signal on the wait/empty states (see that file's own header for the honesty rule it must obey).
-All four gate on `useReducedMotion()` the same way the original three do.
+against. Current budget: the first-run intro and result reveal from the original three, plus
+`components/kinetic-text.tsx` (per-word arrival, used on every screen's heading) and
+`components/marquee.tsx` (Home's pillar ticker) as ongoing UI chrome, plus
+`components/stride-wireframe-hero.tsx` (the retained sign-in hero, frozen at its rest frame with
+trails omitted under reduced motion), plus
+`components/low-poly-field.tsx`'s per-vertex morph on the Extracting and password-check wait
+states. Analyzing uses `<ArcLoader>` alone. Each animated component gates on
+`useReducedMotion()`.
 
 ---
 

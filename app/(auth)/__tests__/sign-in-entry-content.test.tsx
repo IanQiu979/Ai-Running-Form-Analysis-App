@@ -100,11 +100,11 @@ describe('the entry screen’s scroll reveal', () => {
     expect(rendered).toEqual([...rendered].sort((a, b) => a - b));
   });
 
-  it('states the photo/video limit and the product’s scope before a stranger signs up', async () => {
+  it('omits the photo/video limit while still stating the product’s scope', async () => {
     await render(<SignInScreen />);
 
-    expect(screen.getByText(Copy.auth.about.limit.body)).toBeTruthy();
-    expect(screen.getByText(Copy.auth.about.scope.body)).toBeTruthy();
+    expect(screen.queryByTestId('sign-in-about-limit', HIDDEN)).toBeNull();
+    expect(screen.getByTestId('sign-in-about-scope', HIDDEN)).toBeTruthy();
   });
 
   it('keeps the reveal BELOW the sign-in controls', async () => {

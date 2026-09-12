@@ -9,7 +9,8 @@
  * and can only ever hand back the same released row; it must offer "Start a new analysis" instead.
  * A plain failure and a timeout must still offer Retry.
  */
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 import { Copy } from '@/constants/copy';
 
@@ -77,10 +78,49 @@ jest.mock('@/lib/analyze-form', () => {
 // eslint-disable-next-line import/first
 import AnalyzingScreen from '../analyzing';
 
+const HIDDEN = { includeHiddenElements: true } as const;
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockResolveAnalysisRequest.mockResolvedValue(null);
   mockForegroundHandler = null;
+});
+
+describe('AnalyzingScreen waiting mark', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup();
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('keeps the real rings at 324pt inside the existing 240pt footprint', async () => {
+    mockSubmit.mockReturnValue(new Promise(() => {}));
+
+    await render(<AnalyzingScreen />);
+
+    const rings = screen.getByTestId('analyzing-rings', HIDDEN);
+    expect(StyleSheet.flatten(rings.props.style)).toMatchObject({
+      width: 324,
+      height: 324,
+      position: 'absolute',
+    });
+    expect(StyleSheet.flatten(rings.parent?.props.style)).toMatchObject({
+      width: 240,
+      height: 240,
+    });
+  });
+
+  it('renders no running figure inside the waiting rings', async () => {
+    mockSubmit.mockReturnValue(new Promise(() => {}));
+
+    await render(<AnalyzingScreen />);
+
+    expect(screen.queryByTestId('analyzing-mark', HIDDEN)).toBeNull();
+  });
 });
 
 describe('AnalyzingScreen terminal branches', () => {

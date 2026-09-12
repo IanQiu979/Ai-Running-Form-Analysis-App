@@ -335,8 +335,8 @@ export default function HomeScreen() {
               `components/home/recent-analysis.tsx` for the four states and why a failed read is a
               separate one from "empty".
 
-              `<LowPolyField>` is not deleted — it is still the mark on sign-in, analyzing and
-              extracting. It is simply no longer Home's hero. */}
+              `<LowPolyField>` is not deleted — it is still used while extracting. It is simply
+              no longer Home's hero. */}
           <RecentAnalysis
             state={recent}
             onOpen={(item) => {

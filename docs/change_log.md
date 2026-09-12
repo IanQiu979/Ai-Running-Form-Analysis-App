@@ -53,6 +53,15 @@ record: `docs/status.md` Known Issue #48.
   gate** — unset both before any TestFlight/public build; `docs/blocked-on-apple.md` item 7
   re-opened to match. Real IAP stays Apple-Developer-gated (item 8 there).
 
+## 2026-09-12 (captain's entry and Analyzing cuts)
+
+- **The cold-start bottom ground-rule animation is removed; the main sign-in hero stays.** The
+  deleted `LaunchIntro` no longer mounts after the native splash.
+- **The Analyzing runner is removed; the existing rings stay.** The waiting state now renders
+  `<ArcLoader>` alone, with its indeterminate behaviour unchanged.
+- **The entry screen's “what a photo can and cannot tell you” section is removed.** No replacement
+  link was added in this change.
+
 ## 2026-09-12 (in-app copy rewritten to a professional, restrained register)
 
 **On `fm/v23-copy-professional`.** Captain's user-audit of 2026-09-12: "too informal, can be made a

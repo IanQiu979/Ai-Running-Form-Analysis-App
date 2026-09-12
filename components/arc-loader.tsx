@@ -5,8 +5,7 @@
  *
  * WHAT IT MUST NEVER CLAIM. This is an INDETERMINATE indicator: it says work is happening, it does
  * not say how far along that work is. It shows no percentage, no arc that fills toward a
- * completion, and nothing that could be read as progress — that discipline is inherited verbatim
- * from `components/low-poly-field.tsx`, which carries the same caveat on the same screen, and from
+ * completion, and nothing that could be read as progress — that discipline is inherited from
  * `app/analyzing.tsx`, whose honest step-list is where real progress information belongs. A ring
  * that appeared to fill toward 100% while an LLM call ran would be a fabrication.
  *
