@@ -270,7 +270,7 @@ export const Copy = {
       // --- issues #54/#15 additions start — lifted verbatim from docs/design/copy-deck.md
       // §Screen 2, "Ambiguities and calls made" #1. Three branch states for a used-up quota:
       // Free (no tier below it) and Pro (Elite exists above it) get a relabeled, actionable
-      // CTA; Elite (nothing above it) keeps the plain "Analyze my form" label and renders
+      // CTA; Elite (nothing above it) keeps the plain "Start analysis" label and renders
       // disabled instead — see `analyzeDisabled` below.
       upgradeToAnalyze: 'Upgrade to analyze',
       upgradeForMore: 'Upgrade for more',
@@ -1238,7 +1238,7 @@ export const Copy = {
     },
     // NEW — not in the deck. Was a genuine stopping point ("Done" -> Home) until issue #135
     // wired this screen's one control to hand off into `/analyzing` — reuses `home.cta.analyze`'s
-    // exact wording ("Analyze my form") rather than inventing a distinct label for what is, from
+    // exact wording ("Start analysis") rather than inventing a distinct label for what is, from
     // the user's point of view, the same action: starting an analysis of what's now ready.
     ready: {
       title: 'Frames ready',
