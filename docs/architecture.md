@@ -88,11 +88,11 @@ lib/
   auth.ts
   session-provider.tsx
   crypto-polyfill.ts
-  hibp.ts                 # client-side UX pre-check + defense-in-depth (issue #70) — server-side
-                          # HIBP is now the enforcement point, see "Current — Supabase config"
+  hibp.ts                 # client-side check (issue #70) — the control of record since
+                          # server-side HIBP went off 2026-09-12, see "Current — Supabase config"
                           # below
-  auth-errors.ts           # mapAuthError, extracted from sign-in.tsx (issue #70) — maps the
-                          # server's typed leaked-password rejection to copy; see "Current —
+  auth-errors.ts           # mapAuthError, extracted from sign-in.tsx (issue #70) — its `pwned`
+                          # mapping stays dormant unless server-side HIBP is on; see "Current —
                           # Supabase config" below
   consent.ts               # fail-closed read/write of the consent record (issue #68) — see
                           # "Current — consent record & disclaimer" below
@@ -226,10 +226,10 @@ lib/
   hibp.ts                 # current (issue #70) — client-side HaveIBeenPwned leaked-password
                           # check via HIBP's keyless range API (only a 5-char hash prefix ever
                           # leaves the device); runs in sign-in.tsx's sign-up branch only, before
-                          # signUp. NOT the enforcement point since 2026-07-12 — server-side HIBP
-                          # is now enabled and is the authority. Kept deliberately (Ian's call) as
-                          # a fast UX pre-check plus defense-in-depth; still bypassable and fails
-                          # open, same as before — see "Current — Supabase config" below.
+                          # signUp. The control of record since 2026-09-12 — server-side HIBP is
+                          # off (Pro-only, Pro cancelled) and cannot be re-enabled on Free; still
+                          # bypassable and fails open, same as before — see "Current — Supabase
+                          # config" below.
   auth-errors.ts           # current (issue #70) — `mapAuthError`, extracted from sign-in.tsx so
                           # this security-relevant mapping gets unit-test coverage (screens
                           # aren't unit-tested by convention). Maps the server's typed
@@ -1546,7 +1546,7 @@ RLS.
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #50, 2026-07-12; deployed with #128) — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `409 in_progress` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). `409 in_progress` (2026-09-06, not yet deployed) refuses a row still `'reserved'` with a model call in flight — deleting it then would refund spend; `lib/history.ts` surfaces that code and its retry-after-it-finishes message. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Redeployed 2026-07-26 from the current repo code, so issue #132's second-purge/`orphans_remaining` behavior is now live** — that deploy also carried the shared-key parse fix (`docs/status.md` Known Issue #35). |
 | `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26, verified live** (issue #58, 2026-07-13; response contract fixed post-review, same date; deployed with #128 — see `docs/status.md` Known Issue #35). The client (`lib/delete-account.ts`) has called the real function since PR #122 (2026-07-13, `docs/status.md` Known Issue #23), so the Settings flow reaches it end to end. See "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
-| `POST /functions/v1/signup-with-captcha` | none (pre-auth) | `{ email, password, captchaToken }` | `200 { session, user }` or `400 { error, code }` for `invalid_body` / `captcha_invalid` / `email_in_use` / `weak_password_length` / `weak_password_pwned` / `signup_failed`, or `500` for `signup_unavailable` / `no_session` | **Built, Deno-tested, and DEPLOYED to the live project 2026-08-03** (issue #12/Known Issue #12 — see `docs/status.md`). Verifies a Cloudflare Turnstile token server-side, then — only if valid — proxies a plain `supabase.auth.signUp()` (publishable key, no admin API), so GoTrue's own `minimum_password_length`/`password_hibp_enabled` keep being enforced unchanged. Replaces native `auth.captcha`, which was tried live and reverted the same day for gating sign-in too (project-wide, not per-endpoint). `app/(auth)/sign-in.tsx` calls this in sign-up mode only; sign-in calls `signInWithPassword` directly, untouched. |
+| `POST /functions/v1/signup-with-captcha` | none (pre-auth) | `{ email, password, captchaToken }` | `200 { session, user }` or `400 { error, code }` for `invalid_body` / `captcha_invalid` / `email_in_use` / `weak_password_length` / `weak_password_pwned` / `signup_failed`, or `500` for `signup_unavailable` / `no_session` | **Built, Deno-tested, and DEPLOYED to the live project 2026-08-03** (issue #12/Known Issue #12 — see `docs/status.md`). Verifies a Cloudflare Turnstile token server-side, then — only if valid — proxies a plain `supabase.auth.signUp()` (publishable key, no admin API), so GoTrue's own `minimum_password_length` keeps being enforced unchanged (`password_hibp_enabled` is off since 2026-09-12, see "Current — Supabase config" below — `weak_password_pwned` would fire again if it's ever re-enabled). Replaces native `auth.captcha`, which was tried live and reverted the same day for gating sign-in too (project-wide, not per-endpoint). `app/(auth)/sign-in.tsx` calls this in sign-up mode only; sign-in calls `signInWithPassword` directly, untouched. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
 `supabase.functions.invoke()` wraps non-2xx responses in a generic `FunctionsHttpError` whose
@@ -2392,8 +2392,10 @@ API and resolves `false` on ANY failure mode (network, non-2xx, malformed JSON, 
 — fails CLOSED, unlike `lib/hibp.ts`'s client-side check, because this IS the anti-farming gate
 itself. Only once that passes does `_shared/signup-client.ts` proxy a plain
 `supabase.auth.signUp()` call using the PUBLISHABLE key — no admin/service-role API anywhere in
-this path, so `minimum_password_length` and `password_hibp_enabled` (both `supabase/config.toml`)
-keep being enforced by GoTrue exactly as they were before this function existed. The
+this path, so `minimum_password_length` (`supabase/config.toml`) keeps being enforced by GoTrue
+exactly as before; `password_hibp_enabled` is off since 2026-09-12 (Pro-only, Pro cancelled — see
+"Current — Supabase config" above), so `lib/hibp.ts` is what actually screens breached passwords
+now, not this GoTrue setting. The
 already-registered-email non-enumeration behavior (`{ session: null }` with an empty `identities`
 array) and the weak-password length-vs-pwned precedence are both ported from
 `app/(auth)/sign-in.tsx`'s prior inline logic — `weak_password_length` vs `weak_password_pwned` is
