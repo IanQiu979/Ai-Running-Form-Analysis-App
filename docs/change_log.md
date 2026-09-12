@@ -28,9 +28,15 @@ record: `docs/status.md` Known Issue #48.
   `purchaseTier` resolving `not_found`, and asserts the exact alert title/body, that the body
   matches neither `/build/i` nor `/check back/i`, that the plan is not re-fetched, and that the
   CTA returns from "Upgrading…". It failed on the old copy before the fix.
-- **Not fixed in code, by design:** real IAP is Apple-Developer-gated (now item 8 in
-  `docs/blocked-on-apple.md`), and whether the paywall keeps rendering un-buyable "Upgrade"
-  buttons until then is a captain product/design decision.
+- **Captain decision (option b) — dummy gate re-enabled on the live project, allowlisted.**
+  `PURCHASE_TIER_DUMMY_ENABLED=true` and `PURCHASE_TIER_ALLOWED_USER_IDS=<captain's
+  200154@ucis.ac.th id>` set 2026-09-12 14:59Z on `vputdomdlknvthnzritt`, no redeploy needed.
+  Keyed by user id, not the requested emails: the id is JWT-verified, while with confirmations
+  off an email allowlist could be claimed by whoever registered a not-yet-taken address first.
+  Verified live: anon `POST` → `401` (flag on); a throwaway account → `404` + still `free`
+  (allowlist holds); throwaway deleted afterwards. **Known Issue #21 reopened as the release
+  gate** — unset both before any TestFlight/public build; `docs/blocked-on-apple.md` item 7
+  re-opened to match. Real IAP stays Apple-Developer-gated (item 8 there).
 
 ## 2026-09-12 (the HIBP canary was blind, not HIBP; and the client check is now the only check)
 

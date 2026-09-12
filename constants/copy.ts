@@ -1068,9 +1068,11 @@ export const Copy = {
       error: {
         // lib/subscription.ts's PurchaseErrorCode 'not_found' — the dummy purchase-tier endpoint
         // is deployed and live (docs/architecture.md, issue #51) but gated behind
-        // PURCHASE_TIER_DUMMY_ENABLED (default OFF; deliberately unset on the live project since
-        // 2026-08-06 — Known Issue #21). This code gets this honest, non-alarming copy: it does
-        // not say "something went wrong" (nothing did) and it does not name the feature flag.
+        // PURCHASE_TIER_DUMMY_ENABLED (default OFF; Known Issue #21 has the live project's
+        // current state — on 2026-09-12 it was re-set with a captain-only allowlist, so every
+        // non-allowlisted account still lands here). This code gets this honest, non-alarming
+        // copy: it does not say "something went wrong" (nothing did) and it does not name the
+        // feature flag.
         //
         // 2026-09-12 user-audit: the body used to read "This build can't complete an upgrade
         // right now. Check back soon." Both halves were false — there is no in-app purchase in
