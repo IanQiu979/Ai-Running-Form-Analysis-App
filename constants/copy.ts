@@ -61,11 +61,9 @@ export const Copy = {
     //
     // VOICE RULES, and they are the reason this reads the way it does rather than like a landing
     // page: (1) it says what the app LOOKS AT, never what it will do for you — no promise of
-    // faster times, no "unlock your potential"; (2) it states the photo/video limit UP FRONT
-    // rather than letting a new user discover it after paying attention to a result, which is the
-    // same honesty rule `pillar.notAssessed` follows; (3) it names what the product is NOT, because
+    // faster times, no "unlock your potential"; (2) it names what the product is NOT, because
     // "one thing, done properly" is the actual pitch (CLAUDE.md: no training plans, no logging, no
-    // chat); (4) no second CTA lives down here — the sign-in controls are above this section, and
+    // chat); (3) no second CTA lives down here — the sign-in controls are above this section, and
     // a screen gets ONE primary action (see `Accent` in constants/theme.ts).
     // ---------------------------------------------------------------------------------------
     about: {
@@ -90,13 +88,6 @@ export const Copy = {
           label: 'Elasticity',
           body: 'Ground contact and energy return. How efficiently the stride rebounds from each footstrike.',
         },
-      },
-      // The limit, stated before anyone has spent anything on it. `lib/frames.ts` and the
-      // analyze-form flow enforce it; this is the reader-facing statement of the same fact, and it
-      // deliberately says which two rather than "some pillars may not be assessed".
-      limit: {
-        eyebrow: 'What a photo can tell you',
-        body: 'A single photo supports posture and arm swing. Cadence and elasticity require video. Each result states which pillars were assessed; none is estimated.',
       },
       // The negative space. Kept last because it is the closing argument, not the opening one.
       scope: {

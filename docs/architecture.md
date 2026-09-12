@@ -49,9 +49,9 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
   kinetic-text.tsx        # per-word reveal. Splits a sentence into one Text per word but keeps
                           # ONE accessible node carrying the whole string — see its header.
   marquee.tsx             # the standing PACE-pillar ticker on Home.
-  low-poly-field.tsx      # the morphing triangle mark (Analyzing wait, Home ambient). Removed from
-                          # sign-in 2026-09-01; that screen's scroll reveal is the pace/pillars
-                          # content, and its hero is <StrideWireframeHero> on the animation branch.
+  low-poly-field.tsx      # the morphing triangle mark used by Extracting and the password-check
+                          # wait. Removed from sign-in 2026-09-01; that screen's scroll reveal is
+                          # the pace/pillars content, and its hero is <StrideWireframeHero>.
                           # Per-vertex SVG since 2026-08-02, when the captain lifted the
                           # react-native-svg ban annotation-lines.tsx used to carry: a pose is
                           # three independent vertices, so a facet genuinely reshapes. Each facet
@@ -911,8 +911,8 @@ token contracts every future screen is written against. Full narrative: `docs/ch
 - **The entry screen is now also the pitch.** `app/(auth)/sign-in.tsx` gained scrollable
   pace/pillars content **below** the sign-in controls (a returning user must never scroll past a
   brochure to reach a sign-in button): the four pillars iterated from the shared `PACE_PILLARS`
-  list, the photo-versus-video limit stated before it bites, and what the product is not. Auth
-  logic and flow are untouched, and no second CTA lives down there.
+  list and what the product is not. Auth logic and flow are untouched, and no second CTA lives
+  down there.
 - **Two claims moved from comment to computation.** `constants/contrast.ts` gained `hue()`,
   `hueSeparation()` and `MIN_HUE_SEPARATION`; `theme-contrast.test.ts` now proves the ≥30°
   separation between every chromatic role and the ramp's one-way ordering, per scheme, from the
@@ -1293,7 +1293,9 @@ labelled "Planned" — both are now live; see "Current — `analyze-form` edge f
   each held ~400ms, then a ~1.75s dwell before the honesty-threshold "Still analyzing" line fades
   in once).
 - **`app/analyzing.tsx`** — a top-level route (registered in `app/_layout.tsx`'s signed-in
-  `Stack.Protected` group, not nested under `(tabs)` or `capture/`). Client-side timeout
+  `Stack.Protected` group, not nested under `(tabs)` or `capture/`). Its waiting state renders the
+  existing indeterminate `<ArcLoader>` rings alone; `<LowPolyField>` no longer mounts there.
+  Client-side timeout
   (`ANALYZING_TIMEOUT_MS`, 120s) does NOT cancel the underlying `submit()` call — the server
   settles the analysis and releases/keeps quota regardless of whether this screen is still
   listening (see "Backgrounding recovery" below) — and Retry always resubmits the SAME

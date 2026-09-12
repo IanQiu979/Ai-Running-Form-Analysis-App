@@ -27,7 +27,6 @@ import 'react-native-reanimated';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
 import { FirstRunIntro } from '@/components/first-run-intro';
-import { LaunchIntro } from '@/components/launch-intro';
 import { OfflineBanner } from '@/components/offline-banner';
 import { Accent, Colors, Semantic, type ColorScheme } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -75,20 +74,10 @@ function RootLayoutNav() {
 
   const isReady = (fontsLoaded || !!fontError) && !isSessionLoading;
 
-  // Moment 1 (spec 2026-07-26 §4, Phase 2 plan Task 3): the ground rule alone, on every cold
-  // start. `launchDone` starts false and is flipped exactly once per process lifetime — this
-  // component tree does not remount across background/foreground, so there is nothing to
-  // persist for "warm starts are not cold starts" (see components/launch-intro.tsx's header).
-  const [launchDone, setLaunchDone] = useState(false);
-
-  // True only once `SplashScreen.hideAsync()` has actually resolved — see the effect below. Not
-  // the same as `isReady`: `isReady` firing is what TRIGGERS the hide call, but the call and
-  // LaunchIntro used to mount in the same commit, racing the native splash's own removal (a
-  // real device showed the ground rule drawing while the splash was still visibly fading over
-  // it). Gating LaunchIntro on the hide actually settling turns that race into a sequence.
+  // True only once `SplashScreen.hideAsync()` has actually resolved — see the effect below.
   const [splashHidden, setSplashHidden] = useState(false);
 
-  // Moment 2 (Phase 2 plan Task 4): 'checking' while the AsyncStorage read below is in flight,
+  // 'checking' while the AsyncStorage read below is in flight,
   // 'show' if it resolved false, 'done' once shown (or if it resolved true, or never resolved —
   // see the effect below for why "never resolved" also means "done": this must never gate
   // reaching sign-in by waiting on a slow read).
@@ -96,10 +85,6 @@ function RootLayoutNav() {
 
   useEffect(() => {
     let cancelled = false;
-    // Kicked off in parallel with moment 1's own <=400ms animation, not after it — by the time
-    // launchDone flips, this read (a single AsyncStorage.getItem) has almost always already
-    // resolved. If it somehow hasn't, `firstRunPhase` is still 'checking' when launchDone flips;
-    // the render logic below treats that the same as 'done' rather than blocking on it.
     hasSeenFirstRun().then((seen) => {
       if (!cancelled) setFirstRunPhase(seen ? 'done' : 'show');
     });
@@ -134,9 +119,9 @@ function RootLayoutNav() {
             down instead of drawing over every screen's own top row. Renders nothing while
             online; see components/offline-banner.tsx's header for the layout rationale. */}
         <OfflineBanner />
-        {/* The only animation that exists in this app today is expo-router's default stack
-            push/pop transition (the auth <-> tabs swap below) — gated behind the OS Reduce
-            Motion setting (issue #29), per docs/design/motion-consult.md's reduced-motion map:
+        {/* The Stack's route transition uses expo-router's default push/pop behavior
+            (the auth <-> tabs swap below) — gated behind the OS Reduce Motion setting (issue #29),
+            per docs/design/motion-consult.md's reduced-motion map:
             "Android: forced animation: 'fade' via useReducedMotion(); iOS: native automatic
             (iOS keys this to 'Prefer Cross-Fade Transitions', a distinct setting)". So the
             override below only ever applies on Android — iOS always gets the native-stack
@@ -227,14 +212,7 @@ function RootLayoutNav() {
           </Stack.Protected>
         </Stack>
         </SafeAreaProvider>
-        {/* Moments 1 and 2 sit visually above the Stack (and above the session/auth guard it
-            already applies), which has already mounted underneath — neither delays isReady's own
-            fonts/session gate or the Stack's own routing, they only overlay on top of it once
-            that gate has already passed. Sequenced: moment 1 first, and only once the native
-            splash has actually finished hiding (splashHidden), then moment 2 only if it hasn't
-            been seen — 'checking' is treated the same as 'done' (skip), never a wait. */}
-        {splashHidden && !launchDone && <LaunchIntro onDone={() => setLaunchDone(true)} />}
-        {launchDone && firstRunPhase === 'show' && (
+        {splashHidden && firstRunPhase === 'show' && (
           <FirstRunIntro onDone={() => setFirstRunPhase('done')} />
         )}
       </View>

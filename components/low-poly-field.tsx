@@ -5,10 +5,7 @@
  * `DEFAULT_POSE` shatters apart and reassembles into a running figure, which cycles through a
  * full gait — contact, load, toe-off, swing, knee drive, landing — before shattering back to the
  * default and holding there. `default -> shatter -> runner (gait loop) -> shatter -> default`,
- * forever. It carries the two screens that are otherwise dead air: the Analyzing wait (where it
- * is the honest "work is happening" signal — see the caveat below about what it must never
- * claim) and the first-run/empty/splash states, where it stands in for a result that does not
- * exist yet.
+ * forever.
  *
  * REPLACED 2026-08-03: the previous build cycled three abstract poses (`scatter`/`stride`/
  * `gather`) with a plain per-vertex morph between them. This redesign keeps that per-vertex
@@ -59,11 +56,6 @@
  * `FACET_COUNT` (17) was reached by rendering the 8 keyframes to SVG and iterating until the
  * figure genuinely read as a runner — the prior pose set's 9 facets were confirmed too few for
  * this; this is not a guessed number.
- *
- * HONESTY (this matters more than the animation): on the Analyzing screen this must never look
- * like a progress bar. It has no start and no end, it does not fill, and it does not accelerate
- * as the request ages. It is an ambient "alive" signal, in exactly the same category as
- * `app/analyzing.tsx`'s existing step captions.
  *
  * REDUCED MOTION: renders `DEFAULT_POSE` as plain, un-animated `<Polygon>`s — not merely a paused
  * animation, but no Reanimated work scheduled at all. The field still appears — it is

@@ -53,7 +53,7 @@ export function FirstRunIntro({ onDone }: FirstRunIntroProps) {
   };
 
   useEffect(() => {
-    // Belt-and-braces fallback — see components/launch-intro.tsx's identical comment for why.
+    // Belt-and-braces fallback.
     if (reduceMotion) finish();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- finish is stable via doneRef
   }, [reduceMotion]);

@@ -49,7 +49,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ArcLoader } from '@/components/arc-loader';
 import { KineticText } from '@/components/kinetic-text';
-import { LowPolyField } from '@/components/low-poly-field';
 import { Eyebrow } from '@/components/ui/eyebrow';
 import { PillButton } from '@/components/ui/pill-button';
 import { ScreenGradient } from '@/components/ui/screen-gradient';
@@ -483,35 +482,11 @@ export default function AnalyzingScreen() {
 
         {state.phase === 'waiting' && (
           <ScreenCenter styles={styles}>
-            {/* THE WAIT, redesigned. The `ActivityIndicator` is replaced by the low-poly field
-                morphing continuously between its three poses — the species-in-pieces motif, and
-                the one screen in the app with enough dead time to earn it.
-
-                THIS IS NOT A PROGRESS INDICATOR AND MUST NEVER BECOME ONE. It has no start, no
-                end, and no relationship to how long the request has been in flight; it does not
-                fill, and it does not speed up as the wait ages. That is this screen's existing
-                honesty rule (see the file header: "no fake progress, no extra beat"), and the
-                field obeys it for the same reason the step captions do. Under reduced motion it
-                renders as a still mark — the composition survives, the movement goes; this
-                screen's header already documents why its wait-state signaling is exempt from
-                blanket motion suppression, and a static mark is the honest middle. */}
-            {/* Cadence Arcs (2026-09-01): the wait mark now runs INSIDE the motif's rings —
-                ripples radiating from the figure, which is the same idea the result screen's score
-                rings carry, at the moment the score is being computed. The rings are drawn behind
-                the runner and take no layout, so the mark's own size and position are unchanged.
-                `<ArcLoader>` inherits this screen's honesty rule verbatim rather than being
-                trusted to remember it: see its header — it draws no arc that fills toward a
-                completion, and is dead still under reduced motion, exactly as the field is. */}
             <View style={styles.waitMark}>
               <ArcLoader
                 size={WAIT_MARK_SIZE * WAIT_RINGS_SCALE}
                 style={styles.waitRings}
                 testID="analyzing-rings"
-              />
-              <LowPolyField
-                color={colors.text.primary}
-                size={WAIT_MARK_SIZE}
-                testID="analyzing-mark"
               />
             </View>
             {captionPhase.kind === 'step' ? (
@@ -765,13 +740,8 @@ function ErrorPanel({ styles, title, body, primary, onCancel }: ErrorPanelProps)
 
 type Styles = ReturnType<typeof createStyles>;
 
-/** The waiting field's drawn size — the screen's subject while nothing else is on it. */
 const WAIT_MARK_SIZE = 240;
 
-/** How far the ripple rings extend past the figure they radiate from. Composition, not a token
- *  (the same rule `<ArcRing>`'s header states for ring sizes) — but named rather than inlined,
- *  because an unexplained `* 1.35` at the call site reads as a nudge someone tried once, and this
- *  is the one number that decides whether the rings frame the runner or crowd them. */
 const WAIT_RINGS_SCALE = 1.35;
 
 function createStyles(colors: ThemeColors) {
@@ -804,9 +774,9 @@ function createStyles(colors: ThemeColors) {
       justifyContent: 'center',
       gap: Spacing.xl,
     },
-    // The runner and the rings share one centre. The mark keeps its own intrinsic size and the
-    // rings are absolute, so adding them cannot have moved the figure by a point.
     waitMark: {
+      width: WAIT_MARK_SIZE,
+      height: WAIT_MARK_SIZE,
       alignItems: 'center',
       justifyContent: 'center',
     },

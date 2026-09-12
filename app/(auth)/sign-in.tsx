@@ -507,15 +507,6 @@ export default function SignInScreen() {
               </SurfaceCard>
             ))}
 
-            {/* The photo/video limit, stated before anyone has spent anything on discovering it.
-                Same honesty rule `Copy.result.pillar.notAssessed` follows on the result screen. */}
-            <SurfaceCard testID="sign-in-about-limit">
-              <View style={styles.noteBody}>
-                <Eyebrow>{Copy.auth.about.limit.eyebrow}</Eyebrow>
-                <Text style={styles.pillarBody}>{Copy.auth.about.limit.body}</Text>
-              </View>
-            </SurfaceCard>
-
             <SurfaceCard testID="sign-in-about-scope">
               <View style={styles.noteBody}>
                 <Eyebrow>{Copy.auth.about.scope.eyebrow}</Eyebrow>
