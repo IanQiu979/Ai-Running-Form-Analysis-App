@@ -23,6 +23,7 @@ const TEMPLATE_ARGS: Record<string, unknown[]> = {
   'consent.upload.subject.cta.primary': ['other'],
   'paywall.gate.paid.body': [10, 'Oct 1, 2026'],
   'paywall.purchase.success.title': ['Pro'],
+  'analyzing.step.uploading': ['photo'],
   'capture.recording.timer': [7],
   'upload.step.extracting': [3, 8],
   'upload.ready.body': [8],

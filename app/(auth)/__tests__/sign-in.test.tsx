@@ -6,9 +6,13 @@
  * which `components/__tests__/turnstile-widget.test.tsx` already covers): that firing `onExpire`
  * surfaces `Copy.auth.error.captchaExpired` on screen, in signUp mode, without a real WebView.
  */
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 import { Copy } from '@/constants/copy';
+
+jest.mock('expo-router', () => ({
+  router: { back: jest.fn(), replace: jest.fn(), push: jest.fn() },
+}));
 
 jest.mock('react-native-safe-area-context', () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -98,52 +102,130 @@ const SignInScreen = require('../sign-in').default;
 
 describe('sign-in screen: Turnstile expiry', () => {
   it('shows the expiry error message when the challenge expires in signUp mode', async () => {
-    await render(<SignInScreen />);
+    const view = await render(<SignInScreen />);
 
-    // toggleMode() (app/(auth)/sign-in.tsx) flips mode to signUp AND opens the email form in one
-    // call, so the Turnstile widget is already mounted after this single press — see that
-    // function's own comment (issue #16) for why. Buttons here are `<PillButton>`, whose actual
-    // press handling is Pressable's internal responder system rather than a literal `onPress`
-    // prop on the queried node, and the resulting re-render lands asynchronously (this screen's
-    // animated header components defer the commit past the same tick) — `waitFor` is required;
-    // asserting immediately after `fireEvent.press` intermittently observes the pre-press tree.
-    fireEvent.press(screen.getByRole('button', { name: Copy.auth.signUp.link }));
-    await waitFor(() => expect(screen.getByTestId('mock-turnstile-expire')).toBeTruthy());
+    // Sign-up is the default mode (V23-06's first artboard), so the widget is mounted on the
+    // first render — no mode toggle needed. `waitFor` because the screen's 250 ms mount
+    // entrance defers the commit past the same tick.
+    await waitFor(() => expect(view.getByTestId('mock-turnstile-expire')).toBeTruthy());
 
-    expect(screen.queryByText(Copy.auth.error.captchaExpired)).toBeNull();
+    expect(view.queryByText(Copy.auth.error.captchaExpired)).toBeNull();
 
-    fireEvent.press(screen.getByTestId('mock-turnstile-expire'));
+    await fireEvent.press(view.getByTestId('mock-turnstile-expire'));
 
     await waitFor(() =>
-      expect(screen.getByText(Copy.auth.error.captchaExpired)).toBeTruthy()
+      expect(view.getByText(Copy.auth.error.captchaExpired)).toBeTruthy()
     );
   });
 
   it('re-disables the submit button after expiry even if a token had been issued', async () => {
-    await render(<SignInScreen />);
+    const view = await render(<SignInScreen />);
 
-    fireEvent.press(screen.getByRole('button', { name: Copy.auth.signUp.link }));
-    await waitFor(() => expect(screen.getByTestId('mock-turnstile-token')).toBeTruthy());
+    await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
 
-    fireEvent.press(screen.getByTestId('mock-turnstile-token'));
+    // RNTL 14's `fireEvent.*` is async — an un-awaited press followed by another trips React's
+    // "overlapping act() calls" and the second press is dropped, so every event here is awaited.
+    await fireEvent.press(view.getByTestId('mock-turnstile-token'));
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled()
+      expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled()
+    );
+    await fireEvent.press(view.getByRole('checkbox'));
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled()
     );
 
-    fireEvent.press(screen.getByTestId('mock-turnstile-expire'));
+    await fireEvent.press(view.getByTestId('mock-turnstile-expire'));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled();
-      expect(screen.getByText(Copy.auth.error.captchaExpired)).toBeTruthy();
+      expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled();
+      expect(view.getByText(Copy.auth.error.captchaExpired)).toBeTruthy();
     });
   });
 });
 
 /**
- * Regression lock for the sign-in screen's control reachability. The low-poly mark section was
- * removed (captain's call, 2026-09-01 — "remove that shapes created running figure") along with
- * its scroll-reveal wiring; every control must still mount up front, not gated behind a scroll
- * event, both with and without reduced motion.
+ * V23-06's consent line is a real gate, not decoration: "Create account" needs BOTH a captcha
+ * token and the ticked box. Either one alone leaves the button disabled.
+ */
+describe('sign-in screen: the consent checkbox gates sign-up', () => {
+  it('stays disabled with a token but no consent, and enables once both are present', async () => {
+    const view = await render(<SignInScreen />);
+
+    await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
+    await fireEvent.press(view.getByTestId('mock-turnstile-token'));
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled()
+    );
+
+    const checkbox = view.getByRole('checkbox');
+    expect(checkbox.props.accessibilityState.checked).toBe(false);
+    await fireEvent.press(checkbox);
+
+    await waitFor(() => {
+      expect(view.getByRole('checkbox').props.accessibilityState.checked).toBe(true);
+      expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled();
+    });
+  });
+
+  it('stays disabled with consent but no token', async () => {
+    const view = await render(<SignInScreen />);
+
+    await waitFor(() => expect(view.getByRole('checkbox')).toBeTruthy());
+    await fireEvent.press(view.getByRole('checkbox'));
+
+    await waitFor(() =>
+      expect(view.getByRole('checkbox').props.accessibilityState.checked).toBe(true)
+    );
+    expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled();
+  });
+
+  it('does not render the checkbox in sign-in mode', async () => {
+    const view = await render(<SignInScreen />);
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.signIn.switchLink }));
+
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy()
+    );
+    expect(view.queryByRole('checkbox')).toBeNull();
+  });
+
+  // Security audit, 2026-09-14: the button's `disabled` is not the gate — the password field's
+  // return key calls the submit handler directly, and "Continue with Google" is a second way to
+  // create an account. Both must refuse, locally, with the consent box unticked.
+  it('refuses a return-key submit without consent, before any network call', async () => {
+    const { signUpWithCaptcha } = jest.requireMock('@/lib/signup-with-captcha');
+    const { checkPasswordBreached } = jest.requireMock('@/lib/hibp');
+    const view = await render(<SignInScreen />);
+
+    await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
+    await fireEvent.press(view.getByTestId('mock-turnstile-token'));
+    await fireEvent.changeText(view.getByPlaceholderText(Copy.auth.email.placeholder), 'runner@example.com');
+    await fireEvent.changeText(view.getByPlaceholderText(Copy.auth.password.placeholder), 'aRealStrongPassw0rd!9x');
+
+    await fireEvent(view.getByPlaceholderText(Copy.auth.password.placeholder), 'submitEditing');
+
+    await waitFor(() => expect(view.getByText(Copy.auth.error.consentRequired)).toBeTruthy());
+    expect(checkPasswordBreached).not.toHaveBeenCalled();
+    expect(signUpWithCaptcha).not.toHaveBeenCalled();
+  });
+
+  it('refuses Continue with Google in sign-up mode without consent', async () => {
+    const { signInWithGoogle } = jest.requireMock('@/lib/auth');
+    const view = await render(<SignInScreen />);
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.cta.google }));
+
+    await waitFor(() => expect(view.getByText(Copy.auth.error.consentRequired)).toBeTruthy());
+    expect(signInWithGoogle).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Regression lock for the sign-in screen's control reachability. Every control mounts up front
+ * — nothing is gated behind a scroll event or the 250 ms mount entrance — both with and without
+ * reduced motion. (The low-poly mark and its scroll-reveal wiring were removed on 2026-09-01;
+ * the V23-06 rebuild kept the lock.)
  */
 describe('sign-in screen: control reachability', () => {
   beforeEach(() => {
@@ -151,20 +233,41 @@ describe('sign-in screen: control reachability', () => {
   });
 
   it('mounts every control up front, not gated behind a scroll event', async () => {
-    await render(<SignInScreen />);
+    const view = await render(<SignInScreen />);
 
-    expect(screen.getByRole('button', { name: Copy.auth.cta.google })).toBeTruthy();
-    expect(screen.getByRole('button', { name: Copy.auth.cta.email })).toBeTruthy();
-    expect(screen.getByRole('button', { name: Copy.auth.signUp.link })).toBeTruthy();
+    await waitFor(() => {
+      expect(view.getByRole('button', { name: Copy.auth.cta.google })).toBeTruthy();
+      expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeTruthy();
+      expect(view.getByRole('button', { name: Copy.auth.signIn.switchLink })).toBeTruthy();
+      expect(view.getByRole('checkbox')).toBeTruthy();
+    });
   });
 
   it('keeps every control reachable with reduced motion on', async () => {
     mockUseReducedMotion.mockReturnValue(true);
-    await render(<SignInScreen />);
+    const view = await render(<SignInScreen />);
 
-    expect(screen.getByRole('button', { name: Copy.auth.cta.google })).toBeEnabled();
-    expect(screen.getByRole('button', { name: Copy.auth.cta.email })).toBeEnabled();
-    expect(screen.getByRole('button', { name: Copy.auth.signUp.link })).toBeEnabled();
+    expect(view.getByRole('button', { name: Copy.auth.cta.google })).toBeEnabled();
+    expect(view.getByRole('button', { name: Copy.auth.signIn.switchLink })).toBeEnabled();
+    expect(view.getByRole('checkbox')).toBeEnabled();
+  });
+
+  it('switches to sign-in mode from the footer link and back', async () => {
+    const view = await render(<SignInScreen />);
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.signIn.switchLink }));
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy()
+    );
+    expect(view.queryByTestId('mock-turnstile-widget')).toBeNull();
+    // Issue #81's way back in survives the rebuild, sign-in mode only.
+    expect(view.getByRole('button', { name: Copy.auth.reset.cta.forgotPassword })).toBeTruthy();
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.signUp.switchLink }));
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeTruthy()
+    );
+    expect(view.queryByRole('button', { name: Copy.auth.reset.cta.forgotPassword })).toBeNull();
   });
 });
 
@@ -185,37 +288,12 @@ describe('sign-in screen: control reachability', () => {
  */
 describe('sign-in screen: Turnstile configuration handed to the widget', () => {
   it('gives the widget both the site key and a base URL with a real hostname', async () => {
-    await render(<SignInScreen />);
+    const view = await render(<SignInScreen />);
 
-    fireEvent.press(screen.getByRole('button', { name: Copy.auth.signUp.link }));
-    await waitFor(() => expect(screen.getByText('mock-turnstile-widget')).toBeTruthy());
+    await waitFor(() => expect(view.getByText('mock-turnstile-widget')).toBeTruthy());
 
     expect(mockTurnstileProps.siteKey).toBe('test-site-key');
     // Derived from EXPO_PUBLIC_SUPABASE_URL, since no EXPO_PUBLIC_TURNSTILE_HOSTNAME is set.
     expect(mockTurnstileProps.baseUrl).toBe('https://project-ref.supabase.co/');
-  });
-});
-
-/**
- * REGRESSION LOCK — the signature mark's mount (2026-09-04). `<StrideWireframeHero>` is the
- * redesign's entry animation and this screen is the only place it is mounted, so nothing else in
- * the repo would notice if it silently stopped rendering here. Two things are worth holding:
- * that it is on the screen at all, and that it is DECORATIVE — the screen deliberately gives it
- * no `accessibilityLabel`, so it must stay out of the a11y tree rather than announcing an
- * unlabelled image over the wordmark. (Hence `includeHiddenElements`: an a11y-hidden node is
- * excluded from RNTL queries by default — see CLAUDE.md § Testing.)
- *
- * The control-reachability block above is what proves the mark cannot gate the form, in both
- * motion settings; it does not need repeating here.
- */
-describe('sign-in screen: the stride wireframe mark', () => {
-  it('mounts the hero, hidden from assistive tech', async () => {
-    await render(<SignInScreen />);
-
-    const hero = screen.getByTestId('sign-in-stride-hero', { includeHiddenElements: true });
-
-    expect(hero.props.accessibilityElementsHidden).toBe(true);
-    expect(hero.props.importantForAccessibility).toBe('no-hide-descendants');
-    expect(screen.queryByTestId('sign-in-stride-hero')).toBeNull();
   });
 });

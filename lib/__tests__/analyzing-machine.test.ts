@@ -33,14 +33,14 @@ const mockOutcome = {
 
 describe('captionPhaseForElapsed', () => {
   it('shows the first step at t=0', () => {
-    expect(captionPhaseForElapsed(0)).toEqual({ kind: 'step', stepIndex: 0, stepKey: 'reading' });
+    expect(captionPhaseForElapsed(0)).toEqual({ kind: 'step', stepIndex: 0, stepKey: 'uploading' });
   });
 
   it('shows the first step for its whole floor', () => {
     expect(captionPhaseForElapsed(ANALYZING_STEP_FLOOR_MS - 1)).toEqual({
       kind: 'step',
       stepIndex: 0,
-      stepKey: 'reading',
+      stepKey: 'uploading',
     });
   });
 
@@ -48,7 +48,7 @@ describe('captionPhaseForElapsed', () => {
     expect(captionPhaseForElapsed(ANALYZING_STEP_FLOOR_MS)).toEqual({
       kind: 'step',
       stepIndex: 1,
-      stepKey: 'scoring',
+      stepKey: 'finding',
     });
   });
 
@@ -59,8 +59,8 @@ describe('captionPhaseForElapsed', () => {
     const stepListFloorMs = ANALYZING_STEP_KEYS.length * ANALYZING_STEP_FLOOR_MS;
     const justBeforeLongWait = stepListFloorMs + ANALYZING_LONG_WAIT_DELAY_MS - 1;
 
-    expect(captionPhaseForElapsed(stepListFloorMs)).toEqual({ kind: 'step', stepIndex: 1, stepKey: 'scoring' });
-    expect(captionPhaseForElapsed(justBeforeLongWait)).toEqual({ kind: 'step', stepIndex: 1, stepKey: 'scoring' });
+    expect(captionPhaseForElapsed(stepListFloorMs)).toEqual({ kind: 'step', stepIndex: 1, stepKey: 'finding' });
+    expect(captionPhaseForElapsed(justBeforeLongWait)).toEqual({ kind: 'step', stepIndex: 1, stepKey: 'finding' });
   });
 
   it('switches to the long-wait line once the dwell elapses', () => {
@@ -71,7 +71,7 @@ describe('captionPhaseForElapsed', () => {
   });
 
   it('never advances past the step list even for a negative/garbage elapsed value', () => {
-    expect(captionPhaseForElapsed(-100)).toEqual({ kind: 'step', stepIndex: 0, stepKey: 'reading' });
+    expect(captionPhaseForElapsed(-100)).toEqual({ kind: 'step', stepIndex: 0, stepKey: 'uploading' });
   });
 });
 

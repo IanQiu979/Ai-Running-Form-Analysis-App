@@ -1,9 +1,18 @@
 import {
+  BarlowCondensed_700Bold,
+  BarlowCondensed_800ExtraBold,
+} from '@expo-google-fonts/barlow-condensed';
+import {
   BricolageGrotesque_400Regular,
   BricolageGrotesque_500Medium,
   BricolageGrotesque_600SemiBold,
   BricolageGrotesque_700Bold,
 } from '@expo-google-fonts/bricolage-grotesque';
+import {
+  InterTight_400Regular,
+  InterTight_500Medium,
+  InterTight_600SemiBold,
+} from '@expo-google-fonts/inter-tight';
 import {
   Manrope_400Regular,
   Manrope_500Medium,
@@ -21,21 +30,21 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { useEffect } from 'react';
+import { StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
-import { FirstRunIntro } from '@/components/first-run-intro';
 import { OfflineBanner } from '@/components/offline-banner';
 import { Accent, Colors, Semantic, type ColorScheme } from '@/constants/theme';
+import { Motion as V23Motion } from '@/constants/v23-theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useReducedMotion } from '@/hooks/use-reduced-motion';
-import { hasSeenFirstRun } from '@/lib/first-run';
 import { SessionProvider, useSession } from '@/lib/session-provider';
 
 // Held until both the design-system fonts (Cadence Arcs, 2026-09-01: Bricolage Grotesque /
-// Manrope / Space Mono, plus the Newsreader prose role kept from spec 2026-07-26 §3.2) and the
+// Manrope / Space Mono, plus the Newsreader prose role kept from spec 2026-07-26 §3.2, plus the
+// V23-01 theme sheet's Barlow Condensed / Inter Tight, 2026-09-13 — both systems load until lane
+// 2 finishes moving the remaining screens onto `constants/v23-theme.ts`) and the
 // initial auth check (SessionProvider's getSession()) are ready — see RootLayoutNav below —
 // so the very first frame the user sees is never a system-font flash or a route flicker
 // between the auth and tabs groups.
@@ -54,9 +63,13 @@ export default function RootLayout() {
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
-  const reduceMotion = useReducedMotion();
   const { session, isLoading: isSessionLoading, isPasswordRecovery } = useSession();
   const [fontsLoaded, fontError] = useFonts({
+    BarlowCondensed_700Bold,
+    BarlowCondensed_800ExtraBold,
+    InterTight_400Regular,
+    InterTight_500Medium,
+    InterTight_600SemiBold,
     BricolageGrotesque_400Regular,
     BricolageGrotesque_500Medium,
     BricolageGrotesque_600SemiBold,
@@ -74,36 +87,9 @@ function RootLayoutNav() {
 
   const isReady = (fontsLoaded || !!fontError) && !isSessionLoading;
 
-  // True only once `SplashScreen.hideAsync()` has actually resolved — see the effect below.
-  const [splashHidden, setSplashHidden] = useState(false);
-
-  // 'checking' while the AsyncStorage read below is in flight,
-  // 'show' if it resolved false, 'done' once shown (or if it resolved true, or never resolved —
-  // see the effect below for why "never resolved" also means "done": this must never gate
-  // reaching sign-in by waiting on a slow read).
-  const [firstRunPhase, setFirstRunPhase] = useState<'checking' | 'show' | 'done'>('checking');
-
-  useEffect(() => {
-    let cancelled = false;
-    hasSeenFirstRun().then((seen) => {
-      if (!cancelled) setFirstRunPhase(seen ? 'done' : 'show');
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   useEffect(() => {
     if (!isReady) return;
-    let cancelled = false;
-    SplashScreen.hideAsync()
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setSplashHidden(true);
-      });
-    return () => {
-      cancelled = true;
-    };
+    SplashScreen.hideAsync().catch(() => {});
   }, [isReady]);
 
   if (!isReady) {
@@ -119,15 +105,6 @@ function RootLayoutNav() {
             down instead of drawing over every screen's own top row. Renders nothing while
             online; see components/offline-banner.tsx's header for the layout rationale. */}
         <OfflineBanner />
-        {/* The Stack's route transition uses expo-router's default push/pop behavior
-            (the auth <-> tabs swap below) — gated behind the OS Reduce Motion setting (issue #29),
-            per docs/design/motion-consult.md's reduced-motion map:
-            "Android: forced animation: 'fade' via useReducedMotion(); iOS: native automatic
-            (iOS keys this to 'Prefer Cross-Fade Transitions', a distinct setting)". So the
-            override below only ever applies on Android — iOS always gets the native-stack
-            default and lets UIKit's own cross-fade preference govern it, rather than this
-            screen re-deciding that from a different OS setting (Reduce Motion) than the one iOS
-            actually uses for it. No new motion is introduced here either way. */}
         {/* NESTED SafeAreaProvider — issue #63 (M7 safe-area pass), and it is load-bearing.
             `<OfflineBanner>` above pads itself by the device's top inset to clear the notch /
             Dynamic Island, so while it is visible it has ALREADY consumed that inset for
@@ -158,9 +135,17 @@ function RootLayoutNav() {
             the WINDOW's insets, so the double-inset above is briefly visible until the first native
             inset event lands. Self-correcting, and one frame. */}
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+        {/* V23-01's page-transition token (2026-09-13): every page change is a 250 ms fade; the
+            12 pt vertical shift the token pairs with it is drawn by each arriving screen
+            (native-stack has no fade-plus-translate preset), and V23-05's "result fades in
+            (250 ms)" is this same option seen from the analyzing screen. `animationDuration` is
+            honoured by the fade on iOS; Android's native fade keeps its own timing. The
+            reduce-motion branch that used to pick 'fade' on Android is now the default on both
+            platforms, so it is gone rather than duplicated. */}
         <Stack
           screenOptions={{
-            animation: Platform.OS === 'android' && reduceMotion ? 'fade' : 'default',
+            animation: 'fade',
+            animationDuration: V23Motion.duration.page,
           }}>
           {/* Stack.Protected omits its screen from the navigator entirely (not just hides it)
               while its guard is false, so a signed-out user's Stack literally has no route
@@ -212,9 +197,6 @@ function RootLayoutNav() {
           </Stack.Protected>
         </Stack>
         </SafeAreaProvider>
-        {splashHidden && firstRunPhase === 'show' && (
-          <FirstRunIntro onDone={() => setFirstRunPhase('done')} />
-        )}
       </View>
       <StatusBar style="auto" />
     </ThemeProvider>

@@ -10,7 +10,6 @@
  * A plain failure and a timeout must still offer Retry.
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
 
 import { Copy } from '@/constants/copy';
 
@@ -76,7 +75,9 @@ jest.mock('@/lib/analyze-form', () => {
 
 // Imported after the mocks above are registered.
 // eslint-disable-next-line import/first
-import AnalyzingScreen from '../analyzing';
+import AnalyzingScreen, { formatStopwatch } from '../analyzing';
+// eslint-disable-next-line import/first
+import { ANALYZING_STEP_FLOOR_MS } from '@/lib/analyzing-machine';
 
 const HIDDEN = { includeHiddenElements: true } as const;
 
@@ -86,7 +87,32 @@ beforeEach(() => {
   mockForegroundHandler = null;
 });
 
-describe('AnalyzingScreen waiting mark', () => {
+describe('formatStopwatch', () => {
+  it.each([
+    [0, '00:00.0'],
+    [7400, '00:07.4'],
+    [7449, '00:07.4'],
+    [65900, '01:05.9'],
+    [600000, '10:00.0'],
+  ])('renders %i ms as %s (the page: mm:ss.t)', (ms, expected) => {
+    expect(formatStopwatch(ms)).toBe(expected);
+  });
+
+  it('clamps a negative elapsed time to the clock start', () => {
+    expect(formatStopwatch(-250)).toBe('00:00.0');
+  });
+});
+
+/**
+ * V23-05's wait composition (2026-09-13): a live stopwatch, the ANALYZING label, one status line
+ * and the laser sweep — no rings, no figure. Reanimated does not advance under Jest, so the
+ * sweep's presence is asserted structurally; the stopwatch is driven by `setInterval`, which fake
+ * timers CAN advance.
+ */
+describe('AnalyzingScreen waiting composition', () => {
+  // Installed BEFORE render, as the wait-mark tests this block replaces did: the stopwatch's
+  // interval and the step timers are registered at mount, and only timers created under fake
+  // timers can be advanced by them.
   beforeEach(() => {
     jest.useFakeTimers();
   });
@@ -97,29 +123,113 @@ describe('AnalyzingScreen waiting mark', () => {
     jest.useRealTimers();
   });
 
-  it('keeps the real rings at 324pt inside the existing 240pt footprint', async () => {
+  it('renders the stopwatch, the label and the upload status for the submitted media', async () => {
     mockSubmit.mockReturnValue(new Promise(() => {}));
 
     await render(<AnalyzingScreen />);
 
-    const rings = screen.getByTestId('analyzing-rings', HIDDEN);
-    expect(StyleSheet.flatten(rings.props.style)).toMatchObject({
-      width: 324,
-      height: 324,
-      position: 'absolute',
-    });
-    expect(StyleSheet.flatten(rings.parent?.props.style)).toMatchObject({
-      width: 240,
-      height: 240,
-    });
+    expect(screen.getByTestId('analyzing-clock')).toHaveTextContent('00:00.0');
+    expect(screen.getByRole('header', { name: Copy.analyzing.title })).toBeTruthy();
+    // The mocked request is a photo, so the first status line names a photo.
+    expect(screen.getByText(Copy.analyzing.step.uploading('photo'))).toBeTruthy();
+    expect(screen.getByTestId('analyzing-laser', HIDDEN)).toBeTruthy();
   });
 
-  it('renders no running figure inside the waiting rings', async () => {
+  it('advances the stopwatch every tenth while waiting', async () => {
     mockSubmit.mockReturnValue(new Promise(() => {}));
 
     await render(<AnalyzingScreen />);
 
+    // Async `act`: a state update raised from a fake-timer callback is scheduled, not flushed,
+    // and only an async act drains that schedule.
+    await act(async () => {
+      jest.advanceTimersByTime(7400);
+    });
+
+    expect(screen.getByTestId('analyzing-clock')).toHaveTextContent('00:07.4');
+  });
+
+  it('moves the status line from uploading to finding at the step floor', async () => {
+    mockSubmit.mockReturnValue(new Promise(() => {}));
+
+    await render(<AnalyzingScreen />);
+
+    await act(async () => {
+      jest.advanceTimersByTime(ANALYZING_STEP_FLOOR_MS);
+    });
+
+    expect(screen.getByText(Copy.analyzing.step.finding)).toBeTruthy();
+    expect(screen.queryByText(Copy.analyzing.step.uploading('photo'))).toBeNull();
+  });
+
+  it('renders no rings and no running figure', async () => {
+    mockSubmit.mockReturnValue(new Promise(() => {}));
+
+    await render(<AnalyzingScreen />);
+
+    expect(screen.queryByTestId('analyzing-rings', HIDDEN)).toBeNull();
     expect(screen.queryByTestId('analyzing-mark', HIDDEN)).toBeNull();
+  });
+});
+
+/**
+ * V23-05's third artboard: "Complete · timer stops · hold 300 ms → result fades in". The
+ * navigation must NOT fire until the hold has elapsed, and the frame it holds on must read "Done"
+ * with the laser gone.
+ */
+describe('AnalyzingScreen completion hold', () => {
+  const analysisId = 'b144d29b-2348-4043-a96b-581ff4af6dbe';
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup();
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('shows Done, drops the laser, and only navigates after the 300 ms hold', async () => {
+    let resolveSubmit: (value: unknown) => void = () => {};
+    mockSubmit.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSubmit = resolve;
+      })
+    );
+
+    await render(<AnalyzingScreen />);
+
+    await act(async () => {
+      resolveSubmit({
+        ok: true,
+        data: {
+          analysisId,
+          isFallback: false,
+          result: jest.requireActual('@/lib/pace-fixtures').proTierVideoResult,
+        },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(Copy.analyzing.done)).toBeTruthy();
+    expect(screen.queryByTestId('analyzing-laser', HIDDEN)).toBeNull();
+    expect(screen.getByTestId('analyzing-clock')).toBeTruthy();
+    expect(mockReplace).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(299);
+    });
+    expect(mockReplace).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/result/[id]',
+      params: { id: analysisId, justAnalyzed: '1' },
+    });
   });
 });
 

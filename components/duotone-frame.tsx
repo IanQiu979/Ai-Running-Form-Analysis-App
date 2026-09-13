@@ -19,8 +19,9 @@
  * first open or re-open — because `@shared/pace` carries no real per-joint coordinates and this
  * screen has always refused to invent overlay geometry (see `app/result/[id].tsx`'s header).
  * `playAnnotation` is the one-time part: the draw-on transform, gated to a fresh analysis's first
- * open only. Same positions `components/first-run-intro.tsx` previews before any real result
- * exists, so "here is what it is for" and "here it is, on you" visually rhyme.
+ * open only. (The once-per-install first-run preview that used to draw these same three lines
+ * over the empty-state figure was removed on 2026-09-13 — the V23-02 hero is the entry moment
+ * now — so this is the one place the annotation geometry lives.)
  */
 import { Image } from 'expo-image';
 import { StyleSheet, View } from 'react-native';
@@ -35,7 +36,6 @@ const GRADE_OPACITY = 0.14;
 /** A representative running photo's portrait ratio (spec 2026-07-26 §3.5's full-bleed hero). */
 const FRAME_ASPECT_RATIO = 3 / 4;
 
-// Same fixed geometry `components/first-run-intro.tsx` previews on the empty-state figure.
 const ANNOTATION_LINES: AnnotationLine[] = [
   { id: 'ground', top: '82%', left: '10%', width: '80%' },
   { id: 'posture', top: '18%', left: '48%', width: '55%', rotate: '90deg' },

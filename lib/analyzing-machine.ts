@@ -33,14 +33,11 @@ import type { AnalyzeFormError } from './analyze-form';
 export const ANALYZING_STEP_FLOOR_MS = 400;
 
 /**
- * The step captions, in order — `docs/design/copy-deck.md`'s `analyzing.step.reading` /
- * `.scoring`. `docs/design/frontend-design-brief.md` §4.6's prose sketches a third step
- * ("Finalizing your read") as an example, but the copy deck defines no key for it — only these
- * two ship. Inventing a third string here would be exactly the "don't invent wording that isn't
- * in the deck" mistake CLAUDE.md warns against; add it in both docs together if a third step is
- * ever wanted.
+ * The step captions, in order — V23-05's two status lines (`Copy.analyzing.step.uploading` /
+ * `.finding`, 2026-09-13; they replaced the deck's `reading` / `scoring`). The page draws exactly
+ * two; a third would need a string on the page first, not here.
  */
-export const ANALYZING_STEP_KEYS = ['reading', 'scoring'] as const;
+export const ANALYZING_STEP_KEYS = ['uploading', 'finding'] as const;
 export type AnalyzingStepKey = (typeof ANALYZING_STEP_KEYS)[number];
 
 /**
