@@ -22,7 +22,7 @@ app/
                           # Inter Tight) and fades every root transition over 250 ms; the
                           # once-per-install FirstRunIntro overlay it used to mount is deleted.
   (auth)/_layout.tsx      # unprotected stack — the V23 entry flow (2026-09-13) in walk order,
-                          # index → details → sign-in, plus the two password-reset screens
+                          # welcome → details → sign-in, plus the two password-reset screens
   (auth)/welcome.tsx        # V23-02 hero (2026-09-13): the line-drawn runner and a "Continue" cue
                           # at 4 s. See "Current — V23 entry flow" below.
   (auth)/details.tsx      # V23-03 details (2026-09-13): what the app reads, four pillar boxes
@@ -980,7 +980,8 @@ above is still what those screens are built on and both font sets load at startu
   link, 56 pt, square, `busy` spinner at the same height) and `components/ui/text-field.tsx`
   (56 pt input; `error` turns the border `danger` and draws the message beneath it).
 - **The signed-out group walks hero → details → sign-in.** `app/(auth)/_layout.tsx` declares
-  `index` / `details` / `sign-in` (plus the two password-reset screens) with a 250 ms fade and
+  `welcome` / `details` / `sign-in` (plus the two password-reset screens; `welcome` is the
+  initial route — never `index`, see `docs/change_log.md` 2026-09-13) with a 250 ms fade and
   paints its own card `Ink.bg`; `app/_layout.tsx` applies the same fade to the root Stack, so the
   old Android-only reduce-motion `'fade'` branch is gone rather than duplicated. The
   once-per-install `FirstRunIntro` overlay (`components/first-run-intro.tsx`, `lib/first-run.ts`)

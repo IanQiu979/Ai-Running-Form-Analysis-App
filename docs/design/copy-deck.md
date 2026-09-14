@@ -59,12 +59,12 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 
 ## Screen 1 — Sign in / Sign up
 
+> **Rebuilt to V23-06 on 2026-09-13.** Sign-in is no longer the front door — `(auth)/welcome` → `(auth)/details` precede it, and their strings (`Copy.entry`) are lifted verbatim from the approved pages, not specced here. `auth.valueProp` / `auth.cta.email` / `auth.wordmark` / `auth.about` were removed with that rebuild; the screen's new `auth.eyebrow`, `auth.title`, the sign-up-only `auth.consent.*` line and `auth.error.consentRequired` are keyed and commented in `constants/copy.ts`. See `docs/architecture.md`'s "Current — V23 entry flow".
+
 | Key | String | Shows when |
 |---|---|---|
-| `auth.valueProp` | "Submit a photo or video of your run and get clear, specific feedback on your form." | Below the logo, both sign-in and sign-up. One line, no restating the app name (the logo already carries it). |
 | `auth.cta.google` | "Continue with Google" | |
 | `auth.cta.apple` | "Continue with Apple" | Ships the moment an Apple Developer account exists (gate #8 in the build prompt) — string is ready now. |
-| `auth.cta.email` | "Continue with email" | Opens the email/password fields. |
 | `auth.email.placeholder` | "Email" | |
 | `auth.password.placeholder` | "Password" | |
 | `auth.password.hint` | "At least 8 characters." | Helper line under the password field, **sign-up mode only** (the rule is irrelevant when signing in to an existing account). Added for issue #24 — before it, the 8-character minimum was only ever revealed *after* a failed submit. The number is not typed here: `constants/copy.ts` templates it off `PASSWORD_MIN_LENGTH` (`constants/auth.ts`), which is tied by comment to `supabase/config.toml`'s `minimum_password_length` — the server remains the authority. If that server value changes, this string follows automatically. |

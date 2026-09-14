@@ -332,6 +332,12 @@ trails omitted under reduced motion), plus
 states. Analyzing uses `<ArcLoader>` alone. Each animated component gates on
 `useReducedMotion()`.
 
+**Amended again 2026-09-13 (V23 entry flow, lane 1).** The first-run intro and
+`components/stride-wireframe-hero.tsx` are deleted, and Analyzing no longer uses `<ArcLoader>`.
+The current signed-out and Analyzing motion — `<StrideHero>`, `<PillarBox>`, `<LaserSweep>` and
+their reduced-motion behaviour — is owned by `docs/architecture.md`'s "Current — V23 entry flow"
+section; this brief is not updated per screen for that lane.
+
 ---
 
 ## 7. Accessibility floor (non-negotiable)

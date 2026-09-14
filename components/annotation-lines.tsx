@@ -1,7 +1,8 @@
 /**
- * The single motion primitive behind the first-run and result reveals (spec 2026-07-26 §4/§5).
- * Each mounts this with a different set of lines and a
- * different trigger, but none of them know how a line is drawn — only this file does.
+ * The single motion primitive behind the result reveal (spec 2026-07-26 §4/§5; the first-run
+ * intro that also mounted it was deleted 2026-09-13 with the V23 entry flow). Each consumer
+ * mounts this with a different set of lines and a different trigger, but none of them know how a
+ * line is drawn — only this file does.
  *
  * THE STANDING RULING AGAINST `react-native-svg` WAS LIFTED BY THE CAPTAIN ON 2026-08-02. This
  * header used to say the library "is not a dependency of this project and must not become one"

@@ -217,6 +217,36 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
     expect(signUpWithCaptcha).not.toHaveBeenCalled();
   });
 
+  // A mode toggle unmounts the widget, so a token issued before the toggle can expire with
+  // nobody to report it. The round trip must drop it: consent survives, but "Create account"
+  // stays disabled until the widget re-solves.
+  it('drops a held captcha token across a sign-in round trip, so the button re-disables', async () => {
+    const view = await render(<SignInScreen />);
+
+    await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
+    await fireEvent.press(view.getByTestId('mock-turnstile-token'));
+    await fireEvent.press(view.getByRole('checkbox'));
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled()
+    );
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.signIn.switchLink }));
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy()
+    );
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.signUp.switchLink }));
+
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled()
+    );
+    expect(view.getByRole('checkbox').props.accessibilityState.checked).toBe(true);
+
+    await fireEvent.press(view.getByTestId('mock-turnstile-token'));
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled()
+    );
+  });
+
   it('refuses Continue with Google in sign-up mode without consent', async () => {
     const { signInWithGoogle } = jest.requireMock('@/lib/auth');
     const view = await render(<SignInScreen />);
