@@ -16,10 +16,9 @@
  * and this file, with the client mocked, passes either way. They cover the seam they meet at.
  *
  * WHY THIS IS A SEPARATE FILE FROM `sign-in.test.tsx` rather than another `describe` in it. These
- * tests are the only ones on this screen that drive a full submit, which leaves `LowPolyField`'s
- * animation loop and the submit's own async chain mid-flight; added to that file they passed on
- * their own and then broke the three `describe`s declared after them (the mark's `testID` stops
- * resolving on the next mount). A separate module gets a fresh registry and a fresh screen, which
+ * tests are the only ones on this screen that drive a full submit, which leaves the submit's own
+ * async chain mid-flight; added to that file they passed on their own and then broke the
+ * `describe`s declared after them (queries resolving against a stale tree on the next mount). A separate module gets a fresh registry and a fresh screen, which
  * is the cheap, honest fix — chasing cross-test leakage inside one file would have bought nothing
  * this file doesn't already give. Keep them here.
  */
@@ -40,6 +39,10 @@ jest.mock('@/lib/signup-with-captcha', () => ({
 }));
 jest.mock('@/lib/supabase', () => ({
   supabase: { auth: { signInWithPassword: jest.fn() } },
+}));
+jest.mock('expo-router', () => ({
+  router: { back: jest.fn(), replace: jest.fn(), push: jest.fn() },
+  useLocalSearchParams: () => ({}),
 }));
 jest.mock('@/lib/session-provider', () => ({
   useSession: () => ({
@@ -96,27 +99,25 @@ beforeEach(() => {
   mockBreachCheck.mockResolvedValue({ status: 'safe' });
 });
 
-/** Gets the screen into signUp mode with a filled form and a Turnstile token in hand — the exact
- *  state the real "Create account" button becomes pressable from. */
+/** Gets the screen's default sign-up mode to a filled form with the consent box ticked and a
+ *  Turnstile token in hand — the exact state the real "Create account" button becomes pressable
+ *  from. */
 async function fillSignUpForm() {
   // The queries below run against the object THIS render returns, never the module-level `screen`
-  // helper. `screen` tracks the most recent render globally, and the first test in this file
-  // leaves `LowPolyField`'s animation loop running past its own teardown — enough that the second
-  // test's `screen` intermittently still resolved against the first test's tree (its toggle link
-  // already reading "Already have an account? Sign in"). Scoping every query to one render removes
-  // that whole class of ordering flake.
+  // helper. `screen` tracks the most recent render globally, and a full submit leaves its own
+  // async chain mid-flight past teardown; scoping every query to one render removes that whole
+  // class of ordering flake.
   const view = await render(<SignInScreen />);
   const { getByRole, getByTestId, getByPlaceholderText } = view;
 
-  // toggleMode() flips to signUp AND opens the email form in one press (issue #16), so the
-  // widget is mounted after this single press. `waitFor` because `<PillButton>` presses commit
-  // asynchronously — see `sign-in.test.tsx`'s note on the same pattern.
-  fireEvent.press(getByRole('button', { name: Copy.auth.signUp.link }));
+  // Sign-up is the default mode (V23-06), so the widget is mounted on the first render.
   await waitFor(() => expect(getByTestId('mock-turnstile-token')).toBeTruthy());
 
-  fireEvent.changeText(getByPlaceholderText(Copy.auth.email.placeholder), 'runner@example.com');
-  fireEvent.changeText(getByPlaceholderText(Copy.auth.password.placeholder), 'aRealStrongPassw0rd!9x');
-  fireEvent.press(getByTestId('mock-turnstile-token'));
+  await fireEvent.changeText(getByPlaceholderText(Copy.auth.email.placeholder), 'runner@example.com');
+  await fireEvent.changeText(getByPlaceholderText(Copy.auth.password.placeholder), 'aRealStrongPassw0rd!9x');
+  // RNTL 14's `fireEvent.*` is async; each event is awaited so none overlaps the last one's act().
+  await fireEvent.press(getByRole('checkbox'));
+  await fireEvent.press(getByTestId('mock-turnstile-token'));
 
   await waitFor(() => expect(getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled());
 
@@ -130,7 +131,7 @@ describe('sign-in screen: a successful sign-up enters the app', () => {
     mockApply.mockResolvedValue(undefined);
 
     const { getByRole, queryByText } = await fillSignUpForm();
-    fireEvent.press(getByRole('button', { name: Copy.auth.signUp.submit }));
+    await fireEvent.press(getByRole('button', { name: Copy.auth.signUp.submit }));
 
     // Asserted by IDENTITY, not by shape. The screen's whole job on this path is to pass along
     // exactly what the client returned; re-deriving the fields here would let this test agree with

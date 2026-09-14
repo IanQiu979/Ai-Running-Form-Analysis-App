@@ -164,6 +164,17 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
     `<SurfaceCard>`/`<GlassCard>` already encode all of this — prefer them over hand-rolling a
     `Pressable`. The captain widened this contract on 2026-08-02; `constants/theme.ts`'s `Glass`
     block names what it cost.
+- **Two token files ship side by side (2026-09-13); a screen is styled from one of them.** The
+  V23-01 theme sheet lives in `constants/v23-theme.ts` — dark only, flat `Ink`/`Font`/`Type`/
+  `Space`/`Layout`/`Motion` exports, square corners, no wash, no glass, no score bands — and is
+  what the signed-out entry flow (`app/(auth)/welcome`, `details`, `sign-in`) and `app/analyzing.tsx`
+  are built on, with `<SquareButton>` and `<TextField>` as its primitives (sign-in still borrows
+  `ContentWidth.readable` from `theme.ts` for its column width). `constants/theme.ts` remains the
+  token set for every screen lane 2 has not migrated yet (Home, Result, History, Capture, Paywall,
+  Settings). The sheet's contrast contract is proven in
+  `constants/__tests__/v23-theme-contrast.test.ts` — read it before putting text on `ink3`, which
+  is deliberately under AA and is for placeholders and disabled controls only. See
+  `docs/architecture.md`'s "Current — V23 entry flow" section.
 - **In-app copy is professional and restrained** (captain's user-audit, 2026-09-12): short
   sentences, no contractions, no exclamation marks, no emoji, no jokes; technical terms used
   precisely. Every string lives in `constants/copy.ts` (never inline in JSX) and

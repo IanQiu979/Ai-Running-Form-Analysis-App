@@ -21,83 +21,108 @@
 import { PASSWORD_MIN_LENGTH } from '@/constants/auth';
 
 export const Copy = {
+  // ---------------------------------------------------------------------------------------
+  // THE ENTRY FLOW (2026-09-13, the V23 redesign — pages V23-02 Hero and V23-03 Details, with
+  // V23-04's pillar boxes). NOT in docs/design/copy-deck.md; the wording is the captain-approved
+  // Claude Design pages', lifted verbatim. Route: `app/(auth)/welcome.tsx` (hero) →
+  // `app/(auth)/details.tsx` → `app/(auth)/sign-in.tsx`.
+  // ---------------------------------------------------------------------------------------
+  entry: {
+    hero: {
+      cue: 'Continue',
+      // The hero is one drawn figure with four measured callouts. Sighted users read the callouts
+      // off the drawing; this is the same content as one sentence for a screen reader.
+      a11yLabel:
+        'A line-drawn runner annotated with the four pillars: posture, forward lean 6 degrees; arm swing, elbow angle 90 degrees; cadence, 176 steps per minute; elasticity, ground contact 230 milliseconds.',
+      callout: {
+        posture: { name: 'Posture', sub: 'forward lean', unit: '°' },
+        armSwing: { name: 'Arm swing', sub: 'elbow angle', unit: '°' },
+        cadence: { name: 'Cadence', sub: 'steps per minute', unit: 'spm' },
+        elasticity: { name: 'Elasticity', sub: 'ground contact', unit: 'ms' },
+      },
+    },
+    details: {
+      title: 'What your run is telling you',
+      lede: 'One photo of your stride, read against the science of running form.',
+      reads: {
+        label: 'What it reads',
+        body: 'Four things a coach looks at first: how you stand over your feet, what your arms do, how often you land, and how much the ground gives back.',
+      },
+      // V23-04: the closed box shows `name`; the open box adds the description and the metric
+      // with its healthy range. Values are the pages' starting numbers (Ian to confirm ranges).
+      pillar: {
+        posture: {
+          name: 'Posture',
+          desc: 'Where your head, chest and hips sit over your feet — the line everything else is built on.',
+          metric: '6°',
+          range: 'forward lean · norm 5–10°',
+        },
+        armSwing: {
+          name: 'Arm swing',
+          desc: 'What your arms are doing, and whether they are working with your legs or against them.',
+          metric: '90°',
+          range: 'elbow angle · norm 85–100°',
+        },
+        cadence: {
+          name: 'Cadence',
+          desc: 'How often your feet land. Usually the one thing you can change this week and feel.',
+          metric: '176 spm',
+          range: 'steps per minute · norm 165–185',
+        },
+        elasticity: {
+          name: 'Elasticity',
+          desc: 'How much you get back from the ground — whether you spring off it or sink into it.',
+          metric: '230 ms',
+          range: 'ground contact · norm 200–280 ms',
+        },
+      },
+      close: 'Close',
+      cue: 'Continue',
+    },
+  },
   auth: {
-    // Placeholder for the real mark asset (`assets/source/mark-*.svg`, not wired in yet) —
-    // rendered as plain `<Text>` in app/(auth)/sign-in.tsx. The copy deck (§Screen 1) requires
-    // `valueProp` below to never restate the app name because "the logo already carries it";
-    // that's only true once this becomes the actual mark. Swapping this string for the real
-    // asset is future work (issue #30 only routes the existing string through the deck).
-    wordmark: 'Pace Analysis AI',
-    valueProp:
-      'Submit a photo or video of your run for a precise assessment of your form.',
+    // V23-06 (2026-09-13): the page's eyebrow and Display title. The old wordmark / value-prop /
+    // "about" scroll content came off this screen with the redesign — the hero and details pages
+    // (`Copy.entry`) carry what the app does now.
+    eyebrow: 'Run better tomorrow',
+    title: 'Get started',
     cta: {
       google: 'Continue with Google',
-      email: 'Continue with email',
     },
     email: {
       placeholder: 'Email',
     },
     password: {
       placeholder: 'Password',
-      // Shown under the password field, sign-up mode only (app/(auth)/sign-in.tsx) — the rule
+      // The password rule, carried as the field's `accessibilityHint` in sign-up mode — the rule
       // stated proactively instead of only after the user fails it (issue #9). Templated off
       // the same `PASSWORD_MIN_LENGTH` constant as `error.passwordTooShort` below, so the two
       // strings can't drift from each other.
       hint: `At least ${PASSWORD_MIN_LENGTH} characters.`,
     },
+    // V23-06's consent line under the fields: a 12 pt checkbox and one line of fine print with
+    // "Terms" and "Privacy Policy" underlined. Split into parts so the screen can underline the
+    // two names without a second string. "I am", not the page's "I'm" — the tone rule above
+    // (no contractions) outranks a two-glyph difference on the artboard. NOTE: neither document
+    // is published yet (see `settings.privacyPolicy.pending`), so the underlines are the page's
+    // styling and not a link; the screen says so in its own comment.
+    consent: {
+      prefix: 'I am 16+ and agree to the ',
+      terms: 'Terms',
+      and: ' and ',
+      privacy: 'Privacy Policy',
+      a11yLabel: 'I am 16 or older and agree to the Terms and Privacy Policy',
+    },
     signIn: {
       submit: 'Sign in',
-      link: 'Have an account? Sign in',
-    },
-    // ---------------------------------------------------------------------------------------
-    // THE ENTRY-SCREEN SCROLL CONTENT (2026-09-04, the V2.3 redesign). NOT in
-    // docs/design/copy-deck.md and NOT copy-certified — new strings, flagged as such the same way
-    // every other post-deck addition in this file is.
-    //
-    // WHY IT EXISTS: `app/(auth)/sign-in.tsx` is the front door — there is no separate onboarding
-    // route — and until now it said the app's name, one value-prop line, and nothing else. A
-    // stranger had to create an account to find out what the thing measures. This is the scroll
-    // reveal below the fold that answers that first.
-    //
-    // VOICE RULES, and they are the reason this reads the way it does rather than like a landing
-    // page: (1) it says what the app LOOKS AT, never what it will do for you — no promise of
-    // faster times, no "unlock your potential"; (2) it names what the product is NOT, because
-    // "one thing, done properly" is the actual pitch (CLAUDE.md: no training plans, no logging, no
-    // chat); (3) no second CTA lives down here — the sign-in controls are above this section, and
-    // a screen gets ONE primary action (see `Accent` in constants/theme.ts).
-    // ---------------------------------------------------------------------------------------
-    about: {
-      eyebrow: 'What is assessed',
-      heading: 'Four pillars. Every analysis.',
-      intro:
-        'Every analysis scores the same four pillars in the same order, so results remain comparable over time.',
-      pillar: {
-        posture: {
-          label: 'Posture',
-          body: 'The alignment of head, torso and hips over the feet. The base every other pillar depends on.',
-        },
-        armSwing: {
-          label: 'Arm swing',
-          body: 'Arm path and elbow angle, and whether the swing supports or opposes the stride.',
-        },
-        cadence: {
-          label: 'Cadence',
-          body: 'Steps per minute. Typically the most immediately adjustable pillar.',
-        },
-        elasticity: {
-          label: 'Elasticity',
-          body: 'Ground contact and energy return. How efficiently the stride rebounds from each footstrike.',
-        },
-      },
-      // The negative space. Kept last because it is the closing argument, not the opening one.
-      scope: {
-        eyebrow: 'What it is not',
-        body: 'No training plans. No mileage log. No chat. One assessment of your form and the corrections it calls for.',
-      },
+      // The footer's two halves: a `ink2` prompt and an underlined `ink` link (V23-06).
+      switchPrompt: 'Already have an account?',
+      switchLink: 'Sign in',
     },
     signUp: {
       submit: 'Create account',
-      link: 'No account? Create one',
+      switchPrompt: 'New here?',
+      switchLink: 'Create an account',
       // Issue #12/Known Issue #12 — shown INSTEAD of the Turnstile widget on either of the two
       // ways `lib/turnstile-config.ts` can fail to resolve a usable config: `EXPO_PUBLIC_
       // TURNSTILE_SITE_KEY` is unset, OR a site key is set but no base URL can be derived from
@@ -135,6 +160,10 @@ export const Copy = {
       emailInvalid: 'Enter a valid email address.',
       passwordRequired: 'Enter your password.',
       // --- issue #17 NEW keys end ---
+      // V23-06 (2026-09-14): the consent checkbox gates account creation in the submit handler
+      // itself, not only on the button — the keyboard's return key reaches the handler with the
+      // button still disabled. Local, no server contacted, like the three keys above.
+      consentRequired: 'Confirm you are 16 or older and agree to the Terms and Privacy Policy.',
       // The "or reset your password" clause is back (issue #18's closing condition): the route it
       // points at now exists — app/(auth)/reset-password.tsx, reached from the "Forgot password?"
       // link on sign-in (issue #81). Before that, this clause pointed at nothing and was a dead
@@ -398,13 +427,20 @@ export const Copy = {
       },
     },
   },
-  // Screen 6 — Analyzing (issue #80). Lifted verbatim from docs/design/copy-deck.md.
+  // Screen 6 — Analyzing (issue #80). `title` and `longWait` are the deck's; the status lines
+  // are V23-05's (2026-09-13): "Uploading your photo" / "Finding your stride" / "Done".
   analyzing: {
     title: 'Analyzing',
     step: {
-      reading: 'Reading form…',
-      scoring: 'Scoring four pillars…',
+      // The page says "photo". A video submission never uploads the video — only the frames
+      // extracted on the device leave it (CLAUDE.md, Ruling 1) — so that branch names the frames
+      // rather than claiming an upload the app deliberately does not make.
+      uploading: (mediaType: 'photo' | 'video') =>
+        mediaType === 'video' ? 'Uploading your frames' : 'Uploading your photo',
+      finding: 'Finding your stride',
     },
+    // Shown once the result has landed, for V23-05's 300 ms hold before the result fades in.
+    done: 'Done',
     longWait: 'Still analyzing. A full read takes a moment.',
     error: {
       failed: {

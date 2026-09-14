@@ -23,7 +23,7 @@ appId: com.ian.paceanalysisai
 - evalScript: ${output.e2ePassword = 'Pace-e2e-' + Date.now() + '!Aa'}
 
 # extendedWaitUntil, not a bare assertVisible: a cold app launch (right after launchApp's
-# clearState) takes noticeably longer to reach the sign-in screen than a warm one, and Maestro's
+# clearState) takes noticeably longer to reach the first screen than a warm one, and Maestro's
 # own iOS driver can take 15-20s just to finish connecting on a loaded host before it can query
 # anything at all. 45s gives real headroom for both — but see ../../README.md's 2026-07-25 update
 # before assuming a longer timeout alone fixes a failure here: this exact assertion has also
@@ -31,16 +31,24 @@ appId: com.ian.paceanalysisai
 # maestro.log showed a STABLE, unchanging view-hierarchy poll the whole time. That is the iOS
 # accessibility-tree bridge itself intermittently failing to resolve, not something a bigger
 # number fixes — if you hit this, it's the driver, not this flow or the app under test.
+#
+# The V23 entry flow (2026-09-14): a cold signed-out launch lands on the hero (app/(auth)/welcome),
+# whose "Continue" cue only becomes tappable once the hero's 3.2 s timeline has held (~4 s) —
+# hence `enabled: true`, not a bare visibility wait, or the tap lands on a disabled control and
+# is swallowed. Then the details page and its own "Continue" to the sign-up/sign-in screen.
 - extendedWaitUntil:
-    visible: "Continue with Google"
+    visible:
+      id: "entry-hero-cue"
+      enabled: true
     timeout: 45000
+- tapOn:
+    id: "entry-hero-cue"
+- tapOn:
+    id: "details-continue"
 
-# Toggle to sign-up mode. `toggleMode()` (app/(auth)/sign-in.tsx, issue #16) sets BOTH `mode` and
-# `showEmailForm(true)` in one call — "New here? Create an account" alone already opens the email
-# form with its submit button reading "Create account". Corrected 2026-07-25: this subflow used
-# to also tap a "Continue with email" button here, which no longer exists once the form is
-# already open — the first real execution attempt against a built app failed on it.
-- tapOn: "New here? Create an account"
+# The screen opens in sign-up mode (V23-06's first artboard) — no mode toggle needed; the footer
+# reads "Already have an account? Sign in" and is left alone.
+- assertVisible: "Create account"
 
 # No testID on these two TextInputs today — matched by their placeholder text, which doubles as
 # their accessibilityLabel (app/(auth)/sign-in.tsx). See the HANDOFF block in ../../README.md:
@@ -50,6 +58,11 @@ appId: com.ian.paceanalysisai
 - inputText: "${output.e2eEmail}"
 - tapOn: "Password"
 - inputText: "${output.e2ePassword}"
+
+# The 16+ / Terms consent checkbox (app/(auth)/sign-in.tsx). "Create account" stays disabled
+# until it is ticked, alongside the captcha token.
+- tapOn:
+    id: "signup-consent"
 - tapOn: "Create account"
 
 # Supabase email confirmation is disabled for this MVP (supabase/config.toml) — the session

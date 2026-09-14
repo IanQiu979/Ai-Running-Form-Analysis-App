@@ -5,6 +5,124 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-13 (V23 entry flow, lane 1 — theme sheet, hero, details, sign-up, analyzing)
+
+**On `fm/v23-entry-flow-lane1`, 2026-09-13/14, uncommitted when this entry was written.** Lane 1
+of the V23 redesign: the signed-out entry flow and the Analyzing screen, transcribed from the
+captain-approved Claude Design pages (V23-01 theme sheet through V23-06 sign-up). Lane 2 (Home /
+Result / History / Capture / Paywall / Settings) has not moved, so two design systems ship side by
+side until it does. Auth logic and the analyzing state machine are unchanged. Not in a build.
+
+- **A second token file, `constants/v23-theme.ts`, deliberately not a rewrite of
+  `constants/theme.ts`.** The V23-01 theme sheet verbatim: eight Ink swatches (`#0A0A0A` bg,
+  `#141414` raised, `#2A2A2A` line, `#F5F5F5` / `#9A9A9A` / `#5C5C5C` ink/ink2/ink3, `#FFFFFF`
+  accent, `#E5484D` danger — the one chromatic value, errors only); Barlow Condensed 700/800 and
+  Inter Tight 400/500/600, both loaded in `app/_layout.tsx` alongside the Cold Read families; a
+  type scale (display 40/44, h1 28/32, h2 20/24, body 16/24, label 13/16 +6 %, small 13/16, fine
+  11/14, metric 32/36 tabular, clock 48/52); an 8 pt grid; radius 0; and the Motion block (arrive
+  `bezier(.16,1,.3,1)` 400–700 ms, move `bezier(.65,0,.35,1)`, page 250 ms fade + 12 pt shift).
+  **Dark only** — no scheme branch. Replacing `theme.ts` in place would have broken every lane-2
+  screen at once; once nothing imports it, it is deleted and this file takes its name.
+  `constants/__tests__/v23-theme-contrast.test.ts` proves `ink`/`ink2`/`danger` clear 4.5:1 on
+  both surfaces, `ink3` stays UNDER 4.5:1 (placeholders and disabled controls only, never copy),
+  `line` stays under 3:1, and that nothing but `danger` carries a hue.
+- **Two square primitives:** `components/ui/square-button.tsx` (primary / secondary / link, 56 pt,
+  `busy` spinner at the same height) and `components/ui/text-field.tsx` (56 pt input; an `error`
+  prop turns the border `danger` and draws the message beneath it).
+- **The signed-out route order is now hero → details → sign-in.** `app/(auth)/_layout.tsx`
+  declares `index` / `details` / `sign-in` with the 250 ms page fade and paints its own card
+  `Ink.bg`; the root `app/_layout.tsx` sets the same fade on the root Stack (the Android-only
+  reduce-motion `'fade'` branch is gone because fade is now the default everywhere) and **no longer
+  mounts the once-per-install `FirstRunIntro`** — it would have drawn over the hero.
+  `components/first-run-intro.tsx` and `lib/first-run.ts` are deleted, as are the 2026-09-04
+  `components/stride-wireframe-hero.tsx` + `lib/stride-wireframe.ts`, the sign-in "about" scroll
+  content and `Copy.auth.wordmark` / `valueProp` / `about` / `cta.email`. A returning signed-out
+  user therefore passes hero → details → sign-in: two taps, the first available after 4 s.
+- **`app/(auth)/welcome.tsx` — the V23-02 hero.** `components/stride-hero.tsx` draws a line runner
+  from the pure geometry/timeline in `lib/stride-hero.ts` (every constant, easing and timestamp
+  the page's `hero(t)` uses, unit-tested at fixed instants): the figure draws on over 1 s and
+  keeps running at 176 spm; the four PACE callouts arrive from 1.2 s at 0.35 s intervals with
+  count-ups; leaders dim at 2.6–3.2 s; the "Continue" cue fades in at 4 s, fed by the hero's own
+  UI-thread clock rather than a screen timer, and is inert until then. Reduced motion is the end
+  frame plus a visible cue. The whole hero is one accessible image with one label.
+- **`app/(auth)/details.tsx` — V23-03.** Title, lede, "What it reads", and a 2×2 grid of
+  `components/pillar-box.tsx` (V23-04): a closed square (letter + name) or an open full-width card
+  (name, description, metric + healthy range) with a 320 ms height-clip expand; one open at a
+  time, and the open card renders first so its text never lands under the fold. Items rise 12 pt
+  over 600 ms staggered 0 / 60 / 120+60·i ms. Continue → sign-in.
+- **`app/(auth)/sign-in.tsx` — V23-06, rebuilt.** Eyebrow + Display title, two `TextField`s with
+  field-level errors, and — sign-up mode only — a consent checkbox, "I am 16+ and agree to the
+  Terms and Privacy Policy", that gates Create account alongside the captcha token. The Terms /
+  Privacy underlines are the page's styling, not links: neither document is published
+  (`Copy.settings.privacyPolicy.pending`). Sign-up is the default mode; the footer flips modes.
+  Kept from the old screen for working reasons the page does not draw: the Turnstile widget and
+  its no-key notice (sign-up), "Forgot password?" (sign-in), and the password rule as the field's
+  `accessibilityHint`. Validation → HIBP → captcha → `signUpWithCaptcha` → `applySignupSession`,
+  `signInWithPassword`, `signInWithGoogle` are untouched. **Review pass, 2026-09-14:** the consent
+  gate is enforced in the submit handler itself (the password field's return key reaches it with
+  the button still disabled) and on "Continue with Google" in sign-up mode, with
+  `Copy.auth.error.consentRequired` as the local refusal; a mode toggle drops any held captcha
+  token; the consent line wraps rather than truncates at large text sizes; the title carries the
+  header role on the `Text` itself. Consent is a client-side gate only — nothing about it is
+  recorded server-side (the once-ever capture consent in `components/consent-gate.tsx` is the
+  recorded one); whether this line needs a record of its own is a captain decision.
+  **Second review pass, 2026-09-14:** (a) "Continue with Google" needs consent in BOTH modes —
+  Supabase OAuth creates a brand-new account for a first-time Google identity regardless of the
+  screen's mode. The sign-in artboard is unchanged at rest; a Google tap with consent unticked
+  reveals the same consent row (same `signup-consent` testID, same place) with
+  `consentRequired` and does not launch OAuth until it is ticked. The tick is shared across
+  modes. (b) `/sign-in?mode=signIn` seeds sign-in mode; `update-password`'s "Back to sign in"
+  uses it (that screen is deep-link-entered with no sign-in beneath it), so an expired-recovery-
+  link user no longer lands on "Create account". `reset-password` keeps `router.back()`: it is
+  only ever pushed from sign-in in sign-in mode, so back returns to that same instance with the
+  typed email intact. Any other value keeps the sign-up default; details keeps pushing plain
+  `/sign-in`.
+- **`app/(auth)/details.tsx` — the open card is keyed by pillar (second review pass,
+  2026-09-14).** Switching straight from one open pillar to another remounts `OpenBox` (fresh
+  expand tween and measurement) instead of re-dressing the previous card, and a collapse hands
+  back scoped to its own pillar, so tapping B during A's 320 ms collapse never closes B.
+- **`.maestro/` flows follow the new entry** (second review pass, 2026-09-14): hero cue
+  (`entry-hero-cue`, waited on `enabled`) → `details-continue` → sign-up mode by default, consent
+  ticked (`signup-consent`) before "Create account"; the signed-in dead-end flows flip to sign-in
+  via the footer link; sign-out asserts the hero (`entry-hero`). Flow intent is unchanged.
+- **The hero route is `(auth)/welcome`, not `(auth)/index` — load-bearing.** A second `index.tsx`
+  also matches `/`, and from any route outside `(tabs)` expo-router prefers the `(auth)` candidate,
+  which the session guard has removed while signed in — so analyzing's Cancel, result's and
+  extracting's "home" (`router.replace('/')`) went dead. Caught in review, fixed by the rename plus
+  `unstable_settings.initialRouteName`, locked by `app/__tests__/root-path-is-unique.test.ts`.
+- **`app/analyzing.tsx` — V23-05.** A `mm:ss.t` stopwatch (`formatStopwatch`, ticking every
+  100 ms from the start of the current attempt, so Retry restarts it), the `ANALYZING` label, one
+  status line — `Copy.analyzing.step.uploading(mediaType)` → `.finding` → the existing `longWait`
+  fade on the same step pacing — and `components/laser-sweep.tsx`, a 2 pt `ink` line with a
+  gradient-band glow sweeping top to bottom every 3.2 s. It plays under Reduce Motion like the rest
+  of the wait state (`motion-consult.md`'s exemption). On `succeeded` the clock freezes, the laser
+  goes, the status reads "Done", the frame holds 300 ms, and only then do the existing
+  `setPendingAnalysisResult` + `router.replace` run — the root Stack's 250 ms fade is the "result
+  fades in". Error panels re-set in `Type.h1` with `SquareButton`s. `lib/analyzing-machine.ts` is
+  untouched except `ANALYZING_STEP_KEYS` → `['uploading', 'finding']`.
+- **Copy:** new `Copy.entry.*` (hero and details, the pages' wording verbatim),
+  `Copy.auth.eyebrow` / `title` / `consent.*` / `*.switchPrompt` / `*.switchLink`,
+  `Copy.analyzing.step.uploading` / `.finding` and `Copy.analyzing.done`. The tone lock passes.
+- **Verified live on an iOS 26.5 simulator dev build, 2026-09-14:** the hero timeline against the
+  page's t=1.0 / t=2.0 / end artboards, details at rest, mid-stagger and with a box open, the
+  sign-up / sign-in / error artboards, and analyzing's stopwatch + laser + Done → result. A
+  throwaway email account was created through the new sign-up (captcha + consent gate) and deleted
+  afterwards. **One bug found and fixed in that pass:** `useFrameCallback` re-registers its
+  callback on every render, so reading `timeSinceFirstFrame` rewound the hero to t=0 the moment the
+  cue state flipped at 4 s — the figure redrew and the callouts vanished. The hero's clock now
+  captures its own origin once in a shared value.
+- **Deviations from the pages, all deliberate and flagged for the captain:** "I am 16+" not "I'm
+  16+" (the no-contractions rule); the consent line is `ink3` per the page, ≈3:1 and under AA;
+  "Forgot password?" and the Turnstile widget are on the screen though the page does not draw them
+  (functional); "Uploading your frames" for a video submission (the page only says photo); the laser
+  glow is stacked gradient bands, since Android has no box-shadow; a returning signed-out user
+  walks all three screens.
+- **Gate:** typecheck + lint clean; app Jest 101 suites / 2673 tests; edge 522. New screen-level
+  tests: `app/(auth)/__tests__/entry-hero.test.tsx`, `details.test.tsx`; component tests for
+  `stride-hero`, `pillar-box`, `laser-sweep`; `lib/__tests__/stride-hero.test.ts`. The deleted
+  `sign-in-entry-content`, `first-run-intro`, `stride-wireframe-hero`, `first-run` and
+  `stride-wireframe` tests went with their subjects.
+
 ## 2026-09-12 (History keeps its last list during focus refreshes)
 
 - **History no longer reloads from scratch on every tab return.** The tab screen was already kept

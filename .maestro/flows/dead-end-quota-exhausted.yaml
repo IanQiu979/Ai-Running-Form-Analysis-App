@@ -49,8 +49,23 @@ appId: com.ian.paceanalysisai
 - launchApp:
     clearState: true
 
-- assertVisible: "Continue with Google"
-- tapOn: "Continue with email"
+# The V23 entry flow (2026-09-14): a cold signed-out launch lands on the hero (app/(auth)/welcome),
+# whose "Continue" cue only becomes tappable once the hero's 3.2 s timeline has held (~4 s) —
+# hence `enabled: true`, not a bare visibility wait, or the tap lands on a disabled control and
+# is swallowed. Then the details page and its own "Continue" to the sign-up/sign-in screen.
+- extendedWaitUntil:
+    visible:
+      id: "entry-hero-cue"
+      enabled: true
+    timeout: 45000
+- tapOn:
+    id: "entry-hero-cue"
+- tapOn:
+    id: "details-continue"
+
+# The screen opens in sign-up mode; the footer link "Sign in" flips it to sign-in (its submit
+# button then also reads "Sign in" — unambiguous each time, since only one is on screen per mode).
+- tapOn: "Sign in"
 - tapOn: "Email"
 - inputText: "${MAESTRO_QUOTA_EXHAUSTED_EMAIL}"
 - tapOn: "Password"

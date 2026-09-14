@@ -17,10 +17,17 @@ code and a live DB, not a plan.
 ```
 app/
   _layout.tsx            # root layout: SessionProvider + font loading + splash gate, then
-                          # Stack.Protected routes to (tabs) or (auth) on `session`
-  (auth)/_layout.tsx      # unprotected stack, one screen
-  (auth)/sign-in.tsx      # combined sign-in/sign-up per design-brief screen 1 (email + Google;
-                          # no Apple yet, gate #7)
+                          # Stack.Protected routes to (tabs) or (auth) on `session`. Since
+                          # 2026-09-13 it also loads the V23-01 families (Barlow Condensed /
+                          # Inter Tight) and fades every root transition over 250 ms; the
+                          # once-per-install FirstRunIntro overlay it used to mount is deleted.
+  (auth)/_layout.tsx      # unprotected stack — the V23 entry flow (2026-09-13) in walk order,
+                          # welcome → details → sign-in, plus the two password-reset screens
+  (auth)/welcome.tsx        # V23-02 hero (2026-09-13): the line-drawn runner and a "Continue" cue
+                          # at 4 s. See "Current — V23 entry flow" below.
+  (auth)/details.tsx      # V23-03 details (2026-09-13): what the app reads, four pillar boxes
+  (auth)/sign-in.tsx      # combined sign-in/sign-up (email + Google; no Apple yet, gate #7),
+                          # rebuilt to V23-06 on 2026-09-13 with a sign-up consent checkbox
   (tabs)/_layout.tsx      # protected stack; single Home tab for M1 (template Explore removed)
   (tabs)/index.tsx        # M1 empty Home per screen 2 — RLS-scoped, display-only quota caption,
                           # disabled Analyze stub, temporary sign-out
@@ -46,12 +53,23 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
                           # on the result screens' PaceReadout.
   ui/eyebrow.tsx          # the tracked uppercase micro-label — the redesign's main sub-display
                           # hierarchy tool.
+  ui/square-button.tsx    # V23-01 PRIMITIVES (2026-09-13), on constants/v23-theme.ts, used only
+  ui/text-field.tsx       # by the entry flow and Analyzing so far: the 56 pt square button
+                          # (primary / secondary / link) and the 56 pt input with an inline
+                          # `danger` error. Lane 2 screens still use pill-button / surface-card.
+  stride-hero.tsx         # V23-02 (2026-09-13): the entry hero's line-drawn runner and its four
+                          # PACE callouts, evaluated once per frame on the UI thread from the pure
+                          # geometry/timeline in lib/stride-hero.ts. Replaces the deleted
+                          # stride-wireframe-hero.tsx (below).
+  pillar-box.tsx          # V23-04 (2026-09-13): one P/A/C/E square on the details page, closed
+                          # or open, with the 320 ms height-clip expand.
+  laser-sweep.tsx         # V23-05 (2026-09-13): the Analyzing screen's glowing 2 pt line
+                          # sweeping top to bottom every 3.2 s.
   kinetic-text.tsx        # per-word reveal. Splits a sentence into one Text per word but keeps
                           # ONE accessible node carrying the whole string — see its header.
   marquee.tsx             # the standing PACE-pillar ticker on Home.
   low-poly-field.tsx      # the morphing triangle mark used by Extracting and the password-check
-                          # wait. Removed from sign-in 2026-09-01; that screen's scroll reveal is
-                          # the pace/pillars content, and its hero is <StrideWireframeHero>.
+                          # wait. Removed from sign-in 2026-09-01.
                           # Per-vertex SVG since 2026-08-02, when the captain lifted the
                           # react-native-svg ban annotation-lines.tsx used to carry: a pose is
                           # three independent vertices, so a facet genuinely reshapes. Each facet
@@ -59,31 +77,36 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
                           # Fabric, Reanimated's animatedProps bypasses Polygon's own JS render()
                           # that turns `points` into the `d` it actually draws, so an animated
                           # `points` prop is silently inert; see the component's own comments.
-  stride-wireframe-hero.tsx # (2026-09-03) THE REDESIGN'S SIGNATURE ENTRY ANIMATION — a
-                          # motion-capture-style wireframe runner cycling one closed gait, icy
-                          # cyan on near-black regardless of colour scheme, with gait-lab chrome
-                          # (grid, scrolling ground, cycle ruler, knee arc, live knee angle). Its
-                          # geometry is pure math in lib/stride-wireframe.ts (periodic Catmull-
-                          # Rom over 8 PACE-grounded keyframes; ground line, ground speed and
-                          # the frame it is drawn in DERIVED from the gait). Palette pinned in the file on purpose until
-                          # the new token set lands — see its header for the integration
-                          # contract. MOUNTED on app/(auth)/sign-in.tsx's header, where it took
-                          # over the "one loud moment" slot from <ArcBurst> (2026-09-04).
+  # stride-wireframe-hero.tsx and lib/stride-wireframe.ts — the 2026-09-03 wireframe runner that
+  # led sign-in from 2026-09-04 — are DELETED (2026-09-13), along with first-run-intro.tsx and
+  # lib/first-run.ts (the once-per-install intro overlay). The entry moment is (auth)/welcome's
+  # <StrideHero> now; see "Current — V23 entry flow" below.
   aperture.tsx            # the result hero's lens (2026-08-02): a permanent radial vignette, plus
                           # a six-bladed iris and an expo-blur rack focus that play once on a
                           # fresh analysis. Wraps DuotoneFrame; sequenced ahead of its wireframe.
 constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
                           # palette, spacing/radii/type scales; M1 added
-                          # ControlHeight/ControlWidth/HitTarget/Opacity
+                          # ControlHeight/ControlWidth/HitTarget/Opacity. Still the token set
+                          # for every lane-2 screen (Home/Result/History/Capture/Paywall/Settings).
+constants/v23-theme.ts    # THE V23-01 THEME SHEET (2026-09-13): Ink / Font / Type / Space /
+                          # Layout / Motion, dark only, consumed by the entry flow and Analyzing.
+                          # Kept beside theme.ts on purpose until lane 2 migrates; see "Current —
+                          # V23 entry flow" below.
 constants/copy.ts         # strings lifted verbatim from docs/design/copy-deck.md — sign-in and
-                          # Home's copy live here first (M1); more screens' copy lands with them
+                          # Home's copy live here first (M1); more screens' copy lands with them.
+                          # Copy.entry.* (2026-09-13) is the V23 pages' wording, not the deck's.
 constants/contrast.ts     # contrast-ratio helper backing the AA proof below
 constants/__tests__/theme-contrast.test.ts  # Jest proof (246 cases as of 2026-09-04) that every
                           # text/surface and band pair clears WCAG AA, plus the >=30 degree hue
                           # separation between every chromatic role — each value's derivation is
                           # a comment in theme.ts next to the token it changed
+constants/__tests__/v23-theme-contrast.test.ts  # the same kind of proof for v23-theme.ts:
+                          # ink/ink2/danger clear 4.5:1 on both surfaces, ink3 and line stay
+                          # UNDER their floors by design, nothing but danger carries a hue
 hooks/                    # use-color-scheme, use-theme-color
 lib/
+  stride-hero.ts          # V23-02 (2026-09-13): the hero runner's geometry and timeline as pure
+                          # worklets, unit-tested at fixed instants; see "Current — V23 entry flow"
   supabase.ts             # the Supabase client — see "Current — auth flow" below
   auth.ts
   session-provider.tsx
@@ -174,7 +197,15 @@ itself.
 
 ```
 app/
-  (auth)/sign-in           # current — sign-up folds into the same screen, no separate route
+  (auth)/welcome           # current (V23-02, 2026-09-13) — the signed-out group's initial route:
+                          # the hero. A cold signed-out launch and every sign-out land here; its
+                          # "Continue" cue (tappable from 4 s) pushes details. See "Current — V23
+                          # entry flow" below.
+  (auth)/details           # current (V23-03/04, 2026-09-13) — what the app reads, the 2×2 pillar
+                          # grid; Continue pushes sign-in
+  (auth)/sign-in           # current — sign-up folds into the same screen, no separate route;
+                          # rebuilt to V23-06 on 2026-09-13 (sign-up is the default mode, and a
+                          # consent checkbox gates Create account alongside the captcha token)
   (auth)/reset-password    # current (issue #81, 2026-07-13) — request a password-reset email;
                           # see "Current — password reset" below
   (auth)/update-password   # current (issue #81, 2026-07-13) — consumes the emailed recovery
@@ -187,7 +218,9 @@ app/
                           # extraction; see "Current — capture screens (issue #36)" below
   analyzing                 # current (issue #80, 2026-07-12) — Screen 6, the analyze-form wait
                           # screen; top-level route (not nested under (tabs)/capture), guarded
-                          # the same as (tabs). See "Current — the Analyzing screen" below.
+                          # the same as (tabs). See "Current — the Analyzing screen" below;
+                          # restyled to V23-05 (stopwatch + laser sweep) 2026-09-13, see
+                          # "Current — V23 entry flow".
   result/[id]                # current (issue #56) — the PACE readout. `app/analyzing.tsx`
                           # navigates to `result/[id]` (singular, matching this table);
                           # docs/design/motion-consult.md's nav-param example was corrected to
@@ -921,6 +954,100 @@ token contracts every future screen is written against. Full narrative: `docs/ch
 - **Launch assets re-tinted** (`assets/source/*.svg`, `app.json`, `scripts/generate-app-assets.js`),
   PNGs regenerated with `npm run assets`. The icon's landing marker stays `Score.strong` and
   deliberately not the accent.
+
+## Current — V23 entry flow (2026-09-13)
+
+**Lane 1 of the V23 redesign, on `fm/v23-entry-flow-lane1`.** The signed-out entry flow and the
+Analyzing screen, transcribed from the captain-approved Claude Design pages (V23-01 theme sheet,
+V23-02 hero, V23-03 details, V23-04 pillar box, V23-05 analyzing, V23-06 sign-up). Lane 2 —
+Home, Result, History, Capture, Paywall, Settings — has not migrated, so `main`'s Cold Read layer
+above is still what those screens are built on and both font sets load at startup. Full narrative:
+`docs/change_log.md`'s 2026-09-13 entry.
+
+- **`constants/v23-theme.ts` is a second token file, not a rewrite of `constants/theme.ts`.**
+  Flat exports — `Ink`, `Font`, `Type`, `Space`, `Layout`, `Motion` — and **one scheme: dark
+  only**, so there is no `useColorScheme` branch to take; a screen on these tokens paints `Ink.bg`
+  and is done. None of `theme.ts`'s structural ideas exist here (no `Gradient.page` wash, no
+  `Glass`, no score bands, `Layout.radius` is 0, `Ink.accent` is pure white and `Ink.danger` is
+  the only hue). Replacing `theme.ts` in place would have broken every lane-2 screen at once;
+  once nothing imports it, it is deleted and this file takes its name. The contract is proven in
+  `constants/__tests__/v23-theme-contrast.test.ts`: `ink`/`ink2`/`danger` clear 4.5:1 on both
+  surfaces, `ink3` is a placeholder/disabled tone deliberately **under** 4.5:1 (it must never carry
+  copy the user has to read), `line` is decorative and stays under 3:1, and nothing but `danger`
+  carries a hue. `Motion` is the page's block verbatim (arrive `bezier(.16,1,.3,1)` 400–700 ms,
+  move `bezier(.65,0,.35,1)`, page 250 ms fade + 12 pt shift).
+- **Two primitives on those tokens:** `components/ui/square-button.tsx` (primary / secondary /
+  link, 56 pt, square, `busy` spinner at the same height) and `components/ui/text-field.tsx`
+  (56 pt input; `error` turns the border `danger` and draws the message beneath it).
+- **The signed-out group walks hero → details → sign-in.** `app/(auth)/_layout.tsx` declares
+  `welcome` / `details` / `sign-in` (plus the two password-reset screens; `welcome` is the
+  initial route — never `index`, see `docs/change_log.md` 2026-09-13) with a 250 ms fade and
+  paints its own card `Ink.bg`; `app/_layout.tsx` applies the same fade to the root Stack, so the
+  old Android-only reduce-motion `'fade'` branch is gone rather than duplicated. The
+  once-per-install `FirstRunIntro` overlay (`components/first-run-intro.tsx`, `lib/first-run.ts`)
+  is deleted — it would have drawn over the hero — as are the 2026-09-04
+  `<StrideWireframeHero>` (`components/stride-wireframe-hero.tsx`, `lib/stride-wireframe.ts`),
+  sign-in's "about" scroll content and `Copy.auth.wordmark` / `valueProp` / `about` /
+  `cta.email`. A returning signed-out user passes all three screens: two taps, the first
+  available after 4 s.
+- **`app/(auth)/welcome.tsx` — the hero.** `components/stride-hero.tsx` draws a line runner from
+  `lib/stride-hero.ts` — the page's `hero(t)` as pure worklets, unit-tested at fixed instants in
+  `lib/__tests__/stride-hero.test.ts`. One shared clock advances `t` on the UI thread and one
+  derived value evaluates the frame; every SVG element reads its slice. Timeline: the figure draws
+  on over 1 s and keeps running at 176 spm; the four PACE callouts arrive from 1.2 s at 0.35 s
+  intervals with count-ups; leaders dim at 2.6–3.2 s; the "Continue" cue fades in at 4 s. The cue
+  is inert until then and is fired by the hero's own clock (`onHold`), not by a screen timer — and
+  that clock captures its own origin once, because `useFrameCallback` re-registers on every render
+  and `timeSinceFirstFrame` would rewind the hero the moment the cue state flipped (found live
+  2026-09-14). Reduced motion pins `t` at the end frame with the cue visible at once. The hero is
+  one accessible image carrying one label (`Copy.entry.hero.a11yLabel`).
+- **`app/(auth)/details.tsx` — what the app does.** Title, lede, "What it reads", a 2×2 grid of
+  `components/pillar-box.tsx`, 40 pt of deliberate air where the removed "what a photo can and
+  cannot tell you" block sat, and a link-variant Continue that pushes sign-in. Items rise 12 pt
+  over 600 ms staggered 0 / 60 / 120+60·i ms, once, on first mount. A pillar box is a closed
+  `bgRaised` square (letter + name) or an open full-width card (name, description, metric with
+  its healthy range) with a 320 ms height-clip expand — React Native has no `clip-path`, so an
+  `overflow: 'hidden'` box runs from 55 % to 100 % of the measured content height. One box open
+  at a time, and **the open card renders first at full width** so its text never lands under the
+  fold when the fourth box is the one tapped. The pillar copy's metric ranges are the pages'
+  starting numbers, pending Ian's confirmation.
+- **`app/(auth)/sign-in.tsx` — V23-06, rebuilt on the same auth logic.** Eyebrow + Display title,
+  two `TextField`s with field-level errors (the `danger` artboard), primary / secondary
+  `SquareButton`s, and a footer that flips modes; **sign-up is the default mode**. In sign-up
+  mode a 12 pt consent checkbox — "I am 16+ and agree to the Terms and Privacy Policy" — gates
+  Create account **alongside** the captcha token. The Terms / Privacy underlines are the page's
+  styling, not links: neither document is published (`Copy.settings.privacyPolicy.pending`).
+  Kept although the page does not draw them: the Turnstile widget and its no-key notice
+  (sign-up; Known Issue #12), "Forgot password?" (sign-in; issue #81), and the password rule as
+  the field's `accessibilityHint` (issue #9). Validation → HIBP → captcha → `signUpWithCaptcha` →
+  `applySignupSession`, `signInWithPassword` and `signInWithGoogle` are byte-for-byte the paths
+  described under "Current — auth flow" and "Current — `POST /functions/v1/signup-with-captcha`".
+- **`app/analyzing.tsx` — V23-05.** Supersedes the `<ArcLoader>` sentence in "Current — the
+  Analyzing screen" above; everything else in that section still holds. The wait is a `mm:ss.t`
+  stopwatch (`formatStopwatch`, ticking every 100 ms from the start of the current attempt, so
+  Retry restarts it), the `ANALYZING` label, one status line on the machine's existing step pacing
+  — `Copy.analyzing.step.uploading(mediaType)` → `.finding` → the `longWait` fade — and
+  `components/laser-sweep.tsx`, a 2 pt `ink` line with a glow built from stacked
+  `expo-linear-gradient` bands (Android has no box-shadow) sweeping top to bottom every 3.2 s over
+  the measured screen height. It plays under Reduce Motion, per `motion-consult.md`'s wait-state
+  exemption. On `succeeded` the clock freezes, the laser unmounts, the status reads
+  `Copy.analyzing.done`, the frame holds 300 ms, and only then do `setPendingAnalysisResult` +
+  `router.replace` run — the root Stack's 250 ms fade is the "result fades in". Error panels are
+  `Type.h1` + `SquareButton`s. `lib/analyzing-machine.ts` is untouched except
+  `ANALYZING_STEP_KEYS = ['uploading', 'finding']`.
+- **Copy.** `Copy.entry.*` (hero and details) is the pages' wording verbatim and is not in
+  `docs/design/copy-deck.md`; `Copy.auth.eyebrow` / `title` / `consent.*` / `*.switchPrompt` /
+  `*.switchLink`, `Copy.analyzing.step.uploading` / `.finding` and `Copy.analyzing.done` are new.
+  Deliberate deviations from the pages, flagged for the captain: "I am 16+" not "I'm 16+" (the
+  tone rule); the consent line is `ink3` per the page, ≈3:1 and under AA; "Uploading your frames"
+  for a video submission.
+- **Verified live on an iOS 26.5 simulator dev build, 2026-09-14** — hero timeline against the
+  page's t=1.0 / 2.0 / end artboards, details at rest / mid-stagger / box open, the sign-up /
+  sign-in / error artboards, analyzing stopwatch + laser + Done → result, and a throwaway email account created
+  through the new gate and deleted afterwards. Screen-level locks:
+  `app/(auth)/__tests__/entry-hero.test.tsx`, `details.test.tsx`, the updated `sign-in*.test.tsx`
+  and `app/__tests__/analyzing.test.tsx`; component tests for `stride-hero`, `pillar-box` and
+  `laser-sweep`.
 
 ## Current — app icon & splash assets (done 2026-07-12, closes GitHub issue #26)
 

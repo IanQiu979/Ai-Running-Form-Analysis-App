@@ -1,44 +1,61 @@
-import { router } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+/**
+ * V23-06 · Sign-up / sign-in (2026-09-13) — the third and last screen of the entry flow
+ * (hero → details → here), rebuilt to the captain-approved Claude Design page on the V23-01
+ * theme sheet. One screen, two modes: sign-up is the default (the details page sends new users
+ * here; the page's first artboard), and the footer link flips to sign-in for a returning user.
+ *
+ * The page draws: eyebrow + Display title, two 56 pt fields, a 12 pt consent checkbox with a
+ * line of fine print, a white primary button, a bordered secondary "Continue with Google", and a
+ * one-line footer that switches mode. Its third artboard is the error state — a `danger` border
+ * on the offending field with the message beneath it, the one place the sheet's chromatic value
+ * is allowed. Nothing else is decorated; the only motion is the page transition's 12 pt rise.
+ *
+ * WHAT THE PAGE DOES NOT DRAW BUT THE SCREEN KEEPS, each for a working reason:
+ *   - the Turnstile widget in sign-up mode (a captcha token is required server-side by
+ *     supabase/functions/signup-with-captcha; without the widget nobody can ever create an
+ *     account) and its honest no-key notice (Known Issue #12);
+ *   - "Forgot password?" in sign-in mode — dropping it would re-open issue #81's dead end, where
+ *     a locked-out email user had no way back in;
+ *   - the password rule (issue #9), carried as the field's `accessibilityHint` rather than as
+ *     visible text.
+ * And what the page draws that is deliberately inert: the underlined "Terms" / "Privacy Policy"
+ * in the consent line are the page's styling, not links — neither document is published yet
+ * (see `Copy.settings.privacyPolicy.pending`), and a link to nothing is worse than an underline.
+ *
+ * AUTH BEHAVIOUR IS UNCHANGED from the screen this replaced: validation → length pre-check →
+ * HIBP breach check → captcha token → `signUpWithCaptcha` → `applySignupSession`; sign-in →
+ * `signInWithPassword`; Google → `signInWithGoogle`. Every comment on those paths below is the
+ * original's, because every reason still holds.
+ */
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
-  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
-  useAnimatedRef,
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
 } from 'react-native-reanimated';
+import Svg, { Polyline } from 'react-native-svg';
 
-import { KineticText } from '@/components/kinetic-text';
-import { StrideWireframeHero } from '@/components/stride-wireframe-hero';
 import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/turnstile-widget';
-import { Eyebrow } from '@/components/ui/eyebrow';
-import { PillButton } from '@/components/ui/pill-button';
-import { ScreenGradient } from '@/components/ui/screen-gradient';
-import { SurfaceCard } from '@/components/ui/surface-card';
+import { SquareButton } from '@/components/ui/square-button';
+import { TextField } from '@/components/ui/text-field';
 import { PASSWORD_MIN_LENGTH } from '@/constants/auth';
 import { Copy } from '@/constants/copy';
-import {
-  Colors,
-  ContentWidth,
-  ControlHeight,
-  FontFamily,
-  FontSize,
-  LineHeight,
-  Motion,
-  Radius,
-  Semantic,
-  Spacing,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ContentWidth } from '@/constants/theme';
+import { Ink, Layout, Motion, Space, Type } from '@/constants/v23-theme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { signInWithGoogle } from '@/lib/auth';
 import { mapAuthError, mapSignupWithCaptchaError, validateSignInForm } from '@/lib/auth-errors';
 import { checkPasswordBreached } from '@/lib/hibp';
@@ -46,10 +63,7 @@ import { useSession } from '@/lib/session-provider';
 import { applySignupSession, signUpWithCaptcha } from '@/lib/signup-with-captcha';
 import { supabase } from '@/lib/supabase';
 import { resolveTurnstileConfig } from '@/lib/turnstile-config';
-import { pillarLetter } from '@/lib/pace-readout';
 import { useAnnounce } from '@/lib/use-announce';
-import { PACE_PILLARS } from '@shared/pace';
-
 
 // The site key is Cloudflare's own public identifier for this Turnstile widget — safe to inline
 // into the client bundle by design (only the SECRET key, used server-side in
@@ -69,16 +83,26 @@ const TURNSTILE_CONFIG = resolveTurnstileConfig(
 type Mode = 'signIn' | 'signUp';
 type PendingAction = 'google' | 'email' | null;
 
+/** Which field a validation message belongs under. Anything not listed is a form-level error. */
+type ErrorField = 'email' | 'password' | 'form';
+
+// The page's consent line is 12 pt fine print pulled 12 pt into the 32 pt gaps either side of
+// it, so it reads as a footnote to the fields rather than as a section of its own.
+const CONSENT_PULL = -Space.md;
+// The footer sits 8 pt closer to the buttons than the page's 32 pt rhythm.
+const FOOTER_PULL = -Space.sm;
+
 export default function SignInScreen() {
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = useMemo(() => createStyles(colors, scheme), [colors, scheme]);
+  const insets = useSafeAreaInsets();
+  const reduceMotion = useReducedMotion();
 
-  const { height: windowHeight } = useWindowDimensions();
-  const scrollRef = useAnimatedRef<Animated.ScrollView>();
-
-  const [mode, setMode] = useState<Mode>('signIn');
-  const [showEmailForm, setShowEmailForm] = useState(false);
+  // Sign-up is the default (the details page sends new users here). `?mode=signIn` seeds the
+  // other mode for a caller who knows the user already has an account and has no sign-in screen
+  // beneath it — update-password's "Back to sign in", reached by deep link — so an
+  // expired-recovery-link user does not land on "Create account". Any other value keeps the
+  // default.
+  const params = useLocalSearchParams<{ mode?: string }>();
+  const [mode, setMode] = useState<Mode>(params.mode === 'signIn' ? 'signIn' : 'signUp');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -87,6 +111,14 @@ export default function SignInScreen() {
   // Focus-chaining target for the email field's `onSubmitEditing` (issue #28) — the return key
   // advances email -> password instead of dead-ending the keyboard.
   const passwordInputRef = useRef<TextInput>(null);
+
+  // V23-06's age/terms consent. A second gate on "Create account" alongside the captcha token
+  // below: a box the user can leave unticked and still submit would be decoration. The row is
+  // drawn in sign-up mode; in sign-in mode it stays off the artboard until "Continue with
+  // Google" needs it (see `handleGoogleSignIn`), and once revealed it stays. The tick itself is
+  // shared across modes, so it survives the footer toggle.
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [consentRevealed, setConsentRevealed] = useState(false);
 
   // Issue #12/Known Issue #12 — sign-up only, never rendered in signIn mode. Holds a Turnstile
   // token good for exactly one `signUpWithCaptcha` attempt: the token is single-use (see
@@ -119,6 +151,11 @@ export default function SignInScreen() {
   // whenever the displayed error changes. Keep both; they're complementary, not alternatives.
   useAnnounce(displayedError);
 
+  // V23-06's error artboard puts the message under the field it is about. Only the purely
+  // local validation strings (issue #17) name a field; a server answer, a captcha failure or a
+  // session-context error is about the attempt as a whole and renders under the fields block.
+  const errorField: ErrorField = fieldForError(displayedError);
+
   function clearErrors() {
     setErrorMessage(null);
     clearDeepLinkAuthError();
@@ -127,15 +164,24 @@ export default function SignInScreen() {
 
   function toggleMode() {
     setMode((current) => (current === 'signIn' ? 'signUp' : 'signIn'));
-    // Issue #16: every other consumer of `mode` lives inside the email form, which is hidden by
-    // default — without this, tapping "New here? Create an account" changed exactly one string
-    // (this link's own text) and nothing else was visible to move. Opening the form makes the
-    // tap do something the user can see.
-    setShowEmailForm(true);
+    // The widget unmounts in sign-in mode, so a token issued before the toggle can expire with
+    // nobody to report it; dropping it here means the widget re-solves on the way back rather
+    // than "Create account" enabling against a dead token.
+    setCaptchaToken(null);
     clearErrors();
   }
 
   async function handleGoogleSignIn() {
+    // Same gate as the email path, in BOTH modes: Supabase OAuth creates a brand-new account for
+    // a Google identity it has never seen, regardless of which mode this screen is in — so
+    // "Continue with Google" from sign-in mode is an account creation the sign-up gate would
+    // otherwise never see. In sign-in mode the tap reveals the consent row (same row, same place
+    // as sign-up mode) instead of launching OAuth; a returning Google user pays one tick.
+    if (!consentChecked) {
+      setConsentRevealed(true);
+      setErrorMessage(Copy.auth.error.consentRequired);
+      return;
+    }
     clearErrors();
     setPendingAction('google');
     try {
@@ -159,6 +205,14 @@ export default function SignInScreen() {
     const validationError = validateSignInForm(trimmedEmail, password);
     if (validationError !== null) {
       setErrorMessage(validationError);
+      return;
+    }
+    // The consent gate belongs HERE as well as on the button. The password field's return key
+    // (`onSubmitEditing`) calls this handler directly, with the button still disabled — so a
+    // button-only gate would let sign-up proceed with the box unticked (security audit,
+    // 2026-09-14). Local and before any network call, like the validation above.
+    if (mode === 'signUp' && !consentChecked) {
+      setErrorMessage(Copy.auth.error.consentRequired);
       return;
     }
 
@@ -242,479 +296,388 @@ export default function SignInScreen() {
     }
   }
 
+  const isSignUp = mode === 'signUp';
+
+  // The page-transition token: 250 ms fade with a 12 pt rise. The native stack supplies the
+  // fade (app/_layout.tsx); the rise is this screen's own, and is skipped under Reduce Motion.
+  // A shared value rather than an `entering` layout animation: the layout-animation path leaks
+  // across RNTL renders in this repo's jest setup (every test after the first mounts an empty
+  // tree), and the plain timing path is the one CLAUDE.md's motion-test convention covers.
+  const arrival = useSharedValue(reduceMotion ? 1 : 0);
+  useEffect(() => {
+    if (reduceMotion) {
+      arrival.value = 1;
+      return;
+    }
+    arrival.value = withTiming(1, {
+      duration: Motion.duration.page,
+      easing: bezier(Motion.curve.arrive),
+    });
+  }, [arrival, reduceMotion]);
+  const arrivalStyle = useAnimatedStyle(() => ({
+    opacity: arrival.value,
+    transform: [{ translateY: Motion.pageShift * (1 - arrival.value) }],
+  }));
+
   return (
-    <ScreenGradient>
-      <SafeAreaView style={styles.safeArea}>
+    <View style={styles.screen}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Animated.ScrollView
-          ref={scrollRef}
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          scrollEventThrottle={16}>
-          {/* THE SPLASH-SCALE HEADER, and the whole first screenful: the stride readout, then
-              the app's name at display scale assembling word by word on arrival, then the value
-              prop. The mark leads here rather than sitting behind the type — it is the subject
-              of the screen, not atmosphere for it. */}
-          <View style={[styles.header, { minHeight: windowHeight * 0.6 }]}>
-            {/* THE ONE LOUD MOMENT (stride wireframe, 2026-09-04). This screen is the
-                redesign's single deliberate exception, and this is what it spends it on: the
-                gait-lab readout, in the reserved icy cyan on its own near-black ground, running
-                one closed stride above the app's name. It says what the app does before a word
-                of copy does. It REPLACES the Cadence Arcs burst that held this slot — the two
-                are both "the loud moment" and cannot share a screen, and an opaque instrument
-                panel floating over turning rings reads as a mistake rather than as a
-                composition. Unlike the burst this one takes real layout (it is the subject, not
-                atmosphere behind the type), so it sits in the stack above the wordmark with a
-                fixed aspect and a clipped frame — see `styles.heroFrame`.
-
-                Everything about it — sizing, chrome, reduced motion, the pinned palette and why
-                it is pinned rather than themed — is documented in
-                `components/stride-wireframe-hero.tsx`'s header; this screen only gives it a box.
-                Decorative and inert: no label, so it stays out of the a11y tree. */}
-            <View style={styles.heroFrame}>
-              <StrideWireframeHero
-                style={StyleSheet.absoluteFill}
-                testID="sign-in-stride-hero"
-              />
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={[
+            styles.scrollContent,
+            {
+              paddingTop: Math.max(insets.top, Layout.canvas.safeTop),
+              paddingBottom: Math.max(insets.bottom, Layout.canvas.safeBottom),
+            },
+          ]}
+          keyboardShouldPersistTaps="handled">
+          <Animated.View style={[styles.column, arrivalStyle]}>
+            <View style={styles.header}>
+              <Text style={styles.eyebrow}>{Copy.auth.eyebrow}</Text>
+              {/* The role sits on the Text itself: a non-accessible wrapper View with a role
+                  never reaches VoiceOver's Headings rotor. */}
+              <Text style={styles.title} accessibilityRole="header">
+                {Copy.auth.title}
+              </Text>
             </View>
-            <KineticText
-              accessibilityRole="header"
-              staggerMs={Motion.stagger.line}
-              style={styles.wordmark}
-              containerStyle={styles.wordmarkRow}>
-              {Copy.auth.wordmark}
-            </KineticText>
-            <Text style={styles.valueProp}>{Copy.auth.valueProp}</Text>
-          </View>
 
-          <View style={styles.actions}>
-            {/* Issue #20: the primary CTA, per Ian's decision — Google is the lowest-friction
-                path and the one most likely to succeed, so it's the one control on first paint
-                carrying `Accent.value`. "Continue with email" below stays secondary. */}
-            <PillButton
-              label={Copy.auth.cta.google}
-              onPress={handleGoogleSignIn}
-              disabled={isBusy}
-              busy={pendingAction === 'google'}
-            />
-
-            {!showEmailForm && (
-              <PillButton
-                variant="secondary"
-                label={Copy.auth.cta.email}
-                onPress={() => setShowEmailForm(true)}
-                disabled={isBusy}
+            <View style={styles.fields}>
+              <TextField
+                placeholder={Copy.auth.email.placeholder}
+                accessibilityLabel={Copy.auth.email.placeholder}
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                textContentType="emailAddress"
+                autoComplete="email"
+                returnKeyType="next"
+                onSubmitEditing={() => passwordInputRef.current?.focus()}
+                editable={!isBusy}
+                error={errorField === 'email' ? displayedError : null}
               />
-            )}
-
-            {showEmailForm && (
-              <View style={styles.emailForm}>
-                <TextInput
-                  style={styles.input}
-                  placeholder={Copy.auth.email.placeholder}
-                  accessibilityLabel={Copy.auth.email.placeholder}
-                  placeholderTextColor={colors.text.secondary}
-                  value={email}
-                  onChangeText={setEmail}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="email-address"
-                  textContentType="emailAddress"
-                  autoComplete="email"
-                  returnKeyType="next"
-                  onSubmitEditing={() => passwordInputRef.current?.focus()}
-                  editable={!isBusy}
-                />
-                <TextInput
-                  ref={passwordInputRef}
-                  style={styles.input}
-                  placeholder={Copy.auth.password.placeholder}
-                  accessibilityLabel={Copy.auth.password.placeholder}
-                  accessibilityHint={mode === 'signUp' ? Copy.auth.password.hint : undefined}
-                  accessibilityLabelledBy={mode === 'signUp' ? 'password-hint' : undefined}
-                  placeholderTextColor={colors.text.secondary}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  textContentType={mode === 'signUp' ? 'newPassword' : 'password'}
-                  autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
-                  returnKeyType="go"
-                  onSubmitEditing={handleEmailSubmit}
-                  editable={!isBusy}
-                />
-                {/* Proactive rule, sign-up mode only — noise in sign-in mode, where the rule
-                    doesn't apply to an existing password (issue #9). `nativeID` + the
-                    TextInput's accessibilityLabelledBy above associates this for a screen
-                    reader (Android); accessibilityHint carries it cross-platform too. */}
-                {mode === 'signUp' && (
-                  <Text nativeID="password-hint" style={styles.passwordHint}>
-                    {Copy.auth.password.hint}
-                  </Text>
-                )}
-                {/* Issue #81 — sign-in mode only: there is no password to recover during sign-up,
-                    and offering it there would just be noise. Before this existed, a locked-out
-                    email user had no way back into their account at all. */}
-                {mode === 'signIn' && (
-                  <PillButton
-                    variant="ghost"
-                    label={Copy.auth.reset.cta.forgotPassword}
-                    onPress={() => router.push('/reset-password')}
-                    disabled={isBusy}
-                    style={styles.inlineLink}
-                  />
-                )}
-                {/* Issue #12/Known Issue #12 — sign-up only. `TURNSTILE_CONFIG` is only null in a
-                    misconfigured environment (see .env.example), but "misconfigured" was shipped:
-                    the v23-launch-audit-r1 audit found the key empty in every environment it could
-                    read, and this branch used to render NOTHING — no widget, therefore no token,
-                    therefore a permanently disabled "Create account" button with no explanation.
-                    That is the silent dead end this else-branch exists to remove. It does not make
-                    sign-up work (only a real key can; the token is verified server-side by
-                    supabase/functions/signup-with-captcha), it makes the failure HONEST — the same
-                    degrade-visibly contract `paywall.purchase.error.unavailable` already follows.
-                    Keep this as a ternary, not two separate guards: the two states are mutually
-                    exclusive by construction and a future edit that drops the else-branch would
-                    silently restore the dead end. */}
-                {mode === 'signUp' &&
-                  (TURNSTILE_CONFIG ? (
-                    <TurnstileWidget
-                      ref={turnstileRef}
-                      siteKey={TURNSTILE_CONFIG.siteKey}
-                      baseUrl={TURNSTILE_CONFIG.baseUrl}
-                      onToken={(token) => {
-                        setCaptchaToken(token);
-                        clearErrors();
-                      }}
-                      onExpire={() => {
-                        setCaptchaToken(null);
-                        setErrorMessage(Copy.auth.error.captchaExpired);
-                      }}
-                      onError={() => {
-                        setCaptchaToken(null);
-                        setErrorMessage(Copy.auth.error.captchaLoadFailed);
-                      }}
-                    />
-                  ) : (
-                    // OPAQUE card, not the wash: `text.secondary` (the body below) is only proven
-                    // against `surface.*`, never against `Gradient.page` — constants/theme.ts's
-                    // token contract, enforced by constants/__tests__/theme-contrast.test.ts.
-                    // `accessibilityLiveRegion` matches the error card below it (Android); iOS gets
-                    // the same fact through the submit button's `accessibilityHint`.
-                    <SurfaceCard
-                      padding={Spacing.lg}
-                      testID="signup-unavailable-notice"
-                      accessibilityLiveRegion="polite">
-                      <Text style={styles.noticeTitle}>
-                        {Copy.auth.signUp.unavailable.title}
-                      </Text>
-                      <Text style={styles.noticeBody}>{Copy.auth.signUp.unavailable.body}</Text>
-                    </SurfaceCard>
-                  ))}
-                <PillButton
-                  label={mode === 'signUp' ? Copy.auth.signUp.submit : Copy.auth.signIn.submit}
-                  onPress={handleEmailSubmit}
-                  disabled={isBusy || (mode === 'signUp' && !captchaToken)}
-                  // Only when the button can NEVER become enabled. A missing token with a key
-                  // present is the ordinary "solve the challenge" wait, which the visible widget
-                  // already explains — hinting there would nag on every render.
-                  accessibilityHint={
-                    mode === 'signUp' && !TURNSTILE_CONFIG
-                      ? Copy.auth.signUp.unavailable.a11yHint
-                      : undefined
-                  }
-                  busy={pendingAction === 'email'}
-                />
-              </View>
-            )}
-
-            {/* The error sits on an OPAQUE card, not on the wash. `Semantic.error` is proven
-                against `background`/`surface.base`/`surface.raised` (theme-contrast.test.ts) and
-                deliberately NOT against the page gradient — see `Gradient`'s contract in
-                constants/theme.ts. This card is what keeps that promise true now that the screen
-                behind it is a gradient. */}
-            {displayedError !== null && (
-              <SurfaceCard padding={Spacing.lg}>
-                <Text style={styles.errorText} accessibilityLiveRegion="polite">
+              <TextField
+                ref={passwordInputRef}
+                placeholder={Copy.auth.password.placeholder}
+                accessibilityLabel={Copy.auth.password.placeholder}
+                // The password rule (issue #9), sign-up mode only — noise in sign-in mode, where it
+                // does not apply to an existing password. The page draws no visible hint, so the
+                // rule travels as the hint a screen reader gets and as the inline error a sighted
+                // user gets on submit.
+                accessibilityHint={isSignUp ? Copy.auth.password.hint : undefined}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCapitalize="none"
+                textContentType={isSignUp ? 'newPassword' : 'password'}
+                autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                returnKeyType="go"
+                onSubmitEditing={handleEmailSubmit}
+                editable={!isBusy}
+                error={errorField === 'password' ? displayedError : null}
+              />
+              {displayedError !== null && errorField === 'form' && (
+                <Text style={styles.formError} accessibilityLiveRegion="polite">
                   {displayedError}
                 </Text>
-              </SurfaceCard>
-            )}
-          </View>
+              )}
+            </View>
 
-          <PillButton
-            variant="ghost"
-            label={mode === 'signIn' ? Copy.auth.signUp.link : Copy.auth.signIn.link}
-            onPress={toggleMode}
-            disabled={isBusy}
-            block
-          />
-
-          {/* ===== THE SCROLL REVEAL =========================================================
-              This screen is the front door — there is no separate onboarding route — and it used
-              to end at the sign-in controls, so a stranger had to create an account to find out
-              what the app measures. Everything from here down answers that, and it is ADDITIVE:
-              nothing above it moved, and no auth behaviour changed.
-
-              IT SITS BELOW THE CONTROLS, NOT ABOVE THEM, and that ordering is the one real
-              decision here. A returning user is the common case and must never scroll past a
-              brochure to reach a sign-in button; a new user is the one who scrolls, and scrolling
-              is exactly the gesture that signals "there is more here". So the first screenful is
-              the wordmark, the second is the two ways in, and the reveal is the reward for
-              looking further.
-
-              NO SECOND CTA LIVES DOWN HERE. A screen gets one primary action (see `Accent` in
-              constants/theme.ts), it is above, and repeating it at the bottom would spend the
-              accent twice on one screen — the exact discipline the two-tier accent system exists
-              to enforce.
-
-              CONTRAST: headings and intro copy are `text.primary`, the ONLY role
-              `Gradient.page` is proven for. Every line of `text.secondary` below is inside a
-              `<SurfaceCard>`, because the wash does not carry it — see `Gradient`'s contract in
-              constants/theme.ts. That split is why this section is cards-on-a-wash rather than a
-              single flowing column.
-              ================================================================================= */}
-          <View style={styles.about}>
-            <Eyebrow tone="primary" accessibilityRole="header">
-              {Copy.auth.about.eyebrow}
-            </Eyebrow>
-            <Text style={styles.aboutHeading}>{Copy.auth.about.heading}</Text>
-            <Text style={styles.aboutIntro}>{Copy.auth.about.intro}</Text>
-
-            {/* One card per pillar, in canonical P-A-C-E order from the shared module rather than
-                from a list retyped here — the same rule every other four-pillar surface in the app
-                follows, so this cannot drift out of order or lose one. */}
-            {PACE_PILLARS.map((id) => (
-              <SurfaceCard key={id} testID={`sign-in-pillar-${id}`}>
-                <View style={styles.pillarRow}>
-                  {/* Mono, matching how a pillar is marked everywhere else in the app (the readout,
-                      the compare panel). Decorative here — the label beside it is the accessible
-                      name, so a screen reader is not made to spell "P". */}
-                  <Text
-                    style={styles.pillarLetter}
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants">
-                    {pillarLetter(id)}
-                  </Text>
-                  <View style={styles.pillarText}>
-                    <Text style={styles.pillarLabel}>{Copy.auth.about.pillar[id].label}</Text>
-                    <Text style={styles.pillarBody}>{Copy.auth.about.pillar[id].body}</Text>
-                  </View>
+            {(isSignUp || consentRevealed) && (
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityLabel={Copy.auth.consent.a11yLabel}
+                accessibilityState={{ checked: consentChecked, disabled: isBusy }}
+                disabled={isBusy}
+                onPress={() => setConsentChecked((checked) => !checked)}
+                style={styles.consentRow}
+                testID="signup-consent">
+                <View style={[styles.checkbox, consentChecked && styles.checkboxChecked]}>
+                  {consentChecked && (
+                    <Svg width={CHECK_WIDTH} height={CHECK_HEIGHT} viewBox="0 0 12 9">
+                      <Polyline
+                        points="1,4.5 4.5,8 11,1"
+                        fill="none"
+                        stroke={Ink.onAccent}
+                        strokeWidth={CHECK_STROKE}
+                      />
+                    </Svg>
+                  )}
                 </View>
-              </SurfaceCard>
-            ))}
+                {/* The underlines are the page's styling, not links: neither the Terms nor the
+                    Privacy Policy is published yet (`Copy.settings.privacyPolicy.pending`), and a
+                    tap that goes nowhere would be a dead end dressed as help. Wire them the day a
+                    URL exists. */}
+                {/* One line at the page's size; wraps rather than truncates at large Dynamic Type —
+                    legal text must never end in an ellipsis. */}
+                <Text style={styles.consentText}>
+                  {Copy.auth.consent.prefix}
+                  <Text style={styles.underlined}>{Copy.auth.consent.terms}</Text>
+                  {Copy.auth.consent.and}
+                  <Text style={styles.underlined}>{Copy.auth.consent.privacy}</Text>
+                </Text>
+              </Pressable>
+            )}
 
-            <SurfaceCard testID="sign-in-about-scope">
-              <View style={styles.noteBody}>
-                <Eyebrow>{Copy.auth.about.scope.eyebrow}</Eyebrow>
-                <Text style={styles.pillarBody}>{Copy.auth.about.scope.body}</Text>
-              </View>
-            </SurfaceCard>
-          </View>
-        </Animated.ScrollView>
+            {/* Issue #12/Known Issue #12 — sign-up only. `TURNSTILE_CONFIG` is only null in a
+                misconfigured environment (see .env.example), but "misconfigured" was shipped:
+                the v23-launch-audit-r1 audit found the key empty in every environment it could
+                read, and this branch used to render NOTHING — no widget, therefore no token,
+                therefore a permanently disabled "Create account" button with no explanation.
+                That is the silent dead end this else-branch exists to remove. It does not make
+                sign-up work (only a real key can; the token is verified server-side by
+                supabase/functions/signup-with-captcha), it makes the failure HONEST — the same
+                degrade-visibly contract `paywall.purchase.error.unavailable` already follows.
+                Keep this as a ternary, not two separate guards: the two states are mutually
+                exclusive by construction and a future edit that drops the else-branch would
+                silently restore the dead end. */}
+            {isSignUp &&
+              (TURNSTILE_CONFIG ? (
+                <TurnstileWidget
+                  ref={turnstileRef}
+                  siteKey={TURNSTILE_CONFIG.siteKey}
+                  baseUrl={TURNSTILE_CONFIG.baseUrl}
+                  onToken={(token) => {
+                    setCaptchaToken(token);
+                    clearErrors();
+                  }}
+                  onExpire={() => {
+                    setCaptchaToken(null);
+                    setErrorMessage(Copy.auth.error.captchaExpired);
+                  }}
+                  onError={() => {
+                    setCaptchaToken(null);
+                    setErrorMessage(Copy.auth.error.captchaLoadFailed);
+                  }}
+                />
+              ) : (
+                // Not `danger`: nothing the user did failed, and painting a build-configuration
+                // fact in the error colour would read as "you broke it". `accessibilityLiveRegion`
+                // is the Android half; iOS gets the same fact through the submit button's hint.
+                <View
+                  style={styles.notice}
+                  testID="signup-unavailable-notice"
+                  accessibilityLiveRegion="polite">
+                  <Text style={styles.noticeTitle}>{Copy.auth.signUp.unavailable.title}</Text>
+                  <Text style={styles.noticeBody}>{Copy.auth.signUp.unavailable.body}</Text>
+                </View>
+              ))}
+
+            <View style={styles.actions}>
+              <SquareButton
+                label={isSignUp ? Copy.auth.signUp.submit : Copy.auth.signIn.submit}
+                onPress={handleEmailSubmit}
+                disabled={isBusy || (isSignUp && (!captchaToken || !consentChecked))}
+                // Only when the button can NEVER become enabled. A missing token with a key
+                // present is the ordinary "solve the challenge" wait, which the visible widget
+                // already explains — hinting there would nag on every render.
+                accessibilityHint={
+                  isSignUp && !TURNSTILE_CONFIG ? Copy.auth.signUp.unavailable.a11yHint : undefined
+                }
+                busy={pendingAction === 'email'}
+              />
+              <SquareButton
+                variant="secondary"
+                label={Copy.auth.cta.google}
+                onPress={handleGoogleSignIn}
+                disabled={isBusy}
+                busy={pendingAction === 'google'}
+              />
+              {/* Issue #81 — sign-in mode only: there is no password to recover during sign-up.
+                  The page does not draw this link; keeping it is what stands between a locked-out
+                  email user and having no way back into their account at all. */}
+              {!isSignUp && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={Copy.auth.reset.cta.forgotPassword}
+                  accessibilityState={{ disabled: isBusy }}
+                  disabled={isBusy}
+                  onPress={() => router.push('/reset-password')}
+                  style={styles.textLink}>
+                  <Text style={styles.textLinkLabel}>{Copy.auth.reset.cta.forgotPassword}</Text>
+                </Pressable>
+              )}
+            </View>
+
+            <View style={styles.footer}>
+              <Text style={styles.footerPrompt}>
+                {isSignUp ? Copy.auth.signIn.switchPrompt : Copy.auth.signUp.switchPrompt}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={isSignUp ? Copy.auth.signIn.switchLink : Copy.auth.signUp.switchLink}
+                accessibilityState={{ disabled: isBusy }}
+                disabled={isBusy}
+                onPress={toggleMode}
+                style={styles.footerLink}>
+                <Text style={styles.footerLinkLabel}>
+                  {isSignUp ? Copy.auth.signIn.switchLink : Copy.auth.signUp.switchLink}
+                </Text>
+              </Pressable>
+            </View>
+          </Animated.View>
+        </ScrollView>
       </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ScreenGradient>
+    </View>
   );
 }
 
-function createStyles(colors: ThemeColors, scheme: ColorScheme) {
-  return StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      // Transparent — `<ScreenGradient>` behind it owns the fill.
-      backgroundColor: 'transparent',
-    },
-    flex: {
-      flex: 1,
-    },
-    // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
-    // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
-    // through the contentContainerStyle prop." The readable column is therefore centred by
-    // `alignSelf: 'center'` on the contentContainerStyle below, not from here (issue #63).
-    scroll: {
-      flex: 1,
-    },
-    scrollContent: {
-      flexGrow: 1,
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      padding: Spacing.xl,
-      gap: Spacing.xxl,
-    },
-    // Given a `minHeight` of most of the viewport at the render site (it needs `useWindowDimensions`,
-    // which a `StyleSheet.create` module can't read) so its three parts — the stride hero, the
-    // wordmark and the value prop — centre together as their own first screenful, with the form
-    // below the fold rather than crowding the animation the screen is built around.
-    header: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: Spacing.lg,
-    },
-    // The stride hero's frame. The hero paints its own square-cornered near-black ground edge to
-    // edge of whatever box it is given, so the rounded corner has to be clipped from out here
-    // (`overflow: 'hidden'` + `Radius.hero`, the system's full-bleed-hero corner). A fixed
-    // `aspectRatio` rather than a height: it must hold its shape across every device width, and
-    // 8:5 is the landscape crop that gives the ground a visible run under the figure without
-    // pushing the wordmark off the first screenful.
-    heroFrame: {
-      width: '100%',
-      aspectRatio: 8 / 5,
-      borderRadius: Radius.hero,
-      overflow: 'hidden',
-    },
-    wordmarkRow: {
-      justifyContent: 'center',
-    },
-    wordmark: {
-      fontFamily: FontFamily.display.bold,
-      // xxl -> display (32 -> 64). This is the first screen anyone sees and the app's name is the
-      // subject of it; at 32pt it read as a page heading rather than as a mark.
-      fontSize: FontSize.display,
-      letterSpacing: Tracking.hero,
-      lineHeight: FontSize.display * LineHeight.hero,
-      color: colors.text.primary,
-      textAlign: 'center',
-    },
-    valueProp: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.md,
-      lineHeight: FontSize.md * LineHeight.body,
-      // Raised from `text.secondary`: this line sits directly on the page gradient, which is
-      // proven for `text.primary` only (`Gradient`'s contract, constants/theme.ts). The hierarchy
-      // it used to get from being a lighter tone now comes from the 64pt wordmark above it.
-      color: colors.text.primary,
-      textAlign: 'center',
-    },
-    // ---- the scroll reveal (see the section's own comment in the JSX) ------------------------
-    // A full `editorial` gap above it: this is a different subject from the sign-in controls, and
-    // the gap is what says so without a divider rule. `gap` inside is the card rhythm.
-    about: {
-      marginTop: Spacing.editorial,
-      gap: Spacing.md,
-    },
-    aboutHeading: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xl * LineHeight.heading,
-      // On the wash, so `text.primary` — the only role `Gradient.page` is proven for.
-      color: colors.text.primary,
-    },
-    aboutIntro: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.md,
-      lineHeight: FontSize.md * LineHeight.body,
-      // Also on the wash, so also primary — same reason `valueProp` above is raised from
-      // secondary. Its hierarchy comes from sitting under a display-family heading, not from tone.
-      color: colors.text.primary,
-      marginBottom: Spacing.sm,
-    },
-    pillarRow: {
-      flexDirection: 'row',
-      // `flex-start`, not `center`: at large Dynamic Type the body wraps to several lines and a
-      // centred letter would float halfway down the card instead of marking its first line.
-      alignItems: 'flex-start',
-      gap: Spacing.lg,
-    },
-    pillarLetter: {
-      fontFamily: FontFamily.mono.bold,
-      fontSize: FontSize.lg,
-      lineHeight: FontSize.lg * LineHeight.heading,
-      color: colors.text.secondary,
-    },
-    pillarText: {
-      // `flex: 1` so the copy reflows beside the letter at large Dynamic Type rather than pushing
-      // it off the card (brief §7: reflow, never clip).
-      flex: 1,
-      gap: Spacing.xs,
-    },
-    pillarLabel: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      lineHeight: FontSize.md * LineHeight.heading,
-      color: colors.text.primary,
-    },
-    pillarBody: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-      // Secondary is legal here and nowhere above: this text is inside a `<SurfaceCard>`, which is
-      // an opaque `surface.*` and IS proven for both text roles.
-      color: colors.text.secondary,
-    },
-    noteBody: {
-      gap: Spacing.sm,
-    },
-    actions: {
-      gap: Spacing.md,
-    },
-    // Pressed and disabled/busy are two different states and must not render at the same
-    // opacity. Both now live inside `<PillButton>`, which owns every button on this screen —
-    // the hand-rolled `primaryButton`/`secondaryButton`/`buttonPressed`/`buttonDisabled` styles
-    // this file used to carry are gone with them.
-    emailForm: {
-      gap: Spacing.md,
-    },
-    input: {
-      minHeight: ControlHeight.standard,
-      // `Radius.pill`, not `Radius.card`: a 52pt field at the card's 24pt corner reads as a
-      // not-quite-pill, which is the one shape the reference never uses. Committing to the pill
-      // makes the field and the button below it obviously the same family.
-      borderRadius: Radius.pill,
-      borderWidth: 1,
-      borderColor: colors.control.border,
-      backgroundColor: colors.surface.base,
-      paddingHorizontal: Spacing.xl,
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.md,
-      color: colors.text.primary,
-    },
-    // Small, secondary, quiet — the proactive password rule (issue #9), sign-up mode only. Sits
-    // on the wash, so `text.primary` at the smallest step rather than `text.secondary`.
-    // H3 (v23-ux-audit-r1): no `opacity` here — `text.primary` at full opacity is the only pair
-    // the gradient proves. Quietness comes from the xs size alone.
-    passwordHint: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.xs,
-      color: colors.text.primary,
-      paddingHorizontal: Spacing.lg,
-    },
-    inlineLink: {
-      alignSelf: 'center',
-    },
-    // AA-proven against every surface in both themes — see
-    // constants/__tests__/theme-contrast.test.ts. Kept on an opaque `<SurfaceCard>` for exactly
-    // that reason; see the render site's comment.
-    errorText: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-      color: Semantic.error[scheme],
-      textAlign: 'center',
-    },
-    // The missing-Turnstile-key notice. Deliberately NOT `Semantic.error` — nothing the user did
-    // failed, and painting a build-configuration fact in error red would read as "you broke it".
-    // Both tones are legal here only because the notice sits on an opaque `<SurfaceCard>`; on the
-    // page gradient, `text.secondary` below would be an invisible-text bug (constants/theme.ts).
-    noticeTitle: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-      color: colors.text.primary,
-      textAlign: 'center',
-    },
-    noticeBody: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-      color: colors.text.secondary,
-      textAlign: 'center',
-      marginTop: Spacing.xs,
-    },
-  });
+/** The local validation strings are the only ones that name a field (`validateSignInForm` and
+ *  the sign-up pre-checks in `handleEmailSubmit` are their only producers); everything else is a
+ *  form-level answer. Compared by value against the copy, which is how the strings are made. */
+function fieldForError(message: string | null): ErrorField {
+  if (message === null) return 'form';
+  if (message === Copy.auth.error.emailRequired || message === Copy.auth.error.emailInvalid) {
+    return 'email';
+  }
+  if (
+    message === Copy.auth.error.passwordRequired ||
+    message === Copy.auth.error.passwordTooShort ||
+    message === Copy.auth.error.passwordBreached
+  ) {
+    return 'password';
+  }
+  return 'form';
 }
+
+/** Reanimated's `Easing.bezier` takes four numbers; the token stores them as one tuple. */
+function bezier([x1, y1, x2, y2]: readonly [number, number, number, number]) {
+  return Easing.bezier(x1, y1, x2, y2);
+}
+
+// The page's check glyph: a 7 x 5 tick inside the 12 pt box, drawn on a 12 x 9 viewBox.
+const CHECK_WIDTH = 7;
+const CHECK_HEIGHT = 5;
+const CHECK_STROKE = 1.5;
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: Ink.bg,
+  },
+  flex: {
+    flex: 1,
+  },
+  // `flex` ONLY on the ScrollView's own style; child layout lives here. The readable column is
+  // centred by `alignSelf` so an iPad does not stretch a phone form edge to edge (issue #63).
+  scrollContent: {
+    flexGrow: 1,
+    width: '100%',
+    maxWidth: ContentWidth.readable,
+    alignSelf: 'center',
+    paddingHorizontal: Layout.gutter,
+    justifyContent: 'center',
+  },
+  column: {
+    gap: Space.xxl,
+  },
+  header: {
+    alignItems: 'center',
+    gap: Space.sm,
+  },
+  eyebrow: {
+    ...Type.label,
+    color: Ink.ink2,
+    textAlign: 'center',
+  },
+  title: {
+    ...Type.display,
+    color: Ink.ink,
+    textAlign: 'center',
+  },
+  fields: {
+    gap: Space.md,
+  },
+  formError: {
+    ...Type.small,
+    color: Ink.danger,
+  },
+  consentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Space.sm,
+    minHeight: Layout.hitTarget,
+    marginVertical: CONSENT_PULL,
+  },
+  checkbox: {
+    width: Layout.checkbox,
+    height: Layout.checkbox,
+    borderWidth: Layout.hairline,
+    borderColor: Ink.line,
+    backgroundColor: Ink.bgRaised,
+    borderRadius: Layout.radius,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    borderColor: Ink.ink,
+    backgroundColor: Ink.ink,
+  },
+  consentText: {
+    ...Type.fine,
+    // `ink3` is the page's choice for this line. It is under 4.5:1 by the sheet's own contract —
+    // flagged for the captain rather than silently raised; the checkbox's accessibility label
+    // carries the full sentence regardless.
+    color: Ink.ink3,
+    flexShrink: 1,
+  },
+  underlined: {
+    textDecorationLine: 'underline',
+  },
+  notice: {
+    backgroundColor: Ink.bgRaised,
+    borderWidth: Layout.hairline,
+    borderColor: Ink.line,
+    borderRadius: Layout.radius,
+    padding: Layout.cardPadding,
+    gap: Space.xs,
+  },
+  noticeTitle: {
+    ...Type.body,
+    color: Ink.ink,
+  },
+  noticeBody: {
+    ...Type.small,
+    color: Ink.ink2,
+  },
+  actions: {
+    gap: Space.lg,
+  },
+  textLink: {
+    alignSelf: 'center',
+    minHeight: Layout.hitTarget,
+    justifyContent: 'center',
+    paddingHorizontal: Space.lg,
+  },
+  textLinkLabel: {
+    ...Type.small,
+    color: Ink.ink2,
+    textDecorationLine: 'underline',
+  },
+  footer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Space.xs,
+    marginTop: FOOTER_PULL,
+  },
+  footerPrompt: {
+    ...Type.small,
+    color: Ink.ink2,
+  },
+  footerLink: {
+    minHeight: Layout.hitTarget,
+    justifyContent: 'center',
+  },
+  footerLinkLabel: {
+    ...Type.small,
+    color: Ink.ink,
+    textDecorationLine: 'underline',
+  },
+});

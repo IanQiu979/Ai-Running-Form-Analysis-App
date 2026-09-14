@@ -34,39 +34,30 @@
  * isFallback: true (an honest partial result, issue #45) is routed through the exact same success
  * path as a full result — see the `succeeded` effect below. It is never treated as a failure.
  *
- * MOTION: the step-list pacing and the "Still analyzing" fade are `docs/design/motion-consult.md`
- * ("The wait state — V2.2's honesty mechanic") — issue #61 owns the general motion/reduced-motion
- * spec; this screen only implements what that doc already pins down. Per that doc's reduced-
- * motion map, this wait-state signaling is explicitly EXEMPT from suppression ("low-amplitude,
- * single-shot, opacity/color-only functional state signaling... reduced motion targets vestibular
- * triggers, not state indicators") — so, deliberately, nothing here branches on
- * `useReducedMotion()`. That is a considered reading of the spec, not an oversight.
+ * MOTION (V23-05, 2026-09-13 — the captain-approved Claude Design page): the wait is a live
+ * stopwatch (`mm:ss.t`, ticking every 100 ms from the start of the CURRENT attempt, so a Retry
+ * restarts it), the `ANALYZING` label, one Body status line, and `<LaserSweep>` — a glowing 2 pt
+ * line sweeping the full screen top to bottom every 3.2 s. The status line still follows the
+ * step pacing below (`docs/design/motion-consult.md`'s "honesty mechanic": steps hold their floor,
+ * then the one-shot "Still analyzing" fade). On `succeeded` the page's third artboard plays: the
+ * stopwatch STOPS, the laser goes, the status reads "Done", the frame holds 300 ms, and only then
+ * does the result route replace this one — the root Stack's 250 ms fade is the "result fades in".
+ * Per motion-consult.md's reduced-motion map, wait-state signaling is explicitly EXEMPT from
+ * suppression ("low-amplitude, single-shot, opacity/color-only functional state signaling...
+ * reduced motion targets vestibular triggers, not state indicators") — so, deliberately, nothing
+ * here branches on `useReducedMotion()`, the sweep included (see `components/laser-sweep.tsx`).
+ * The 300 ms hold is a pause, not motion, and plays regardless.
  */
 import { Redirect, useRouter, type Href } from 'expo-router';
-import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
-import { Alert, Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ArcLoader } from '@/components/arc-loader';
-import { KineticText } from '@/components/kinetic-text';
-import { Eyebrow } from '@/components/ui/eyebrow';
-import { PillButton } from '@/components/ui/pill-button';
-import { ScreenGradient } from '@/components/ui/screen-gradient';
-import { SurfaceCard } from '@/components/ui/surface-card';
+import { LaserSweep } from '@/components/laser-sweep';
+import { SquareButton } from '@/components/ui/square-button';
 import { Copy } from '@/constants/copy';
-import {
-  Colors,
-  ContentWidth,
-  FontFamily,
-  FontSize,
-  LineHeight,
-  Motion,
-  Spacing,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Ink, Layout, Motion, Space, Type } from '@/constants/v23-theme';
 import {
   analyzeFormClient,
   takePendingAnalyzeFormRequest,
@@ -81,6 +72,7 @@ import {
   analyzingReducer,
   captionPhaseForElapsed,
   type AnalyzingCaptionPhase,
+  type AnalyzingStepKey,
 } from '@/lib/analyzing-machine';
 import { onAppForeground } from '@/lib/app-state';
 import { checkConnectivity } from '@/lib/connectivity';
@@ -93,11 +85,28 @@ import { signOut, type SignOutResult } from '@/lib/sign-out';
 import { useAnnounce } from '@/lib/use-announce';
 import { isPaceAnalysisOutcome } from '@shared/pace';
 
+/**
+ * The page's stopwatch format, `mm:ss.t`, exactly as its script builds it:
+ * `String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0') + '.' + tenth`. Negative input
+ * clamps to zero — a clock never reads below its own start.
+ */
+export function formatStopwatch(ms: number): string {
+  const clamped = Math.max(0, ms);
+  const m = Math.floor(clamped / 60000);
+  const sec = Math.floor(clamped / 1000) % 60;
+  const tenth = Math.floor(clamped / 100) % 10;
+  return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0') + '.' + tenth;
+}
+
+/** The page's `setInterval(..., 100)` — one tick per tenth, the smallest unit the clock shows. */
+const STOPWATCH_TICK_MS = 100;
+
+/** The page's "Complete · timer stops · hold 300 ms → result fades in". */
+const COMPLETE_HOLD_MS = Motion.duration.fade;
+
 export default function AnalyzingScreen() {
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   // Taken exactly once, on first render — see lib/analyze-form.ts's mailbox doc comment. Retry
   // re-submits THIS same object (same idempotencyKey), never re-reads the (now-empty) mailbox.
@@ -108,7 +117,11 @@ export default function AnalyzingScreen() {
   const [request] = useState<AnalyzeFormRequest | null>(() => takePendingAnalyzeFormRequest());
   const [state, dispatch] = useReducer(analyzingReducer, INITIAL_ANALYZING_STATE);
   const [captionPhase, setCaptionPhase] = useState<AnalyzingCaptionPhase>(() => captionPhaseForElapsed(0));
-  const longWaitOpacity = useRef(new Animated.Value(0)).current;
+  const longWaitOpacity = useSharedValue(0);
+  const longWaitStyle = useAnimatedStyle(() => ({ opacity: longWaitOpacity.value }));
+  // The stopwatch: elapsed ms of the current attempt. Reset on every new `waiting` attempt and
+  // frozen the moment the reducer leaves `waiting` — the page's "timer stops".
+  const [elapsedMs, setElapsedMs] = useState(0);
   const { session } = useSession();
   // This screen unmounts the instant `session` flips to null (the route guard) — which is exactly
   // what a successful handleUnauthorizedSignOut() below does. Same guard app/settings.tsx's
@@ -125,13 +138,15 @@ export default function AnalyzingScreen() {
   // the same `captionPhase` the caption itself renders, so the announcement always matches what's
   // on screen (step 0 -> step 1 -> the long-wait line), and goes silent (null) once this screen
   // leaves 'waiting' — the ErrorPanel below announces its own title/body instead.
-  useAnnounce(
+  const statusLine =
     state.phase === 'waiting'
       ? captionPhase.kind === 'step'
-        ? Copy.analyzing.step[captionPhase.stepKey]
+        ? stepCaption(captionPhase.stepKey, request?.mediaType ?? 'photo')
         : Copy.analyzing.longWait
-      : null
-  );
+      : state.phase === 'succeeded'
+        ? Copy.analyzing.done
+        : null;
+  useAnnounce(statusLine);
 
   // Defensive bail-out: a direct or cold navigation to this route with nothing staged (module
   // state does not survive a process kill, so this is also what a relaunch mid-analysis looks
@@ -300,7 +315,7 @@ export default function AnalyzingScreen() {
       return;
     }
     setCaptionPhase(captionPhaseForElapsed(0));
-    longWaitOpacity.setValue(0);
+    longWaitOpacity.value = 0;
 
     const transitionTimes: number[] = [];
     for (let i = 1; i < ANALYZING_STEP_KEYS.length; i++) {
@@ -318,17 +333,24 @@ export default function AnalyzingScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- longWaitOpacity is a stable ref value
   }, [state]);
 
-  // The long-wait line fades in once, never loops (motion-consult.md) — an ease-out arrival, per
-  // theme.ts's Motion.curve convention.
+  // The long-wait line fades in once, never loops (motion-consult.md) — the sheet's arrive curve.
   useEffect(() => {
     if (captionPhase.kind !== 'longWait') return;
-    Animated.timing(longWaitOpacity, {
-      toValue: 1,
-      duration: Motion.duration.standard,
-      easing: Easing.bezier(...Motion.curve.easeOut),
-      useNativeDriver: true,
-    }).start();
+    longWaitOpacity.value = withTiming(1, {
+      duration: Motion.duration.fade,
+      easing: Easing.bezier(...Motion.curve.arrive),
+    });
   }, [captionPhase.kind, longWaitOpacity]);
+
+  // The stopwatch ticks only while `waiting`; every other phase leaves the last value on screen
+  // (the page's "timer stops"). A new `waiting` attempt (a Retry) restarts it from zero.
+  useEffect(() => {
+    if (state.phase !== 'waiting') return;
+    setElapsedMs(0);
+    const startedAt = Date.now();
+    const handle = setInterval(() => setElapsedMs(Date.now() - startedAt), STOPWATCH_TICK_MS);
+    return () => clearInterval(handle);
+  }, [state]);
 
   // Success (a full result OR an honest isFallback: true partial, issue #45 — both flow through
   // this SAME branch, never treated as a failure) hands off to the result screen. That route
@@ -338,27 +360,36 @@ export default function AnalyzingScreen() {
   // what #56/#61's first-reveal-vs-reopen animation trigger is specified to key off.
   useEffect(() => {
     if (state.phase !== 'succeeded') return;
-    // Issue #140: clear the marker on the way out. Without this, a NORMAL (non-killed) analysis
-    // would leave a stale 'delivered' marker behind, and the next cold start — for any reason at
-    // all — would silently reroute the user to this same, already-viewed result.
-    clearPendingAnalysisMarker();
-    // Review r7-4: hand the result screen the body the server just sent, rather than making it
-    // re-query the row. A zero-pillars-assessed 200 carries a complete, honest all-null readout
-    // for a reservation that was RELEASED, not settled (nobody is charged for a result carrying
-    // nothing), so there is no readable row behind that id and a re-fetch dead-ends on "We
-    // couldn't find this analysis." Staged before the navigation, one-shot and id-matched, so a
-    // re-open from Past Analyses still reads the persisted row exactly as before.
-    if (request) {
-      setPendingAnalysisResult({
-        analysisId: state.analysisId,
-        outcome: state.outcome,
-        mediaType: request.mediaType,
-      });
-    }
-    router.replace({
-      pathname: '/result/[id]',
-      params: { id: state.analysisId, justAnalyzed: '1' },
-    } as Href);
+    // V23-05's completion frame: the clock has stopped (the tick effect above ended with
+    // `waiting`), the laser is gone and the status reads "Done" — hold it for the page's 300 ms,
+    // THEN hand off. The timer is cleared on unmount so a screen that is already gone (the route
+    // guard unmounts this on sign-out) never stages a result or navigates from the grave.
+    const handle = setTimeout(() => {
+      // Issue #140: clear the marker on the way out. Without this, a NORMAL (non-killed) analysis
+      // would leave a stale 'delivered' marker behind, and the next cold start — for any reason at
+      // all — would silently reroute the user to this same, already-viewed result. Cleared INSIDE
+      // the hold, beside the staging it pairs with: a kill during the 300 ms must still find the
+      // marker, or the cold-start reroute to a result the user was charged for is lost.
+      clearPendingAnalysisMarker();
+      // Review r7-4: hand the result screen the body the server just sent, rather than making it
+      // re-query the row. A zero-pillars-assessed 200 carries a complete, honest all-null readout
+      // for a reservation that was RELEASED, not settled (nobody is charged for a result carrying
+      // nothing), so there is no readable row behind that id and a re-fetch dead-ends on "We
+      // couldn't find this analysis." Staged before the navigation, one-shot and id-matched, so a
+      // re-open from Past Analyses still reads the persisted row exactly as before.
+      if (request) {
+        setPendingAnalysisResult({
+          analysisId: state.analysisId,
+          outcome: state.outcome,
+          mediaType: request.mediaType,
+        });
+      }
+      router.replace({
+        pathname: '/result/[id]',
+        params: { id: state.analysisId, justAnalyzed: '1' },
+      } as Href);
+    }, COMPLETE_HOLD_MS);
+    return () => clearTimeout(handle);
   }, [state, router, request]);
 
   // Issue #136: a real 402 quota_exceeded opens the paywall rather than the generic retryable
@@ -463,43 +494,50 @@ export default function AnalyzingScreen() {
     return <Redirect href="/" />;
   }
 
+  // The wait and the completion frame share one composition (the page's three artboards differ
+  // only in the status line and whether the laser is running).
+  const showsClock = state.phase === 'waiting' || state.phase === 'succeeded';
+
   return (
-    <ScreenGradient>
-      <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        {/* The screen title belongs to the WAIT, and only to it. Every non-waiting phase below
-            renders an `<ErrorPanel>` whose own `<KineticText>` title already carries
+    <View style={styles.screen}>
+      {/* The laser sits behind the scroll content and sweeps the whole screen, not the padded
+          column; it unmounts the instant the wait ends (the page's third artboard has none). */}
+      {state.phase === 'waiting' && <LaserSweep testID="analyzing-laser" />}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: Math.max(insets.top, Layout.canvas.safeTop),
+            paddingBottom: Math.max(insets.bottom, Layout.canvas.safeBottom),
+          },
+        ]}>
+        {/* The title belongs to the WAIT (and its completion frame), and only to it. Every
+            non-waiting phase below renders an `<ErrorPanel>` whose own title carries
             `accessibilityRole="header"` — so leaving this mounted put two headers in VoiceOver's
             rotor, and the first of them said "ANALYZING" directly above a panel that says the
-            analysis stopped, timed out, or was never sent. The eyebrow is not the thing that has to
-            survive there; the panel's title is. Nothing about the wait phase's own composition
-            changes. */}
-        {state.phase === 'waiting' && (
-          <Eyebrow tone="primary" accessibilityRole="header">
-            {Copy.analyzing.title}
-          </Eyebrow>
-        )}
-
-        {state.phase === 'waiting' && (
-          <ScreenCenter styles={styles}>
-            <View style={styles.waitMark}>
-              <ArcLoader
-                size={WAIT_MARK_SIZE * WAIT_RINGS_SCALE}
-                style={styles.waitRings}
-                testID="analyzing-rings"
-              />
-            </View>
-            {captionPhase.kind === 'step' ? (
-              <Text style={styles.caption} accessibilityLiveRegion="polite">
-                {Copy.analyzing.step[captionPhase.stepKey]}
+            analysis stopped, timed out, or was never sent. */}
+        {showsClock && (
+          <ScreenCenter>
+            <View style={styles.readout}>
+              <Text style={styles.clock} testID="analyzing-clock">
+                {formatStopwatch(elapsedMs)}
               </Text>
-            ) : (
-              <Animated.Text
-                style={[styles.caption, { opacity: longWaitOpacity }]}
-                accessibilityLiveRegion="polite">
-                {Copy.analyzing.longWait}
-              </Animated.Text>
-            )}
+              <Text style={styles.label} accessibilityRole="header">
+                {Copy.analyzing.title}
+              </Text>
+              {state.phase === 'waiting' && captionPhase.kind === 'longWait' ? (
+                <Animated.Text
+                  style={[styles.status, longWaitStyle]}
+                  accessibilityLiveRegion="polite">
+                  {Copy.analyzing.longWait}
+                </Animated.Text>
+              ) : (
+                <Text style={styles.status} accessibilityLiveRegion="polite">
+                  {statusLine}
+                </Text>
+              )}
+            </View>
           </ScreenCenter>
         )}
 
@@ -510,7 +548,6 @@ export default function AnalyzingScreen() {
             primary action is therefore "start a new analysis", matching the server's own wording. */}
         {state.phase === 'failed' && state.code === 'previous_attempt_failed' && (
           <ErrorPanel
-            styles={styles}
             title={Copy.analyzing.error.previousAttemptFailed.title}
             body={Copy.analyzing.error.previousAttemptFailed.body}
             primary={{ label: Copy.analyzing.error.cta.startNew, onPress: handleStartNew }}
@@ -523,7 +560,6 @@ export default function AnalyzingScreen() {
             copy-only split, not a new failure path. */}
         {state.phase === 'failed' && state.code === 'unauthorized' && (
           <ErrorPanel
-            styles={styles}
             title={Copy.analyzing.error.unauthorized.title}
             body={Copy.analyzing.error.unauthorized.body}
             primary={{
@@ -552,7 +588,6 @@ export default function AnalyzingScreen() {
             number, and Home shows it too. */}
         {state.phase === 'failed' && state.code === 'too_many_failed_attempts' && (
           <ErrorPanel
-            styles={styles}
             title={Copy.analysisPause.title}
             body={Copy.analysisPause.body}
             primary={{ label: Copy.analysisPause.cta, onPress: handleCancel }}
@@ -569,7 +604,6 @@ export default function AnalyzingScreen() {
             `quota-status`'s `blockedUntil`, before a frame is ever extracted. */}
         {cooldown && (
           <ErrorPanel
-            styles={styles}
             title={Copy.analyzing.error.zeroPillarCooldown.title}
             body={cooldown.body}
             primary={{ label: Copy.analyzing.error.cta.backHome, onPress: handleCancel }}
@@ -585,7 +619,6 @@ export default function AnalyzingScreen() {
           state.code !== 'unauthorized' &&
           state.code !== 'zero_pillar_cooldown' && (
             <ErrorPanel
-              styles={styles}
               title={Copy.analyzing.error.failed.title}
               body={Copy.analyzing.error.failed.body}
               primary={{ label: Copy.analyzing.error.cta.retry, onPress: handleRetry }}
@@ -595,7 +628,6 @@ export default function AnalyzingScreen() {
 
         {state.phase === 'timedOut' && (
           <ErrorPanel
-            styles={styles}
             title={Copy.analyzing.error.timeout.title}
             body={Copy.analyzing.error.timeout.body}
             primary={{ label: Copy.analyzing.error.cta.retry, onPress: handleRetry }}
@@ -610,7 +642,6 @@ export default function AnalyzingScreen() {
             same exit every other error phase on this screen offers. */}
         {state.phase === 'offline' && (
           <ErrorPanel
-            styles={styles}
             title={Copy.offline.blocked.title}
             body={Copy.offline.blocked.body}
             primary={{ label: Copy.analyzing.error.cta.retry, onPress: handleRetry }}
@@ -629,7 +660,6 @@ export default function AnalyzingScreen() {
             'released' phase doc comment. */}
         {state.phase === 'released' && (
           <ErrorPanel
-            styles={styles}
             title={Copy.analyzing.error.previousAttemptFailed.title}
             body={Copy.analyzing.error.previousAttemptFailed.body}
             primary={{ label: Copy.analyzing.error.cta.startNew, onPress: handleStartNew }}
@@ -637,12 +667,18 @@ export default function AnalyzingScreen() {
           />
         )}
 
-        {/* 'succeeded' is transient — the effect above navigates away immediately; nothing
-            distinct renders for it, matching the "no fake progress, no extra beat" honesty rule. */}
+        {/* 'succeeded' renders the completion frame above (clock stopped, "Done") for the page's
+            300 ms hold; the effect above then navigates away. */}
       </ScrollView>
-      </SafeAreaView>
-    </ScreenGradient>
+    </View>
   );
+}
+
+/** The status line for a step, resolved against the media the user submitted. */
+function stepCaption(stepKey: AnalyzingStepKey, mediaType: AnalyzeFormRequest['mediaType']): string {
+  return stepKey === 'uploading'
+    ? Copy.analyzing.step.uploading(mediaType)
+    : Copy.analyzing.step.finding;
 }
 
 /**
@@ -668,12 +704,11 @@ function buildCooldownBody(message: string | undefined, time: string | null): st
   return template.replace('{message}', sentence);
 }
 
-function ScreenCenter({ styles, children }: { styles: Styles; children: ReactNode }) {
+function ScreenCenter({ children }: { children: ReactNode }) {
   return <View style={styles.centerBlock}>{children}</View>;
 }
 
 type ErrorPanelProps = {
-  styles: Styles;
   title: string;
   body: string;
   /**
@@ -700,7 +735,7 @@ type ErrorPanelProps = {
  * and `Semantic.error` (constants/theme.ts) is reserved for a true alarm condition, not a "try
  * again, nothing was lost" recoverable state.
  */
-function ErrorPanel({ styles, title, body, primary, onCancel }: ErrorPanelProps) {
+function ErrorPanel({ title, body, primary, onCancel }: ErrorPanelProps) {
   // Issue #11: `accessibilityLiveRegion="polite"` on the two Texts below is Android-only — this
   // is the iOS complement. `ErrorPanel` is only ever mounted fresh for whichever phase is showing
   // (failed/timedOut/offline/released never render two at once), so this fires once per
@@ -708,117 +743,90 @@ function ErrorPanel({ styles, title, body, primary, onCancel }: ErrorPanelProps)
   useAnnounce(`${title} ${body}`);
 
   return (
-    <View style={styles.centerBlock}>
-      {/* The title assembles word by word. This is the redesign's kinetic reveal used where it
-          carries meaning rather than as decoration: the error panel is the one thing on this
-          screen the user did not expect, and having it resolve rather than snap in is what keeps
-          the "coach, not scold" register the panel's own doc comment above establishes. */}
-      <KineticText
-        accessibilityRole="header"
-        accessibilityLiveRegion="polite"
-        staggerMs={Motion.stagger.line}
+    <View style={[styles.centerBlock, styles.errorPanel]}>
+      {/* `accessibilityLabel` on the title is what lets a screen reader (and the screen tests)
+          find the panel by its heading text. */}
+      <Text
         style={styles.errorTitle}
-        containerStyle={styles.errorTitleRow}>
+        accessibilityRole="header"
+        accessibilityLabel={title}
+        accessibilityLiveRegion="polite">
         {title}
-      </KineticText>
-      {/* The body sits on an OPAQUE card, not on the wash: it is `text.secondary`, and the page
-          gradient is proven for `text.primary` only (`Gradient`'s contract, constants/theme.ts). */}
-      <SurfaceCard style={styles.errorCard}>
-        <Text style={styles.errorBody} accessibilityLiveRegion="polite">
-          {body}
-        </Text>
-      </SurfaceCard>
-      {primary && (
-        <PillButton label={primary.label} onPress={primary.onPress} style={styles.errorAction} />
-      )}
+      </Text>
+      <Text style={styles.errorBody} accessibilityLiveRegion="polite">
+        {body}
+      </Text>
+      {primary && <SquareButton label={primary.label} onPress={primary.onPress} />}
       {onCancel && (
-        <PillButton variant="ghost" label={Copy.analyzing.error.cta.cancel} onPress={onCancel} />
+        <SquareButton variant="secondary" label={Copy.analyzing.error.cta.cancel} onPress={onCancel} />
       )}
     </View>
   );
 }
 
-type Styles = ReturnType<typeof createStyles>;
+/** The old theme's readable-column cap (issue #63), kept so an iPad does not stretch the panels. */
+const READABLE_WIDTH = 560;
 
-const WAIT_MARK_SIZE = 240;
-
-const WAIT_RINGS_SCALE = 1.35;
-
-function createStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      // Transparent — `<ScreenGradient>` behind it owns the fill.
-      backgroundColor: 'transparent',
-    },
-    // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
-    // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
-    // through the contentContainerStyle prop." The readable column is therefore centred by
-    // `alignSelf: 'center'` on the contentContainerStyle below, not from here (issue #63).
-    scroll: {
-      flex: 1,
-    },
-    content: {
-      // flexGrow, not flex — matches app/(tabs)/index.tsx: fills the viewport when short, scrolls
-      // instead of clipping at the largest Dynamic Type sizes (design brief §7).
-      flexGrow: 1,
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      padding: Spacing.xl,
-      gap: Spacing.xxl,
-    },
-    centerBlock: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: Spacing.xl,
-    },
-    waitMark: {
-      width: WAIT_MARK_SIZE,
-      height: WAIT_MARK_SIZE,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    waitRings: {
-      position: 'absolute',
-    },
-    caption: {
-      fontFamily: FontFamily.mono.regular,
-      fontSize: FontSize.md,
-      // `text.primary`, raised from `text.secondary`: this caption now sits directly on the page
-      // gradient, which `Gradient`'s contract proves for the primary tone only. It was correct at
-      // secondary when the backdrop was the flat, fully-proven `background`.
-      color: colors.text.primary,
-      letterSpacing: Tracking.eyebrow,
-      textAlign: 'center',
-      textTransform: 'uppercase',
-    },
-    errorTitleRow: {
-      justifyContent: 'center',
-    },
-    errorTitle: {
-      fontFamily: FontFamily.display.semiBold,
-      // Stepped up lg -> xxl. An error the user has to make a decision about should be the
-      // largest thing on its screen; at 20pt it read as a caption above two buttons.
-      fontSize: FontSize.xxl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xxl * LineHeight.display,
-      color: colors.text.primary,
-      textAlign: 'center',
-    },
-    errorCard: {
-      alignSelf: 'stretch',
-    },
-    errorBody: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-      color: colors.text.secondary,
-      textAlign: 'center',
-    },
-    errorAction: {
-      alignSelf: 'stretch',
-    },
-  });
-}
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: Ink.bg,
+  },
+  // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
+  // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
+  // through the contentContainerStyle prop." The readable column is therefore centred by
+  // `alignSelf: 'center'` on the contentContainerStyle below, not from here (issue #63).
+  scroll: {
+    flex: 1,
+  },
+  content: {
+    // flexGrow, not flex — matches app/(tabs)/index.tsx: fills the viewport when short, scrolls
+    // instead of clipping at the largest Dynamic Type sizes (design brief §7). The vertical
+    // padding is set at the render site from the live insets (page: 59 / 34 minimum).
+    flexGrow: 1,
+    width: '100%',
+    maxWidth: READABLE_WIDTH,
+    alignSelf: 'center',
+    paddingHorizontal: Layout.gutter,
+  },
+  centerBlock: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Layout.sectionGap,
+  },
+  // The page's readout: a centred column, gap 16 — clock, label, status.
+  readout: {
+    alignItems: 'center',
+    gap: Space.lg,
+  },
+  clock: {
+    ...Type.clock,
+    color: Ink.ink,
+    textAlign: 'center',
+  },
+  label: {
+    ...Type.label,
+    color: Ink.ink2,
+    textAlign: 'center',
+  },
+  status: {
+    ...Type.body,
+    color: Ink.ink,
+    textAlign: 'center',
+  },
+  errorPanel: {
+    alignSelf: 'stretch',
+    gap: Space.lg,
+  },
+  errorTitle: {
+    ...Type.h1,
+    color: Ink.ink,
+    textAlign: 'center',
+  },
+  errorBody: {
+    ...Type.body,
+    color: Ink.ink2,
+    textAlign: 'center',
+  },
+});

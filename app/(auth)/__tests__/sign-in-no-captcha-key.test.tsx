@@ -53,6 +53,11 @@ jest.mock('@/lib/session-provider', () => ({
   }),
 }));
 
+jest.mock('expo-router', () => ({
+  router: { back: jest.fn(), replace: jest.fn(), push: jest.fn() },
+  useLocalSearchParams: () => ({}),
+}));
+
 // Stubbed so that if the screen ever DID mount the widget with no site key, these testIDs would
 // appear and the assertions below would catch it. Without the stub the real widget would drag a
 // WebView into the test and the "no widget was rendered" assertion could pass for the wrong reason.
@@ -98,11 +103,8 @@ describe('sign-in screen: EXPO_PUBLIC_TURNSTILE_SITE_KEY unset', () => {
   it('explains why sign-up is unavailable instead of rendering nothing', async () => {
     await render(<SignInScreen />);
 
-    // toggleMode() flips to signUp AND opens the email form in one press (issue #16), so the
-    // notice is mounted after this single press. `waitFor` is required — see sign-in.test.tsx's
-    // note on PillButton's async re-render.
-    fireEvent.press(screen.getByRole('button', { name: Copy.auth.signUp.link }));
-
+    // Sign-up is the default mode (V23-06), so the notice is mounted on the first render.
+    // `waitFor` is required — the screen's mount entrance defers the commit past the same tick.
     await waitFor(() => expect(screen.getByTestId('signup-unavailable-notice')).toBeTruthy());
     expect(screen.getByText(Copy.auth.signUp.unavailable.title)).toBeTruthy();
     expect(screen.getByText(Copy.auth.signUp.unavailable.body)).toBeTruthy();
@@ -114,8 +116,6 @@ describe('sign-in screen: EXPO_PUBLIC_TURNSTILE_SITE_KEY unset', () => {
   it('keeps the submit button disabled, but now carries the reason for a screen reader', async () => {
     await render(<SignInScreen />);
 
-    fireEvent.press(screen.getByRole('button', { name: Copy.auth.signUp.link }));
-
     await waitFor(() => {
       const submit = screen.getByRole('button', { name: Copy.auth.signUp.submit });
       expect(submit).toBeDisabled();
@@ -126,8 +126,13 @@ describe('sign-in screen: EXPO_PUBLIC_TURNSTILE_SITE_KEY unset', () => {
   it('does not show the notice in signIn mode, which needs no captcha', async () => {
     await render(<SignInScreen />);
 
-    // Sign-in mode is the default. The key is missing in both modes, but only sign-up needs it,
-    // so telling a returning user that "creating an account isn't available" would be noise.
+    // The key is missing in both modes, but only sign-up needs it, so telling a returning user
+    // that account creation is unavailable would be noise.
+    await fireEvent.press(screen.getByRole('button', { name: Copy.auth.signIn.switchLink }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy()
+    );
     expect(screen.queryByTestId('signup-unavailable-notice')).toBeNull();
     expect(screen.queryByText(Copy.auth.signUp.unavailable.title)).toBeNull();
   });

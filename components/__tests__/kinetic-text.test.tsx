@@ -14,9 +14,10 @@
  */
 import { render, screen, waitFor } from '@testing-library/react-native';
 
-import { Copy } from '@/constants/copy';
-
 import { KineticText } from '../kinetic-text';
+
+// See the wordmark regression lock below for where this line comes from.
+const THREE_WORDS = 'Pace Analysis AI';
 
 const mockUseReducedMotion = jest.fn(() => false);
 jest.mock('@/hooks/use-reduced-motion', () => ({
@@ -102,13 +103,13 @@ describe('KineticText', () => {
     expect(screen.getByTestId('kt').props.accessibilityRole).toBe('header');
   });
 
-  // Regression lock for the sign-in wordmark bug: `constants/copy.ts`'s `wordmark` string once
-  // read 'Pace AnalysisAI' (two words, "Analysis" and "AI" glued together with no space), which
-  // this component's whitespace split turned into only two animated word-tokens instead of
-  // three, and the second one visually read as "AnalysisAI". Asserting the split here catches
-  // any future edit to the copy string that reintroduces a missing space between words.
-  it("splits the sign-in wordmark into three independent words, not two", async () => {
-    await render(<KineticText testID="kt">{Copy.auth.wordmark}</KineticText>);
+  // Regression lock for the old sign-in wordmark bug: the (since removed, 2026-09-13)
+  // `Copy.auth.wordmark` string once read 'Pace AnalysisAI' (two words, "Analysis" and "AI"
+  // glued together with no space), which this component's whitespace split turned into only two
+  // animated word-tokens instead of three, and the second one visually read as "AnalysisAI". The
+  // literal below is that string spelled correctly; the split it locks is the component's.
+  it('splits a three-word line into three independent words, not two', async () => {
+    await render(<KineticText testID="kt">{THREE_WORDS}</KineticText>);
 
     expect(screen.getByTestId('kt-word-0', { includeHiddenElements: true }).props.children).toBe(
       'Pace '
@@ -129,7 +130,7 @@ describe('KineticText', () => {
   // word must carry the same shrink-to-fit guard `pace-readout.tsx`'s overall-score numeral
   // uses, so a too-wide word shrinks instead of breaking or clipping.
   it('guards every word against mid-word wrapping by shrinking to fit its line, never breaking it', async () => {
-    await render(<KineticText testID="kt">{Copy.auth.wordmark}</KineticText>);
+    await render(<KineticText testID="kt">{THREE_WORDS}</KineticText>);
 
     const word = screen.getByTestId('kt-word-1', { includeHiddenElements: true });
     expect(word.props.numberOfLines).toBe(1);

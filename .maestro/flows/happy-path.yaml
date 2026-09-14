@@ -134,7 +134,8 @@ appId: com.ian.paceanalysisai
                               # so the second "Sign out" tap below can only hit the Alert's own
                               # button, not the row that opened it.
 - tapOn: "Sign out"
-- assertVisible: "Continue with Google" # back at sign-in — session cleared, guard swapped
+- assertVisible:
+    id: "entry-hero" # back at the signed-out hero — session cleared, guard swapped
 
 # ============================================================================================
 # STILL NOT COVERED HERE — genuine remaining gaps, not oversights:
