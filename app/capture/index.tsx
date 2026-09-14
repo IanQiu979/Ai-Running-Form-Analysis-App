@@ -15,52 +15,36 @@
  *
  * Camera permission is Capture's (`app/capture/record.tsx`) own concern, not this screen's —
  * tapping Record just navigates there once the gate fires onConsented.
+ *
+ * VISUALLY (V23-10, first artboard): the page's top row ("ADD FOOTAGE" between a bled Back
+ * control and a 44 pt spacer), then two `SquareCard`s at the 24 pt card padding — a 56 pt
+ * `line`-ruled badge holding the page's glyph beside an H1 title and a `note` subtitle — and the
+ * framing tip centred beneath. The permission and error panels are not drawn on the page; they
+ * are the same card with a semibold title, a `note` body and the two button variants. When the
+ * gate is up it takes the whole screen (the page draws it as the phone, not as a card), so it is
+ * rendered directly on the `Ink.bg` root with no wrapper of its own.
  */
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as ImagePicker from 'expo-image-picker';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useState, type ReactNode } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ArcLoader } from '@/components/arc-loader';
 import { ConsentGate } from '@/components/consent-gate';
-import { ArcRing } from '@/components/ui/arc-ring';
-import { CircleIconButton } from '@/components/ui/circle-icon-button';
-import { Eyebrow } from '@/components/ui/eyebrow';
-import { PillButton } from '@/components/ui/pill-button';
-import { ScreenGradient } from '@/components/ui/screen-gradient';
-import { SurfaceCard } from '@/components/ui/surface-card';
+import { SquareButton } from '@/components/ui/square-button';
+import { SquareCard } from '@/components/ui/square-card';
+import { SquareIconButton } from '@/components/ui/square-icon-button';
+import { TopBar } from '@/components/ui/top-bar';
+import { BackIcon, RecordIcon, UploadIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
-import {
-  Meter,
-  Colors,
-  ContentWidth,
-  FontFamily,
-  FontSize,
-  LineHeight,
-  Opacity,
-  Semantic,
-  Spacing,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Font, Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { readFileSizeBytes } from '@/lib/media-file-size';
 import { checkMediaCaps } from '@/lib/media-caps';
 import { classifyPermission, permissionRecoveryAction } from '@/lib/permission-state';
 import { useAnnounce } from '@/lib/use-announce';
 
-// The card badge's geometry and the busy loader's diameter — a drawn mark's size is composition,
-// not a spacing step between elements, so these are local constants rather than invented
-// `constants/theme.ts` tokens (same category as `app/capture/record.tsx`'s record-button size and
-// `components/framing-guide.tsx`'s figure geometry; `<ArcRing>` documents `size` as the caller's
-// own call for exactly this reason).
-const CARD_BADGE_SIZE = 56;
-const CARD_BADGE_ICON_SIZE = 24;
-const LOADING_MARK_SIZE = 32;
+const PRESSED_OPACITY = 0.6;
 
 type PendingAction = 'record' | 'upload' | null;
 type LibraryFlow = 'idle' | 'softAsk';
@@ -68,9 +52,7 @@ type InlineError = { title: string; body: string };
 
 export default function SourcePickerScreen() {
   const router = useRouter();
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = createStyles(colors);
+  const insets = useSafeAreaInsets();
 
   const [libraryPermission, requestLibraryPermission] = ImagePicker.useMediaLibraryPermissions();
   const libraryState = classifyPermission(libraryPermission);
@@ -199,123 +181,105 @@ export default function SourcePickerScreen() {
 
   if (pendingAction !== null) {
     return (
-      <ScreenGradient>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.consentWrap}>
-            <ConsentGate onConsented={handleConsented} onCancel={() => setPendingAction(null)} />
-          </View>
-        </SafeAreaView>
-      </ScreenGradient>
+      <View style={styles.screen}>
+        <ConsentGate onConsented={handleConsented} onCancel={() => setPendingAction(null)} />
+      </View>
     );
   }
 
   return (
-    <ScreenGradient>
-      <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        {/* The reference's top bar: a circular glass control at the leading edge, the screen name
-            as a tracked eyebrow beside it. Replaces the "24pt heading + underlined 'Back' text"
-            row — a back affordance is the one control that should look identical on every screen,
-            and a word set in body type never will. */}
-        <View style={styles.headerRow}>
-          <CircleIconButton
-            accessibilityLabel="Back"
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
-            testID="capture-back">
-            <MaterialIcons name="arrow-back" size={20} color={colors.text.primary} />
-          </CircleIconButton>
-          <Eyebrow tone="primary" accessibilityRole="header" style={styles.header}>
-            {Copy.sourcePicker.title}
-          </Eyebrow>
+    <View style={styles.screen}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: Math.max(insets.top, Layout.canvas.safeTop),
+            paddingBottom: Math.max(insets.bottom, Layout.canvas.safeBottom),
+          },
+        ]}>
+        <View style={styles.topBarWrap}>
+          <TopBar
+            title={Copy.sourcePicker.title}
+            leading={
+              <SquareIconButton
+                accessibilityLabel="Back"
+                bleed="left"
+                testID="capture-back"
+                onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}>
+                <BackIcon />
+              </SquareIconButton>
+            }
+          />
         </View>
 
-        <SourceCard
-          colors={colors}
-          scheme={scheme}
-          testID="source-card-upload"
-          icon="photo-library"
-          title={Copy.sourcePicker.card.upload.title}
-          subtitle={Copy.sourcePicker.card.upload.subtitle}
-          disabled={cardsDisabled}
-          onPress={() => handleCardPress('upload')}
-        />
-
-        {libraryState === 'denied' && libraryFlow === 'idle' && (
-          <InlinePanel
-            colors={colors}
-            scheme={scheme}
-            title={Copy.sourcePicker.permission.library.denied.title}
-            body={Copy.sourcePicker.permission.library.denied.body}
-            primaryCta={Copy.sourcePicker.permission.library.denied.cta}
-            onPrimary={handleDeniedCta}
-            secondaryCta={Copy.sourcePicker.permission.library.denied.secondary}
-            onSecondary={goToRecord}
-            busy={busy}
+        <View style={styles.body}>
+          <SourceCard
+            testID="source-card-upload"
+            icon={<UploadIcon />}
+            title={Copy.sourcePicker.card.upload.title}
+            subtitle={Copy.sourcePicker.card.upload.subtitle}
+            disabled={cardsDisabled}
+            onPress={() => handleCardPress('upload')}
           />
-        )}
 
-        {libraryFlow === 'softAsk' && (
-          <InlinePanel
-            colors={colors}
-            scheme={scheme}
-            title={Copy.sourcePicker.permission.library.title}
-            body={Copy.sourcePicker.permission.library.body}
-            primaryCta={Copy.sourcePicker.permission.library.cta}
-            onPrimary={handleSoftAskAllow}
-            busy={busy}
+          {libraryState === 'denied' && libraryFlow === 'idle' && (
+            <InlinePanel
+              title={Copy.sourcePicker.permission.library.denied.title}
+              body={Copy.sourcePicker.permission.library.denied.body}
+              primaryCta={Copy.sourcePicker.permission.library.denied.cta}
+              onPrimary={handleDeniedCta}
+              secondaryCta={Copy.sourcePicker.permission.library.denied.secondary}
+              onSecondary={goToRecord}
+              busy={busy}
+            />
+          )}
+
+          {libraryFlow === 'softAsk' && (
+            <InlinePanel
+              title={Copy.sourcePicker.permission.library.title}
+              body={Copy.sourcePicker.permission.library.body}
+              primaryCta={Copy.sourcePicker.permission.library.cta}
+              onPrimary={handleSoftAskAllow}
+              busy={busy}
+            />
+          )}
+
+          {uploadError && <InlinePanel title={uploadError.title} body={uploadError.body} error />}
+
+          <SourceCard
+            testID="source-card-record"
+            icon={<RecordIcon />}
+            title={Copy.sourcePicker.card.record.title}
+            subtitle={Copy.sourcePicker.card.record.subtitle}
+            disabled={cardsDisabled}
+            onPress={() => handleCardPress('record')}
           />
-        )}
 
-        {uploadError && (
-          <InlinePanel colors={colors} scheme={scheme} title={uploadError.title} body={uploadError.body} error />
-        )}
+          <Text style={styles.framingTip}>{Copy.sourcePicker.framingTip}</Text>
 
-        <SourceCard
-          colors={colors}
-          scheme={scheme}
-          testID="source-card-record"
-          icon="videocam"
-          title={Copy.sourcePicker.card.record.title}
-          subtitle={Copy.sourcePicker.card.record.subtitle}
-          disabled={cardsDisabled}
-          onPress={() => handleCardPress('record')}
-        />
-
-        <Text style={styles.framingTip}>{Copy.sourcePicker.framingTip}</Text>
-
-        {/* The motif's own wait state replaces the platform spinner. `<ArcLoader>` is decorative and
-            hidden from the a11y tree by design, so the "Loading" label a screen reader needs moves
-            onto this wrapper — same label, same announcement, just carried by the node that is
-            actually visible to the a11y tree now. */}
-        {cardsDisabled && (
-          <View accessible accessibilityLabel="Loading" style={styles.loading}>
-            <ArcLoader size={LOADING_MARK_SIZE} />
-          </View>
-        )}
+          {/* The page draws no busy state; the quiet platform spinner stands in while a native
+              permission dialog or picker sheet is in flight, labelled for the a11y tree since the
+              indicator itself has nothing to say. */}
+          {cardsDisabled && (
+            <View accessible accessibilityLabel="Loading" style={styles.loading}>
+              <ActivityIndicator color={Ink.ink2} />
+            </View>
+          )}
+        </View>
       </ScrollView>
-      </SafeAreaView>
-    </ScreenGradient>
+    </View>
   );
 }
 
 /**
- * One of the two source cards. Extracted local to this screen (same idiom as `InlinePanel` below)
- * once the card grew a badge + text column: two hand-copied twenty-line blocks is how the pair
- * drifts apart.
- *
- * Cadence Arcs (2026-09-01): a `<SurfaceCard>` — the redesign's one opaque panel shape, so the
- * card's fill, corner and edge come from that component rather than being restated here — wrapping
- * the SAME `Pressable` as before, with its `testID`, role, composed label, disabled state and
- * `Opacity.pressed` untouched. The card carries `padding={0}` and the Pressable owns the interior
- * padding, so the whole card area stays tappable rather than only the text inside it.
- *
- * The badge is a FULL `<ArcRing>` (`fraction={1}`) in the ornament role, not a score: it holds a
- * glyph naming the source, and a complete sweep is the only fraction that can never be misread as
- * a progress value on a screen where nothing is in progress.
+ * One of the two source cards (V23-10): a `SquareCard` at the large card padding, laid out as a
+ * row — the 56 pt `line`-ruled badge holding the page's glyph, then the title and subtitle column.
+ * Extracted local to this screen (same idiom as `InlinePanel` below) so the pair cannot drift
+ * apart. The `Pressable` wraps the card so its `testID`, role, composed label and disabled state
+ * live on the control and the whole card area is the target.
  */
 function SourceCard({
-  colors,
-  scheme,
   testID,
   icon,
   title,
@@ -323,88 +287,37 @@ function SourceCard({
   disabled,
   onPress,
 }: {
-  colors: ThemeColors;
-  scheme: ColorScheme;
   testID: string;
-  icon: React.ComponentProps<typeof MaterialIcons>['name'];
+  icon: ReactNode;
   title: string;
   subtitle: string;
   disabled: boolean;
   onPress: () => void;
 }) {
-  const styles = createCardStyles(colors);
   return (
-    <SurfaceCard padding={0}>
-      <Pressable
-        testID={testID}
-        accessibilityRole="button"
-        accessibilityLabel={`${title}. ${subtitle}`}
-        disabled={disabled}
-        onPress={onPress}
-        style={({ pressed }) => [styles.card, (pressed || disabled) && styles.pressed]}>
-        <ArcRing
-          size={CARD_BADGE_SIZE}
-          strokeWidth={Spacing.xs}
-          fraction={1}
-          color={Meter[scheme].rule}>
-          <MaterialIcons name={icon} size={CARD_BADGE_ICON_SIZE} color={colors.text.primary} />
-        </ArcRing>
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${subtitle}`}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [(pressed || disabled) && styles.pressed]}>
+      <SquareCard padding={Layout.cardPaddingLg} style={styles.card}>
+        <View style={styles.badge}>{icon}</View>
         <View style={styles.cardText}>
           <Text style={styles.cardTitle}>{title}</Text>
           <Text style={styles.cardSubtitle}>{subtitle}</Text>
         </View>
-      </Pressable>
-    </SurfaceCard>
+      </SquareCard>
+    </Pressable>
   );
-}
-
-function createCardStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    // "Large cards" (brief §4.3) — generous padding rather than a fixed minHeight, so size comes
-    // from Spacing tokens + content instead of an invented pixel number. Fill/corner/edge now come
-    // from the `<SurfaceCard>` around this Pressable, so only layout is left here.
-    card: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.lg,
-      paddingHorizontal: Spacing.xl,
-      paddingVertical: Spacing.xl,
-    },
-    // Flexes so a long subtitle wraps inside the column instead of pushing the badge off the card,
-    // and so Dynamic Type grows the block downward rather than sideways.
-    cardText: {
-      flex: 1,
-      gap: Spacing.xs,
-    },
-    cardTitle: {
-      fontFamily: FontFamily.display.semiBold,
-      // These two cards are the only decision on the screen; they should read as headlines, not as
-      // list rows.
-      fontSize: FontSize.xl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xl * LineHeight.heading,
-      color: colors.text.primary,
-    },
-    cardSubtitle: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-      // Secondary text is legal here and only here on this screen: it sits on an opaque
-      // `surface.base` inside the card, not on the page wash (`Gradient`'s contract).
-      color: colors.text.secondary,
-    },
-    pressed: {
-      opacity: Opacity.pressed,
-    },
-  });
 }
 
 /** One reusable inline panel for every non-error and error state this screen shows below the
  * cards (soft-ask, denied, upload validation error) — same shape, different copy/actions, kept
- * local since nothing outside this screen needs it. */
+ * local since nothing outside this screen needs it. Not drawn on the page: the same card, in
+ * the quietest faithful form. */
 function InlinePanel({
-  colors,
-  scheme,
   title,
   body,
   primaryCta,
@@ -414,8 +327,6 @@ function InlinePanel({
   busy,
   error,
 }: {
-  colors: ThemeColors;
-  scheme: ColorScheme;
   title: string;
   body: string;
   primaryCta?: string;
@@ -425,111 +336,104 @@ function InlinePanel({
   busy?: boolean;
   error?: boolean;
 }) {
-  const styles = createPanelStyles(colors, scheme);
-  // Issue #11: `accessibilityLiveRegion="polite"` on the panel View below is Android-only — this
-  // is the iOS complement, same pattern as app/(auth)/sign-in.tsx. `InlinePanel` is only ever
+  // Issue #11: `accessibilityLiveRegion="polite"` on the panel below is Android-only — this is
+  // the iOS complement, same pattern as app/(auth)/sign-in.tsx. `InlinePanel` is only ever
   // mounted while it has something to say (soft-ask / denied / upload-error), so this fires once
   // per presentation, on mount.
   useAnnounce(`${title} ${body}`);
 
   return (
-    // Cadence Arcs (2026-09-01): the hand-rolled `View` this docblock's own note described became
-    // the `<SurfaceCard>` it was always describing — `accessibilityLiveRegion` is forwarded because
-    // that component exists partly to keep exactly this Android announcement when a banner becomes
-    // a card (see its prop docs).
-    <SurfaceCard accessibilityLiveRegion="polite">
-      <View style={styles.panel}>
-        <Text style={[styles.panelTitle, error && styles.panelTitleError]}>{title}</Text>
-        <Text style={styles.panelBody}>{body}</Text>
-        {primaryCta && onPrimary && (
-          <PillButton label={primaryCta} onPress={onPrimary} disabled={busy} style={styles.panelPrimaryCta} />
-        )}
-        {secondaryCta && onSecondary && (
-          <PillButton variant="ghost" label={secondaryCta} onPress={onSecondary} block />
-        )}
-      </View>
-    </SurfaceCard>
+    <SquareCard accessibilityLiveRegion="polite" style={styles.panel}>
+      <Text style={[styles.panelTitle, error && styles.panelTitleError]}>{title}</Text>
+      <Text style={styles.panelBody}>{body}</Text>
+      {primaryCta && onPrimary && (
+        <SquareButton label={primaryCta} onPress={onPrimary} disabled={busy} style={styles.panelPrimaryCta} />
+      )}
+      {secondaryCta && onSecondary && <SquareButton variant="link" label={secondaryCta} onPress={onSecondary} />}
+    </SquareCard>
   );
 }
 
-function createPanelStyles(colors: ThemeColors, scheme: ColorScheme) {
-  return StyleSheet.create({
-    // Fill, corner, edge and padding all come from `<SurfaceCard>` now; this inner stack exists
-    // only to space the panel's children — `<SurfaceCard>`'s `style` lands on its outer shadow
-    // node, whose single child is the clip view, so a `gap` set there would silently do nothing.
-    panel: {
-      gap: Spacing.sm,
-    },
-    panelTitle: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-      color: colors.text.primary,
-    },
-    panelTitleError: {
-      color: Semantic.error[scheme],
-    },
-    panelBody: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-      color: colors.text.secondary,
-    },
-    panelPrimaryCta: {
-      marginTop: Spacing.xs,
-    },
-  });
-}
-
-function createStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      // Transparent — `<ScreenGradient>` behind it owns the fill.
-      backgroundColor: 'transparent',
-    },
-    consentWrap: {
-      flex: 1,
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      justifyContent: 'center',
-      padding: Spacing.lg,
-    },
-    // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
-    // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
-    // through the contentContainerStyle prop." The readable column is therefore centred by
-    // `alignSelf: 'center'` on the contentContainerStyle below, not from here (issue #63).
-    scroll: {
-      flex: 1,
-    },
-    content: {
-      flexGrow: 1,
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      padding: Spacing.xl,
-      gap: Spacing.lg,
-    },
-    headerRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.lg,
-    },
-    header: {
-      flex: 1,
-    },
-    framingTip: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.xs,
-      lineHeight: FontSize.xs * LineHeight.body,
-      // On the wash — `text.primary` only, at full opacity (`Gradient`'s contract; H3,
-      // v23-ux-audit-r1: opacity here dropped this below WCAG AA). Quietness comes from the xs
-      // size alone, not from a dimmed color.
-      color: colors.text.primary,
-      textAlign: 'center',
-    },
-    loading: {
-      alignItems: 'center',
-    },
-  });
-}
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: Ink.bg,
+  },
+  // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
+  // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
+  // through the contentContainerStyle prop." (issue #63).
+  scroll: {
+    flex: 1,
+  },
+  content: {
+    flexGrow: 1,
+  },
+  topBarWrap: {
+    paddingHorizontal: Layout.gutter,
+  },
+  // The page's `padding:24px; gap:16px` column under the top row.
+  body: {
+    padding: Layout.gutter,
+    gap: Space.lg,
+  },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.lg,
+  },
+  badge: {
+    width: Layout.sourceBadge,
+    height: Layout.sourceBadge,
+    borderWidth: Layout.hairline,
+    borderColor: Ink.line,
+    borderRadius: Layout.radius,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Flexes so a long subtitle wraps inside the column instead of pushing the badge off the card,
+  // and so Dynamic Type grows the block downward rather than sideways.
+  cardText: {
+    flex: 1,
+    gap: Space.xs,
+  },
+  cardTitle: {
+    ...Type.h1,
+    color: Ink.ink,
+  },
+  cardSubtitle: {
+    ...Type.note,
+    color: Ink.ink2,
+  },
+  pressed: {
+    opacity: PRESSED_OPACITY,
+  },
+  framingTip: {
+    ...Type.footnote,
+    color: Ink.ink,
+    textAlign: 'center',
+    marginTop: Space.sm,
+  },
+  loading: {
+    alignItems: 'center',
+  },
+  panel: {
+    gap: Space.sm,
+  },
+  // The page has no panel title role; Body at the semibold weight is the quietest heading the
+  // sheet's two families allow.
+  panelTitle: {
+    ...Type.body,
+    fontFamily: Font.tight.semiBold,
+    color: Ink.ink,
+  },
+  panelTitleError: {
+    color: Ink.danger,
+  },
+  panelBody: {
+    ...Type.note,
+    color: Ink.ink2,
+  },
+  panelPrimaryCta: {
+    marginTop: Space.xs,
+  },
+});

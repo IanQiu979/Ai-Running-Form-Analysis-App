@@ -21,16 +21,22 @@
  * key), invisible to the unit suite (no test renders a navigator), and nearly invisible on a phone.
  * Reading the source is what proves the property, and it keeps proving it for whoever edits this
  * style next without reading any of the above.
+ *
+ * V23 (2026-09-14): the bar is `components/v23-tab-bar.tsx` now, mounted through the navigator's
+ * `tabBar` renderer rather than restyled via `tabBarStyle`, and the absolute position lives in
+ * that component's `floating` style. Same trap, same property, new file — the navigator still
+ * wraps our element in its own bottom-anchored container.
  */
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
+const TAB_BAR = join(__dirname, '..', '..', 'components', 'v23-tab-bar.tsx');
 const TAB_LAYOUT = join(__dirname, '..', '..', 'app', '(tabs)', '_layout.tsx');
 
-/** The `tabBarStyle: { ... }` object literal, isolated from the rest of the file so a `left:` in an
- *  unrelated style below it cannot fail this test (or, worse, pass it). */
-function tabBarStyleBlock(source: string): string {
-  const start = source.indexOf('tabBarStyle: {');
+/** The `floating: {...}` style literal, isolated so a `left:` in an unrelated style cannot fail
+ *  this test (or, worse, pass it). */
+function styleBlock(source: string, key: string): string {
+  const start = source.indexOf(`${key}: {`);
   expect(start).toBeGreaterThan(-1);
 
   let depth = 0;
@@ -41,11 +47,11 @@ function tabBarStyleBlock(source: string): string {
       if (depth === 0) return source.slice(start, i + 1);
     }
   }
-  throw new Error('tabBarStyle object literal is unbalanced');
+  throw new Error(`${key} object literal is unbalanced`);
 }
 
-describe("app/(tabs)/_layout.tsx's tabBarStyle", () => {
-  const block = tabBarStyleBlock(readFileSync(TAB_LAYOUT, 'utf8'));
+describe("components/v23-tab-bar.tsx's floating style", () => {
+  const block = styleBlock(readFileSync(TAB_BAR, 'utf8'), 'floating');
 
   it('sets the horizontal inset with start/end, which is what actually moves the bar', () => {
     expect(block).toMatch(/\bstart:/);
@@ -57,9 +63,20 @@ describe("app/(tabs)/_layout.tsx's tabBarStyle", () => {
     expect(block).not.toMatch(/\bright:/);
   });
 
-  it('still sets the vertical offset as `bottom`, which is NOT subject to the same trap', () => {
-    // `bottom` collides by name with the library's own `bottom: 0`, and our style object comes last
-    // in its array, so ours wins normally. Only the horizontal axis has the start/end problem.
-    expect(block).toMatch(/\bbottom:/);
+  it('is absolutely positioned — the floating bar reserves no layout space', () => {
+    expect(block).toMatch(/position: 'absolute'/);
+  });
+});
+
+describe("app/(tabs)/_layout.tsx's tab bar", () => {
+  const source = readFileSync(TAB_LAYOUT, 'utf8');
+
+  it('renders the V23 bar through the navigator’s `tabBar` slot, not a restyled stock bar', () => {
+    expect(source).toMatch(/tabBar=\{/);
+    expect(source).not.toMatch(/tabBarStyle:/);
+  });
+
+  it('pins the floating bar’s bottom edge to the live inset, never under the design’s 34 pt', () => {
+    expect(source).toMatch(/Math\.max\(insets\.bottom, Layout\.canvas\.safeBottom\)/);
   });
 });

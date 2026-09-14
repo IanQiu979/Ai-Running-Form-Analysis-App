@@ -1,14 +1,17 @@
 /**
  * Regression lock for the home-tab cleanup pass: the top-bar `LowPolyField` logo must be gone
  * (issue: captain called `app/(tabs)/index.tsx` messy) and `Copy.home.title` must render exactly
- * once — it used to also duplicate into the ready-quota block's `Eyebrow`, which read as a second,
- * unlabeled title directly under the first.
+ * once — it used to also duplicate into the ready-quota block's eyebrow, which read as a second,
+ * unlabeled title directly under the first. Since the V23-07 re-theme the title is `<TopBar>`'s
+ * header and the Settings control is the page's bled icon button; both are locked here too.
  */
-import { render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { Copy } from '@/constants/copy';
 
 import HomeScreen from '../index';
+
+const mockPush = jest.fn();
 
 jest.mock('react-native-safe-area-context', () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -19,22 +22,12 @@ jest.mock('expo-router', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const react = require('react');
   return {
-    router: { push: jest.fn(), replace: jest.fn() },
+    router: { push: (...a: unknown[]) => mockPush(...a), replace: jest.fn() },
     // Real effect semantics (run once after mount, per the `cb` identity), not a call on every
     // render — a naive `useFocusEffect: (cb) => cb()` re-fires `fetchQuota` on every state update
     // it triggers, which loops forever and hangs the test.
     useFocusEffect: (cb: () => void | (() => void)) => react.useEffect(cb, [cb]),
   };
-});
-
-// See app/capture/__tests__/record.test.tsx's comment: `@expo/vector-icons` pulls in
-// `expo-font` -> `expo-asset`, which this project does not have installed under Jest.
-jest.mock('@expo/vector-icons/MaterialIcons', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const react = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const rn = require('react-native');
-  return { __esModule: true, default: () => react.createElement(rn.View) };
 });
 
 jest.mock('@/lib/session-provider', () => ({
@@ -76,11 +69,34 @@ jest.mock('@/lib/quota', () => {
 });
 
 describe('HomeScreen top bar', () => {
-  it('renders no low-poly mark and the title exactly once', async () => {
+  beforeEach(() => {
+    mockPush.mockClear();
+  });
+
+  it('renders no low-poly mark and the title exactly once, as the header', async () => {
     await render(<HomeScreen />);
 
     expect(screen.queryByTestId('home-mark')).toBeNull();
     expect(screen.getAllByText(Copy.home.title)).toHaveLength(1);
-    expect(screen.getByTestId('home-title')).toBeTruthy();
+    expect(screen.getByTestId('home-title').props.accessibilityRole).toBe('header');
+  });
+
+  it('routes the Settings control to /settings', async () => {
+    await render(<HomeScreen />);
+
+    const settings = screen.getByRole('button', { name: Copy.settings.title });
+    await act(async () => {
+      fireEvent.press(settings);
+    });
+    expect(mockPush).toHaveBeenCalledWith('/settings');
+  });
+
+  it('routes the primary CTA to /capture while quota is available', async () => {
+    await render(<HomeScreen />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('home-primary-cta'));
+    });
+    expect(mockPush).toHaveBeenCalledWith('/capture');
   });
 });

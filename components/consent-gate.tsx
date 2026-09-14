@@ -30,29 +30,24 @@
  * intercepts the source-picker → capture/upload handoff, and now always mounts it (previously it
  * could skip straight past for a returning, already-consented user — that shortcut is gone,
  * because phase 'subject' has no such thing as "already answered").
+ *
+ * VISUALLY (V23-10, second artboard) the gate IS the screen, not a card on one: it pads itself
+ * to the page's `59 / 24 / 34` safe frame (live insets, those as minimums), centres its column
+ * vertically and stacks title, body, the checkbox group, the privacy link and the button column
+ * at the page's 24 pt gap. The boxes are 20 pt drawn squares (`Layout.consentCheckbox`) — `ink`
+ * filled with a `CheckIcon` when ticked, `line`-ruled on `bgRaised` when not — and the disabled
+ * primary is the page's solid `ink3` block (`SquareButton disabledTone="fill"`), not a dimmed
+ * white one. The subject phase is not drawn on the page; it uses the same idiom, with the two
+ * radio rows as the same 20 pt squares holding a 10 pt `ink` square when selected.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SquareButton } from '@/components/ui/square-button';
+import { CheckIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
-import {
-  Accent,
-  Colors,
-  ControlHeight,
-  CheckboxSize,
-  FontFamily,
-  FontSize,
-  HitTarget,
-  Opacity,
-  LineHeight,
-  Radius,
-  Semantic,
-  Spacing,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import {
   AGE_CONFIRMATION_CONSENT,
   grantConsent,
@@ -77,10 +72,17 @@ type Props = {
 type Phase = 'checking' | 'health' | 'subject';
 type Subject = 'unset' | 'me' | 'other';
 
+/** The selected radio's inner mark: half the box, as the page's checked box holds a 10 pt tick. */
+const RADIO_MARK_SIZE = Layout.consentCheckbox / 2;
+/** The page sets each box 2 pt down so it sits on the first line's x-height, not its cap. */
+const BOX_TOP_OFFSET = 2;
+
 export function ConsentGate({ onConsented, onCancel }: Props) {
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = useMemo(() => createStyles(colors, scheme), [colors, scheme]);
+  const insets = useSafeAreaInsets();
+  const frame = {
+    paddingTop: Math.max(insets.top, Layout.canvas.safeTop),
+    paddingBottom: Math.max(insets.bottom, Layout.canvas.safeBottom),
+  };
 
   const [phase, setPhase] = useState<Phase>('checking');
 
@@ -199,10 +201,10 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
 
   if (phase === 'checking') {
     return (
-      <View style={styles.container}>
+      <View style={[styles.frame, styles.checking, frame]}>
         <ActivityIndicator
           testID="consent-loading"
-          color={colors.text.secondary}
+          color={Ink.ink2}
           accessibilityLabel="Checking your consent status"
         />
       </View>
@@ -211,37 +213,27 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
 
   if (phase === 'health') {
     return (
-      <View style={styles.container}>
+      // ScrollView + flexGrow, not a plain View: the page centres the column, but at the largest
+      // Dynamic Type sizes the two checkbox sentences alone can outgrow a small phone, and the
+      // buttons must stay reachable (design brief §7: reflow, never clip).
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.frame, frame]}>
         <Text style={styles.title}>{Copy.consent.upload.title}</Text>
         <Text style={styles.body}>{Copy.consent.upload.body}</Text>
 
-        <Pressable
-          testID="consent-checkbox"
-          onPress={() => setHealthChecked((value) => !value)}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: healthChecked }}
-          accessibilityLabel={Copy.consent.upload.checkbox}
-          style={styles.checkboxRow}
-          hitSlop={Spacing.sm}>
-          <View style={[styles.checkbox, healthChecked && styles.checkboxChecked]}>
-            {healthChecked ? <Text style={styles.checkboxMark}>✓</Text> : null}
-          </View>
-          <Text style={styles.checkboxLabel}>{Copy.consent.upload.checkbox}</Text>
-        </Pressable>
-
-        <Pressable
-          testID="consent-age-checkbox"
-          onPress={() => setAgeChecked((value) => !value)}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: ageChecked }}
-          accessibilityLabel={Copy.consent.upload.age.checkbox}
-          style={styles.checkboxRow}
-          hitSlop={Spacing.sm}>
-          <View style={[styles.checkbox, ageChecked && styles.checkboxChecked]}>
-            {ageChecked ? <Text style={styles.checkboxMark}>✓</Text> : null}
-          </View>
-          <Text style={styles.checkboxLabel}>{Copy.consent.upload.age.checkbox}</Text>
-        </Pressable>
+        <View style={styles.group}>
+          <CheckboxRow
+            testID="consent-checkbox"
+            checked={healthChecked}
+            label={Copy.consent.upload.checkbox}
+            onPress={() => setHealthChecked((value) => !value)}
+          />
+          <CheckboxRow
+            testID="consent-age-checkbox"
+            checked={ageChecked}
+            label={Copy.consent.upload.age.checkbox}
+            onPress={() => setAgeChecked((value) => !value)}
+          />
+        </View>
 
         <Text style={styles.privacyLink}>{Copy.consent.upload.link.privacy}</Text>
 
@@ -251,30 +243,25 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
           </Text>
         ) : null}
 
-        <Pressable
-          testID="consent-cta-primary"
-          onPress={handleHealthSubmit}
-          disabled={!canProceedHealth}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !canProceedHealth }}
-          style={[styles.primaryCta, !canProceedHealth && styles.primaryCtaDisabled]}>
-          {pending ? (
-            <ActivityIndicator color={Accent.onAccent} />
-          ) : (
-            <Text style={styles.primaryCtaLabel}>{Copy.consent.upload.cta.primary}</Text>
-          )}
-        </Pressable>
-
-        <Pressable
-          testID="consent-cta-secondary"
-          onPress={handleCancel}
-          disabled={pending}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: pending }}
-          style={styles.secondaryCta}>
-          <Text style={styles.secondaryCtaLabel}>{Copy.consent.upload.cta.secondary}</Text>
-        </Pressable>
-      </View>
+        <View style={styles.buttons}>
+          <SquareButton
+            testID="consent-cta-primary"
+            label={Copy.consent.upload.cta.primary}
+            onPress={handleHealthSubmit}
+            disabled={!canProceedHealth}
+            disabledTone="fill"
+            busy={pending}
+          />
+          <SquareButton
+            testID="consent-cta-secondary"
+            variant="link"
+            label={Copy.consent.upload.cta.secondary}
+            onPress={handleCancel}
+            disabled={pending}
+            style={styles.cancel}
+          />
+        </View>
+      </ScrollView>
     );
   }
 
@@ -282,53 +269,32 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
   const primaryLabel = Copy.consent.upload.subject.cta.primary(subject === 'other' ? 'other' : 'me');
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.scroll} contentContainerStyle={[styles.frame, frame]}>
       <Text style={styles.title}>{Copy.consent.upload.subject.title}</Text>
       <Text style={styles.body}>{Copy.consent.upload.subject.body}</Text>
 
-      <Pressable
-        testID="consent-subject-option-me"
-        onPress={() => setSubject('me')}
-        accessibilityRole="radio"
-        accessibilityState={{ checked: subject === 'me' }}
-        accessibilityLabel={Copy.consent.upload.subject.option.me}
-        style={[styles.optionRow, subject === 'me' && styles.optionRowSelected]}
-        hitSlop={Spacing.sm}>
-        <View style={[styles.radio, subject === 'me' && styles.radioSelected]}>
-          {subject === 'me' ? <View style={styles.radioDot} /> : null}
-        </View>
-        <Text style={styles.optionLabel}>{Copy.consent.upload.subject.option.me}</Text>
-      </Pressable>
-
-      <Pressable
-        testID="consent-subject-option-other"
-        onPress={() => setSubject('other')}
-        accessibilityRole="radio"
-        accessibilityState={{ checked: subject === 'other' }}
-        accessibilityLabel={Copy.consent.upload.subject.option.other}
-        style={[styles.optionRow, subject === 'other' && styles.optionRowSelected]}
-        hitSlop={Spacing.sm}>
-        <View style={[styles.radio, subject === 'other' && styles.radioSelected]}>
-          {subject === 'other' ? <View style={styles.radioDot} /> : null}
-        </View>
-        <Text style={styles.optionLabel}>{Copy.consent.upload.subject.option.other}</Text>
-      </Pressable>
-
-      {subject === 'other' ? (
-        <Pressable
-          testID="consent-subject-checkbox"
-          onPress={() => setThirdPartyChecked((value) => !value)}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: thirdPartyChecked }}
-          accessibilityLabel={Copy.consent.upload.subject.thirdParty.checkbox}
-          style={styles.checkboxRow}
-          hitSlop={Spacing.sm}>
-          <View style={[styles.checkbox, thirdPartyChecked && styles.checkboxChecked]}>
-            {thirdPartyChecked ? <Text style={styles.checkboxMark}>✓</Text> : null}
-          </View>
-          <Text style={styles.checkboxLabel}>{Copy.consent.upload.subject.thirdParty.checkbox}</Text>
-        </Pressable>
-      ) : null}
+      <View style={styles.group}>
+        <RadioRow
+          testID="consent-subject-option-me"
+          selected={subject === 'me'}
+          label={Copy.consent.upload.subject.option.me}
+          onPress={() => setSubject('me')}
+        />
+        <RadioRow
+          testID="consent-subject-option-other"
+          selected={subject === 'other'}
+          label={Copy.consent.upload.subject.option.other}
+          onPress={() => setSubject('other')}
+        />
+        {subject === 'other' ? (
+          <CheckboxRow
+            testID="consent-subject-checkbox"
+            checked={thirdPartyChecked}
+            label={Copy.consent.upload.subject.thirdParty.checkbox}
+            onPress={() => setThirdPartyChecked((value) => !value)}
+          />
+        ) : null}
+      </View>
 
       {error ? (
         <Text style={styles.error} accessibilityLiveRegion="polite">
@@ -336,182 +302,168 @@ export function ConsentGate({ onConsented, onCancel }: Props) {
         </Text>
       ) : null}
 
-      <Pressable
-        testID="consent-cta-primary"
-        onPress={handleSubjectSubmit}
-        disabled={!canProceedSubject}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !canProceedSubject }}
-        style={[styles.primaryCta, !canProceedSubject && styles.primaryCtaDisabled]}>
-        {pending ? (
-          <ActivityIndicator color={Accent.onAccent} />
-        ) : (
-          <Text style={styles.primaryCtaLabel}>{primaryLabel}</Text>
-        )}
-      </Pressable>
-
-      <Pressable
-        testID="consent-cta-secondary"
-        onPress={handleCancel}
-        disabled={pending}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: pending }}
-        style={styles.secondaryCta}>
-        <Text style={styles.secondaryCtaLabel}>{Copy.consent.upload.subject.cta.secondary}</Text>
-      </Pressable>
-    </View>
+      <View style={styles.buttons}>
+        <SquareButton
+          testID="consent-cta-primary"
+          label={primaryLabel}
+          onPress={handleSubjectSubmit}
+          disabled={!canProceedSubject}
+          disabledTone="fill"
+          busy={pending}
+        />
+        <SquareButton
+          testID="consent-cta-secondary"
+          variant="link"
+          label={Copy.consent.upload.subject.cta.secondary}
+          onPress={handleCancel}
+          disabled={pending}
+          style={styles.cancel}
+        />
+      </View>
+    </ScrollView>
   );
 }
 
-function createStyles(colors: ThemeColors, scheme: ColorScheme) {
-  return StyleSheet.create({
-    // An opaque sheet, deliberately: this gate carries `text.secondary` body copy, error text and
-    // a `control.border` boundary, none of which the page gradient behind it is proven for
-    // (`Gradient`'s contract, constants/theme.ts). It stays a solid surface and gains the
-    // redesign's larger sheet corner + hairline edge instead of becoming glass.
-    container: {
-      backgroundColor: colors.surface.base,
-      borderColor: colors.hairline,
-      borderRadius: Radius.sheet,
-      borderWidth: StyleSheet.hairlineWidth * 2,
-      gap: Spacing.lg,
-      padding: Spacing.xl,
-    },
-    title: {
-      color: colors.text.primary,
-      fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.xxl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xxl * LineHeight.display,
-    },
-    body: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-    },
-    checkboxRow: {
-      alignItems: 'flex-start',
-      flexDirection: 'row',
-      gap: Spacing.md,
-      minHeight: HitTarget.min,
-    },
-    checkbox: {
-      alignItems: 'center',
-      // `control.border`, not `hairline` — a checkbox's box is a UI-component boundary WCAG
-      // 1.4.11 names explicitly, so it needs the >=3:1 interactive-boundary role, not the
-      // decorative hairline rule (issue #96). The checked state already clears 3:1 via
-      // `Accent.value` (see `checkboxChecked` below); this covers the unchecked state.
-      borderColor: colors.control.border,
-      // Half the tile radius, not `Radius.card`: at 24pt the card corner would round this 24pt box
-      // into a circle and it would read as a radio button — which this component ALSO has, a few
-      // styles below, meaning the two controls would become visually identical.
-      borderRadius: Radius.tile / 2,
-      borderWidth: CheckboxSize.border,
-      height: CheckboxSize.box,
-      justifyContent: 'center',
-      width: CheckboxSize.box,
-    },
-    checkboxChecked: {
-      backgroundColor: Accent.value,
-      borderColor: Accent.value,
-    },
-    checkboxMark: {
-      color: Accent.onAccent,
-      fontFamily: FontFamily.body.bold,
-      fontSize: FontSize.xs,
-    },
-    checkboxLabel: {
-      color: colors.text.primary,
-      flex: 1,
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-    },
-    // The subject phase's "who is this" picker (#94) — same interactive-boundary contrast
-    // reasoning as `checkbox` above, reusing `control.border`/`Accent.value` rather than
-    // inventing a new pair of colors for what is functionally the same affordance (a bordered,
-    // tappable, selectable row).
-    optionRow: {
-      alignItems: 'center',
-      borderColor: colors.control.border,
-      borderRadius: Radius.pill,
-      borderWidth: CheckboxSize.border,
-      flexDirection: 'row',
-      gap: Spacing.md,
-      minHeight: HitTarget.min,
-      paddingHorizontal: Spacing.lg,
-      paddingVertical: Spacing.md,
-    },
-    optionRowSelected: {
-      borderColor: Accent.value,
-    },
-    radio: {
-      alignItems: 'center',
-      borderColor: colors.control.border,
-      borderRadius: Radius.pill,
-      borderWidth: CheckboxSize.border,
-      height: CheckboxSize.box,
-      justifyContent: 'center',
-      width: CheckboxSize.box,
-    },
-    radioSelected: {
-      borderColor: Accent.value,
-    },
-    radioDot: {
-      backgroundColor: Accent.value,
-      borderRadius: Radius.pill,
-      height: CheckboxSize.box / 2,
-      width: CheckboxSize.box / 2,
-    },
-    optionLabel: {
-      color: colors.text.primary,
-      flex: 1,
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-    },
-    privacyLink: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.xs,
-    },
-    // Semantic.error, not Score.low. This component originally borrowed the score scale's
-    // "Needs work" clay because no error role existed; issue #24 added one on main while this
-    // branch was open. Borrowing the clay would bleed *score* meaning into a consent failure —
-    // and on the result screen it would sit next to real clay pillar bars.
-    error: {
-      color: Semantic.error[scheme],
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-    },
-    primaryCta: {
-      alignItems: 'center',
-      backgroundColor: Accent.value,
-      borderRadius: Radius.pill,
-      // `minHeight`, not a fixed `height`, at the redesign's taller pill size — a fixed height
-      // clips the label at the largest Dynamic Type sizes (design brief §7: reflow, never clip).
-      minHeight: ControlHeight.pill,
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.xl,
-      paddingVertical: Spacing.md,
-    },
-    primaryCtaDisabled: {
-      opacity: Opacity.disabled,
-    },
-    primaryCtaLabel: {
-      color: Accent.onAccent,
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-    },
-    secondaryCta: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: HitTarget.min,
-    },
-    secondaryCtaLabel: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-    },
-  });
+/** One consent line: the page's 20 pt square and its sentence, the whole row the control. */
+function CheckboxRow({
+  testID,
+  checked,
+  label,
+  onPress,
+}: {
+  testID: string;
+  checked: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+      accessibilityLabel={label}
+      style={styles.row}
+      hitSlop={Space.sm}>
+      <View style={[styles.box, checked ? styles.boxChecked : styles.boxUnchecked]}>
+        {checked ? <CheckIcon testID="consent-check-glyph" /> : null}
+      </View>
+      <Text style={styles.rowLabel}>{label}</Text>
+    </Pressable>
+  );
 }
+
+/** The subject phase's "who is this" option (#94): the same square as a checkbox, holding a
+ *  smaller `ink` square when selected — one drawn idiom for both, since the page draws only
+ *  the checkbox and a radio here is functionally the same affordance. */
+function RadioRow({
+  testID,
+  selected,
+  label,
+  onPress,
+}: {
+  testID: string;
+  selected: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={label}
+      style={styles.row}
+      hitSlop={Space.sm}>
+      <View style={[styles.box, selected ? styles.radioSelected : styles.boxUnchecked]}>
+        {selected ? <View style={styles.radioMark} /> : null}
+      </View>
+      <Text style={styles.rowLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  // `flex` ONLY — child-layout props are illegal in a ScrollView's `style` and throw at render
+  // (issue #63); the frame below is the contentContainerStyle.
+  scroll: {
+    flex: 1,
+  },
+  // The page's `padding:59px 24px 34px; justify-content:center; gap:24px`. Top and bottom are
+  // overridden per render with the live insets (`frame` in the component).
+  frame: {
+    flexGrow: 1,
+    paddingHorizontal: Layout.gutter,
+    justifyContent: 'center',
+    gap: Space.xl,
+  },
+  checking: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  title: {
+    ...Type.displaySm,
+    color: Ink.ink,
+  },
+  body: {
+    ...Type.body,
+    color: Ink.ink2,
+  },
+  group: {
+    gap: Space.lg,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Space.md,
+  },
+  box: {
+    width: Layout.consentCheckbox,
+    height: Layout.consentCheckbox,
+    marginTop: BOX_TOP_OFFSET,
+    borderWidth: Layout.hairline,
+    borderRadius: Layout.radius,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  boxUnchecked: {
+    borderColor: Ink.line,
+    backgroundColor: Ink.bgRaised,
+  },
+  boxChecked: {
+    borderColor: Ink.ink,
+    backgroundColor: Ink.ink,
+  },
+  radioSelected: {
+    borderColor: Ink.ink,
+    backgroundColor: Ink.bgRaised,
+  },
+  radioMark: {
+    width: RADIO_MARK_SIZE,
+    height: RADIO_MARK_SIZE,
+    backgroundColor: Ink.ink,
+  },
+  rowLabel: {
+    ...Type.bodySm,
+    color: Ink.ink,
+    flex: 1,
+  },
+  privacyLink: {
+    ...Type.note,
+    color: Ink.ink2,
+    textDecorationLine: 'underline',
+  },
+  error: {
+    ...Type.small,
+    color: Ink.danger,
+  },
+  buttons: {
+    gap: Space.md,
+    marginTop: Space.lg,
+  },
+  // The page's Cancel is a 44 pt link, not the 56 pt control the link variant defaults to.
+  cancel: {
+    minHeight: Layout.hitTarget,
+  },
+});

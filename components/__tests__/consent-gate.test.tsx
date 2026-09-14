@@ -17,15 +17,21 @@
  *      test that inspects which key `grantConsent` was actually called with.
  *
  * `@testing-library/react-native@14`'s `render`/`fireEvent.*` return Promises that must be
- * awaited through `act()` — every render/press below is awaited for that reason (see the
- * original file this was extended from for the fuller explanation).
+ * awaited through `act()` — every render below is awaited for that reason, and every ordinary
+ * press goes through `press()`, which wraps `fireEvent.press` in an awaited `act`: two bare
+ * presses in one test leave an act scope open under this Jest setup and the NEXT test's render
+ * produces an empty tree. The race tests deliberately hold a press un-awaited and say so.
+ *
+ * The V23-10 locks at the end are structural — which tone a box takes, that the disabled primary
+ * is the page's solid fill rather than a dimmed one — never a pixel value.
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { AccessibilityInfo, Platform } from 'react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
 import type { TestInstance } from 'test-renderer';
 
 import { ConsentGate } from '../consent-gate';
 import { Copy } from '@/constants/copy';
+import { Ink, Layout } from '@/constants/v23-theme';
 import {
   AGE_CONFIRMATION_CONSENT,
   grantConsent,
@@ -33,6 +39,13 @@ import {
   THIRD_PARTY_ATTESTATION_CONSENT,
   UPLOAD_HEALTH_CONSENT,
 } from '@/lib/consent';
+
+// The gate reads its own safe-area insets now (V23-10 draws it as the whole phone); the
+// library's Jest mock supplies zeros, which the `Layout.canvas` minimums then override.
+jest.mock('react-native-safe-area-context', () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('react-native-safe-area-context/jest/mock').default
+);
 
 jest.mock('@/lib/consent', () => ({
   UPLOAD_HEALTH_CONSENT: 'upload.health.v1',
@@ -63,6 +76,18 @@ function getOnPress(instance: TestInstance): () => void {
     fiber = fiber.return;
   }
   throw new Error(`no onPress handler found above ${String(instance.type)}`);
+}
+
+/** One awaited, act-wrapped press by testID — see the module docblock. */
+async function press(testID: string) {
+  await act(async () => {
+    fireEvent.press(screen.getByTestId(testID));
+  });
+}
+
+/** Whether the primary CTA reports itself disabled to the a11y tree. */
+function primaryDisabled(): boolean {
+  return screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled;
 }
 
 beforeEach(() => {
@@ -101,9 +126,9 @@ async function renderAtSubjectPhase() {
  *  `renderAtSubjectPhase`, which skips phase 'health' by mocking it as already granted. */
 async function advanceToSubjectPhase() {
   const result = await renderAtHealthPhase();
-  await fireEvent.press(screen.getByTestId('consent-checkbox'));
-  await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
-  await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+  await press('consent-checkbox');
+  await press('consent-age-checkbox');
+  await press('consent-cta-primary');
   await waitFor(() => expect(screen.getByTestId('consent-subject-option-me')).toBeTruthy());
   return result;
 }
@@ -165,32 +190,32 @@ describe('phase: health (issue #68 self-consent + issue #94 age confirmation)', 
   it('disables the primary CTA until BOTH the self-consent and age checkboxes are ticked', async () => {
     await renderAtHealthPhase();
 
-    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(true);
+    expect(primaryDisabled()).toBe(true);
 
-    await fireEvent.press(screen.getByTestId('consent-checkbox'));
-    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(true);
+    await press('consent-checkbox');
+    expect(primaryDisabled()).toBe(true);
 
-    await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
-    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(false);
+    await press('consent-age-checkbox');
+    expect(primaryDisabled()).toBe(false);
   });
 
   it('does not record anything when the CTA is pressed before both checkboxes are ticked', async () => {
     await renderAtHealthPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+    await press('consent-cta-primary');
     expect(mockGrantConsent).not.toHaveBeenCalled();
 
-    await fireEvent.press(screen.getByTestId('consent-checkbox'));
-    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+    await press('consent-checkbox');
+    await press('consent-cta-primary');
     expect(mockGrantConsent).not.toHaveBeenCalled();
   });
 
   it('records both the health consent and the age confirmation, and advances to phase subject, once both checkboxes are ticked and the CTA is pressed', async () => {
     const { onConsented } = await renderAtHealthPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-checkbox'));
-    await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
-    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+    await press('consent-checkbox');
+    await press('consent-age-checkbox');
+    await press('consent-cta-primary');
 
     expect(mockGrantConsent).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT);
     expect(mockGrantConsent).toHaveBeenCalledWith(AGE_CONFIRMATION_CONSENT);
@@ -203,9 +228,9 @@ describe('phase: health (issue #68 self-consent + issue #94 age confirmation)', 
     mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
     const { onConsented } = await renderAtHealthPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-checkbox'));
-    await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
-    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+    await press('consent-checkbox');
+    await press('consent-age-checkbox');
+    await press('consent-cta-primary');
 
     await waitFor(() => expect(screen.getByText(Copy.consent.upload.error.record)).toBeTruthy());
     expect(screen.getByTestId('consent-checkbox')).toBeTruthy();
@@ -219,9 +244,9 @@ describe('phase: health (issue #68 self-consent + issue #94 age confirmation)', 
       mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
       await renderAtHealthPhase();
 
-      await fireEvent.press(screen.getByTestId('consent-checkbox'));
-      await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
-      await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+      await press('consent-checkbox');
+      await press('consent-age-checkbox');
+      await press('consent-cta-primary');
 
       await waitFor(() => expect(mockAnnounce).toHaveBeenCalledWith(Copy.consent.upload.error.record));
     } finally {
@@ -232,7 +257,7 @@ describe('phase: health (issue #68 self-consent + issue #94 age confirmation)', 
   it('cancels without recording anything', async () => {
     const { onCancel } = await renderAtHealthPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-cta-secondary'));
+    await press('consent-cta-secondary');
 
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(mockGrantConsent).not.toHaveBeenCalled();
@@ -252,8 +277,8 @@ describe('phase: health (issue #68 self-consent + issue #94 age confirmation)', 
     );
     const { onConsented, onCancel } = await renderAtHealthPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-checkbox'));
-    await fireEvent.press(screen.getByTestId('consent-age-checkbox'));
+    await press('consent-checkbox');
+    await press('consent-age-checkbox');
 
     // Deliberately not awaited — see the module docblock's original race test for why.
     const primaryPress = fireEvent.press(screen.getByTestId('consent-cta-primary'));
@@ -281,26 +306,26 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
   it('requires selecting a subject before the primary CTA enables', async () => {
     await renderAtSubjectPhase();
 
-    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(true);
+    expect(primaryDisabled()).toBe(true);
 
-    await fireEvent.press(screen.getByTestId('consent-subject-option-me'));
-    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(false);
+    await press('consent-subject-option-me');
+    expect(primaryDisabled()).toBe(false);
   });
 
   it('requires the third-party attestation checkbox once "Someone else" is selected, and the CTA stays disabled until it is ticked', async () => {
     await renderAtSubjectPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
-    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(true);
+    await press('consent-subject-option-other');
+    expect(primaryDisabled()).toBe(true);
 
-    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
-    expect(screen.getByTestId('consent-cta-primary').props.accessibilityState.disabled).toBe(false);
+    await press('consent-subject-checkbox');
+    expect(primaryDisabled()).toBe(false);
   });
 
   it('does not show the attestation checkbox when "This is me" is selected', async () => {
     await renderAtSubjectPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-subject-option-me'));
+    await press('consent-subject-option-me');
 
     expect(screen.queryByTestId('consent-subject-checkbox')).toBeNull();
   });
@@ -310,8 +335,8 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
   it('advances immediately with no new consent record when "This is me" is chosen', async () => {
     const { onConsented } = await renderAtSubjectPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-subject-option-me'));
-    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+    await press('consent-subject-option-me');
+    await press('consent-cta-primary');
 
     await waitFor(() => expect(onConsented).toHaveBeenCalledTimes(1));
     expect(mockGrantConsent).not.toHaveBeenCalled();
@@ -323,9 +348,9 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
   it('records THIRD_PARTY_ATTESTATION_CONSENT, distinct from the self-consent key, when "Someone else" is chosen', async () => {
     const { onConsented } = await renderAtSubjectPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
-    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
-    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+    await press('consent-subject-option-other');
+    await press('consent-subject-checkbox');
+    await press('consent-cta-primary');
 
     await waitFor(() => expect(onConsented).toHaveBeenCalledTimes(1));
     expect(mockGrantConsent).toHaveBeenCalledWith(THIRD_PARTY_ATTESTATION_CONSENT);
@@ -336,9 +361,9 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
     mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
     const { onConsented } = await renderAtSubjectPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
-    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
-    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+    await press('consent-subject-option-other');
+    await press('consent-subject-checkbox');
+    await press('consent-cta-primary');
 
     await waitFor(() => expect(screen.getByText(Copy.consent.upload.subject.error.record)).toBeTruthy());
     expect(onConsented).not.toHaveBeenCalled();
@@ -351,9 +376,9 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
       mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
       await renderAtSubjectPhase();
 
-      await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
-      await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
-      await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+      await press('consent-subject-option-other');
+      await press('consent-subject-checkbox');
+      await press('consent-cta-primary');
 
       await waitFor(() =>
         expect(mockAnnounce).toHaveBeenCalledWith(Copy.consent.upload.subject.error.record)
@@ -366,7 +391,7 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
   it('cancels without recording anything', async () => {
     const { onCancel } = await renderAtSubjectPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-cta-secondary'));
+    await press('consent-cta-secondary');
 
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(mockGrantConsent).not.toHaveBeenCalled();
@@ -382,8 +407,8 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
     );
     const { onConsented, onCancel } = await renderAtSubjectPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
-    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
+    await press('consent-subject-option-other');
+    await press('consent-subject-checkbox');
 
     const primaryPress = fireEvent.press(screen.getByTestId('consent-cta-primary'));
 
@@ -406,8 +431,8 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
     );
     await renderAtSubjectPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
-    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
+    await press('consent-subject-option-other');
+    await press('consent-subject-checkbox');
 
     const p = fireEvent.press(screen.getByTestId('consent-cta-primary'));
     await waitFor(() =>
@@ -432,8 +457,12 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
     const view = await render(<ConsentGate onConsented={onConsented} onCancel={onCancel} />);
     await waitFor(() => expect(view.getByTestId('consent-subject-option-other')).toBeTruthy());
 
-    await fireEvent.press(view.getByTestId('consent-subject-option-other'));
-    await fireEvent.press(view.getByTestId('consent-subject-checkbox'));
+    await act(async () => {
+      fireEvent.press(view.getByTestId('consent-subject-option-other'));
+    });
+    await act(async () => {
+      fireEvent.press(view.getByTestId('consent-subject-checkbox'));
+    });
 
     const primaryPress = fireEvent.press(view.getByTestId('consent-cta-primary'));
     await waitFor(() =>
@@ -457,7 +486,7 @@ describe('phase: subject (issue #94 — third-party attestation)', () => {
     expect(screen.getByText(Copy.consent.upload.subject.option.me)).toBeTruthy();
     expect(screen.getByText(Copy.consent.upload.subject.option.other)).toBeTruthy();
 
-    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
+    await press('consent-subject-option-other');
     expect(screen.getByText(Copy.consent.upload.subject.thirdParty.checkbox)).toBeTruthy();
   });
 });
@@ -511,14 +540,74 @@ describe('end-to-end: a first-time user who is filming someone else', () => {
   it('walks through phase health then phase subject, recording all three distinct consents', async () => {
     const { onConsented } = await advanceToSubjectPhase();
 
-    await fireEvent.press(screen.getByTestId('consent-subject-option-other'));
-    await fireEvent.press(screen.getByTestId('consent-subject-checkbox'));
-    await fireEvent.press(screen.getByTestId('consent-cta-primary'));
+    await press('consent-subject-option-other');
+    await press('consent-subject-checkbox');
+    await press('consent-cta-primary');
 
     await waitFor(() => expect(onConsented).toHaveBeenCalledTimes(1));
     expect(mockGrantConsent).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT);
     expect(mockGrantConsent).toHaveBeenCalledWith(AGE_CONFIRMATION_CONSENT);
     expect(mockGrantConsent).toHaveBeenCalledWith(THIRD_PARTY_ATTESTATION_CONSENT);
     expect(mockGrantConsent).toHaveBeenCalledTimes(3);
+  });
+});
+
+// V23-10 (second artboard): the gate's drawn state. Structural claims about which tone each
+// node takes; the visual match is the screenshot pass.
+describe('V23-10 structure', () => {
+  function boxOf(testID: string): TestInstance {
+    // The Pressable's first child is the drawn 20 pt square; the sentence is the second.
+    return screen.getByTestId(testID).children[0] as TestInstance;
+  }
+
+  it('draws an unticked box ruled in `line` on `bgRaised`, and a ticked one filled `ink` with the check glyph', async () => {
+    await renderAtHealthPhase();
+
+    const before = StyleSheet.flatten(boxOf('consent-checkbox').props.style);
+    expect(before.width).toBe(Layout.consentCheckbox);
+    expect(before.borderColor).toBe(Ink.line);
+    expect(before.backgroundColor).toBe(Ink.bgRaised);
+    expect(screen.queryByTestId('consent-check-glyph', { includeHiddenElements: true })).toBeNull();
+
+    await press('consent-checkbox');
+
+    const after = StyleSheet.flatten(boxOf('consent-checkbox').props.style);
+    expect(after.borderColor).toBe(Ink.ink);
+    expect(after.backgroundColor).toBe(Ink.ink);
+    expect(screen.getByTestId('consent-check-glyph', { includeHiddenElements: true })).toBeTruthy();
+  });
+
+  it('renders the disabled primary as the page\'s solid `ink3` block, and the enabled one as the `accent` fill', async () => {
+    await renderAtHealthPhase();
+
+    expect(StyleSheet.flatten(screen.getByTestId('consent-cta-primary').props.style).backgroundColor).toBe(Ink.ink3);
+
+    await press('consent-checkbox');
+    await press('consent-age-checkbox');
+
+    expect(StyleSheet.flatten(screen.getByTestId('consent-cta-primary').props.style).backgroundColor).toBe(Ink.accent);
+  });
+
+  it('shows the privacy link and a 44 pt Cancel link under the primary', async () => {
+    await renderAtHealthPhase();
+
+    expect(screen.getByText(Copy.consent.upload.link.privacy)).toBeTruthy();
+    const cancel = StyleSheet.flatten(screen.getByTestId('consent-cta-secondary').props.style);
+    expect(cancel.minHeight).toBe(Layout.hitTarget);
+    expect(cancel.backgroundColor).toBeUndefined();
+  });
+
+  it('draws the subject options as radio-role squares that hold an `ink` mark once selected', async () => {
+    await renderAtSubjectPhase();
+
+    const me = screen.getByTestId('consent-subject-option-me');
+    expect(me.props.accessibilityRole).toBe('radio');
+    expect(boxOf('consent-subject-option-me').children).toHaveLength(0);
+
+    await press('consent-subject-option-me');
+
+    expect(StyleSheet.flatten(boxOf('consent-subject-option-me').props.style).borderColor).toBe(Ink.ink);
+    expect(boxOf('consent-subject-option-me').children).toHaveLength(1);
+    expect(me.props.accessibilityState).toEqual({ checked: true });
   });
 });

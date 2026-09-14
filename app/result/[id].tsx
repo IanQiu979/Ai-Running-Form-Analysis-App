@@ -20,20 +20,15 @@
  * which is why the logic worth proving lives in `lib/`, not here (screens aren't unit-tested by
  * convention).
  *
- * SCOPE NOTE on the hero frame: the design brief's "annotated frame" (a ground rule + posture
- * line + landing marker drawn over the photo) is not rendered here — the `@shared/pace` contract
- * carries no coordinate data for one, and drawing invented overlay geometry would be exactly the
- * kind of fabrication this issue exists to refuse (see `components/pace-readout.tsx`'s header).
- * Redesign spec `docs/superpowers/specs/2026-07-26-redesign-design.md` §4 does schedule those
- * three hairlines as Phase 2's "moment 3", drawn as fixed geometry rather than per-joint
- * landmarks — that is a separate plan, and nothing on this screen animates today.
- *
- * REDESIGN PHASE 1 (spec §3, plan `docs/superpowers/plans/2026-07-26-redesign-phase-1-static-
- * layer.md`): the stored frame now renders through `<DuotoneFrame>` — full-bleed and graded
- * toward the warm base instead of inset as a rounded thumbnail — and the readout sits inside a
- * `<SurfaceCard>` (formerly `<NotchedCard>`, superseded by the 2026-08-02 Calm redesign — see
- * `docs/architecture.md`). Both are static; the alt text, the disclaimer footer, and every
- * accessibility label are unchanged. This is the only screen Phase 1 restyles.
+ * THE HERO (V23-08): the stored frame is the first thing on the screen — full-bleed, edge to
+ * edge, reaching the very top of the device with no safe-area inset above it, at the page's 3:4
+ * box — graded through `<DuotoneFrame>`, with the page's three fixed annotation marks
+ * (`<AnnotationLines>`: ground rule, dashed posture line, landing marker) and an inset vignette
+ * drawn over it. The marks are art, not measurement: `@shared/pace` carries no coordinate data,
+ * and drawing invented per-joint geometry would be exactly the kind of fabrication this screen
+ * refuses. When there is no image the page's placeholder gradient takes the frame's place and
+ * the marks and vignette still draw over it; while a signed URL is in flight the same box holds a
+ * quiet spinner, so the readout below never jumps when the image lands.
  *
  * MOTION (issue #61): `justAnalyzed` is read straight off the route params and forwarded to
  * `<PaceReadout>` as `firstReveal` — nothing else on this screen branches on it. Both writers of
@@ -42,50 +37,30 @@
  * nav param ... set immediately after the analyze call succeeds ... never derived from
  * AsyncStorage or a DB field, so it can't replay after relaunch nor suppress a genuine first
  * view." A plain re-open from Past Analyses never sets it, so `firstReveal` defaults to false
- * there and `<PaceReadout>` renders its ordinary static, finished state.
- *
- * THE HERO'S APERTURE (2026-08-02, captain's instruction): `<Aperture>` wraps — never replaces —
- * `<DuotoneFrame>`. Its permanent vignette is the still state; its iris and rack focus play once, on
- * a fresh analysis only, and the annotation wireframe is held back by `Motion.duration.epic` so the
- * two animations run in sequence rather than on top of each other. See `components/aperture.tsx`'s
- * header for why the two treatments compose rather than fight, and why it had to be rebuilt from
- * its description rather than recovered from git.
+ * there and `<PaceReadout>` renders its ordinary static, finished state. The page is otherwise
+ * static: the bar fill in the readout is the only motion on it, and the hero does not animate.
  *
  * MOTION (issue #61) — the scroll container: motion-consult.md item 5, "build on Reanimated's
  * `Animated.ScrollView` + `useAnimatedRef` from day one (zero effects wired now) so the post-MVP
  * scroll-driven phase is additive, not a container swap." `scrollRef` below has no reader yet —
  * this is that plumbing, not new visible motion.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedRef } from 'react-native-reanimated';
+import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
 
-import { ArcLoader } from '@/components/arc-loader';
-import { Aperture } from '@/components/aperture';
+import { AnnotationLines } from '@/components/annotation-lines';
 import { DuotoneFrame } from '@/components/duotone-frame';
 import { PartialResultBanner } from '@/components/partial-result-banner';
 import { PaceReadout } from '@/components/pace-readout';
 import { ResultDisclaimer } from '@/components/result-disclaimer';
-import { PillButton } from '@/components/ui/pill-button';
-import { ScreenGradient } from '@/components/ui/screen-gradient';
-import { SurfaceCard } from '@/components/ui/surface-card';
+import { SquareButton } from '@/components/ui/square-button';
+import { SquareCard } from '@/components/ui/square-card';
 import { Copy } from '@/constants/copy';
-import {
-  Colors,
-  ContentWidth,
-  FontFamily,
-  FontSize,
-  LineHeight,
-  Motion,
-  Radius,
-  Spacing,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { readAnalysisRow, type AnalysisRow } from '@/lib/analysis-result';
 import { countAssessedPillars } from '@/lib/pace-readout';
 import {
@@ -104,17 +79,24 @@ const HERO_SIGNED_URL_TTL_SECONDS = 60 * 60;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** `<DuotoneFrame>`'s own fixed aspect — the hero placeholder below reserves the identical box, so
- *  the real frame arrives into space already held for it and nothing under it moves. Mirrored from
- *  `components/duotone-frame.tsx`'s `FRAME_ASPECT_RATIO` rather than imported: that constant is
- *  private to the component, and the placeholder's job is to match what the frame RENDERS as, not
- *  to couple this screen to its internals. */
+/** The page's hero box: `aspect-ratio: 3/4` at full width. `<DuotoneFrame>` renders at the same
+ *  ratio, so the frame fills the box exactly and the placeholder, the pending spinner and the real
+ *  image all occupy one identical box — nothing below the hero moves when the image lands. */
 const HERO_ASPECT_RATIO = 3 / 4;
 
-/** The wait mark inside that placeholder. Composition, not a token (same rule `<ArcRing>`'s own
- *  header states for ring sizes): it is sized to read as a mark inside a hero-sized box, larger
- *  than the 88pt cold-load mark on the bare screen, and no other screen wants this size. */
-const HERO_PENDING_MARK_SIZE = 120;
+/** The page's vignette: `box-shadow: inset 0 0 120px 40px rgba(10,10,10,.75)` — clear at the
+ *  centre, `Ink.bg` at 75 % at the edges. Drawn as a radial gradient over the hero box; the ids
+ *  are page-unique so two `<Defs>` in one screen can never collide. */
+const VIGNETTE_ID = 'result-hero-vignette';
+const VIGNETTE_EDGE_OPACITY = 0.75;
+/** Where the falloff begins, as a fraction of the gradient radius. The page's shadow has a 40 px
+ *  spread and a 120 px blur inside a 393 x 524 box, so the middle of the frame stays clear and
+ *  the darkening lives in the outer third. */
+const VIGNETTE_CLEAR_STOP = 0.55;
+const VIGNETTE_RADIUS = '72%';
+/** The page's no-image placeholder: `linear-gradient(180deg, #1E1E1E 0%, #101010 100%)` —
+ *  `Ink.bgPlaceholder` at the top to `Ink.bg` at the bottom, the closest token pair. */
+const PLACEHOLDER_ID = 'result-hero-placeholder';
 
 type ScreenState =
   | { status: 'loading' }
@@ -124,10 +106,9 @@ type ScreenState =
       status: 'ready';
       outcome: PaceAnalysisOutcome;
       heroUri: string | null;
-      /** True only while a `heroPath` exists and its signed-URL resolution is still in flight.
-       * Phase 2 plan Task 5 needs this distinguished from "resolved to null" (no image at all) —
-       * `annotationsDone`'s fallback below only fires once resolution has actually finished,
-       * never while a real hero is still on its way in. */
+      /** True only while a `heroPath` exists and its signed-URL resolution is still in flight —
+       * distinguished from "resolved to null" (no image at all) so the hero box can hold a
+       * spinner for an image on its way in and the placeholder gradient for one that never comes. */
       heroPending: boolean;
       /** M3 (v23-ux-audit-r1): threaded through to `<PartialResultBanner>` so its copy can say
        * "photo" instead of always "clip". */
@@ -173,13 +154,7 @@ async function resolveHeroImageUri(path: string): Promise<string | null> {
 }
 
 export default function ResultScreen() {
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  // Issue #63 — see `heroInset` below. The hero is the one node on this screen that has to know
-  // whether the readable-column cap is actually engaged.
-  const { width: windowWidth } = useWindowDimensions();
-  const heroIsInset = ContentWidth.isCapped(windowWidth);
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string | string[]; justAnalyzed?: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -188,13 +163,6 @@ export default function ResultScreen() {
   const justAnalyzed = (Array.isArray(params.justAnalyzed) ? params.justAnalyzed[0] : params.justAnalyzed) === '1';
   // See this file's header (motion-consult.md item 5) — unread today, on purpose.
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
-
-  // Moment 3 sequencing (Phase 2 plan Task 5, spec 2026-07-26 §4): "annotations draw, THEN the
-  // bars fill." A re-open (`!justAnalyzed`) has nothing to wait for — the hero's lines render
-  // already fully drawn (see DuotoneFrame's `playAnnotation` default) — so this starts `true` in
-  // that case and only starts `false`, waiting on the callback below, on a fresh analysis's first
-  // open.
-  const [annotationsDone, setAnnotationsDone] = useState(!justAnalyzed);
 
   const [state, setState] = useState<ScreenState>({ status: 'loading' });
   const activeFlagRef = useRef<ActiveFlag>({ active: false });
@@ -323,258 +291,190 @@ export default function ResultScreen() {
     load(activeFlagRef.current);
   }
 
+  // Everything below the hero pays the bottom inset; the hero itself reaches the top of the
+  // device, so there is no top inset anywhere on this screen.
+  const bottomInset = Math.max(insets.bottom, Layout.canvas.safeBottom);
+
   if (state.status === 'loading') {
     return (
-      <ScreenGradient>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.centerBlock}>
-            {/* Cadence Arcs (2026-09-01): the motif's own wait state, replacing the stock
-                spinner. Indeterminate by construction — `<ArcLoader>` draws nothing that
-                could be read as progress, and the live-region caption beside it is what
-                actually says what is happening. */}
-            <ArcLoader size={88} testID="result-loading" />
-            {/* `text.primary`, not secondary: this sits directly on the page wash, which
-                `Gradient`'s contract (constants/theme.ts) proves for the primary tone only. */}
-            <Text style={styles.onWashCaption} accessibilityLiveRegion="polite">
-              {Copy.result.loadingFromHistory}
-            </Text>
-          </View>
-        </SafeAreaView>
-      </ScreenGradient>
+      <View style={styles.screen}>
+        <View
+          style={[
+            styles.centerBlock,
+            { paddingTop: Math.max(insets.top, Layout.canvas.safeTop), paddingBottom: bottomInset },
+          ]}>
+          {/* Not drawn on the page: the quietest faithful wait state — a small spinner and the
+              live-region caption that actually says what is happening. */}
+          <ActivityIndicator color={Ink.ink2} testID="result-loading" />
+          <Text style={[Type.body, styles.ink, styles.centered]} accessibilityLiveRegion="polite">
+            {Copy.result.loadingFromHistory}
+          </Text>
+        </View>
+      </View>
     );
   }
 
   if (state.status === 'loadFailed' || state.status === 'unavailable') {
     const message = state.status === 'loadFailed' ? Copy.result.error.loadFailed : Copy.result.error.notFound;
     return (
-      <ScreenGradient>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.centerBlock}>
-            <Text style={styles.errorText} accessibilityLiveRegion="polite">
-              {message}
-            </Text>
-            {/* Retry/Cancel must never trap the user in a dead end (issue #56) — both actions are
-                always offered together, regardless of which error this is. */}
-            <PillButton label={Copy.result.cta.done} onPress={goHome} style={styles.errorAction} />
-            <PillButton variant="ghost" label={Copy.result.error.retry} onPress={retry} />
-          </View>
-        </SafeAreaView>
-      </ScreenGradient>
+      <View style={styles.screen}>
+        <View
+          style={[
+            styles.centerBlock,
+            { paddingTop: Math.max(insets.top, Layout.canvas.safeTop), paddingBottom: bottomInset },
+          ]}>
+          <Text style={[Type.h2, styles.ink, styles.centered]} accessibilityLiveRegion="polite">
+            {message}
+          </Text>
+          {/* Retry/Cancel must never trap the user in a dead end (issue #56) — both actions are
+              always offered together, regardless of which error this is. */}
+          <SquareButton label={Copy.result.cta.done} onPress={goHome} style={styles.errorAction} />
+          <SquareButton variant="link" label={Copy.result.error.retry} onPress={retry} />
+        </View>
+      </View>
     );
   }
 
   const { outcome, heroUri, heroPending, mediaType } = state;
   const assessedCount = countAssessedPillars(outcome.result);
-  // Moment 3 sequencing (Phase 2 plan Task 5): if there is no hero to draw on at all — resolution
-  // finished and came back with nothing (`!heroPending && !heroUri`) — there is nothing for the
-  // readout to wait on, so it reveals as if the (nonexistent) annotations already finished. While
-  // a real hero is still resolving (`heroPending`), this stays false and the readout keeps waiting
-  // for `DuotoneFrame`'s actual `onAnnotationComplete` callback instead.
-  const revealReady = annotationsDone || (!heroPending && !heroUri);
 
   return (
-    <ScreenGradient>
-      <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
-        <Animated.ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
-          {/* THE HERO, and the biggest composition change on this screen. It is now the first
-              thing on it — full-bleed, edge to edge, reaching the very top of the device with no
-              safe-area inset above it (hence `edges` excluding 'top' on the SafeAreaView) and
-              rounding only at its bottom corners, so the frame reads as a window the content
-              hangs from rather than as a picture pasted into a padded column. That is the
-              breakthroughenergy.org treatment: real footage, graded into the palette, at a scale
-              that commits. The duotone grade and the three assembling annotation hairlines are
-              unchanged from Phase 2 — the wireframe-onto-a-real-photo idea was already here, and
-              this pass gives it the scale it was drawn for.
-
-              The partial-result banner now sits BELOW the hero rather than above it. It is a
-              disclosure about the readout, and the readout is what follows it; putting it above
-              the image used to push the hero down and make the honesty notice read as a page
-              header. Nothing about when it shows has changed. */}
-          {/* THE APERTURE (restored 2026-08-02 on the captain's instruction). It wraps the hero
-              rather than replacing anything: `<DuotoneFrame>`'s grade and its three assembling
-              hairlines are untouched, and the aperture adds the lens the jeskojets reference is
-              about — a permanent vignette, plus a six-bladed iris and a rack focus that play once
-              on a fresh analysis. The three treatments are SEQUENCED, not stacked: the iris opens
-              onto a photo pulling into focus, and only then does the wireframe draw onto it
-              (`annotationDelayMs`). Drawing the wireframe underneath a shut iris was the one way
-              these could genuinely have fought each other, and the delay is what avoids it.
-              `open` follows `justAnalyzed` for exactly the same reason `playAnnotation` does — a
-              re-open from Past Analyses is not a first reveal, so it gets the still, already-open
-              aperture and the vignette alone. */}
-          {/* THE HERO'S OWN PENDING STATE (Cadence Arcs, 2026-09-01). `heroPending` was already
-              tracked — for the reveal gate — but nothing rendered for it, so a stored result
-              opened cold laid the readout out against the top of the screen and then, one signed
-              URL later, shoved the whole page down by the hero's full height. That is a layout
-              jump, not a reveal.
-
-              The placeholder reserves the EXACT box the frame will occupy (the same
-              `width: 100%` at `DuotoneFrame`'s own 3:4 aspect, inside the same bleed/inset
-              wrapper), so the image arrives into space already held for it and nothing below it
-              moves. Inside it, the motif's own wait mark — the same `<ArcLoader>` this screen's
-              cold-load state uses, at the same indeterminate contract: it says the frame is
-              coming, never how far along it is.
-
-              Decorative, and hidden from the a11y tree: a screen reader has nothing to gain from
-              "an image is loading" here — the result itself is already rendered and readable
-              below, which is the whole reason this is a placeholder and not a blocking state. */}
+    <View style={styles.screen}>
+      <Animated.ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
+        {/* THE HERO — the page's 3:4 box, first on the screen and edge to edge. Three layers in
+            the page's order: the frame (or, with no image, the placeholder gradient; or, while
+            the signed URL is in flight, a spinner in the same box), the fixed annotation marks,
+            and the vignette. One box for all three cases, so the readout below is laid out once
+            and never shoved down when the image lands. */}
+        <View style={styles.hero}>
           {heroUri ? (
-            <View style={[styles.heroBleed, heroIsInset && styles.heroInset]}>
-              <Aperture testID="result-hero-aperture" open={justAnalyzed}>
-                <DuotoneFrame
-                  testID="result-hero-image"
-                  uri={heroUri}
-                  accessibilityLabel={Copy.result.hero.altText}
-                  annotate
-                  playAnnotation={justAnalyzed}
-                  annotationDelayMs={justAnalyzed ? Motion.duration.epic : 0}
-                  onAnnotationComplete={() => setAnnotationsDone(true)}
-                />
-              </Aperture>
-            </View>
+            <DuotoneFrame testID="result-hero-image" uri={heroUri} accessibilityLabel={Copy.result.hero.altText} />
           ) : heroPending ? (
+            // Decorative, and hidden from the a11y tree: a screen reader has nothing to gain
+            // from "an image is loading" — the result itself is already readable below.
             <View
               testID="result-hero-pending"
-              style={[styles.heroBleed, styles.heroPlaceholder, heroIsInset && styles.heroInset]}
+              style={[StyleSheet.absoluteFill, styles.heroPending]}
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants">
-              <ArcLoader size={HERO_PENDING_MARK_SIZE} />
+              <ActivityIndicator color={Ink.ink2} />
             </View>
+          ) : (
+            <Svg
+              testID="result-hero-placeholder"
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants">
+              <Defs>
+                <LinearGradient id={PLACEHOLDER_ID} x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset={0} stopColor={Ink.bgPlaceholder} />
+                  <Stop offset={1} stopColor={Ink.bg} />
+                </LinearGradient>
+              </Defs>
+              <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${PLACEHOLDER_ID})`} />
+            </Svg>
+          )}
+          {heroPending ? null : (
+            <>
+              <AnnotationLines testID="result-hero-annotations" />
+              <Svg
+                testID="result-hero-vignette"
+                style={StyleSheet.absoluteFill}
+                pointerEvents="none"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants">
+                <Defs>
+                  <RadialGradient id={VIGNETTE_ID} cx="50%" cy="50%" r={VIGNETTE_RADIUS}>
+                    <Stop offset={VIGNETTE_CLEAR_STOP} stopColor={Ink.bg} stopOpacity={0} />
+                    <Stop offset={1} stopColor={Ink.bg} stopOpacity={VIGNETTE_EDGE_OPACITY} />
+                  </RadialGradient>
+                </Defs>
+                <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${VIGNETTE_ID})`} />
+              </Svg>
+            </>
+          )}
+        </View>
+
+        <View style={[styles.column, { paddingBottom: bottomInset }]}>
+          {/* Deliberately NO screen title here. The copy deck defines no `result.title` key,
+              and the readout's own "Overall" label + numeral already are this screen's heading —
+              adding a second one would mean inventing copy the deck has not certified. */}
+          {/* M2 (v23-ux-audit-r1): gated on the pillar count actually scored, not on the
+              server's `isFallback` flag — a legitimate photo submission can score 2 of 4
+              pillars with `isFallback: false` (motion-over-time pillars a still can't show),
+              and that is exactly the case this banner exists to disclose. */}
+          {assessedCount < 4 ? <PartialResultBanner assessedCount={assessedCount} mediaType={mediaType} /> : null}
+
+          <SquareCard padding={Layout.cardPaddingLg} testID="result-readout-card" style={styles.readoutCard}>
+            {/* `revealReady` is simply true: the hero no longer animates, so there is nothing
+                for the bars to wait on beyond the readout's own first layout. */}
+            <PaceReadout result={outcome.result} firstReveal={justAnalyzed} revealReady />
+          </SquareCard>
+
+          <ResultDisclaimer />
+
+          {/* H5 (v23-ux-audit-r1): a zero-pillar result used to offer only "Back to Home" — a
+              dead end for a Free user whose one-ever analysis was just spent on nothing. */}
+          {assessedCount === 0 ? (
+            <SquareButton label={Copy.result.cta.tryAnother} onPress={goToCapture} testID="result-try-another" />
           ) : null}
-
-          <View style={styles.column}>
-            {/* Deliberately NO screen title here. The copy deck defines no `result.title` key,
-                and the readout's own "Overall" eyebrow + hero numeral already are this screen's
-                heading — adding a second one would mean inventing copy the deck has not
-                certified. The per-word kinetic reveal this screen would have spent on a title
-                goes to the coaching prose inside `<PaceReadout>` instead, which is the one place
-                on this screen where the words genuinely are the product. */}
-            {/* M2 (v23-ux-audit-r1): gated on the pillar count actually scored, not on the
-                server's `isFallback` flag — a legitimate photo submission can score 2 of 4
-                pillars with `isFallback: false` (motion-over-time pillars a still can't show),
-                and that is exactly the case this banner exists to disclose. */}
-            {assessedCount < 4 ? <PartialResultBanner assessedCount={assessedCount} mediaType={mediaType} /> : null}
-
-            <SurfaceCard tone="raised" testID="result-readout-card">
-              <PaceReadout result={outcome.result} firstReveal={justAnalyzed} revealReady={revealReady} />
-            </SurfaceCard>
-
-            <ResultDisclaimer />
-
-            {/* H5 (v23-ux-audit-r1): a zero-pillar result used to offer only "Back to Home" — a
-                dead end for a Free user whose one-ever analysis was just spent on nothing. */}
-            {assessedCount === 0 ? (
-              <PillButton label={Copy.result.cta.tryAnother} onPress={goToCapture} testID="result-try-another" />
-            ) : null}
-            <PillButton
-              variant={assessedCount === 0 ? 'ghost' : 'primary'}
-              label={Copy.result.cta.done}
-              onPress={goHome}
-              testID="result-done"
-            />
-          </View>
-        </Animated.ScrollView>
-      </SafeAreaView>
-    </ScreenGradient>
+          <SquareButton
+            variant={assessedCount === 0 ? 'link' : 'primary'}
+            label={Copy.result.cta.done}
+            onPress={goHome}
+            testID="result-done"
+          />
+        </View>
+      </Animated.ScrollView>
+    </View>
   );
 }
 
-function createStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      // Transparent — `<ScreenGradient>` behind it owns the fill. See app/(tabs)/index.tsx's own
-      // note on the same line.
-      backgroundColor: 'transparent',
-    },
-    content: {
-      flexGrow: 1,
-      // NO horizontal padding here any more: the hero is a direct child and must bleed. The
-      // readable column below re-applies it for everything that is not the hero.
-      paddingBottom: Spacing.xxl,
-    },
-    column: {
-      alignSelf: 'center',
-      gap: Spacing.xl,
-      maxWidth: ContentWidth.readable,
-      paddingHorizontal: Spacing.xl,
-      // The one editorial gap (spec §3.4), now measured from the hero's bottom edge to the first
-      // thing under it rather than added as a margin on the hero itself.
-      paddingTop: Spacing.editorial,
-      width: '100%',
-    },
-    centerBlock: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: Spacing.lg,
-      padding: Spacing.xl,
-    },
-    onWashCaption: {
-      // `text.primary`: this Text sits directly on the page gradient, which is proven for the
-      // primary tone only (`Gradient`'s contract, constants/theme.ts). It was `text.secondary`
-      // when the backdrop was the flat, fully-proven `background`.
-      color: colors.text.primary,
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.md,
-      lineHeight: FontSize.md * LineHeight.body,
-      textAlign: 'center',
-    },
-    errorText: {
-      color: colors.text.primary,
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xl * LineHeight.heading,
-      textAlign: 'center',
-    },
-    errorAction: {
-      marginTop: Spacing.sm,
-      maxWidth: ContentWidth.readable,
-      width: '100%',
-    },
-    // Applied WITH `heroBleed` (and `heroInset` where the cap engages), so the placeholder and the
-    // real frame share one set of corners and one set of bounds. `surface.base`, not the wash: this
-    // is an opaque panel standing in for opaque media, and a translucent one would let the gradient
-    // read through the box the image is about to fill.
-    heroPlaceholder: {
-      alignItems: 'center',
-      aspectRatio: HERO_ASPECT_RATIO,
-      backgroundColor: colors.surface.base,
-      justifyContent: 'center',
-      width: '100%',
-    },
-    heroBleed: {
-      // Full-bleed, and now edge-to-edge at the TOP of the screen as well: the content container
-      // no longer pads horizontally, and the SafeAreaView excludes its 'top' edge, so the frame
-      // reaches the device's own corner. Only the bottom corners round, so the image reads as a
-      // window the page hangs from.
-      borderBottomLeftRadius: Radius.hero,
-      borderBottomRightRadius: Radius.hero,
-      overflow: 'hidden',
-    },
-    // Applied ON TOP of heroBleed only on a viewport wider than the readable column (issue #63).
-    //
-    // `<DuotoneFrame>` is `width: '100%'` at a fixed 3:4 aspect, so its HEIGHT is the viewport
-    // width times 1.33. On a phone that is the designed proportion — 524pt of an iPhone 15 Pro's
-    // 852pt viewport, about 60%. On an 11" iPad in portrait it is 834 -> 1112pt of a 1194pt
-    // viewport, about 93%: the PACE readout — the entire product — is pushed clean below the fold
-    // and the first screenful is one enormous photo. This is the one place in the app where a wide
-    // viewport is made worse by the ABSENCE of the cap rather than by the cap itself.
-    //
-    // Capping restores the phone proportion (560 x 747) and lines the hero up with the column
-    // below it, so the screen reads as one deliberate column instead of a photo with a caption.
-    // The top corners round here too: at phone width the square top edge IS the bleed, but an
-    // inset card with two square corners just looks unfinished.
-    //
-    // NOT solved with a `maxHeight` crop instead: `components/duotone-frame.tsx` positions its
-    // three annotation hairlines in PERCENTAGES of the frame, so cropping the frame would slide
-    // the wireframe off the anatomy it is annotating.
-    heroInset: {
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      borderTopLeftRadius: Radius.hero,
-      borderTopRightRadius: Radius.hero,
-    },
-  });
-}
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: Ink.bg,
+  },
+  content: {
+    // NO horizontal padding here: the hero is a direct child and must bleed. The column below
+    // re-applies the gutter for everything that is not the hero.
+    flexGrow: 1,
+  },
+  hero: {
+    aspectRatio: HERO_ASPECT_RATIO,
+    backgroundColor: Ink.bgRaised,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  heroPending: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  column: {
+    gap: Space.xl,
+    paddingHorizontal: Layout.gutter,
+    // The page's `padding: 40px 24px 34px` — the 40 measured from the hero's bottom edge to the
+    // first card under it; the 34 is the design minimum the live bottom inset is held to.
+    paddingTop: Space.section,
+  },
+  readoutCard: {
+    gap: Space.xl,
+  },
+  centerBlock: {
+    alignItems: 'center',
+    flex: 1,
+    gap: Space.lg,
+    justifyContent: 'center',
+    paddingHorizontal: Layout.gutter,
+  },
+  ink: {
+    color: Ink.ink,
+  },
+  centered: {
+    textAlign: 'center',
+  },
+  errorAction: {
+    marginTop: Space.sm,
+  },
+});

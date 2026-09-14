@@ -28,7 +28,7 @@
  *
  * Naming is by role, never by appearance, so a value can move without a call site changing.
  */
-import type { TextStyle } from 'react-native';
+import { Platform, type TextStyle } from 'react-native';
 
 // -------------------------------------------------------------------------------------------
 // Colour — the page's eight swatches, in its order. Black, white and grey only; `danger` is the
@@ -54,6 +54,29 @@ export const Ink = {
   onAccent: '#0A0A0A',
   /** Errors only. */
   danger: '#E5484D',
+  /** The one card that is "this one" among siblings — V23-11's current-plan card. A half step
+   *  above `bgRaised`; still a surface, never a text tone. */
+  bgSelected: '#1A1A1A',
+  /** A box waiting for an image (V23-09's frame deck before its signed URLs land). Sits above a
+   *  `bgRaised` card so the empty cell still reads as a cell. Decorative only. */
+  bgPlaceholder: '#1E1E1E',
+} as const;
+
+/**
+ * The two translucent values the lane-2 pages draw (V23-07's floating tab bar and V23-09/12's
+ * dimmed backdrop under a confirm dialog). Kept OUT of `Ink` on purpose: `Ink` is the sheet's
+ * eight opaque swatches and the contrast test reads every entry as a hex triplet. Neither of
+ * these ever carries text of its own — the tab bar's labels are proven on the opaque `bgRaised`
+ * the blur resolves toward, and a dialog's text sits on its own `bgRaised` card.
+ */
+export const Chrome = {
+  /** V23-07's tab bar: `rgba(20,20,20,.85)` over a 16 pt backdrop blur, ruled in `line`. */
+  tabBar: 'rgba(20,20,20,0.85)',
+  tabBarBlur: 16,
+  /** What sits over a screen while a confirm dialog is up. The pages draw it as
+   *  `filter: brightness(.4)` on the content; a 60 % black scrim over the same content lands on
+   *  the same luminance without a filter primitive RN does not have. */
+  scrim: 'rgba(10,10,10,0.6)',
 } as const;
 
 // -------------------------------------------------------------------------------------------
@@ -72,6 +95,9 @@ export const Font = {
     medium: 'InterTight_500Medium',
     semiBold: 'InterTight_600SemiBold',
   },
+  /** The pages' `ui-monospace, Menlo, monospace` — the platform's own mono, nothing loaded.
+   *  Dates, quota counts, prices, the recording clock: a measured value reads in mono. */
+  mono: Platform.select({ ios: 'Menlo', default: 'monospace' }),
 } as const;
 
 /**
@@ -83,6 +109,24 @@ export const Font = {
  * Uppercase is a property of exactly two roles — `display` and `label` — and nothing else.
  */
 export const Type = {
+  /** Score 96/96 · Barlow Condensed 800 · tabular · +2 % (1.92 pt). The overall numeral on
+   *  Home's recent card and the result's Overall block (V23-07 / V23-08). */
+  score: {
+    fontFamily: Font.condensed.extraBold,
+    fontSize: 96,
+    lineHeight: 96,
+    letterSpacing: 1.92,
+    fontVariant: ['tabular-nums'],
+  },
+  /** Score 64/64 · Barlow Condensed 800 · tabular · +2 % (1.28 pt). The pillar detail modal's
+   *  numeral (V23-08, third artboard). */
+  scoreMd: {
+    fontFamily: Font.condensed.extraBold,
+    fontSize: 64,
+    lineHeight: 64,
+    letterSpacing: 1.28,
+    fontVariant: ['tabular-nums'],
+  },
   /** Display 40/44 · Barlow Condensed 800 · uppercase · +2 % (0.8 pt). Screen titles. */
   display: {
     fontFamily: Font.condensed.extraBold,
@@ -90,6 +134,25 @@ export const Type = {
     lineHeight: 44,
     letterSpacing: 0.8,
     textTransform: 'uppercase',
+  },
+  /** Display, one step down: 32/36 · Barlow Condensed 800 · uppercase · +2 % (0.64 pt). The
+   *  consent gate's "Before you upload" and the paywall's "Choose a plan" (V23-10 / V23-11). */
+  displaySm: {
+    fontFamily: Font.condensed.extraBold,
+    fontSize: 32,
+    lineHeight: 36,
+    letterSpacing: 0.64,
+    textTransform: 'uppercase',
+  },
+  /** Display numeral 40/44 · Barlow Condensed 800 · tabular · +2 % (0.8 pt). `display` without
+   *  the uppercase: a pillar's letter on the result rows and the history row's overall numeral
+   *  (V23-08 / V23-09). */
+  displayFigure: {
+    fontFamily: Font.condensed.extraBold,
+    fontSize: 40,
+    lineHeight: 44,
+    letterSpacing: 0.8,
+    fontVariant: ['tabular-nums'],
   },
   /** H1 28/32 · Barlow Condensed 700 · sentence case. */
   h1: {
@@ -102,6 +165,12 @@ export const Type = {
     fontFamily: Font.tight.semiBold,
     fontSize: 20,
     lineHeight: 24,
+  },
+  /** Pillar letter 28/32 · Barlow Condensed 800. Home's P / A / C / E row (V23-07). */
+  letter: {
+    fontFamily: Font.condensed.extraBold,
+    fontSize: 28,
+    lineHeight: 32,
   },
   /** Body 16/24 · Inter Tight 400. Paragraphs, inputs, status lines. */
   body: {
@@ -126,11 +195,66 @@ export const Type = {
     fontSize: 13,
     lineHeight: 16,
   },
+  /** Body, small: 14/20 · Inter Tight 400. The consent gate's checkbox lines (V23-10). */
+  bodySm: {
+    fontFamily: Font.tight.regular,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  /** 14/20 · Inter Tight 500. The history row's underlined "Delete" word (V23-09). */
+  bodySmMedium: {
+    fontFamily: Font.tight.medium,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  /** 14/20 · Inter Tight 600. A risk flag's or drill's name in the pillar detail (V23-08). */
+  bodySmSemi: {
+    fontFamily: Font.tight.semiBold,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  /** Note 13/18 · Inter Tight 400. A card's supporting sentence — the source picker's
+   *  subtitles, a tier's detail, a not-assessed reason, the privacy body (V23-08..12). Same size
+   *  as `small`, two points more leading, because it runs to several lines. */
+  note: {
+    fontFamily: Font.tight.regular,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  /** Mono 13/16 · the platform mono, 400. Dates, quota captions, prices, the record clock. */
+  mono: {
+    fontFamily: Font.mono,
+    fontSize: 13,
+    lineHeight: 16,
+  },
+  /** Footnote 12/18 · Inter Tight 400. The result disclaimer, the framing tip, the paywall's
+   *  closing line (V23-08 / V23-10 / V23-11). */
+  footnote: {
+    fontFamily: Font.tight.regular,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  /** Tab label 11/12 · Inter Tight 500 · uppercase · +6 % (0.66 pt). The tab bar only. */
+  tab: {
+    fontFamily: Font.tight.medium,
+    fontSize: 11,
+    lineHeight: 12,
+    letterSpacing: 0.66,
+    textTransform: 'uppercase',
+  },
   /** Fine print 11/14 · Inter Tight 400. The sign-up consent line. */
   fine: {
     fontFamily: Font.tight.regular,
     fontSize: 11,
     lineHeight: 14,
+  },
+  /** Metric, small: 20/24 · Barlow Condensed 700 · tabular. The four pillar scores under their
+   *  letters on Home's recent card (V23-07). */
+  metricSm: {
+    fontFamily: Font.condensed.bold,
+    fontSize: 20,
+    lineHeight: 24,
+    fontVariant: ['tabular-nums'],
   },
   /** Metric 32/36 · Barlow Condensed 700 · tabular figures. A number with its unit beside it in
    *  `body` + `ink2` (see `Type.metricUnit`). */
@@ -183,6 +307,31 @@ export const Layout = {
   controlHeight: 56,
   /** Padding inside a card or pillar box. */
   cardPadding: 16,
+  /** The larger card padding the lane-2 pages use for a screen's lead card (Home's recent
+   *  analysis, the result's Overall card, a tier card, a source card, a confirm dialog). */
+  cardPaddingLg: 24,
+  /** A screen's top chrome row (V23-07..12): the title line, the back / settings control. */
+  topBarHeight: 44,
+  /** A 44 pt icon control hangs 12 pt past the gutter so its GLYPH, not its box, aligns with
+   *  the column (`margin-right:-12px` on every page). */
+  iconBleed: 12,
+  /** A settings row (V23-12): label left, value or action right. */
+  rowHeight: 56,
+  /** The tab bar (V23-07 / V23-09): 64 pt tall, 16 pt in from each side, above the bottom inset. */
+  tabBar: { height: 64, inset: 16 },
+  /** The consent gate's checkbox (V23-10): a 20 pt drawn square. Larger than the sign-up
+   *  line's 12 pt `checkbox` because these lines are the screen, not a footer. */
+  consentCheckbox: 20,
+  /** The record screen's stop control (V23-10, third artboard): a 72 pt ring, 2 pt `ink`
+   *  border, with a 28 pt `danger` square inside. */
+  recordButton: { size: 72, border: 2, stop: 28 },
+  /** The source picker's icon badge (V23-10): a 56 pt square ruled in `line`. */
+  sourceBadge: 56,
+  /** V23-09's frame deck: three 44 pt squares, each overlapping the previous by half, ruled 2 pt
+   *  in the card's own fill so the overlap reads. */
+  frameDeck: { size: 44, overlap: 22, border: 2 },
+  /** The 2 pt score bar under a result pillar row (V23-08). */
+  scoreBar: 2,
   /** The 2 x 2 pillar grid's gap. */
   gridGap: 8,
   /** Minimum tappable square for a text-only or icon-only control (the open box's close). */
@@ -230,6 +379,8 @@ export const Motion = {
   stagger: { min: 40, item: 60, max: 80 },
   /** The page transition's vertical shift. */
   pageShift: 12,
+  /** Home's pillar ticker: one full loop of the strip every 18 s, linear, forever (V23-07). */
+  marqueeLoop: 18000,
 } as const;
 
 /** Every foreground role that is allowed to carry text a user must read. Exported so the
