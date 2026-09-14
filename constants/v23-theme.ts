@@ -2,7 +2,9 @@
  * V23-01 · Theme sheet — the design tokens of the 2026-09-13 redesign, transcribed from the
  * captain-approved Claude Design page (`V23-01 Theme sheet.dc.html`). Every value here is the
  * page's own; where the page and the older `design-animation-spec-2026-09-12.md` disagree, the
- * page wins.
+ * page wins. Both are out-of-repo Claude Design handoff artifacts — they live in the captain's
+ * external handoff folder beside the V23 pages and screenshots, not in this repository — so
+ * neither is a file to look for here; the "spec A.x" citations below point into that document.
  *
  * ONE SCHEME. This system is dark only — "everything is built on the black of the hero"
  * (spec A.0). There is no light palette to derive and no `useColorScheme` branch to take: a
