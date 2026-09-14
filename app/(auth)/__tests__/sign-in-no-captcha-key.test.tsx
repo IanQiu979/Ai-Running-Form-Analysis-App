@@ -55,6 +55,7 @@ jest.mock('@/lib/session-provider', () => ({
 
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), replace: jest.fn(), push: jest.fn() },
+  useLocalSearchParams: () => ({}),
 }));
 
 // Stubbed so that if the screen ever DID mount the widget with no site key, these testIDs would

@@ -10,9 +10,16 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 import { Copy } from '@/constants/copy';
 
+/** What the mocked `useLocalSearchParams` serves — empty (no `?mode=`) unless a test sets it. */
+let mockSearchParams: Record<string, string> = {};
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), replace: jest.fn(), push: jest.fn() },
+  useLocalSearchParams: () => mockSearchParams,
 }));
+
+beforeEach(() => {
+  mockSearchParams = {};
+});
 
 jest.mock('react-native-safe-area-context', () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -218,6 +225,93 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
 
     await waitFor(() => expect(view.getByText(Copy.auth.error.consentRequired)).toBeTruthy());
     expect(signInWithGoogle).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `?mode=signIn` seeds sign-in mode for the password-reset screens' "Back to sign in", so an
+ * expired-recovery-link user does not land on "Create account". Anything else is sign-up.
+ */
+describe('sign-in screen: the mode search param', () => {
+  it('opens in sign-in mode for ?mode=signIn — no checkbox, no widget', async () => {
+    mockSearchParams = { mode: 'signIn' };
+    const view = await render(<SignInScreen />);
+
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy()
+    );
+    expect(view.queryByRole('button', { name: Copy.auth.signUp.submit })).toBeNull();
+    expect(view.queryByRole('checkbox')).toBeNull();
+    expect(view.queryByTestId('mock-turnstile-token')).toBeNull();
+    expect(view.getByRole('button', { name: Copy.auth.reset.cta.forgotPassword })).toBeTruthy();
+  });
+
+  it('keeps the sign-up default for any other value', async () => {
+    mockSearchParams = { mode: 'signUp?' };
+    const view = await render(<SignInScreen />);
+
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeTruthy()
+    );
+    expect(view.getByRole('checkbox')).toBeTruthy();
+  });
+});
+
+/**
+ * Supabase OAuth creates a brand-new account for a Google identity it has never seen, in either
+ * mode — so "Continue with Google" from sign-in mode is an account creation too. The sign-in
+ * artboard draws no consent row at rest; the tap reveals it (same row, same testID as sign-up)
+ * and refuses OAuth until it is ticked. Once ticked, the tap proceeds.
+ */
+describe('sign-in screen: Continue with Google needs consent in sign-in mode too', () => {
+  beforeEach(() => {
+    jest.requireMock('@/lib/auth').signInWithGoogle.mockClear();
+  });
+
+  it('reveals the consent row and refuses OAuth until it is ticked', async () => {
+    const { signInWithGoogle } = jest.requireMock('@/lib/auth');
+    mockSearchParams = { mode: 'signIn' };
+    const view = await render(<SignInScreen />);
+
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy()
+    );
+    expect(view.queryByTestId('signup-consent')).toBeNull();
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.cta.google }));
+
+    await waitFor(() => {
+      expect(view.getByText(Copy.auth.error.consentRequired)).toBeTruthy();
+      expect(view.getByTestId('signup-consent')).toBeTruthy();
+    });
+    expect(signInWithGoogle).not.toHaveBeenCalled();
+    // Still sign-in mode: revealing consent must not flip the screen into sign-up.
+    expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy();
+
+    await fireEvent.press(view.getByTestId('signup-consent'));
+    await waitFor(() =>
+      expect(view.getByRole('checkbox').props.accessibilityState.checked).toBe(true)
+    );
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.cta.google }));
+
+    await waitFor(() => expect(signInWithGoogle).toHaveBeenCalledTimes(1));
+    expect(view.queryByText(Copy.auth.error.consentRequired)).toBeNull();
+  });
+
+  it('carries a tick given in sign-up mode across the footer toggle', async () => {
+    const { signInWithGoogle } = jest.requireMock('@/lib/auth');
+    const view = await render(<SignInScreen />);
+
+    await waitFor(() => expect(view.getByRole('checkbox')).toBeTruthy());
+    await fireEvent.press(view.getByRole('checkbox'));
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.signIn.switchLink }));
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy()
+    );
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.cta.google }));
+
+    await waitFor(() => expect(signInWithGoogle).toHaveBeenCalledTimes(1));
   });
 });
 

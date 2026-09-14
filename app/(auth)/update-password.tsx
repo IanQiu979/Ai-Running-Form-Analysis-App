@@ -214,7 +214,7 @@ export default function UpdatePasswordScreen() {
           <PillButton
             variant="ghost"
             label={Copy.auth.reset.request.cta.backToSignIn}
-            onPress={() => router.replace('/sign-in')}
+            onPress={() => router.replace({ pathname: '/sign-in', params: { mode: 'signIn' } })}
           />
         </View>
         </SafeAreaView>

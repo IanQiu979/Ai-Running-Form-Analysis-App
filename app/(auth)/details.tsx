@@ -108,11 +108,11 @@ export default function DetailsScreen() {
 
         <View style={styles.grid} onLayout={measureGrid} testID="details-pillar-grid">
           {open !== null && (
-            <View style={styles.openSlot}>
+            <View key={open} style={styles.openSlot}>
               <PillarBox
                 id={open}
                 open
-                onToggle={() => setOpen(null)}
+                onToggle={() => setOpen((current) => (current === open ? null : current))}
                 reduceMotion={reduceMotion}
                 testID={`pillar-box-${open}`}
               />

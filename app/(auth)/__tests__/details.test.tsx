@@ -6,10 +6,11 @@
  * re-render lands asynchronously under Reanimated's animated components (the same note
  * `sign-in.test.tsx` records), so every state change below is awaited with `waitFor`.
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { Copy } from '@/constants/copy';
+import { Motion } from '@/constants/v23-theme';
 
 import DetailsScreen from '../details';
 
@@ -98,5 +99,54 @@ describe('details screen', () => {
     const style = StyleSheet.flatten(box.props.style);
     expect(style.opacity).toBe(0);
     expect(style.transform).toEqual([{ translateY: 12 }]);
+  });
+});
+
+/**
+ * A direct switch between open pillars (and a switch during a collapse) must land on a FRESH
+ * card, keyed by pillar: the new card starts unmeasured at its first expand frame rather than
+ * inheriting the previous pillar's measured height and finished tween, and the previous card's
+ * collapse — which runs to completion under real timers — hands back to the parent scoped to
+ * ITS pillar, so it cannot close the card the user opened in the meantime. Reanimated's Jest
+ * path exposes the live animated values on `props.jestAnimatedStyle`.
+ */
+describe('details screen: switching between open pillars', () => {
+  const hidden = { includeHiddenElements: true } as const;
+  const animatedStyle = (testID: string) =>
+    screen.getByTestId(testID, hidden).props.jestAnimatedStyle.value as {
+      opacity: number;
+      height?: number;
+    };
+  const expectExpanded = (testID: string) =>
+    expect(screen.getByTestId(testID, hidden).props.accessibilityState).toEqual({ expanded: true });
+
+  it('mounts a fresh card for the new pillar, and a finishing collapse cannot close it', async () => {
+    mockUseReducedMotion.mockReturnValue(false);
+    await render(<DetailsScreen />);
+
+    fireEvent.press(screen.getByRole('button', { name: pillars.cadence.name, ...hidden }));
+    await waitFor(() => expectExpanded('pillar-box-cadence'));
+    expect(animatedStyle('pillar-box-cadence').height).toBeUndefined();
+
+    // The card measures itself (`fireEvent` climbs from the text to the card's `onLayout`); the
+    // clip box then gets a height and starts revealing.
+    fireEvent(screen.getByText(pillars.cadence.desc, hidden), 'layout', {
+      nativeEvent: { layout: { height: 200 } },
+    });
+    await waitFor(() => expect(animatedStyle('pillar-box-cadence').height).toBeGreaterThan(0));
+
+    // Close cadence — its reverse tween starts — and open posture before it has finished.
+    fireEvent.press(screen.getByRole('button', { name: Copy.entry.details.close, ...hidden }));
+    fireEvent.press(screen.getByRole('button', { name: pillars.posture.name, ...hidden }));
+
+    await waitFor(() => expectExpanded('pillar-box-posture'));
+    expect(animatedStyle('pillar-box-posture').height).toBeUndefined();
+    expect(screen.queryByText(pillars.cadence.desc, hidden)).toBeNull();
+    expect(screen.getByRole('button', { name: pillars.cadence.name, ...hidden })).toBeTruthy();
+
+    // Let cadence's collapse tween run out: posture must still be the open card.
+    await act(() => new Promise((resolve) => setTimeout(resolve, Motion.duration.expand * 2)));
+    expectExpanded('pillar-box-posture');
+    expect(screen.getByText(pillars.posture.desc, hidden)).toBeTruthy();
   });
 });

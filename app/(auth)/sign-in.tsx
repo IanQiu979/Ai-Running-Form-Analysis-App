@@ -27,7 +27,7 @@
  * `signInWithPassword`; Google → `signInWithGoogle`. Every comment on those paths below is the
  * original's, because every reason still holds.
  */
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -96,7 +96,12 @@ export default function SignInScreen() {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
 
-  const [mode, setMode] = useState<Mode>('signUp');
+  // Sign-up is the default (the details page sends new users here). `?mode=signIn` seeds the
+  // other mode for callers who know the user already has an account — the password-reset
+  // screens' "Back to sign in" — so an expired-recovery-link user does not land on "Create
+  // account". Any other value keeps the default.
+  const params = useLocalSearchParams<{ mode?: string }>();
+  const [mode, setMode] = useState<Mode>(params.mode === 'signIn' ? 'signIn' : 'signUp');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -106,9 +111,13 @@ export default function SignInScreen() {
   // advances email -> password instead of dead-ending the keyboard.
   const passwordInputRef = useRef<TextInput>(null);
 
-  // V23-06's age/terms consent, sign-up only. A second gate on "Create account" alongside the
-  // captcha token below: a box the user can leave unticked and still submit would be decoration.
+  // V23-06's age/terms consent. A second gate on "Create account" alongside the captcha token
+  // below: a box the user can leave unticked and still submit would be decoration. The row is
+  // drawn in sign-up mode; in sign-in mode it stays off the artboard until "Continue with
+  // Google" needs it (see `handleGoogleSignIn`), and once revealed it stays. The tick itself is
+  // shared across modes, so it survives the footer toggle.
   const [consentChecked, setConsentChecked] = useState(false);
+  const [consentRevealed, setConsentRevealed] = useState(false);
 
   // Issue #12/Known Issue #12 — sign-up only, never rendered in signIn mode. Holds a Turnstile
   // token good for exactly one `signUpWithCaptcha` attempt: the token is single-use (see
@@ -162,9 +171,13 @@ export default function SignInScreen() {
   }
 
   async function handleGoogleSignIn() {
-    // Same gate as the email path: the consent line sits above BOTH buttons on the page, and a
-    // Google account is still an account being created. Sign-in mode has no consent to give.
-    if (mode === 'signUp' && !consentChecked) {
+    // Same gate as the email path, in BOTH modes: Supabase OAuth creates a brand-new account for
+    // a Google identity it has never seen, regardless of which mode this screen is in — so
+    // "Continue with Google" from sign-in mode is an account creation the sign-up gate would
+    // otherwise never see. In sign-in mode the tap reveals the consent row (same row, same place
+    // as sign-up mode) instead of launching OAuth; a returning Google user pays one tick.
+    if (!consentChecked) {
+      setConsentRevealed(true);
       setErrorMessage(Copy.auth.error.consentRequired);
       return;
     }
@@ -373,7 +386,7 @@ export default function SignInScreen() {
               )}
             </View>
 
-            {isSignUp && (
+            {(isSignUp || consentRevealed) && (
               <Pressable
                 accessibilityRole="checkbox"
                 accessibilityLabel={Copy.auth.consent.a11yLabel}

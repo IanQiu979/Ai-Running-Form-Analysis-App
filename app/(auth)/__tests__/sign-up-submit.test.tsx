@@ -42,6 +42,7 @@ jest.mock('@/lib/supabase', () => ({
 }));
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), replace: jest.fn(), push: jest.fn() },
+  useLocalSearchParams: () => ({}),
 }));
 jest.mock('@/lib/session-provider', () => ({
   useSession: () => ({

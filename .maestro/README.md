@@ -129,7 +129,8 @@ without colliding on "email already registered."
     dead-end-offline.yaml                   # connectivity drops mid-flow -> must say so, offer Retry
     dead-end-analysis-failure.yaml          # model call fails/times out -> Retry/Cancel, no trap
     subflows/
-      sign-up.yaml                          # reusable: fresh email/password stranger -> Home
+      sign-up.yaml                          # reusable: hero -> details -> fresh email/password
+                                            # stranger (consent ticked) -> Home
       grant-consent.yaml                    # reusable: the Art. 9 consent gate, first-time-only
 ```
 

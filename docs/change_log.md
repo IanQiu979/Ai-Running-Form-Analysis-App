@@ -66,6 +66,23 @@ side until it does. Auth logic and the analyzing state machine are unchanged. No
   header role on the `Text` itself. Consent is a client-side gate only — nothing about it is
   recorded server-side (the once-ever capture consent in `components/consent-gate.tsx` is the
   recorded one); whether this line needs a record of its own is a captain decision.
+  **Second review pass, 2026-09-14:** (a) "Continue with Google" needs consent in BOTH modes —
+  Supabase OAuth creates a brand-new account for a first-time Google identity regardless of the
+  screen's mode. The sign-in artboard is unchanged at rest; a Google tap with consent unticked
+  reveals the same consent row (same `signup-consent` testID, same place) with
+  `consentRequired` and does not launch OAuth until it is ticked. The tick is shared across
+  modes. (b) `/sign-in?mode=signIn` seeds sign-in mode; the password-reset screens' "Back to sign
+  in" (`reset-password`, `update-password`) use it, so an expired-recovery-link user no longer
+  lands on "Create account". Any other value keeps the sign-up default; details keeps pushing
+  plain `/sign-in`.
+- **`app/(auth)/details.tsx` — the open card is keyed by pillar (second review pass,
+  2026-09-14).** Switching straight from one open pillar to another remounts `OpenBox` (fresh
+  expand tween and measurement) instead of re-dressing the previous card, and a collapse hands
+  back scoped to its own pillar, so tapping B during A's 320 ms collapse never closes B.
+- **`.maestro/` flows follow the new entry** (second review pass, 2026-09-14): hero cue
+  (`entry-hero-cue`, waited on `enabled`) → `details-continue` → sign-up mode by default, consent
+  ticked (`signup-consent`) before "Create account"; the signed-in dead-end flows flip to sign-in
+  via the footer link; sign-out asserts the hero (`entry-hero`). Flow intent is unchanged.
 - **The hero route is `(auth)/welcome`, not `(auth)/index` — load-bearing.** A second `index.tsx`
   also matches `/`, and from any route outside `(tabs)` expo-router prefers the `(auth)` candidate,
   which the session guard has removed while signed in — so analyzing's Cancel, result's and
