@@ -28,7 +28,10 @@ app/
   (auth)/details.tsx      # V23-03 details (2026-09-13): what the app reads, four pillar boxes
   (auth)/sign-in.tsx      # combined sign-in/sign-up (email + Google; no Apple yet, gate #7),
                           # rebuilt to V23-06 on 2026-09-13 with a sign-up consent checkbox
-  (tabs)/_layout.tsx      # protected stack; single Home tab for M1 (template Explore removed)
+  (tabs)/_layout.tsx      # protected tabs (Home, History); mounts components/v23-tab-bar.tsx
+                          # through the navigator's `tabBar` slot — floating on Home, absent on
+                          # History (which lays the same bar out inline). See "Current — V23
+                          # lane 2" below.
   (tabs)/index.tsx        # M1 empty Home per screen 2 — RLS-scoped, display-only quota caption,
                           # disabled Analyze stub, temporary sign-out
 components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout.tsx), plus
@@ -53,10 +56,20 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
                           # on the result screens' PaceReadout.
   ui/eyebrow.tsx          # the tracked uppercase micro-label — the redesign's main sub-display
                           # hierarchy tool.
-  ui/square-button.tsx    # V23-01 PRIMITIVES (2026-09-13), on constants/v23-theme.ts, used only
-  ui/text-field.tsx       # by the entry flow and Analyzing so far: the 56 pt square button
-                          # (primary / secondary / link) and the 56 pt input with an inline
-                          # `danger` error. Lane 2 screens still use pill-button / surface-card.
+  ui/square-button.tsx    # V23-01 PRIMITIVES (2026-09-13), on constants/v23-theme.ts: the 56 pt
+  ui/text-field.tsx       # square button (primary / secondary / link, optional trailing glyph,
+                          # `disabledTone`) and the 56 pt input with an inline `danger` error.
+  ui/square-card.tsx      # V23 LANE-2 CHROME (2026-09-14): the bgRaised + 1 px line card
+  ui/square-icon-button.tsx # (selected / dashed variants); the 44 pt glyph control with the
+  ui/top-bar.tsx          # pages' 12 pt gutter bleed; the 44 pt chrome row (centred / leading);
+  ui/confirm-dialog.tsx   # the scrim + card confirm that replaced every native Alert on the six
+  ui/v23-icons.tsx        # lane-2 screens; the pages' own SVG glyphs, traced. See "Current —
+                          # V23 lane 2" below. pill-button / surface-card / glass-frost /
+                          # screen-gradient / circle-icon-button / eyebrow / arc-ring /
+                          # arc-loader remain only for the screens no page covers yet
+                          # (extracting, compare, password reset, offline banner).
+  v23-tab-bar.tsx         # V23-07/09's tab bar: 64 pt, Home + History cells, floating
+                          # (translucent, blurred) or inline (opaque).
   stride-hero.tsx         # V23-02 (2026-09-13): the entry hero's line-drawn runner and its four
                           # PACE callouts, evaluated once per frame on the UI thread from the pure
                           # geometry/timeline in lib/stride-hero.ts. Replaces the deleted
@@ -86,12 +99,15 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
                           # fresh analysis. Wraps DuotoneFrame; sequenced ahead of its wireframe.
 constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
                           # palette, spacing/radii/type scales; M1 added
-                          # ControlHeight/ControlWidth/HitTarget/Opacity. Still the token set
-                          # for every lane-2 screen (Home/Result/History/Capture/Paywall/Settings).
+                          # ControlHeight/ControlWidth/HitTarget/Opacity. As of 2026-09-14 only
+                          # extracting, compare, the password-reset screens, the offline banner
+                          # and the Turnstile widget still import it — plus `ScoreBandLabel`,
+                          # which is copy and is read from here by the V23 screens until it moves.
 constants/v23-theme.ts    # THE V23-01 THEME SHEET (2026-09-13): Ink / Font / Type / Space /
-                          # Layout / Motion, dark only, consumed by the entry flow and Analyzing.
-                          # Kept beside theme.ts on purpose until lane 2 migrates; see "Current —
-                          # V23 entry flow" below.
+                          # Layout / Motion / Chrome, dark only. Consumed by the entry flow,
+                          # Analyzing and (2026-09-14, lane 2) Home / Result / History / Capture /
+                          # Paywall / Settings; see "Current — V23 entry flow" and "Current — V23
+                          # lane 2" below.
 constants/copy.ts         # strings lifted verbatim from docs/design/copy-deck.md — sign-in and
                           # Home's copy live here first (M1); more screens' copy lands with them.
                           # Copy.entry.* (2026-09-13) is the V23 pages' wording, not the deck's.
@@ -1048,6 +1064,73 @@ above is still what those screens are built on and both font sets load at startu
   `app/(auth)/__tests__/entry-hero.test.tsx`, `details.test.tsx`, the updated `sign-in*.test.tsx`
   and `app/__tests__/analyzing.test.tsx`; component tests for `stride-hero`, `pillar-box` and
   `laser-sweep`.
+
+## Current — V23 lane 2: Home, Result, History, Capture, Paywall, Settings (2026-09-14)
+
+**On `fm/v23-theme-application-lane2`.** The six signed-in screens re-cut to the captain-approved
+pages V23-07 through V23-12. The page is the spec: every padding, size, weight and colour in its
+inline CSS maps to a token in `constants/v23-theme.ts` (the change-log entry lists the roles that
+were added for these pages), and nothing the pages do not draw was added. Behaviour — fetches,
+focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-out/re-auth ordering,
+`useAnnounce`, live regions, a11y labels, `testID`s — is byte-for-byte what it was. Full narrative:
+`docs/change_log.md`'s 2026-09-14 entry.
+
+- **Screens paint `Ink.bg` themselves and pay the live insets with the design's 59/34 as the
+  floor** (`Math.max(insets.top, Layout.canvas.safeTop)`), the same rule as the entry flow. No
+  `ScreenGradient`, no `SafeAreaView`, no `useColorScheme`, no `ContentWidth.readable` column —
+  the pages are one 345 pt column at `Layout.gutter`.
+- **The chrome primitives** (`components/ui/square-card.tsx`, `square-icon-button.tsx`,
+  `top-bar.tsx`, `confirm-dialog.tsx`, `v23-icons.tsx`, `components/v23-tab-bar.tsx`) are what
+  the six screens compose from; read each file's header for the page it was traced from.
+  `<ConfirmDialog>` carries one runtime workaround worth knowing: a `Modal` that mounts already
+  `visible` does not present on iOS (RN 0.81, new architecture) until the next touch, so it
+  mounts hidden and flips `visible` in an effect.
+- **The tab bar** is the navigator's `tabBar` renderer in `app/(tabs)/_layout.tsx`: floating on
+  Home (absolute, bottom edge on the bottom inset, `Chrome.tabBar` over a 16 pt blur, `start`/`end`
+  positioned — `lib/__tests__/tab-bar-style-contract.test.ts` reads the property in the bar's own
+  stylesheet now) and `null` on History, where `app/(tabs)/history.tsx` renders the same
+  `<V23TabBar mode="inline">` as the list footer or pinned under the empty/loading/error column.
+  Home pads its ticker `Layout.tabBar.height + 30` above the inset so nothing sits under the bar.
+- **Home** (`app/(tabs)/index.tsx`, `components/home/recent-analysis.tsx`, `components/marquee.tsx`)
+  and **History** (`app/(tabs)/history.tsx`, `components/history/history-row.tsx`) lead with the
+  overall numeral (`Type.score` on Home, `Type.displayFigure` on a row) and the app's real band
+  word (`ScoreBandLabel`, still imported from `constants/theme.ts` because it is copy, not a
+  token); a null score is "—". The marquee typesets each item as its own `Text` with the page's
+  word space and dot inside it (one long `Text` ellipsizes to the clip) and loops a fixed
+  `Motion.marqueeLoop`.
+- **Result** (`app/result/[id].tsx`, `components/pace-readout.tsx`, `pillar-detail-modal.tsx`,
+  `partial-result-banner.tsx`, `result-disclaimer.tsx`, `duotone-frame.tsx`,
+  `annotation-lines.tsx`). The hero box is 3:4 at full width and reaches the top of the device;
+  `<DuotoneFrame>` draws the signed frame through `react-native-svg`'s `Image` with an
+  `FeColorMatrix type="saturate" values="0"` filter (the page's "duotone grade" — greyscale,
+  shadows washed toward `Ink.bg`), `<AnnotationLines>` is the page's SVG verbatim (fixed
+  geometry, `viewBox 0 0 393 524`, `preserveAspectRatio="none"`) and a radial vignette sits over
+  both. The readout is the Overall block plus four nested `SquareCard` pillar rows with a 2 px
+  score bar; **flags and drills render only in the detail modal**. On a fresh analysis the bars
+  fill with `Motion.curve.move` over `Motion.duration.rise`, staggered `Motion.stagger.item`;
+  everything else is static. `components/aperture.tsx` and `pace-reveal.tsx` are deleted. The
+  "Current — capture screens" and "Current — Past Analyses" sections above describe behaviour
+  that still holds; their visual descriptions (rings, kinetic text, glass) are superseded here.
+- **Capture** (`app/capture/index.tsx`, `components/consent-gate.tsx`, `app/capture/record.tsx`,
+  `components/framing-guide.tsx`). The consent gate is the whole screen, self-padded by the live
+  insets; `SquareButton disabledTone="fill"` is its solid `ink3` disabled primary. The framing
+  guide is the page's dashed box + ground line. `app/capture/extracting.tsx` has no page and is
+  still on `constants/theme.ts` — the one Cold Read screen a user now crosses between two V23
+  screens.
+- **Paywall** (`app/paywall.tsx`, `components/paywall/tier-card.tsx`) and **Settings**
+  (`app/settings.tsx`). Settings now holds the full `QuotaStatus` so the Plan card shows the quota
+  caption and, for a period plan, a "Renews" row; every alert on both screens is a
+  `<ConfirmDialog>` driven by a local `dialog` state union. Kept although the pages do not draw
+  them: History's Compare entry point, Settings' privacy-policy-pending notice, and every loading
+  / error / permission panel (quiet `ActivityIndicator` + `SquareCard` in the same tokens).
+- **Verified live on the iOS 26.5 simulator dev build, 2026-09-14** against every artboard a Free
+  account can reach: Home empty / ready / exhausted, source picker, both consent phases, record
+  (framing guide, permission panel), analyzing → result (hero grade, marks, partial banner,
+  pillar rows, detail modal), History list / empty / delete confirm, paywall gated, settings and
+  its delete-account confirm + password re-auth. Two throwaway accounts were created for it and
+  deleted afterwards (`auth.users` checked clean). Not reachable on Free and therefore unverified
+  on device: Home's Pro "Renews …" line, the paywall's "Voluntary · Pro current" artboard and
+  Settings' Renews row.
 
 ## Current — app icon & splash assets (done 2026-07-12, closes GitHub issue #26)
 

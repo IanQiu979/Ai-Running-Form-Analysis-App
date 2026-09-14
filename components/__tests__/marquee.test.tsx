@@ -28,6 +28,8 @@ jest.mock('@/hooks/use-reduced-motion', () => ({
 }));
 
 const ITEMS = ['Posture', 'Arm swing', 'Cadence', 'Elasticity'];
+/** The last item of a copy, as the page sets it: its own word space and dot, then the seam pad. */
+const LAST = `${ITEMS[ITEMS.length - 1]} · `;
 
 describe('Marquee', () => {
   beforeEach(() => {
@@ -45,14 +47,14 @@ describe('Marquee', () => {
   it('draws each item twice when animating — the duplicate is what hides the loop seam', async () => {
     await render(<Marquee items={ITEMS} testID="ticker" />);
 
-    expect(screen.getAllByText('Cadence', { includeHiddenElements: true })).toHaveLength(2);
+    expect(screen.getAllByText(LAST, { includeHiddenElements: true })).toHaveLength(2);
   });
 
   it('drops the duplicate copy entirely under reduced motion — nothing scrolls, so nothing follows', async () => {
     mockUseReducedMotion.mockReturnValue(true);
     await render(<Marquee items={ITEMS} testID="ticker" />);
 
-    expect(screen.getAllByText('Cadence', { includeHiddenElements: true })).toHaveLength(1);
+    expect(screen.getAllByText(LAST, { includeHiddenElements: true })).toHaveLength(1);
   });
 
   it('still shows the items under reduced motion — it stops moving, it does not disappear', async () => {
@@ -60,7 +62,7 @@ describe('Marquee', () => {
     await render(<Marquee items={ITEMS} testID="ticker" />);
 
     for (const item of ITEMS) {
-      expect(screen.getByText(item, { includeHiddenElements: true })).toBeTruthy();
+      expect(screen.getByText(`${item} · `, { includeHiddenElements: true })).toBeTruthy();
     }
   });
 
@@ -70,16 +72,15 @@ describe('Marquee', () => {
     expect(screen.getByTestId('ticker').props.pointerEvents).toBe('none');
   });
 
-  it('draws the separator after every item, so the seam between copies is a normal join', async () => {
+  it('typesets a word space and dot into every item, and pads 16 pt after the last one only', async () => {
     await render(<Marquee items={ITEMS} testID="ticker" />);
 
-    // Two copies, four items each, one dot per item — eight dots, none skipped at the copy's end.
-    expect(screen.getAllByText('·', { includeHiddenElements: true })).toHaveLength(ITEMS.length * 2);
-
-    // Every item cell pads the page's 16 pt after its dot and 8 pt around it.
-    const dot = screen.getAllByText('·', { includeHiddenElements: true })[ITEMS.length - 1];
-    const cell = StyleSheet.flatten(dot.parent?.props.style);
-    expect(cell.paddingRight).toBe(Space.lg);
-    expect(cell.gap).toBe(Space.sm);
+    // A dot after EVERY item, the last one included, so the seam between the copies is a normal
+    // join; only the copy's last item carries the page's `padding-right:16px`.
+    const last = screen.getAllByText(LAST, { includeHiddenElements: true });
+    expect(last).toHaveLength(2);
+    expect(StyleSheet.flatten(last[0].props.style).paddingRight).toBe(Space.lg);
+    const first = screen.getAllByText(`${ITEMS[0]} · `, { includeHiddenElements: true })[0];
+    expect(StyleSheet.flatten(first.props.style).paddingRight).toBeUndefined();
   });
 });

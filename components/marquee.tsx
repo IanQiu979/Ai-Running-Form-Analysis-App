@@ -137,15 +137,19 @@ function Copy({
       onLayout={onWidth ? (e) => onWidth(e.nativeEvent.layout.width) : undefined}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants">
+      {/* The page's span, "Posture · Arm swing · Cadence · Elasticity · ", typeset one item at a
+          time: each item carries its own word space and dot INSIDE the text, so every join is a
+          space set in the strip's face rather than a laid-out gap, and no single node is wider
+          than the clip (a Text measured against the clip's width would ellipsize, not scroll).
+          `separatorStyle` is ignored when it would split a word from its dot; the dot takes the
+          text style. */}
       {items.map((item, index) => (
-        <View key={`${item}-${index}`} style={styles.item}>
-          <Text style={textStyle} numberOfLines={1}>
-            {item}
-          </Text>
-          <Text style={separatorStyle ?? textStyle} numberOfLines={1}>
-            {separator}
-          </Text>
-        </View>
+        <Text
+          key={`${item}-${index}`}
+          style={[textStyle, separatorStyle, styles.item, index === items.length - 1 && styles.last]}
+          numberOfLines={1}>
+          {`${item} ${separator} `}
+        </Text>
       ))}
     </View>
   );
@@ -159,15 +163,16 @@ const styles = StyleSheet.create({
   row: {
     alignItems: 'center',
     flexDirection: 'row',
+    // Neither the moving row nor a copy may shrink to the clip: the strip is wider than the
+    // viewport by design, and a shrunk copy would ellipsize instead of scrolling.
+    flexShrink: 0,
   },
-  // The page's copy is "Posture · Arm swing · Cadence · Elasticity · " with `padding-right:16px`
-  // on the whole span: a word space either side of each dot, and the span's own 16 pt after its
-  // last dot. Drawn per item as 8 pt around the dot and 16 pt after it, so every join — the
-  // seam between the two copies included — measures the same.
   item: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: Space.sm,
+    flexShrink: 0,
+  },
+  // The page's span carries `padding-right:16px` after its last dot; the second copy then
+  // starts, so the seam is a word space plus 16 pt where every other join is a word space.
+  last: {
     paddingRight: Space.lg,
   },
 });

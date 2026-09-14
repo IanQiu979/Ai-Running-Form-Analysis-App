@@ -14,7 +14,15 @@
  *
  * Motion is the sheet's page transition: a 250 ms fade (RN's own `Modal` fade, which is the only
  * entrance the pages draw for an overlay — nothing slides).
+ *
+ * PRESENTED ONE TICK LATE, ON PURPOSE. Every screen mounts this only while it has something to
+ * confirm, so the `Modal` would otherwise mount already `visible`. On iOS (RN 0.81, new
+ * architecture) a `Modal` that mounts visible does not present until the NEXT touch reaches the
+ * window — verified on a simulator 2026-09-14: the delete-account confirm stayed invisible while
+ * its trigger sat in its pressed state, then appeared on the following tap. Mounting hidden and
+ * flipping `visible` in an effect is the documented workaround, and it costs one frame.
  */
+import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { SquareButton } from '@/components/ui/square-button';
@@ -45,9 +53,13 @@ const DISABLED_OPACITY = 0.4;
 
 export function ConfirmDialog({ visible, title, body, primary, secondary, tone = 'primary', testID }: ConfirmDialogProps) {
   const requestClose = secondary ?? primary;
+  const [presented, setPresented] = useState(false);
+  useEffect(() => {
+    setPresented(visible);
+  }, [visible]);
   return (
     <Modal
-      visible={visible}
+      visible={presented}
       transparent
       animationType="fade"
       onRequestClose={() => {

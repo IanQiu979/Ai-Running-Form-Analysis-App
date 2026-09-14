@@ -5,6 +5,103 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-14 (V23 theme application, lane 2 — Home, Result, History, Capture, Paywall, Settings)
+
+**On `fm/v23-theme-application-lane2`.** Lane 2 of the V23 redesign: the six signed-in screens
+lane 1 left on `constants/theme.ts`, re-cut to the captain-approved Claude Design pages V23-07
+Home, V23-08 Result, V23-09 History, V23-10 Capture, V23-11 Paywall and V23-12 Settings. Every
+fetch, state machine, a11y label and `testID` is unchanged; what each screen looks like is now the
+page. Verified live on the iOS 26.5 simulator dev build against every page artboard reachable on a
+Free account (a throwaway account was created for it and deleted afterwards). Not in a build.
+
+- **`constants/v23-theme.ts` grew the roles the lane-2 pages draw**, nothing more: `Type.score`
+  96/96 and `scoreMd` 64/64 (the overall numerals), `displaySm` 32/36 (consent and paywall
+  titles), `displayFigure` (a 40/44 letter or numeral without the uppercase), `letter` 28/32
+  (Home's P/A/C/E), `metricSm` 20/24, `mono` 13/16 on the platform mono (dates, quota captions,
+  prices, the record clock), `note` 13/18, `footnote` 12/18, `bodySm` 14/20 in three weights and
+  `tab` 11/12; `Ink.bgSelected` (the current-plan card) and `Ink.bgPlaceholder` (an empty frame
+  cell); a `Chrome` export for the two translucent values (the floating tab bar's
+  `rgba(20,20,20,.85)` + 16 pt blur, the dialog scrim) kept out of `Ink` so the monochrome proof
+  still reads every swatch as a hex triplet; `Layout` fixtures (`cardPaddingLg` 24, `topBarHeight`
+  44, `iconBleed` 12, `rowHeight` 56, `tabBar` 64/16, `consentCheckbox` 20, `recordButton`
+  72/2/28, `sourceBadge` 56, `frameDeck` 44/22/2, `scoreBar` 2) and `Motion.marqueeLoop` 18 s.
+  The contrast test now asserts the four uppercase roles and tabular figures on every numeral.
+- **Six chrome primitives, all on those tokens:** `components/ui/square-card.tsx` (the
+  `bgRaised` + 1 px `line` card; `selected` and `dashed` variants), `square-icon-button.tsx`
+  (44 pt glyph control with the pages' 12 pt gutter bleed), `top-bar.tsx` (the 44 pt chrome row,
+  centred or leading), `confirm-dialog.tsx` (V23-09/12's confirm: scrim, `bgRaised` card,
+  `danger` primary for destructive actions only, 44 pt Cancel link; **replaces every native
+  `Alert` on the six screens**, per V23-12's "same dialog pattern" note), `v23-icons.tsx` (the
+  pages' own SVGs, traced) and `components/v23-tab-bar.tsx`. `SquareButton` gained an optional
+  `trailing` glyph (Home's "Start analysis →") and a `disabledTone="fill"` (the consent gate's
+  solid `ink3` disabled primary); the entry flow renders exactly as before.
+- **The tab bar is the page's own, in two modes.** `app/(tabs)/_layout.tsx` renders
+  `<V23TabBar>` through the navigator's `tabBar` slot — floating over Home (absolute, bottom edge
+  on the bottom inset, translucent over a backdrop blur, `start`/`end` positioned per
+  `lib/__tests__/tab-bar-style-contract.test.ts`) and **absent on History**, where the same
+  component sits inline, opaque, as the last item of the list ("tab bar sits at the end of the
+  scroll, not floating"). `components/haptic-tab.tsx` and `ui/icon-symbol*.tsx` are deleted.
+- **Home (V23-07).** Top bar "HOME" + Settings glyph; the recent analysis as a 24 pt card —
+  "Overall" / date, the 96 pt numeral beside its band word, a rule, and the P/A/C/E letters over
+  their scores ("—" for a null pillar); the empty state is a dashed outline with the display
+  title; a mono quota card (the Pro/Elite "Renews …" line is `ink3`, as the page draws it); the
+  primary CTA with its arrow; the ticker strip 30 pt above the bar, now typeset per item with the
+  page's word spaces and a fixed 18 s loop. `ArcRing`/`ArcLoader`/`KineticText` are gone from it.
+- **Result (V23-08).** The hero is a full-bleed 3:4 box reaching the top of the device: the stored
+  frame **desaturated to greyscale** through an SVG `FeColorMatrix` filter (the page's "duotone
+  grade"; the system has no chromatic base), a `bgPlaceholder → bg` gradient when there is no
+  frame, the page's three fixed annotation marks (ground rule, dashed posture line, landing
+  circle) and a radial vignette. Below it: the partial-read banner, the Overall card with four
+  nested pillar cards (letter, name, band or not-assessed reason, score, info control, a 2 px
+  score bar — dashed when not assessed — and the coaching prose), the disclaimer as bare
+  footnote text, and "Back to Home". **Flags and drills now live only in the pillar detail
+  modal** (V23-08's third artboard: 64 pt numeral, prose, rule, Risk flags, Drills). Motion on a
+  fresh analysis is the bars filling with the sheet's `move` curve, staggered 60 ms; the iris,
+  rack focus, numeral count-up and per-word reveals are deleted (`components/aperture.tsx`,
+  `pace-reveal.tsx`) because the page draws none of them.
+- **History (V23-09).** Settings glyph, display title, rows as cards — 40 pt numeral ("—" when
+  not assessed), band word, mono date, a three-cell overlapping frame deck, a full-width rule and
+  the underlined "Delete" word — with the inline bar as the list footer; the empty state is a
+  120 pt dashed box, "No analyses yet", a secondary "Start analysis" and the bar pinned below.
+  Delete confirm and delete-failed are `<ConfirmDialog>`s. The Compare entry point (≥ 2 rows) is
+  kept as a secondary `SquareButton` above the rows although the page does not draw it.
+- **Capture (V23-10).** Source picker: "ADD FOOTAGE" top bar, two 24 pt cards with a 56 pt ruled
+  icon badge, `h1` title and `note` subtitle, the framing tip. The consent gate is the whole
+  screen now (not a card): `displaySm` title, `body` copy, 20 pt square checkboxes (an `ink` fill
+  with a tick when checked), a solid-`ink3` disabled primary, a 44 pt Cancel; the undrawn subject
+  phase uses the same squares as radios. Record: the page's framing guide verbatim (dashed
+  96/180/200/500 box + ground line at 680, 1 px `ink` at 70 %), "RECORD YOUR RUN" top bar, a mono
+  clock line, one joined "Side-on, full body, good light. Muted." footnote and a 72 pt square
+  control whose 28 pt inner square is `danger` while recording and `ink` when idle (the page
+  draws only the stop state). The elapsed-time ring and the glass scrims are gone.
+  `Copy.capture.overlay.tip` / `.muted` were split so the joined line reads as the page's.
+- **Paywall (V23-11).** Back glyph + `displaySm` "CHOOSE A PLAN", the gate banner card, three
+  24 pt tier cards (the current one on `bgSelected`) with the rule-count mark, `h1` name, mono
+  price, `note` detail and either a ruled 44 pt "Current plan" label or a secondary upgrade
+  button; purchase notices are one-button `<ConfirmDialog>`s.
+- **Settings (V23-12).** Back glyph + "SETTINGS"; three sections of 56 pt rows inside
+  `padding: 0 16` cards with in-card rules — Account (Email, Sign out), Plan (tier → the quota
+  caption, **Renews → date, new**, See plans), Privacy (body, delete note, Consent → Withdraw
+  consent, plus the undrawn privacy-policy-pending notice kept as a paragraph block) — and the
+  `danger`-ruled "Delete account" pushed to the foot. Every alert is a `<ConfirmDialog>`
+  (`danger` for delete and withdraw; the Google re-auth prompt, sign-out confirm and notices on
+  the accent fill); the password re-auth `Modal` is `TextField` + `SquareButton`s on `Ink.bg`.
+  One behaviour note: the `globalRevokeFailed` notice used to outlive the screen as a native
+  alert; a dialog is screen state and is not shown on that path. New copy:
+  `settings.plan.renews`, `settings.consent.label`, `home.empty.body`.
+- **Two runtime findings, both fixed in the primitives.** A `Modal` that mounts already `visible`
+  does not present on iOS (RN 0.81, new architecture) until the next touch — `<ConfirmDialog>`
+  mounts hidden and flips `visible` in an effect. A ticker set as one `Text` ellipsizes to the
+  clip's width instead of scrolling — the marquee typesets each item as its own `Text` with the
+  page's word space and dot inside it.
+- **Still on `constants/theme.ts`, out of this lane's scope:** `app/capture/extracting.tsx`,
+  `app/compare.tsx`, the two password-reset screens, `components/offline-banner.tsx`,
+  `turnstile-widget.tsx` and the arc/glass/pill primitives they use. Extracting is the one screen
+  a user now crosses between two V23 screens; no page exists for it yet.
+- **Test quirk worth knowing:** two bare `fireEvent.press` calls in one test leave an act scope
+  open under this Jest setup and the NEXT test's `render` produces an empty tree — every press in
+  the new tests is wrapped in `await act(async () => …)`.
+
 ## 2026-09-13 (V23 entry flow, lane 1 — theme sheet, hero, details, sign-up, analyzing)
 
 **On `fm/v23-entry-flow-lane1`, 2026-09-13/14, uncommitted when this entry was written.** Lane 1

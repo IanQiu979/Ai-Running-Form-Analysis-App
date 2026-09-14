@@ -839,9 +839,10 @@ export default function SettingsScreen() {
                 unresolved). There is no URL to link to and inventing one is not an option, so this
                 renders as an honest pending state — not a dead link, and not the draft itself. The
                 certified disclosure is the paragraph at the top of this card. */}
-            <Row label={Copy.settings.privacyPolicy.label}>
-              <RowValue>{Copy.settings.privacyPolicy.pending}</RowValue>
-            </Row>
+            <View style={styles.paragraphBlock}>
+              <Text style={styles.rowLabel}>{Copy.settings.privacyPolicy.label}</Text>
+              <Text style={styles.paragraphInBlock}>{Copy.settings.privacyPolicy.pending}</Text>
+            </View>
           </SquareCard>
         </View>
 
@@ -1004,6 +1005,17 @@ const styles = StyleSheet.create({
     ...Type.note,
     color: Ink.ink2,
     paddingVertical: Layout.cardPadding,
+  },
+  // The privacy-policy notice is not on the page (see the comment at its render site): a row
+  // label over the page's paragraph register, padded like the paragraphs above it, rather than a
+  // label/value row whose value would run to four lines.
+  paragraphBlock: {
+    paddingVertical: Layout.cardPadding,
+    gap: Space.xs,
+  },
+  paragraphInBlock: {
+    ...Type.note,
+    color: Ink.ink2,
   },
   deleteButton: {
     marginTop: 'auto',
