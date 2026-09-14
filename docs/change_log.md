@@ -12,7 +12,7 @@ lane 1 left on `constants/theme.ts`, re-cut to the captain-approved Claude Desig
 Home, V23-08 Result, V23-09 History, V23-10 Capture, V23-11 Paywall and V23-12 Settings. Every
 fetch, state machine, a11y label and `testID` is unchanged; what each screen looks like is now the
 page. Verified live on the iOS 26.5 simulator dev build against every page artboard reachable on a
-Free account (a throwaway account was created for it and deleted afterwards). Not in a build.
+Free account (two throwaway accounts were created for it and deleted afterwards). Not in a build.
 
 - **`constants/v23-theme.ts` grew the roles the lane-2 pages draw**, nothing more: `Type.score`
   96/96 and `scoreMd` 64/64 (the overall numerals), `displaySm` 32/36 (consent and paywall

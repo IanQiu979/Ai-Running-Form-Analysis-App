@@ -32,10 +32,9 @@ app/
                           # through the navigator's `tabBar` slot — floating on Home, absent on
                           # History (which lays the same bar out inline). See "Current — V23
                           # lane 2" below.
-  (tabs)/index.tsx        # M1 empty Home per screen 2 — RLS-scoped, display-only quota caption,
-                          # disabled Analyze stub, temporary sign-out
-components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout.tsx), plus
-                          # consent-gate.tsx and result-disclaimer.tsx (2026-07-12, issue #68) —
+  (tabs)/index.tsx        # Home — V23-07 since 2026-09-14 (recent analysis card, quota card, CTA,
+                          # ticker); quota is display-only, from `quota-status`
+components/              # consent-gate.tsx and result-disclaimer.tsx (2026-07-12, issue #68) —
                           # real, tested components; see "Current — consent record & disclaimer".
                           # The unreferenced create-expo-app template UI (external-link,
                           # hello-wave, parallax-scroll-view, themed-text, themed-view,
@@ -94,9 +93,9 @@ components/              # haptic-tab and ui/icon-symbol (used by (tabs)/_layout
   # led sign-in from 2026-09-04 — are DELETED (2026-09-13), along with first-run-intro.tsx and
   # lib/first-run.ts (the once-per-install intro overlay). The entry moment is (auth)/welcome's
   # <StrideHero> now; see "Current — V23 entry flow" below.
-  aperture.tsx            # the result hero's lens (2026-08-02): a permanent radial vignette, plus
-                          # a six-bladed iris and an expo-blur rack focus that play once on a
-                          # fresh analysis. Wraps DuotoneFrame; sequenced ahead of its wireframe.
+  # aperture.tsx and pace-reveal.tsx (the result hero's iris / rack focus and the numeral
+  # count-up), haptic-tab.tsx and ui/icon-symbol*.tsx (the stock tab bar's cells) are DELETED
+  # (2026-09-14, lane 2); see "Current — V23 lane 2" below.
 constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
                           # palette, spacing/radii/type scales; M1 added
                           # ControlHeight/ControlWidth/HitTarget/Opacity. As of 2026-09-14 only
@@ -2996,7 +2995,8 @@ Three files, the same three-way split as `analysis/index.ts` (#57):
     nothing when the attacker already holds the token and composes the request themselves.
   - **Client step-up flow, `app/settings.tsx`**: on `reauth_required`, the screen inspects the
     session's provider (`getReauthProvider`) and either opens a password re-entry modal
-    (`reauthenticateWithPassword`) or re-runs Google sign-in behind a warning `Alert`
+    (`reauthenticateWithPassword`) or re-runs Google sign-in behind a warning dialog (a
+    `<ConfirmDialog>` since 2026-09-14, previously a native `Alert`)
     (`reauthenticateWithGoogle`); an unrecognized provider gets an honest "we can't confirm it's
     you, sign out and back in" message. Exactly one retry loop — a retry that ALSO comes back
     `reauth_required` (clock skew, a second concurrent stale request) falls through to the ordinary
@@ -3039,9 +3039,12 @@ of session. This screen hosts sign-out and account deletion; it must never be re
 **`lib/sign-out.ts` — the issue #27 fix, made once, in its final home.** The bug: `signOut()` was
 fire-and-forget, so a failed **global** token revoke left server-side refresh tokens alive while the
 user was shown a clean sign-out. `signOut()` awaits the call and **never rejects** (the
-unhandled-rejection half of #27), surfacing a failure through a native **`Alert`** rather than
-inline text, since a failure can mean the route guard is mid-unmount (see below) and an inline
-error would render into a dying tree.
+unhandled-rejection half of #27); `app/settings.tsx` surfaces a failure through a native
+**`Alert`** rather than inline text, since a failure can mean the route guard is mid-unmount (see
+below) and an inline error would render into a dying tree. **Since 2026-09-14 (V23 lane 2) that
+notice is a `<ConfirmDialog>`, which is screen state and cannot outlive the screen — so on the
+`globalRevokeFailed` path below the notice is no longer shown; `app/settings.tsx`'s header owns
+that consequence.**
 
 ⚠️ **Corrected 2026-07-13, same day, per a security audit on PR #122 (finding F3):** the paragraph
 this replaces claimed auth-js clears the LOCAL session unconditionally on any `signOut()` failure.

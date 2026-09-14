@@ -874,7 +874,10 @@ milestone "done" criteria.
     `DefaultTheme`/`DarkTheme` in `app/_layout.tsx` (screen-transition backgrounds, any future
     header chrome outside `(tabs)`) is still React Navigation's stock palette — out of this
     change's file lane. A full custom `NavigationTheme` object both layouts consume is the
-    eventual fix; not built here.
+    eventual fix; not built here. **Superseded 2026-09-14 (V23 lane 2):** `(tabs)/_layout.tsx` no
+    longer restyles the stock bar at all — it renders `components/v23-tab-bar.tsx` through the
+    navigator's `tabBar` slot, so the `tabBarStyle`/`tabBarLabelStyle` half of this entry is moot;
+    see `docs/architecture.md`'s "Current — V23 lane 2" section.
 29. **RESOLVED — foreground and process-kill reconciliation (issues #64/#140), extended for
     canonical aliases 2026-09-09.** `app/analyzing.tsx` reconciles the in-flight request on
     foreground, while `lib/pending-analysis.ts` persists the same request key in AsyncStorage and
