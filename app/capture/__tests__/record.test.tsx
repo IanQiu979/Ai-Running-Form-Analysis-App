@@ -19,9 +19,21 @@
  * test is the only thing that can prove which arguments a screen actually passes downstream."
  * `Date.now` is driven manually below so the finalization gap is explicit rather than timing-
  * dependent.
+ *
+ * The V23-10 block at the end locks the re-themed overlay's structure — which line is shown,
+ * which tone the control's mark takes, that the back control leaves while recording — never a
+ * pixel value.
+ *
+ * Every press is wrapped in an awaited `act`: two bare `fireEvent.press` calls in one test leave
+ * an act scope open under this Jest setup, and the NEXT test's `render` then produces an empty
+ * tree.
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import type { TestInstance } from 'test-renderer';
 
+import { Copy } from '@/constants/copy';
+import { Ink } from '@/constants/v23-theme';
 import { MAX_CLIP_DURATION_MS } from '@/lib/media-caps';
 
 import RecordScreen from '../record';
@@ -37,19 +49,6 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('expo-linking', () => ({ openSettings: jest.fn() }));
-
-// `@expo/vector-icons` pulls in `expo-font` -> `expo-asset`, which this project does not have
-// installed (it is a transitive dep of a path nothing else in the app exercises under Jest), so
-// the icon module fails to resolve before the screen under test ever renders. The back button's
-// glyph is not what this suite is about; stubbing the one icon component keeps the failure from
-// masquerading as a defect in the screen.
-jest.mock('@expo/vector-icons/MaterialIcons', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const react = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const rn = require('react-native');
-  return { __esModule: true, default: () => react.createElement(rn.View) };
-});
 
 /** Resolves the in-flight `recordAsync` promise — the test's stand-in for the native recorder
  *  finishing its file write, which is what really settles that promise. */
@@ -107,6 +106,13 @@ afterEach(() => {
   dateNowSpy.mockRestore();
 });
 
+/** One awaited, act-wrapped press of the record control — see the module docblock. */
+async function pressRecord() {
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('record-button'));
+  });
+}
+
 /** The single `durationMs` the screen handed `/capture/extracting`, as a number. */
 function pushedDurationMs(): number {
   expect(mockPush).toHaveBeenCalledTimes(1);
@@ -116,21 +122,24 @@ function pushedDurationMs(): number {
 async function startRecording() {
   await render(<RecordScreen />);
   await waitFor(() => expect(screen.getByTestId('record-button')).toBeTruthy(), WAIT);
-  fireEvent.press(screen.getByTestId('record-button'));
+  await pressRecord();
   await waitFor(() => expect(mockFinishRecording).not.toBeNull(), WAIT);
 }
 
 /** Settles the in-flight `recordAsync` promise, then yields so its continuation — the
  *  `router.push` each case asserts on — runs before the assertions do.
  *
- *  Deliberately NOT wrapped in `act()`: this installed RNTL (v14) already drives its own act scope
- *  from `render`/`fireEvent`, and nesting a manual one here leaves the next test's render
- *  uncommitted, which surfaces as "Unable to find an element with testID: record-button" in every
- *  case after the first rather than as anything resembling its real cause. The `waitFor` each
- *  caller follows this with is what actually settles the tree. */
+ *  Wrapped in its own awaited `act()`, because the press that started the clip has already been
+ *  awaited through one (`pressRecord`) and closed its scope: the `setRecording(false)` the screen
+ *  runs when the recorder resolves would otherwise land outside any act scope and React warns.
+ *  (This used to be deliberately unwrapped, back when the presses were bare `fireEvent.press`
+ *  calls whose own act scope was still open here — nesting a second one then left the NEXT test's
+ *  render uncommitted.) The `waitFor` each caller follows this with settles the tree. */
 async function finishRecording(video: { uri: string } | undefined) {
-  mockFinishRecording?.(video);
-  await Promise.resolve();
+  await act(async () => {
+    mockFinishRecording?.(video);
+    await Promise.resolve();
+  });
 }
 
 describe('RecordScreen — the clip duration handed to /capture/extracting', () => {
@@ -142,7 +151,7 @@ describe('RecordScreen — the clip duration handed to /capture/extracting', () 
 
     // The full clip the recorder auto-caps at.
     nowMs += MAX_CLIP_DURATION_MS;
-    fireEvent.press(screen.getByTestId('record-button'));
+    await pressRecord();
     expect(mockStopRecordingCalledAt).toBe(nowMs);
 
     // File finalization — real elapsed time that is NOT part of the recorded media.
@@ -163,7 +172,7 @@ describe('RecordScreen — the clip duration handed to /capture/extracting', () 
     await startRecording();
 
     nowMs += 6_000;
-    fireEvent.press(screen.getByTestId('record-button'));
+    await pressRecord();
 
     nowMs += 350;
     await finishRecording({ uri: 'file:///tmp/clip.mov' });
@@ -190,7 +199,7 @@ describe('RecordScreen — the clip duration handed to /capture/extracting', () 
     await startRecording();
 
     nowMs += 4_000;
-    fireEvent.press(screen.getByTestId('record-button'));
+    await pressRecord();
     await finishRecording({ uri: 'file:///tmp/clip.mov' });
 
     await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1), WAIT);
@@ -206,10 +215,49 @@ describe('RecordScreen — the clip duration handed to /capture/extracting', () 
     await startRecording();
 
     nowMs += 3_000;
-    fireEvent.press(screen.getByTestId('record-button'));
+    await pressRecord();
     await finishRecording(undefined);
 
     await waitFor(() => expect(screen.getByTestId('record-button')).toBeTruthy(), WAIT);
     expect(mockPush).not.toHaveBeenCalled();
+  });
+});
+
+// V23-10 (third artboard): the overlay's drawn state.
+describe('RecordScreen — the V23-10 overlay', () => {
+  /** The control's inner mark: the one child of the record Pressable. */
+  function recordMark(): TestInstance {
+    return screen.getByTestId('record-button').children[0] as TestInstance;
+  }
+
+  it('shows the joined tip + muted line, the auto-cap caption and an `ink` mark while idle', async () => {
+    await render(<RecordScreen />);
+    await waitFor(() => expect(screen.getByTestId('record-button')).toBeTruthy(), WAIT);
+
+    expect(screen.getByText(`${Copy.capture.overlay.tip} ${Copy.capture.overlay.muted}`)).toBeTruthy();
+    expect(screen.getByText(Copy.capture.recording.autoCap)).toBeTruthy();
+    expect(screen.getByRole('header', { name: Copy.capture.title })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Start recording' })).toBeTruthy();
+    expect(StyleSheet.flatten(recordMark().props.style).backgroundColor).toBe(Ink.ink);
+    expect(screen.getByTestId('framing-guide', { includeHiddenElements: true })).toBeTruthy();
+  });
+
+  it('drops the tip and the back control, shows the timer and turns the mark `danger` while recording', async () => {
+    await startRecording();
+
+    expect(screen.getByText(Copy.capture.overlay.muted)).toBeTruthy();
+    expect(screen.queryByText(`${Copy.capture.overlay.tip} ${Copy.capture.overlay.muted}`)).toBeNull();
+    expect(screen.getByText(Copy.capture.recording.timer(0))).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
+    expect(screen.getByRole('header', { name: Copy.capture.title })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Stop recording' })).toBeTruthy();
+    expect(StyleSheet.flatten(recordMark().props.style).backgroundColor).toBe(Ink.danger);
+
+    // Settle the in-flight recording so nothing leaks into the next test.
+    nowMs += 2_000;
+    await pressRecord();
+    await finishRecording({ uri: 'file:///tmp/clip.mov' });
+    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1), WAIT);
   });
 });

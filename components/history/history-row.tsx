@@ -1,57 +1,37 @@
 /**
- * One Past Analyses row, recomposed for Cadence Arcs. Extracted out of `app/(tabs)/history.tsx`
- * (where it was a local `HistoryRow` sharing the screen's whole stylesheet) so the row's own
- * geometry lives next to the row rather than inside a 600-line screen.
+ * One History row, cut to V23-09 (2026-09-14). Extracted out of `app/(tabs)/history.tsx` so the
+ * row's own geometry lives next to the row rather than inside the screen's state machine.
  *
- * THE COMPOSITION, and what changed:
+ * THE COMPOSITION, verbatim from the page's card:
  *
- *   - THE ROW LEADS WITH A RING. The score used to be a bare numeral in a text column. It is now
- *     an `<ArcRing>` at the same diameter and stroke `components/pace-readout.tsx` gives a PILLAR
- *     ring, which is the point: a history row and a pillar row are the same object at the same
- *     scale, so scanning this list feels like scanning the result screen it leads to. The score is
- *     encoded three ways here now (arc length, arc colour, numeral) instead of one.
- *   - THE FRAME STRIP IS A DECK. It used to be N thumbnails laid out edge to edge, which at six
- *     frames simply ran out of row. They now overlap into a shallow deck, capped at
- *     `MAX_VISIBLE_FRAMES`, each ringed in `hairline` so the stack separates. This says "there are
- *     several stored frames" in a fixed width, which is what the row actually needs to say —
- *     Ruling 1's frames-only storage is the product fact worth surfacing, not the exact count.
- *   - DELETE MOVED TO ITS OWN LINE, under a hairline. It is still a PERSISTENT, VISIBLY LABELLED
- *     control (Ian's decision, `docs/design/copy-deck.md` Screen 8 — never swipe, never
- *     long-press, never an unlabelled glyph on an irreversible action). What it is not any more is
- *     a fourth column fighting the ring and the deck for a phone's row width and losing at large
- *     Dynamic Type sizes. Same behaviour, same a11y label, more room.
- *
- * A NOT-ASSESSED ROW keeps the dashed, unfilled ring `<ArcRing fraction={null}>` draws and states
- * the reason in words — never a zero, never a stringified null. Same rule the readout enforces.
- *
- * SURFACE CONTRACT: the row is an opaque `surface.base` card, which is what lets it carry
- * `text.secondary` and `Score[band].text` at all (`Gradient.page` carries `text.primary` only —
- * CLAUDE.md § Code conventions). It is drawn here rather than with `<SurfaceCard>` because the row
- * is a `Pressable` composition with an internal divider, not a passive panel.
+ *   - THE ROW LEADS WITH THE NUMERAL. `Type.displayFigure` in `ink`, `minWidth: 56` so the band
+ *     word and date start on the same column whether the score is "7" or "100". A not-assessed
+ *     overall draws an em dash in `ink3` — the placeholder tone, which is exactly what a missing
+ *     value is — never a zero, never a stringified null.
+ *   - BAND WORD + DATE beside it: the app's real `ScoreBandLabel[band]` in `Type.label` (the one
+ *     import this file still takes from `constants/theme.ts`, because it is copy, not a token), or
+ *     `Copy.result.pillar.notAssessed.generic` in `Type.note` when there is no band; the date in
+ *     `Type.mono` — a measured value's timestamp, set the way every measured value on the sheet is.
+ *   - THE FRAME DECK IS THREE CELLS, ALWAYS. `Layout.frameDeck`: 44 pt squares, each overlapping
+ *     the previous by half, ruled 2 pt in the card's own fill so the overlap reads as a stack. A
+ *     cell shows its signed frame when the URL has resolved and `bgPlaceholder` otherwise, so a
+ *     still-signing row, a row with fewer than three frames, and a row whose media is gone all
+ *     keep the same silhouette and the list's right edge stays a straight line.
+ *   - DELETE STAYS A VISIBLE WORD under an edge-to-edge hairline. It is a PERSISTENT, VISIBLY
+ *     LABELLED control (`docs/design/copy-deck.md` Screen 8 — never swipe, never long-press, never
+ *     an unlabelled glyph on an irreversible action). The page pulls it up 8 and out 16 on the
+ *     right so its 44 pt target reaches the card's edge while the underlined word sits on the
+ *     content column.
  *
  * NO BUSINESS LOGIC: it renders one `HistoryListItem` and emits two intents (open, delete).
  */
 import { Image } from 'expo-image';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { ArcRing } from '@/components/ui/arc-ring';
+import { SquareCard } from '@/components/ui/square-card';
 import { Copy } from '@/constants/copy';
-import {
-  Meter,
-  Colors,
-  FontFamily,
-  FontSize,
-  HitTarget,
-  Opacity,
-  Radius,
-  Score,
-  ScoreBandLabel,
-  Spacing,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ScoreBandLabel } from '@/constants/theme';
+import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import {
   formatHistoryDate,
   formatHistoryItemA11yLabel,
@@ -59,16 +39,17 @@ import {
   type HistoryListItem,
 } from '@/lib/history';
 
-/** The row's score ring — deliberately identical to `pace-readout.tsx`'s `PILLAR_RING_SIZE` /
- *  `PILLAR_RING_STROKE`. See this file's header on why the match is the design. */
-const ROW_RING_SIZE = 64;
-const ROW_RING_STROKE = 6;
+/** The page draws exactly three cells; a fourth stored frame is not shown. */
+const FRAME_DECK_CELLS = 3;
+/** The page's "—" for a not-assessed overall. */
+const NOT_ASSESSED_FIGURE = '—';
+/** The numeral's column (page: `min-width:56px`), so the band word and date start on the same
+ *  x whether the score is one digit or three. Not a `Layout` token: nothing else on the sheet
+ *  shares this width for this reason. */
+const FIGURE_COLUMN_WIDTH = 56;
 
-/** The frame deck. `OVERLAP` is how far each tile sits under the one before it, so the deck's
- *  width is bounded no matter how many frames a row stored. */
-const FRAME_THUMBNAIL_SIZE = 44;
-const FRAME_OVERLAP = 22;
-const MAX_VISIBLE_FRAMES = 3;
+const PRESSED_OPACITY = 0.6;
+const DISABLED_OPACITY = 0.4;
 
 export function HistoryRow({
   item,
@@ -83,71 +64,68 @@ export function HistoryRow({
   onPress: () => void;
   onDelete: () => void;
 }) {
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = createStyles(colors);
-
   const dateLabel = formatHistoryDate(item.createdAt);
   const { overall } = item.outcome.result;
   const assessed = overall.score !== null && overall.band !== null;
-  const visibleUris = thumbnailUris.slice(0, MAX_VISIBLE_FRAMES);
+  // Always three cells (see the header); `undefined` past the end of the strip is a placeholder.
+  const cells = Array.from({ length: FRAME_DECK_CELLS }, (_, index) => thumbnailUris[index]);
 
   return (
-    <View style={styles.row} testID={`history-row-${item.id}`}>
+    <SquareCard style={styles.card} testID={`history-row-${item.id}`}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={formatHistoryItemA11yLabel(item, dateLabel)}
         onPress={onPress}
         style={({ pressed }) => [styles.rowMain, pressed && styles.pressed]}>
-        <ArcRing
-          testID={`history-ring-${item.id}`}
-          size={ROW_RING_SIZE}
-          strokeWidth={ROW_RING_STROKE}
-          fraction={overall.score !== null ? overall.score / 100 : null}
-          color={overall.band !== null ? Score[overall.band][scheme].fill : Meter[scheme].rule}>
-          {overall.score !== null ? (
-            <Text style={styles.scoreNumeral}>{overall.score}</Text>
-          ) : null}
-        </ArcRing>
+        {assessed ? (
+          <Text style={styles.figure} testID={`history-score-${item.id}`}>
+            {overall.score}
+          </Text>
+        ) : (
+          <Text style={[styles.figure, styles.figureNotAssessed]} testID={`history-score-${item.id}`}>
+            {NOT_ASSESSED_FIGURE}
+          </Text>
+        )}
 
         <View style={styles.rowInfo}>
           {assessed && overall.band !== null ? (
-            <Text style={[styles.bandWord, { color: Score[overall.band][scheme].text }]}>
-              {ScoreBandLabel[overall.band]}
-            </Text>
+            <Text style={styles.bandWord}>{ScoreBandLabel[overall.band]}</Text>
           ) : (
             <Text style={styles.notAssessedText}>{Copy.result.pillar.notAssessed.generic}</Text>
           )}
-          {/* The date is the row's supporting metadata, in the metrics face — a measurement's
-              timestamp, set the same way every other measured value in the app is. */}
           <Text style={styles.dateText}>{dateLabel}</Text>
         </View>
 
-        {visibleUris.length > 0 ? (
-          <View style={styles.frameDeck} testID={`history-frame-strip-${item.id}`}>
-            {visibleUris.map((uri, index) => (
+        <View style={styles.frameDeck} testID={`history-frame-strip-${item.id}`}>
+          {cells.map((uri, index) =>
+            uri ? (
               <Image
                 key={`${item.id}-${index}`}
                 source={{ uri }}
-                style={[styles.thumbnail, index > 0 && { marginLeft: -FRAME_OVERLAP }]}
+                style={[styles.cell, index > 0 && styles.cellOverlap]}
                 contentFit="cover"
+                testID={`history-frame-${item.id}-${index}`}
               />
-            ))}
-          </View>
-        ) : (
-          // Covers BOTH the "still resolving" moment and the real "no thumbnail" outcome (empty
-          // media_paths, or every signed-URL attempt failed) with one neutral placeholder — never
-          // a broken image, never a crash (see `lib/history.ts`'s header on this exact case).
-          <View style={styles.thumbnailPlaceholder} testID={`history-frame-placeholder-${item.id}`} />
-        )}
+            ) : (
+              // Covers BOTH the "still resolving" moment and the real "no thumbnail" outcome
+              // (short media_paths, or a failed signed-URL attempt) with one placeholder cell —
+              // never a broken image, never a crash (see `lib/history.ts`'s header).
+              <View
+                key={`${item.id}-${index}`}
+                style={[styles.cell, styles.cellPlaceholder, index > 0 && styles.cellOverlap]}
+                testID={`history-frame-placeholder-${item.id}-${index}`}
+              />
+            )
+          )}
+        </View>
       </Pressable>
 
-      <View style={styles.divider} />
+      <View style={styles.rule} />
 
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={formatHistoryItemDeleteA11yLabel(item, dateLabel)}
-        accessibilityState={{ disabled: isDeleting }}
+        accessibilityState={{ disabled: isDeleting, busy: isDeleting }}
         disabled={isDeleting}
         onPress={onDelete}
         style={({ pressed }) => [
@@ -156,115 +134,95 @@ export function HistoryRow({
           isDeleting && styles.disabled,
         ]}
         testID={`history-delete-${item.id}`}>
-        {/* A visible word, not a glyph. Delete here is destructive and irreversible — it purges
-            the stored frames with the row — and an unlabelled icon would be the one place in this
-            redesign where looking tidier costs the user real clarity. */}
-        <Text style={styles.deleteText}>{Copy.history.item.deleteCta}</Text>
+        {isDeleting ? (
+          <ActivityIndicator color={Ink.ink2} testID={`history-delete-busy-${item.id}`} />
+        ) : (
+          <Text style={styles.deleteText}>{Copy.history.item.deleteCta}</Text>
+        )}
       </Pressable>
-    </View>
+    </SquareCard>
   );
 }
 
-function createStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    row: {
-      backgroundColor: colors.surface.base,
-      borderColor: colors.hairline,
-      borderRadius: Radius.card,
-      borderWidth: StyleSheet.hairlineWidth * 2,
-      overflow: 'hidden',
-      paddingHorizontal: Spacing.lg,
-      paddingVertical: Spacing.md,
-    },
-    rowMain: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      gap: Spacing.lg,
-      paddingVertical: Spacing.xs,
-    },
-    rowInfo: {
-      flex: 1,
-      gap: Spacing.xs,
-    },
-    scoreNumeral: {
-      color: colors.text.primary,
-      fontFamily: FontFamily.mono.bold,
-      fontSize: FontSize.md,
-      textAlign: 'center',
-    },
-    bandWord: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.sm,
-      letterSpacing: Tracking.eyebrow,
-      textTransform: 'uppercase',
-    },
-    dateText: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.mono.regular,
-      fontSize: FontSize.xs,
-    },
-    notAssessedText: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-    },
-    frameDeck: {
-      alignItems: 'center',
-      flexDirection: 'row',
-    },
-    thumbnail: {
-      width: FRAME_THUMBNAIL_SIZE,
-      height: FRAME_THUMBNAIL_SIZE,
-      // `Radius.tile`, not `Radius.card`: a thumbnail nested inside a 24pt-cornered row needs the
-      // tighter inner corner, or the two radii fight.
-      borderRadius: Radius.tile,
-      backgroundColor: colors.surface.raised,
-      // The ring is what keeps an overlapping deck readable as separate frames rather than as one
-      // smeared image — without it the tiles blend into each other wherever two frames are similar,
-      // which for consecutive frames of the same stride is most of the time.
-      borderColor: colors.surface.base,
-      borderWidth: 2,
-    },
-    thumbnailPlaceholder: {
-      width: FRAME_THUMBNAIL_SIZE,
-      height: FRAME_THUMBNAIL_SIZE,
-      borderRadius: Radius.tile,
-      backgroundColor: colors.surface.raised,
-      borderColor: colors.hairline,
-      borderWidth: 1,
-    },
-    // Full-bleed to the row's own edges (the negative margins cancel `paddingHorizontal`), so it
-    // reads as the row splitting in two rather than as a rule floating inside it.
-    divider: {
-      backgroundColor: colors.hairline,
-      height: StyleSheet.hairlineWidth,
-      marginHorizontal: -Spacing.lg,
-      marginTop: Spacing.md,
-    },
-    deleteButton: {
-      alignItems: 'flex-end',
-      justifyContent: 'center',
-      minHeight: HitTarget.min,
-      // Bleeds into the row's own horizontal padding so the target reaches the row's edge while
-      // the label still sits on the content column's right margin.
-      marginRight: -Spacing.lg,
-      paddingHorizontal: Spacing.lg,
-    },
-    // Sentence case and underlined, NOT the uppercase eyebrow register the band word above uses.
-    // That register is this app's LABEL voice ("this names a value"); borrowing it for a control
-    // would make the one destructive action in the list look like a caption. The underline is the
-    // affordance — nothing else in this row is underlined.
-    deleteText: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      textDecorationLine: 'underline',
-    },
-    pressed: {
-      opacity: Opacity.pressed,
-    },
-    disabled: {
-      opacity: Opacity.disabled,
-    },
-  });
-}
+const styles = StyleSheet.create({
+  // Page: `padding:16px; gap:12px` — `SquareCard`'s default padding is the 16.
+  card: {
+    gap: Space.md,
+  },
+  rowMain: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Space.lg,
+  },
+  figure: {
+    ...Type.displayFigure,
+    color: Ink.ink,
+    minWidth: FIGURE_COLUMN_WIDTH,
+  },
+  figureNotAssessed: {
+    color: Ink.ink3,
+  },
+  rowInfo: {
+    flex: 1,
+    gap: Space.xs,
+  },
+  bandWord: {
+    ...Type.label,
+    color: Ink.ink,
+  },
+  notAssessedText: {
+    ...Type.note,
+    color: Ink.ink2,
+  },
+  dateText: {
+    ...Type.mono,
+    color: Ink.ink2,
+  },
+  frameDeck: {
+    flexDirection: 'row',
+  },
+  cell: {
+    width: Layout.frameDeck.size,
+    height: Layout.frameDeck.size,
+    // Ruled in the card's own fill so the overlap reads as one frame sitting on the next.
+    borderWidth: Layout.frameDeck.border,
+    borderColor: Ink.bgRaised,
+    borderRadius: Layout.radius,
+  },
+  cellPlaceholder: {
+    backgroundColor: Ink.bgPlaceholder,
+  },
+  cellOverlap: {
+    marginLeft: -Layout.frameDeck.overlap,
+  },
+  // Page: `height:1px; margin:0 -16px` — edge to edge inside the card.
+  rule: {
+    height: Layout.hairline,
+    backgroundColor: Ink.line,
+    marginHorizontal: -Layout.cardPadding,
+  },
+  // Page: `min-height:44px; margin:-8px -16px -12px 0; padding:0 16px` — the target reaches the
+  // card's edge and eats the card's bottom padding, the word sits on the content column.
+  deleteButton: {
+    alignSelf: 'flex-end',
+    minHeight: Layout.hitTarget,
+    justifyContent: 'center',
+    marginTop: -Space.sm,
+    marginRight: -Layout.cardPadding,
+    marginBottom: -Space.md,
+    paddingHorizontal: Layout.cardPadding,
+  },
+  // Sentence case and underlined, NOT the uppercase label register the band word uses. The
+  // underline is the affordance — nothing else in this row is underlined.
+  deleteText: {
+    ...Type.bodySmMedium,
+    color: Ink.ink2,
+    textDecorationLine: 'underline',
+  },
+  pressed: {
+    opacity: PRESSED_OPACITY,
+  },
+  disabled: {
+    opacity: DISABLED_OPACITY,
+  },
+});

@@ -106,3 +106,27 @@ it('keeps the handed-off result on screen when the row lookup itself errors', as
   await waitFor(() => expect(screen.getByTestId('pace-readout')).toBeTruthy());
   expect(screen.queryByText(Copy.result.error.loadFailed)).toBeNull();
 });
+
+it('draws the placeholder gradient, the annotation marks and the vignette in the hero box when there is no frame', async () => {
+  // V23-08 draws the three marks and the vignette over the placeholder too — the hero is the
+  // same box whether or not an image ever arrives, so the readout under it never moves.
+  setPendingAnalysisResult({
+    analysisId: ANALYSIS_ID,
+    outcome: { result: photoResult, isFallback: false },
+    mediaType: 'photo',
+  });
+
+  await render(<ResultScreen />);
+
+  await waitFor(() => expect(screen.getByTestId('pace-readout')).toBeTruthy());
+  const HIDDEN = { includeHiddenElements: true } as const;
+  await waitFor(() => expect(screen.getByTestId('result-hero-placeholder', HIDDEN)).toBeTruthy());
+  expect(screen.getByTestId('result-hero-annotations-ground', HIDDEN)).toBeTruthy();
+  expect(screen.getByTestId('result-hero-vignette', HIDDEN)).toBeTruthy();
+  expect(screen.queryByTestId('result-hero-image')).toBeNull();
+  expect(screen.queryByTestId('result-hero-pending', HIDDEN)).toBeNull();
+  // The readout card, the disclaimer and the Done control follow in the page's order.
+  expect(screen.getByTestId('result-readout-card')).toBeTruthy();
+  expect(screen.getByTestId('result-disclaimer-text')).toBeTruthy();
+  expect(screen.getByTestId('result-done').props.accessibilityLabel).toBe(Copy.result.cta.done);
+});

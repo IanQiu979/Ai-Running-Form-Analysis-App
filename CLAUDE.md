@@ -164,17 +164,22 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
     `<SurfaceCard>`/`<GlassCard>` already encode all of this — prefer them over hand-rolling a
     `Pressable`. The captain widened this contract on 2026-08-02; `constants/theme.ts`'s `Glass`
     block names what it cost.
-- **Two token files ship side by side (2026-09-13); a screen is styled from one of them.** The
-  V23-01 theme sheet lives in `constants/v23-theme.ts` — dark only, flat `Ink`/`Font`/`Type`/
-  `Space`/`Layout`/`Motion` exports, square corners, no wash, no glass, no score bands — and is
-  what the signed-out entry flow (`app/(auth)/welcome`, `details`, `sign-in`) and `app/analyzing.tsx`
-  are built on, with `<SquareButton>` and `<TextField>` as its primitives (sign-in still borrows
-  `ContentWidth.readable` from `theme.ts` for its column width). `constants/theme.ts` remains the
-  token set for every screen lane 2 has not migrated yet (Home, Result, History, Capture, Paywall,
-  Settings). The sheet's contrast contract is proven in
-  `constants/__tests__/v23-theme-contrast.test.ts` — read it before putting text on `ink3`, which
-  is deliberately under AA and is for placeholders and disabled controls only. See
-  `docs/architecture.md`'s "Current — V23 entry flow" section.
+- **Two token files ship side by side; every screen with a V23 page is on `constants/v23-theme.ts`
+  (2026-09-14).** That file is the V23-01 theme sheet — dark only, flat `Ink`/`Font`/`Type`/
+  `Space`/`Layout`/`Motion`/`Chrome` exports, square corners, no wash, no glass, no score bands —
+  and it is what the entry flow (`app/(auth)/welcome`, `details`, `sign-in`), `app/analyzing.tsx`
+  and, since lane 2, Home, Result, History, Capture, Paywall and Settings are built on. Its
+  primitives are `<SquareButton>`, `<TextField>`, `<SquareCard>`, `<SquareIconButton>`, `<TopBar>`,
+  `<ConfirmDialog>` (every confirm/notice on those screens — never a native `Alert`), the traced
+  glyphs in `components/ui/v23-icons.tsx` and `<V23TabBar>` (floating over Home, inline at the end
+  of History). `constants/theme.ts` remains only for the screens no page covers yet
+  (`app/capture/extracting.tsx`, `app/compare.tsx`, the password-reset screens, the offline
+  banner, the Turnstile widget) and for `ScoreBandLabel`, which is copy. The sheet's contrast
+  contract is proven in `constants/__tests__/v23-theme-contrast.test.ts` — read it before putting
+  text on `ink3`, which is deliberately under AA and is for placeholders, disabled controls and
+  the one secondary line a page draws in it. See `docs/architecture.md`'s "Current — V23 entry
+  flow" and "Current — V23 lane 2" sections. A page needing a token the sheet lacks gets it added
+  there, never a hardcoded value.
 - **In-app copy is professional and restrained** (captain's user-audit, 2026-09-12): short
   sentences, no contractions, no exclamation marks, no emoji, no jokes; technical terms used
   precisely. Every string lives in `constants/copy.ts` (never inline in JSX) and
@@ -217,6 +222,10 @@ default — copy an existing test rather than writing one from memory:
   found by `getByTestId`. Decorative nodes are correctly hidden from the a11y tree, and RNTL
   excludes hidden elements from queries by default — so the testID that "doesn't exist" usually
   does.
+- **Two bare `fireEvent.press` calls in one test poison the NEXT test.** The second press leaves
+  an act scope open, and the following test's `await render(...)` produces an empty tree ("Unable
+  to find an element with testID"), which reads like a missing component and is not one. Wrap
+  every press as `await act(async () => { fireEvent.press(node); })`.
 - **Reanimated animations do not advance under Jest here.** A `withTiming`/`withSpring` shared
   value stays at its start value no matter how far you wind fake timers, and installing fake
   timers *before* `await render(...)` makes the render produce an empty tree instead. So a motion

@@ -1,105 +1,80 @@
 /**
- * A user's frame, full-bleed and graded into the palette (spec 2026-07-26 §3.5).
+ * A user's frame, full-bleed and graded into the palette (V23-08's "[ stored frame · duotone
+ * grade ]").
  *
  * WHY FULL-BLEED: rendering a photograph as a rounded thumbnail inside a card makes it foreign
- * to the interface. Bleeding it and grading it toward the app's base makes photograph and UI one
- * material — brief §1's "frames real photographic content with restraint", executed.
+ * to the interface. Bleeding it and grading it toward the app's black makes photograph and UI
+ * one material — the page's hero is the frame itself, edge to edge, with the readout hanging
+ * from it.
  *
- * WHY A WASH AND NOT A HUE SHIFT: a cold duotone of the kind used on machinery photography is
- * clinical and unflattering on a human body. So the subject's own colour is never rotated — a
- * low-opacity wash of `Colors[scheme].background` sits over it, which unifies the surface without
- * touching skin rendition. The wash reads whatever the base token is, so the 2026-08-02 Calm
- * palette swap (warm graphite/bone → blue/violet) carried through here with no code change; only
- * this comment, which used to justify the overlay by the base being *warm*, needed correcting.
- * `GRADE_OPACITY` is the lever if the cooler base ever proves too strong on skin — it is
- * deliberately low for exactly that reason, and was left untouched by the swap.
+ * THE GRADE. The V23 system is black, white and grey with no chromatic base (spec A.0), and a
+ * full-colour photograph would be the one thing on the screen outside it — so the frame is
+ * desaturated to greyscale and then washed with a low-opacity `Ink.bg`, which pulls its shadows
+ * toward the page's black. That is the two-tone map the page names: shadows toward `Ink.bg`,
+ * highlights left at the photo's own whites. The desaturation is an SVG colour-matrix filter
+ * (`FeColorMatrix type="saturate" values="0"`, react-native-svg >= 15.8 renders filters natively
+ * on both platforms) over an SVG `Image`; `expo-image` has no filter pipeline, which is why the
+ * frame is drawn through SVG here. `GRADE_OPACITY` is the wash's one lever, kept low so the
+ * subject stays legible.
  *
- * MOMENT 3 (spec §4, Phase 2 plan Task 5): `annotate` renders the three fixed-geometry hairlines
- * (ground rule, posture line, landing marker) as PERMANENT hero decoration — on every result,
- * first open or re-open — because `@shared/pace` carries no real per-joint coordinates and this
- * screen has always refused to invent overlay geometry (see `app/result/[id].tsx`'s header).
- * `playAnnotation` is the one-time part: the draw-on transform, gated to a fresh analysis's first
- * open only. (The once-per-install first-run preview that used to draw these same three lines
- * over the empty-state figure was removed on 2026-09-13 — the V23-02 hero is the entry moment
- * now — so this is the one place the annotation geometry lives.)
+ * The three annotation marks (`components/annotation-lines.tsx`) and the vignette are drawn by
+ * the result screen as siblings over this frame, not by this component: the page draws them
+ * over the placeholder gradient too, when there is no image at all, so they belong to the hero
+ * box rather than to the image.
  */
-import { Image } from 'expo-image';
 import { StyleSheet, View } from 'react-native';
+import Svg, { Defs, FeColorMatrix, Filter, Image as SvgImage } from 'react-native-svg';
 
-import { AnnotationLines, type AnnotationLine } from '@/components/annotation-lines';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Ink } from '@/constants/v23-theme';
+
+/** The desaturation filter's id — unique on the page so a second `<Defs>` can never collide. */
+const GRADE_FILTER_ID = 'duotone-frame-grade';
 
 /** Heavy enough to unify frame and interface, light enough that skin stays true. */
 const GRADE_OPACITY = 0.14;
 
-/** A representative running photo's portrait ratio (spec 2026-07-26 §3.5's full-bleed hero). */
+/** The page's hero box: `aspect-ratio: 3/4` at full width. */
 const FRAME_ASPECT_RATIO = 3 / 4;
-
-const ANNOTATION_LINES: AnnotationLine[] = [
-  { id: 'ground', top: '82%', left: '10%', width: '80%' },
-  { id: 'posture', top: '18%', left: '48%', width: '55%', rotate: '90deg' },
-  { id: 'landing', top: '78%', left: '58%', width: '10%', rotate: '30deg' },
-];
 
 type DuotoneFrameProps = {
   /** Local or remote URI of the stored frame. */
   uri: string;
-  /** Brief §7: the hero frame must carry a text alternative. */
+  /** The hero frame must carry a text alternative (`Copy.result.hero.altText`). */
   accessibilityLabel: string;
   testID?: string;
-  /** Render the three fixed-geometry annotation lines over the frame. False (the default) is
-   * every screen before this plan — no lines at all. */
-  annotate?: boolean;
-  /** Draw the lines on once, rather than rendering them already fully drawn. Only meaningful
-   * when `annotate` is set; ignored otherwise. */
-  playAnnotation?: boolean;
-  /** Hold the draw for this long before line 1 starts. The result hero passes `<Aperture>`'s own
-   * duration here so the wireframe is drawn onto an open, sharp frame rather than underneath a
-   * closed iris. Only meaningful alongside `playAnnotation`. */
-  annotationDelayMs?: number;
-  /** Fires once, after the draw finishes. Only meaningful when both `annotate` and
-   * `playAnnotation` are set. */
-  onAnnotationComplete?: () => void;
 };
 
-export function DuotoneFrame({
-  uri,
-  accessibilityLabel,
-  testID,
-  annotate = false,
-  playAnnotation = false,
-  annotationDelayMs = 0,
-  onAnnotationComplete,
-}: DuotoneFrameProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const grade = Colors[scheme].background;
-
+export function DuotoneFrame({ uri, accessibilityLabel, testID }: DuotoneFrameProps) {
   return (
     <View style={styles.container} testID={testID}>
-      <Image
-        source={{ uri }}
+      <Svg
+        width="100%"
+        height="100%"
         style={StyleSheet.absoluteFill}
-        contentFit="cover"
         accessible
+        accessibilityRole="image"
         accessibilityLabel={accessibilityLabel}
-      />
+        testID={testID ? `${testID}-image` : undefined}>
+        <Defs>
+          <Filter id={GRADE_FILTER_ID}>
+            <FeColorMatrix type="saturate" values="0" />
+          </Filter>
+        </Defs>
+        <SvgImage
+          href={{ uri }}
+          width="100%"
+          height="100%"
+          preserveAspectRatio="xMidYMid slice"
+          filter={`url(#${GRADE_FILTER_ID})`}
+        />
+      </Svg>
       <View
         testID={testID ? `${testID}-grade` : undefined}
-        style={[StyleSheet.absoluteFill, { backgroundColor: grade, opacity: GRADE_OPACITY }]}
+        style={[StyleSheet.absoluteFill, styles.grade]}
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
         pointerEvents="none"
       />
-      {annotate && (
-        <AnnotationLines
-          lines={ANNOTATION_LINES}
-          play={playAnnotation}
-          startDelayMs={annotationDelayMs}
-          onComplete={onAnnotationComplete}
-          testID={testID ? `${testID}-annotations` : undefined}
-        />
-      )}
     </View>
   );
 }
@@ -108,5 +83,9 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     aspectRatio: FRAME_ASPECT_RATIO,
+  },
+  grade: {
+    backgroundColor: Ink.bg,
+    opacity: GRADE_OPACITY,
   },
 });

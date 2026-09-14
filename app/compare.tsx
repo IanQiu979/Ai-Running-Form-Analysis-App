@@ -387,11 +387,16 @@ function CompareView({
 /**
  * One of the two side-by-side readouts.
  *
- * ON A CARD, not on the wash. `<PaceReadout>` renders band words, score fills and coaching prose,
- * none of which `Gradient.page` is proven for (`constants/theme.ts`'s `Gradient` contract) — this
- * pane used to drop it straight onto the wash, which `app/result/[id].tsx` avoids by wrapping it
- * in exactly this card. The date moves inside the card with it, in the eyebrow register, so each
- * pane reads as one object.
+ * `<PaceReadout>` is the shared V23 readout since lane 2 (2026-09-14): four `<SquareCard>` pillar
+ * cards on the `constants/v23-theme.ts` sheet, each with the pillar name, its band word and a 2 px
+ * score bar, and an info control that opens the flags and drills in `<PillarDetailModal>` — it
+ * draws no inline prose and no prose fills any more. This screen has no approved design page and
+ * stays on `constants/theme.ts`, so the V23 cards render inside this old-theme `<SurfaceCard>`;
+ * the captain approved that mixed rendering as-is until Compare gets a page of its own.
+ *
+ * ON A CARD, not on the wash, still: the readout's band words and score bars are not text roles
+ * `Gradient.page` is proven for (`constants/theme.ts`'s `Gradient` contract), and the date moves
+ * inside the card with them, in the eyebrow register, so each pane reads as one object.
  *
  * `tone="base"` (the default) for BOTH panes, deliberately: `surface.raised` is "the one raised
  * element per screen" (constants/theme.ts), and this screen shows two co-equal analyses — raising

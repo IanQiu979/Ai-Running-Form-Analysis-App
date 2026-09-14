@@ -1,33 +1,17 @@
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router, useFocusEffect, type Href } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ArcLoader } from '@/components/arc-loader';
 import { RecentAnalysis, type RecentAnalysisState } from '@/components/home/recent-analysis';
 import { Marquee } from '@/components/marquee';
-import { CircleIconButton } from '@/components/ui/circle-icon-button';
-import { Eyebrow } from '@/components/ui/eyebrow';
-import { PillButton } from '@/components/ui/pill-button';
-import { ScreenGradient } from '@/components/ui/screen-gradient';
-import { SurfaceCard } from '@/components/ui/surface-card';
+import { SquareButton } from '@/components/ui/square-button';
+import { SquareCard } from '@/components/ui/square-card';
+import { SquareIconButton } from '@/components/ui/square-icon-button';
+import { TopBar } from '@/components/ui/top-bar';
+import { ArrowRightIcon, SettingsIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
-import {
-  Accent,
-  Colors,
-  ContentWidth,
-  FontFamily,
-  FontSize,
-  LineHeight,
-  Opacity,
-  Spacing,
-  TabBar,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Font, Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { fetchHistoryList, type HistoryListItem } from '@/lib/history';
 import { pillarLabel } from '@/lib/pace-readout';
 import { checkPendingAnalysis } from '@/lib/pending-analysis';
@@ -86,19 +70,33 @@ function lastKnownFrom(state: QuotaState): QuotaStatus | null {
   return null;
 }
 
+/** The page's ticker strip is `margin: 0 -24px 128px`. 128 is the bottom safe area (34, already
+ *  paid by the content padding) + the floating tab bar (64) + 30 pt of air between the strip and
+ *  the bar; the bar's height and this air are what the content pads below the strip, and the safe
+ *  area is paid once, by the scroll container's `paddingBottom`. */
+const TICKER_AIR_ABOVE_TAB_BAR = 30;
+const TICKER_STRIP_HEIGHT = 40;
+/** The page's ticker type: `700 20px/24px Barlow Condensed`, +6 % (1.2 pt at 20), uppercase.
+ *  Not a `Type` role — the sheet has no 20 pt condensed uppercase — so the page's numbers stand
+ *  here, on the one screen that draws them. */
+const TICKER_FONT_SIZE = 20;
+const TICKER_LINE_HEIGHT = 24;
+const TICKER_LETTER_SPACING = 1.2;
+const TICKER_OPACITY = 0.5;
+
 export default function HomeScreen() {
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  // Issue #63: the floating tab bar moves up to clear Android's system navigation bar, so the
-  // content's own clearance has to move with it or the ticker sits under the bar again. A no-op
-  // on iOS and on Android gesture navigation — see `TabBar.bottomOffset` in constants/theme.ts.
+  // Live insets, with the design canvas's safe areas as the floor (the pages were drawn on
+  // 59 / 34), same as `app/(auth)/details.tsx`. The bottom inset is what the floating tab bar
+  // sits above (`app/(tabs)/_layout.tsx`), so the content pays it once here and the bar's own
+  // height plus its air go on the ticker strip below.
   const insets = useSafeAreaInsets();
-  const tabBarClearance = TabBar.clearanceFor(insets.bottom);
-  const contentStyle = useMemo(
-    () => [styles.content, { paddingBottom: tabBarClearance }],
-    [styles.content, tabBarClearance],
-  );
+  const contentStyle = [
+    styles.content,
+    {
+      paddingTop: Math.max(insets.top, Layout.canvas.safeTop),
+      paddingBottom: Math.max(insets.bottom, Layout.canvas.safeBottom),
+    },
+  ];
   const { session } = useSession();
   const userId = session?.user.id;
   const [quota, setQuota] = useState<QuotaState>({ status: 'loading' });
@@ -263,80 +261,67 @@ export default function HomeScreen() {
   useAnnounce(pendingReleased ? Copy.home.pending.released.title : null);
 
   return (
-    // edges excludes 'bottom' (issue #63): this screen renders under the tab bar, and
-    // @react-navigation/bottom-tabs already pads the tab bar itself by the device's bottom
-    // safe-area inset (verified in node_modules/@react-navigation/bottom-tabs's own
-    // BottomTabBar — its height calculation adds `insets.bottom`) — a SafeAreaView here with the
-    // default all-edges set would apply that same inset a second time, opening a dead gap
-    // between this screen's content and the tab bar's top edge.
-    <ScreenGradient>
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        {/* Same ScrollView + flexGrow:1 pattern as app/(auth)/sign-in.tsx: the content still
+    // The screen paints `Ink.bg` itself — this system has one scheme and no wash. No
+    // `SafeAreaView`: the scroll container pays the top and bottom insets directly (see
+    // `contentStyle` above), and the floating tab bar is the navigator's, not this screen's — Home
+    // only leaves room for it under the ticker.
+    <View style={styles.screen}>
+      {/* Same ScrollView + flexGrow:1 pattern as app/(auth)/sign-in.tsx: the content still
           centers when there is room, but at the largest Dynamic Type sizes it scrolls instead
           of clipping (design brief §7: layouts reflow, never clip). */}
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={contentStyle}>
-        {/* The top bar: a tracked-out wordmark and one circular glass control — replacing the old
-            "big heading + underlined text link" row. `Copy.home.title` is unchanged and still
-            carries `accessibilityRole="header"`; only its type role moved, from a 24pt display
-            heading to the eyebrow register, because on this screen the heading is chrome and the
-            CTA block is the subject. */}
-        <View style={styles.topBar}>
-          <Eyebrow tone="primary" style={styles.wordmark} testID="home-title">
-            {Copy.home.title}
-          </Eyebrow>
-          {/* Sign-out USED to live here as an M1 stub. Issue #53 moved it to Settings — its real
-              home, alongside delete-account — and this link is now the entry point to that screen.
-              Issue #27 (sign-out was fire-and-forget, so a failed global token revoke was silent)
-              is fixed there, once, rather than twice: see lib/sign-out.ts. */}
-          <CircleIconButton
-            accessibilityLabel={Copy.settings.title}
-            onPress={() => {
-              router.push('/settings');
-            }}
-            testID="home-settings">
-            <MaterialIcons name="tune" size={20} color={colors.text.primary} />
-          </CircleIconButton>
-        </View>
+      <ScrollView style={styles.scroll} contentContainerStyle={contentStyle}>
+        {/* The page's top row: a 44 pt spacer, "HOME" centred, and the Settings control bled 12 pt
+            past the gutter so its glyph lands on the column. `Copy.home.title` is unchanged and
+            `<TopBar>` still gives it `accessibilityRole="header"`. Sign-out USED to live here as an
+            M1 stub; issue #53 moved it to Settings — its real home, alongside delete-account — and
+            this control is the entry point to that screen (issue #27's silent sign-out failure is
+            fixed there, once: see lib/sign-out.ts). */}
+        <TopBar
+          title={Copy.home.title}
+          titleTestID="home-title"
+          trailing={
+            <SquareIconButton
+              accessibilityLabel={Copy.settings.title}
+              bleed="right"
+              onPress={() => {
+                router.push('/settings');
+              }}
+              testID="home-settings">
+              <SettingsIcon />
+            </SquareIconButton>
+          }
+        />
 
         {/* Issue #140: surfaced once, at most, per reconciled analysis — `checkPendingAnalysis`
             has already cleared the marker by the time this renders, so dismissing (or simply
             navigating away) never re-shows it on a later focus, and a later cold start can never
             resurrect it either. Home is not a dead end underneath this: the primary CTA and
-            Settings link above stay fully usable while this is showing. Same calm, non-alarmed
-            treatment `app/analyzing.tsx`'s own ErrorPanel documents for itself — plain
-            text.primary/text.secondary, no Semantic.error red. */}
+            Settings control above stay fully usable while this is showing. Not drawn on the page;
+            a plain card in `ink`/`ink2`, no `danger` — a "here is what happened" notice, not a
+            failure. */}
         {pendingReleased && (
-          <SurfaceCard tone="raised" style={styles.pendingReleasedBanner}>
+          <SquareCard style={styles.pendingReleasedBanner}>
             <Text style={styles.pendingReleasedTitle} accessibilityLiveRegion="polite">
               {Copy.home.pending.released.title}
             </Text>
             <Text style={styles.pendingReleasedBody}>{Copy.home.pending.released.body}</Text>
-            <PillButton
-              variant="ghost"
-              label={Copy.home.pending.released.dismiss}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={Copy.home.pending.released.dismiss}
               onPress={() => setPendingReleased(null)}
-              style={styles.bannerDismiss}
-            />
-          </SurfaceCard>
+              style={({ pressed }) => [styles.textLink, pressed && styles.pressed]}>
+              <Text style={styles.textLinkLabel}>{Copy.home.pending.released.dismiss}</Text>
+            </Pressable>
+          </SquareCard>
         )}
 
+        {/* The page's centre block: the recent analysis, the quota card and the primary CTA,
+            24 pt apart, centred in whatever height is left between the top row and the ticker. */}
         <View style={styles.centerBlock}>
-          {/* THE HERO — Cadence Arcs (2026-09-01). Was an ambient low-poly figure behind a
-              standing empty-state line: a composition that looked identical whether the user had
-              analyzed nothing or a hundred things, and that spoke the PREVIOUS design language
-              (the low-poly mark is the Calm/Gait-Plate motif, not the arc one).
-
-              It is now the user's most recent analysis, drawn as an arc ring — the same object the
-              result screen ends on, one size down — and tapping it reopens that result. With no
-              history it degrades to the motif's own "nothing to report" picture: a dashed, empty
-              ring under the same kinetic line that used to stand alone. See
-              `components/home/recent-analysis.tsx` for the four states and why a failed read is a
-              separate one from "empty".
-
-              `<LowPolyField>` is not deleted — it is still used while extracting. It is simply
-              no longer Home's hero. */}
+          {/* The lead card is the user's most recent analysis — the page's "Overall" card with
+              the numeral and the P/A/C/E row — and tapping it reopens that result. With no history
+              it is the page's dashed empty box. See `components/home/recent-analysis.tsx` for the
+              four states and why a failed read is a separate one from "empty". */}
           <RecentAnalysis
             state={recent}
             onOpen={(item) => {
@@ -344,39 +329,41 @@ export default function HomeScreen() {
             }}
           />
 
-          {/* Quota lives on an OPAQUE card, never directly on the wash: these captions are
-              `text.secondary`, and `Gradient`'s own contract (constants/theme.ts) proves the wash
-              for `text.primary` only. That rule is why this block gained a card in the redesign
-              rather than being left as bare text over the gradient. */}
-          <SurfaceCard style={styles.quotaCard} testID="home-quota-card">
+          {/* The quota card: the page's 16 pt card with a centred mono caption and, for a
+              period-based plan, the "Renews …" line under it in `ink3` — the page draws that line
+              `#5C5C5C`, so this is the one line on the screen the placeholder tone carries. */}
+          <SquareCard style={styles.quotaCard} testID="home-quota-card">
             {quota.status === 'loading' && (
-              <View style={styles.quotaBlock}>
-                {/* Cadence Arcs: the last stock `<ActivityIndicator>` on this screen, replaced by
-                    the motif's own wait state at caption scale. Deliberately much smaller than the
-                    hero's loader above it — two arc loaders at two scales read as one system
-                    waiting, where two identical spinners would read as two unrelated stalls. */}
-                <ArcLoader size={QUOTA_LOADER_SIZE} strokeWidth={1.5} testID="home-quota-loading" />
+              <>
+                <ActivityIndicator color={Ink.ink2} testID="home-quota-loading" />
                 <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
                   {Copy.home.quota.loading}
                 </Text>
-              </View>
+              </>
             )}
 
             {quota.status === 'ready' && readyCaption && (
-              <View style={styles.quotaBlock}>
+              <>
                 <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
                   {readyCaption.primary}
                 </Text>
                 {/* Pro/Elite's "Renews {date}" secondary line, or issue #6's anti-farm "blocked"
-                    notice — never both; see lib/quota.ts's `describeQuota`. */}
+                    notice — never both; see lib/quota.ts's `describeQuota`. Only the "Renews" line
+                    is the page's `ink3`; the blocked/cooldown notice is a status the user has to
+                    read, so it takes `ink2`. `blocked` is the same server field `describeQuota`
+                    branches on. */}
                 {readyCaption.secondary !== null && (
-                  <Text style={styles.quotaStaleCaption}>{readyCaption.secondary}</Text>
+                  <Text
+                    style={quota.blocked ? styles.quotaNotice : styles.quotaRenews}
+                    testID={quota.blocked ? 'home-quota-notice' : 'home-quota-renews'}>
+                    {readyCaption.secondary}
+                  </Text>
                 )}
-              </View>
+              </>
             )}
 
             {quota.status === 'error' && (
-              <View style={styles.quotaBlock}>
+              <>
                 <Text style={styles.quotaCaption} accessibilityLiveRegion="polite">
                   {quota.lastKnown ? describeQuota(quota.lastKnown).primary : Copy.home.quota.error.failed}
                 </Text>
@@ -384,19 +371,24 @@ export default function HomeScreen() {
                     it next to the plain failure line above would imply a cached value exists
                     when there isn't one. */}
                 {quota.lastKnown !== null && (
-                  <Text style={styles.quotaStaleCaption}>{Copy.home.quota.error.stale}</Text>
+                  <Text style={styles.quotaNotice} testID="home-quota-notice">
+                    {Copy.home.quota.error.stale}
+                  </Text>
                 )}
-                <PillButton
-                  variant="ghost"
-                  label={Copy.home.quota.error.retry}
+                {/* The page draws no error state; the retry is a quiet text link, 44 pt tall. */}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={Copy.home.quota.error.retry}
                   onPress={() => {
                     fetchQuota(activeFlagRef.current);
                   }}
-                  style={styles.quotaRetry}
-                />
-              </View>
+                  style={({ pressed }) => [styles.textLink, pressed && styles.pressed]}
+                  testID="home-quota-retry">
+                  <Text style={styles.textLinkLabel}>{Copy.home.quota.error.retry}</Text>
+                </Pressable>
+              </>
             )}
-          </SurfaceCard>
+          </SquareCard>
 
           {/* Wired into the capture flow by M2 (issue #36): source picker -> camera/library ->
               frames.ts. This is the entry point to the product's only job, so without it #86's
@@ -413,7 +405,7 @@ export default function HomeScreen() {
               button — that dead button, sitting under an offer of a free analysis, WAS issue #15.
               The Paywall takes no params: it re-reads quota itself, so it stays honest however it
               was reached. */}
-          <PillButton
+          <SquareButton
             label={ctaLabel}
             accessibilityHint={ctaHint ?? undefined}
             disabled={!ctaEnabled}
@@ -424,7 +416,7 @@ export default function HomeScreen() {
                 router.push('/capture');
               }
             }}
-            icon={<MaterialIcons name="arrow-forward" size={20} color={Accent.onAccent} />}
+            trailing={<ArrowRightIcon />}
             testID="home-primary-cta"
           />
         </View>
@@ -435,134 +427,104 @@ export default function HomeScreen() {
         <Marquee
           items={PILLAR_TICKER}
           textStyle={styles.tickerText}
-          separatorStyle={styles.tickerSeparator}
+          separatorStyle={styles.tickerText}
           style={styles.ticker}
           testID="home-pillar-ticker"
         />
-        </ScrollView>
-      </SafeAreaView>
-    </ScreenGradient>
+      </ScrollView>
+    </View>
   );
 }
 
-/** The quota caption's inline wait indicator. Sized to sit on the caption's own line rather than
- *  to be looked at — the hero's loader is the one that carries the screen while it waits. */
-const QUOTA_LOADER_SIZE = 24;
+const PRESSED_OPACITY = 0.6;
 
-function createStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      // Transparent, NOT `colors.background`: this screen now sits on `<ScreenGradient>`, and an
-      // opaque SafeAreaView here would paint the wash out entirely. The gradient component carries
-      // the opaque fallback fill behind itself instead.
-      backgroundColor: 'transparent',
-    },
-    // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
-    // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
-    // through the contentContainerStyle prop." The readable column is therefore centred by
-    // `alignSelf: 'center'` on the contentContainerStyle below, not from here (issue #63).
-    scroll: {
-      flex: 1,
-    },
-    content: {
-      // flexGrow (not flex) — this is a ScrollView contentContainerStyle now: it fills the
-      // viewport when the content is short, and grows past it when Dynamic Type makes it tall.
-      flexGrow: 1,
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      paddingHorizontal: Spacing.xl,
-      paddingTop: Spacing.lg,
-      // The tab bar floats now and reserves no layout space — see `TabBar` in constants/theme.ts.
-      // Without this the ticker would sit under the bar. The phone-default value here is the
-      // floor; the render site overlays `TabBar.clearanceFor(insets.bottom)` on top of it, which
-      // is larger only where the bar itself had to move up to clear Android's system navigation
-      // bar (issue #63). Identical on iOS.
-      paddingBottom: TabBar.clearance,
-      gap: Spacing.xxl,
-    },
-    topBar: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      gap: Spacing.md,
-      justifyContent: 'space-between',
-    },
-    wordmark: {
-      // Takes the middle of the row so the two flanking controls stay pinned to the edges,
-      // matching the reference's centred wordmark.
-      flex: 1,
-      textAlign: 'center',
-    },
-    // Issue #140. Same neutral-surface treatment `components/partial-result-banner.tsx` (issue
-    // #56) uses for its own honesty disclosure — a `surface.raised` card, not `Semantic.error`,
-    // matching that component's own reasoning: this is a "here's what happened" notice, not a
-    // system failure or a low score. Now a `<SurfaceCard>`, so its corner comes from `Radius.card`
-    // like every other panel rather than being restated here.
-    pendingReleasedBanner: {
-      gap: Spacing.xs,
-    },
-    pendingReleasedTitle: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.lg,
-      color: colors.text.primary,
-    },
-    pendingReleasedBody: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-      color: colors.text.secondary,
-    },
-    bannerDismiss: {
-      alignSelf: 'flex-start',
-      marginLeft: -Spacing.lg, // cancel the ghost pill's own padding so its label aligns with the body
-    },
-    centerBlock: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: Spacing.xl,
-    },
-    quotaCard: {
-      alignSelf: 'stretch',
-    },
-    quotaBlock: {
-      alignItems: 'center',
-      gap: Spacing.xs,
-    },
-    quotaCaption: {
-      fontFamily: FontFamily.mono.regular,
-      fontSize: FontSize.md,
-      color: colors.text.secondary,
-      textAlign: 'center',
-    },
-    quotaStaleCaption: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.xs,
-      color: colors.text.secondary,
-      textAlign: 'center',
-    },
-    quotaRetry: {
-      marginTop: Spacing.xs,
-    },
-    ticker: {
-      // Bleeds past the readable column's padding so the strip runs edge to edge, which is what
-      // makes it read as a ticker rather than as a centred caption.
-      marginHorizontal: -Spacing.xl,
-      opacity: Opacity.disabled,
-      paddingVertical: Spacing.sm,
-    },
-    tickerText: {
-      color: colors.text.primary,
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.lg,
-      letterSpacing: Tracking.eyebrow,
-      textTransform: 'uppercase',
-    },
-    tickerSeparator: {
-      color: colors.text.primary,
-      fontFamily: FontFamily.display.regular,
-      fontSize: FontSize.lg,
-    },
-  });
-}
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: Ink.bg,
+  },
+  // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
+  // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
+  // through the contentContainerStyle prop."
+  scroll: {
+    flex: 1,
+  },
+  content: {
+    // flexGrow (not flex) — this is a ScrollView contentContainerStyle: it fills the viewport
+    // when the content is short, and grows past it when Dynamic Type makes it tall. The page is
+    // a single column at the gutter; the top and bottom insets are applied at the render site.
+    flexGrow: 1,
+    paddingHorizontal: Layout.gutter,
+  },
+  // Issue #140. Not on the page; a plain raised card in the body register, the dismiss a text
+  // link under it.
+  pendingReleasedBanner: {
+    gap: Space.xs,
+    marginTop: Space.xl,
+  },
+  pendingReleasedTitle: {
+    ...Type.body,
+    fontFamily: Font.tight.semiBold,
+    color: Ink.ink,
+  },
+  pendingReleasedBody: {
+    ...Type.note,
+    color: Ink.ink2,
+  },
+  // A text-only control: the label register in `ink`, on a 44 pt row so it stays tappable.
+  textLink: {
+    minHeight: Layout.hitTarget,
+    justifyContent: 'center',
+  },
+  textLinkLabel: {
+    ...Type.label,
+    color: Ink.ink,
+  },
+  pressed: {
+    opacity: PRESSED_OPACITY,
+  },
+  centerBlock: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: Space.xl,
+  },
+  quotaCard: {
+    alignItems: 'center',
+    gap: Space.xs,
+  },
+  quotaCaption: {
+    ...Type.mono,
+    color: Ink.ink2,
+    textAlign: 'center',
+  },
+  // The page-mandated `#5C5C5C` "Renews …" line — the one line of copy on the screen in `ink3`.
+  quotaRenews: {
+    ...Type.small,
+    color: Ink.ink3,
+    textAlign: 'center',
+  },
+  // Status captions the page does not draw (anti-farm blocked / cooldown, stale last-known
+  // value): the user has to read these, so they stay on the AA-proven `ink2`.
+  quotaNotice: {
+    ...Type.small,
+    color: Ink.ink2,
+    textAlign: 'center',
+  },
+  // The page's strip: 40 pt tall, bled to the screen edges past the gutter, at half opacity, with
+  // the tab bar's height plus its air below it (the safe area is the content's own padding).
+  ticker: {
+    height: TICKER_STRIP_HEIGHT,
+    justifyContent: 'center',
+    marginHorizontal: -Layout.gutter,
+    marginBottom: Layout.tabBar.height + TICKER_AIR_ABOVE_TAB_BAR,
+    opacity: TICKER_OPACITY,
+  },
+  tickerText: {
+    fontFamily: Font.condensed.bold,
+    fontSize: TICKER_FONT_SIZE,
+    lineHeight: TICKER_LINE_HEIGHT,
+    letterSpacing: TICKER_LETTER_SPACING,
+    textTransform: 'uppercase',
+    color: Ink.ink,
+  },
+});

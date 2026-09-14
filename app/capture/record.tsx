@@ -21,64 +21,44 @@
  * past the real last frame, so the late samples came back as duplicates of the final still instead
  * of showing motion. See that file's header for the full derivation and for the head-end error it
  * honestly does NOT close.
+ *
+ * VISUALLY (V23-10, third artboard): the viewfinder fills the screen with the page's SVG guide
+ * over it; the top row ("RECORD YOUR RUN" beside a bled Back control) sits at the safe top, the
+ * mono timer 17 pt under it, and at the safe bottom one footnote line ("Side-on, full body, good
+ * light. Muted.") above a 72 pt `ink`-ruled square holding a 28 pt square — `danger` while
+ * recording (the page's stop state), `ink` when idle (not drawn on the page). No scrims, no
+ * ring: the page draws its text straight on the preview.
  */
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FramingGuide } from '@/components/framing-guide';
-import { KineticText } from '@/components/kinetic-text';
-import { ArcRing } from '@/components/ui/arc-ring';
-import { CircleIconButton } from '@/components/ui/circle-icon-button';
-import { PillButton } from '@/components/ui/pill-button';
-import { ScreenGradient } from '@/components/ui/screen-gradient';
-import { SurfaceCard } from '@/components/ui/surface-card';
+import { SquareButton } from '@/components/ui/square-button';
+import { SquareCard } from '@/components/ui/square-card';
+import { SquareIconButton } from '@/components/ui/square-icon-button';
+import { TopBar } from '@/components/ui/top-bar';
+import { BackIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
-import {
-  Accent,
-  Colors,
-  ContentWidth,
-  FontFamily,
-  FontSize,
-  Glass,
-  LineHeight,
-  Motion,
-  Opacity,
-  Radius,
-  Spacing,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { MAX_CLIP_DURATION_MS } from '@/lib/media-caps';
 import { classifyPermission, permissionRecoveryAction } from '@/lib/permission-state';
 import { measureRecordedClipDurationMs } from '@/lib/recorded-clip-duration';
 import { useAnnounce } from '@/lib/use-announce';
 
-// The record button's own geometry — a custom circular control, not a spacing value between UI
-// elements, so it's a local constant rather than a `constants/theme.ts` token (same category as
-// `components/framing-guide.tsx`'s figure geometry — see that file's header comment). Comfortably
-// clears `HitTarget.min` (44).
-const RECORD_BUTTON_SIZE = 72;
-const RECORD_BUTTON_BORDER_WIDTH = 4;
-const RECORD_BUTTON_START_ICON_SIZE = 28;
-const RECORD_BUTTON_STOP_ICON_SIZE = 24;
-// The elapsed-time ring drawn around the button while a clip is in flight. Outer diameter leaves a
-// clear gap between the ring and the button's own rim, so the two read as separate objects rather
-// than as one thick border.
-const RECORD_RING_SIZE = RECORD_BUTTON_SIZE + Spacing.xl;
-const RECORD_RING_STROKE = Spacing.xs;
+/** The page puts the timer at `top:120px` — 59 (safe top) + 44 (the top row) + this. */
+const TIMER_GAP = 17;
+/** A press is a plain opacity dip, the same one `<SquareButton>` uses. */
+const PRESSED_OPACITY = 0.6;
 
 export default function RecordScreen() {
   const router = useRouter();
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = createStyles(colors, scheme);
+  const insets = useSafeAreaInsets();
+  const safeTop = Math.max(insets.top, Layout.canvas.safeTop);
+  const safeBottom = Math.max(insets.bottom, Layout.canvas.safeBottom);
 
   const [permission, requestPermission] = useCameraPermissions();
   const permissionState = classifyPermission(permission);
@@ -166,89 +146,72 @@ export default function RecordScreen() {
 
   if (permissionState === 'checking') {
     return (
-      <ScreenGradient>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.centered}>
-            <ActivityIndicator color={colors.text.primary} />
-          </View>
-        </SafeAreaView>
-      </ScreenGradient>
+      <View style={[styles.screen, styles.centered]}>
+        <ActivityIndicator color={Ink.ink2} />
+      </View>
     );
   }
 
   if (permissionState === 'undetermined') {
     return (
-      <ScreenGradient>
-        <SafeAreaView style={styles.safeArea}>
-        {/* ScrollView + flexGrow, not a plain flex:1 View (issue #63) — same Dynamic Type
-            reflow-not-clip pattern as app/(tabs)/index.tsx: this panel's title/body/two buttons
-            could otherwise overflow a small phone at the largest accessibility text sizes with
-            no way to reach the second button. */}
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.permissionScroll}>
-          {/* On a `<SurfaceCard>` since Cadence Arcs, matching the source picker's own permission
-              panels: an opaque surface is the only place this panel's secondary body copy is
-              proven, and the two screens' permission moments should not read as two products. */}
-          <SurfaceCard>
-            <View style={styles.permissionPanel}>
-              <KineticText
-                accessibilityRole="header"
-                staggerMs={Motion.stagger.line}
-                style={styles.permissionTitle}>
-                {Copy.capture.permission.camera.title}
-              </KineticText>
-              <Text style={styles.permissionBody}>{Copy.capture.permission.camera.body}</Text>
-              <PillButton
-                label={Copy.capture.permission.camera.cta}
-                disabled={busy}
-                onPress={handleSoftAskAllow}
-                style={styles.permissionCta}
-              />
-              <PillButton variant="ghost" label="Back" onPress={() => router.back()} block />
-            </View>
-          </SurfaceCard>
+      <View style={styles.screen}>
+        {/* ScrollView + flexGrow, not a plain flex:1 View (issue #63) — the Dynamic Type
+            reflow-not-clip pattern: this panel's title/body/two buttons could otherwise overflow
+            a small phone at the largest accessibility text sizes with no way to reach the second
+            button. The page does not draw the permission panels; this is the source picker's
+            panel idiom at the large card padding. */}
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.permissionScroll, { paddingTop: safeTop, paddingBottom: safeBottom }]}>
+          <SquareCard padding={Layout.cardPaddingLg} style={styles.permissionPanel}>
+            <Text accessibilityRole="header" style={styles.permissionTitle}>
+              {Copy.capture.permission.camera.title}
+            </Text>
+            <Text style={styles.permissionBody}>{Copy.capture.permission.camera.body}</Text>
+            <SquareButton
+              label={Copy.capture.permission.camera.cta}
+              disabled={busy}
+              onPress={handleSoftAskAllow}
+              style={styles.permissionCta}
+            />
+            <SquareButton variant="link" label="Back" onPress={() => router.back()} />
+          </SquareCard>
         </ScrollView>
-        </SafeAreaView>
-      </ScreenGradient>
+      </View>
     );
   }
 
   if (permissionState === 'denied') {
     return (
-      <ScreenGradient>
-        <SafeAreaView style={styles.safeArea}>
+      <View style={styles.screen}>
         {/* Same ScrollView + flexGrow reflow fix as the 'undetermined' panel above (issue #63). */}
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.permissionScroll}>
-          <SurfaceCard>
-            <View style={styles.permissionPanel}>
-              <KineticText
-                accessibilityRole="header"
-                staggerMs={Motion.stagger.line}
-                style={styles.permissionTitle}>
-                {Copy.capture.permission.camera.denied.title}
-              </KineticText>
-              <Text style={styles.permissionBody}>{Copy.capture.permission.camera.denied.body}</Text>
-              <PillButton
-                label={Copy.capture.permission.camera.denied.cta}
-                disabled={busy}
-                onPress={handleDeniedCta}
-                style={styles.permissionCta}
-              />
-              <PillButton
-                variant="ghost"
-                label={Copy.capture.permission.camera.denied.secondary}
-                onPress={() => router.back()}
-                block
-              />
-            </View>
-          </SurfaceCard>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.permissionScroll, { paddingTop: safeTop, paddingBottom: safeBottom }]}>
+          <SquareCard padding={Layout.cardPaddingLg} style={styles.permissionPanel}>
+            <Text accessibilityRole="header" style={styles.permissionTitle}>
+              {Copy.capture.permission.camera.denied.title}
+            </Text>
+            <Text style={styles.permissionBody}>{Copy.capture.permission.camera.denied.body}</Text>
+            <SquareButton
+              label={Copy.capture.permission.camera.denied.cta}
+              disabled={busy}
+              onPress={handleDeniedCta}
+              style={styles.permissionCta}
+            />
+            <SquareButton
+              variant="link"
+              label={Copy.capture.permission.camera.denied.secondary}
+              onPress={() => router.back()}
+            />
+          </SquareCard>
         </ScrollView>
-        </SafeAreaView>
-      </ScreenGradient>
+      </View>
     );
   }
 
   return (
-    <View style={styles.cameraContainer}>
+    <View style={styles.screen}>
       <CameraView
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
@@ -259,211 +222,133 @@ export default function RecordScreen() {
       />
       <FramingGuide />
 
-      <SafeAreaView style={styles.overlaySafeArea} pointerEvents="box-none">
-        <View style={styles.topOverlay} pointerEvents="box-none">
-          {/* Both hidden while actively recording, same convention as most camera apps — the record
-              button below is the one control while a clip is in flight; the back button is the
-              "every screen needs an exit" affordance for before/after that, and the framing tip has
-              nothing left to tell a runner who is already mid-clip. */}
-          {!recording && (
-            <>
-              <CircleIconButton accessibilityLabel="Back" onPress={() => router.back()}>
-                <MaterialIcons name="arrow-back" size={20} color={colors.text.primary} />
-              </CircleIconButton>
-              <Text style={styles.overlayTip}>{Copy.capture.overlay.tip}</Text>
-            </>
-          )}
-        </View>
+      {/* The back control is hidden while actively recording, same convention as most camera
+          apps — the record button below is the one control while a clip is in flight, and the
+          back button is the "every screen needs an exit" affordance for before/after that. The
+          top bar keeps its 44 pt spacer in the control's place so the title does not move. */}
+      <View style={[styles.topOverlay, { top: safeTop }]} pointerEvents="box-none">
+        <TopBar
+          title={Copy.capture.title}
+          leading={
+            recording ? undefined : (
+              <SquareIconButton accessibilityLabel="Back" bleed="left" onPress={() => router.back()}>
+                <BackIcon />
+              </SquareIconButton>
+            )
+          }
+        />
+      </View>
 
-        <View style={styles.bottomOverlay}>
-          <Text style={styles.mutedNote}>{Copy.capture.overlay.muted}</Text>
-          <Text style={styles.recordingCaption} accessibilityLiveRegion="polite">
-            {recording ? Copy.capture.recording.timer(Math.floor(elapsedMs / 1000)) : Copy.capture.recording.autoCap}
-          </Text>
-          {/* The one motif element over the viewfinder, and it is FUNCTIONAL, not ornamental: the
-              ring reports how much of the 15s cap this clip has used, off the very same `elapsedMs`
-              clock the "Ns / 15s" caption above already shows — so the two can never disagree. It
-              is mounted ONLY while recording: `<ArcRing>` draws a `null` fraction as a dashed empty
-              track and a 0 as a filled-at-nothing ring, and an idle camera is neither of those
-              statements, so the honest thing to show before a clip starts is no ring at all.
-              `animate` stays off (its default) for the same reason the extraction ring's does — a
-              spring between values would make a determinate readout feel approximate. */}
-          <View style={styles.recordControl}>
-            {recording && (
-              <ArcRing
-                size={RECORD_RING_SIZE}
-                strokeWidth={RECORD_RING_STROKE}
-                fraction={elapsedMs / MAX_CLIP_DURATION_MS}
-                color={Accent.value}
-                style={styles.recordRing}
-              />
-            )}
-            <Pressable
-              testID="record-button"
-              accessibilityRole="button"
-              accessibilityLabel={recording ? 'Stop recording' : 'Start recording'}
-              disabled={!cameraReady}
-              onPress={handleRecordPress}
-              style={({ pressed }) => [
-                styles.recordButton,
-                (pressed || !cameraReady) && styles.pressed,
-              ]}>
-              <View style={recording ? styles.recordButtonStopIcon : styles.recordButtonStartIcon} />
-            </Pressable>
-          </View>
-        </View>
-      </SafeAreaView>
+      <Text
+        style={[styles.timer, { top: safeTop + Layout.topBarHeight + TIMER_GAP }]}
+        accessibilityLiveRegion="polite">
+        {recording ? Copy.capture.recording.timer(Math.floor(elapsedMs / 1000)) : Copy.capture.recording.autoCap}
+      </Text>
+
+      <View style={[styles.bottomOverlay, { bottom: safeBottom }]} pointerEvents="box-none">
+        {/* One line: the framing tip and the muted note, joined. The tip has nothing left to tell
+            a runner who is already mid-clip, so it drops out while recording; the note stays. */}
+        <Text style={styles.overlayLine}>
+          {recording ? Copy.capture.overlay.muted : `${Copy.capture.overlay.tip} ${Copy.capture.overlay.muted}`}
+        </Text>
+        <Pressable
+          testID="record-button"
+          accessibilityRole="button"
+          accessibilityLabel={recording ? 'Stop recording' : 'Start recording'}
+          disabled={!cameraReady}
+          onPress={handleRecordPress}
+          style={({ pressed }) => [styles.recordButton, (pressed || !cameraReady) && styles.pressed]}>
+          <View style={[styles.recordMark, recording ? styles.recordMarkStop : styles.recordMarkIdle]} />
+        </Pressable>
+      </View>
     </View>
   );
 }
 
-function createStyles(colors: ThemeColors, scheme: ColorScheme) {
-  const glass = Glass[scheme];
-  return StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      // Transparent — `<ScreenGradient>` behind it owns the fill. The camera view below is a
-      // different case: it keeps an opaque fill, see `cameraContainer`.
-      backgroundColor: 'transparent',
-    },
-    centered: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
-    // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
-    // through the contentContainerStyle prop." The readable column is therefore centred by
-    // `alignSelf: 'center'` on the contentContainerStyle below, not from here (issue #63).
-    scroll: {
-      flex: 1,
-    },
-    permissionScroll: {
-      flexGrow: 1,
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      justifyContent: 'center',
-      padding: Spacing.xl,
-    },
-    // Spacing only — the panel's fill, corner, edge and interior padding come from the
-    // `<SurfaceCard>` around it. This inner stack exists because `<SurfaceCard>`'s `style` lands on
-    // its outer shadow node, whose single child is the clip view, so a `gap` set there does nothing.
-    permissionPanel: {
-      gap: Spacing.md,
-    },
-    permissionTitle: {
-      fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.xxl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xxl * LineHeight.display,
-      color: colors.text.primary,
-    },
-    permissionBody: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.md,
-      lineHeight: FontSize.md * LineHeight.body,
-      // Secondary is legal now that this panel sits on an opaque `surface.base` rather than
-      // directly on the wash, which carries `text.primary` ONLY (`Gradient`'s contract,
-      // constants/theme.ts). Same treatment as the source picker's permission panels.
-      color: colors.text.secondary,
-    },
-    permissionCta: {
-      marginTop: Spacing.md,
-    },
-    pressed: {
-      opacity: Opacity.pressed,
-    },
-    cameraContainer: {
-      flex: 1,
-      // Only ever visible for the brief instant before CameraView (an absolute-fill sibling
-      // below) paints its first frame — colors.background, not a hardcoded black, per
-      // CLAUDE.md's "theme tokens only" rule.
-      backgroundColor: colors.background,
-    },
-    overlaySafeArea: {
-      flex: 1,
-      justifyContent: 'space-between',
-    },
-    topOverlay: {
-      alignItems: 'flex-start',
-      padding: Spacing.xl,
-      gap: Spacing.md,
-    },
-    // A compact chip, not a full-width plate: this is guidance laid over a live viewfinder, and the
-    // viewfinder is the thing the user is actually reading. `Glass.*.scrim` is the token for text
-    // over photographic media — the opaque `surface.base` this used to paint on is a PAGE surface
-    // and punched an app-coloured card into the middle of the camera preview.
-    overlayTip: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-      color: colors.text.primary,
-      backgroundColor: glass.scrim,
-      borderColor: glass.hairline,
-      borderRadius: Radius.tile,
-      borderWidth: StyleSheet.hairlineWidth * 2,
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.sm,
-    },
-    bottomOverlay: {
-      alignItems: 'center',
-      gap: Spacing.sm,
-      padding: Spacing.xl,
-    },
-    // Both of these sit over live video too — same scrim, same reasoning as `overlayTip`.
-    mutedNote: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.xs,
-      color: colors.text.primary,
-      backgroundColor: glass.scrim,
-      borderRadius: Radius.pill,
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.xs,
-    },
-    recordingCaption: {
-      fontFamily: FontFamily.mono.regular,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
-      backgroundColor: glass.scrim,
-      borderRadius: Radius.pill,
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.xs,
-    },
-    // Holds the button and its elapsed ring on one centre. The ring is absolute, so mounting it at
-    // the start of a clip does not move the button by a point.
-    recordControl: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginTop: Spacing.sm,
-    },
-    recordRing: {
-      position: 'absolute',
-    },
-    recordButton: {
-      width: RECORD_BUTTON_SIZE,
-      height: RECORD_BUTTON_SIZE,
-      borderRadius: RECORD_BUTTON_SIZE / 2,
-      borderWidth: RECORD_BUTTON_BORDER_WIDTH,
-      borderColor: Accent.onAccent,
-      backgroundColor: Accent.value,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    recordButtonStartIcon: {
-      width: RECORD_BUTTON_START_ICON_SIZE,
-      height: RECORD_BUTTON_START_ICON_SIZE,
-      borderRadius: RECORD_BUTTON_START_ICON_SIZE / 2,
-      backgroundColor: Accent.onAccent,
-    },
-    recordButtonStopIcon: {
-      width: RECORD_BUTTON_STOP_ICON_SIZE,
-      height: RECORD_BUTTON_STOP_ICON_SIZE,
-      // A small fixed softening, NOT `Radius.card / 2` as before: that expression tracked the card
-      // token, so when `Radius.card` went 0 -> 24 this ~20pt stop square would have silently
-      // become a circle and stopped reading as "stop" at all.
-      borderRadius: Spacing.xs,
-      backgroundColor: Accent.onAccent,
-    },
-  });
-}
+const styles = StyleSheet.create({
+  // Painted `Ink.bg` — under the permission panels it is the page, and under the camera it is
+  // only ever visible for the instant before `CameraView` (an absolute-fill sibling) paints.
+  screen: {
+    flex: 1,
+    backgroundColor: Ink.bg,
+  },
+  centered: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
+  // ScrollView's `style` and throw at render (issue #63); the centring lives on the
+  // contentContainerStyle below.
+  scroll: {
+    flex: 1,
+  },
+  permissionScroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: Layout.gutter,
+  },
+  permissionPanel: {
+    gap: Space.md,
+  },
+  permissionTitle: {
+    ...Type.h2,
+    color: Ink.ink,
+  },
+  permissionBody: {
+    ...Type.body,
+    color: Ink.ink2,
+  },
+  permissionCta: {
+    marginTop: Space.md,
+  },
+  pressed: {
+    opacity: PRESSED_OPACITY,
+  },
+  // The page's `top:59px; left:24px; right:24px` row over the preview.
+  topOverlay: {
+    position: 'absolute',
+    left: Layout.gutter,
+    right: Layout.gutter,
+  },
+  timer: {
+    ...Type.mono,
+    color: Ink.ink,
+    textAlign: 'center',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+  },
+  // The page's `left:0; right:0; bottom:34px` column: the line, then the control, 16 pt apart.
+  bottomOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    gap: Space.lg,
+  },
+  overlayLine: {
+    ...Type.footnote,
+    color: Ink.ink,
+    textAlign: 'center',
+    paddingHorizontal: Layout.gutter,
+  },
+  recordButton: {
+    width: Layout.recordButton.size,
+    height: Layout.recordButton.size,
+    borderWidth: Layout.recordButton.border,
+    borderColor: Ink.ink,
+    borderRadius: Layout.radius,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recordMark: {
+    width: Layout.recordButton.stop,
+    height: Layout.recordButton.stop,
+  },
+  recordMarkIdle: {
+    backgroundColor: Ink.ink,
+  },
+  recordMarkStop: {
+    backgroundColor: Ink.danger,
+  },
+});

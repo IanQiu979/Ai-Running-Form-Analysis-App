@@ -1,12 +1,15 @@
 /**
- * Screen 11 — Settings (issue #53; also closes #27).
+ * Screen 11 — Settings (issue #53; also closes #27), re-cut to V23-12 (2026-09-14): the
+ * captain-approved page's "Account / Plan / Privacy" artboard and its "Delete account · confirm"
+ * artboard. Back and "SETTINGS" on the top row; three labelled sections, each a card of 56 pt
+ * rows ruled apart in `line` (label left in `ink`, value right in `ink2` or an uppercase action);
+ * and the ruled `danger` "Delete account" control pushed to the foot of the page.
  *
  * ROUTE PLACEMENT: a top-level pushed route (`/settings`), NOT a tab. `docs/architecture.md`'s
  * route tree already made this call — it lists `paywall, settings` at root, alongside
- * `capture/` / `analyzing` / `result/[id]`, while explicitly nesting `(tabs)/history` as the tab
- * that M6 adds. Product-wise that is right: the tab bar is for co-equal primary surfaces (Home,
- * and later History), and Settings is a rare destination you push into and back out of. Giving it
- * a permanent third of the tab bar would crowd out History before History even ships.
+ * `capture/` / `analyzing` / `result/[id]`, while nesting `(tabs)/history` as a tab. Product-wise
+ * that is right: the tab bar is for co-equal primary surfaces (Home, History), and Settings is a
+ * rare destination you push into and back out of.
  *
  * ⚠️ Because it is a root route, it MUST be declared inside `app/_layout.tsx`'s
  * `Stack.Protected guard={!!session}` block — an *undeclared* route file renders as an
@@ -17,31 +20,33 @@
  *   - Sign out — real, and correct against all THREE states a security audit found here (#27,
  *     finding F3; see `lib/sign-out.ts`'s header for why two states was wrong).
  *   - Consent withdrawal — real, writes to `public.consents` via `lib/consent.ts`.
- *   - Email / tier — real reads. Tier is DISPLAY-ONLY: read from `subscriptions`, never computed
- *     here. CLAUDE.md — "the client may display tier/quota state but is never the authority for it."
+ *   - Email / plan — real reads. The plan is DISPLAY-ONLY: the whole `QuotaStatus` the server
+ *     returns is held so the Plan card can show the tier, the quota caption and the renewal date
+ *     the page draws, but nothing here computes any of it. CLAUDE.md — "the client may display
+ *     tier/quota state but is never the authority for it."
  *   - Delete account — a REAL `supabase.functions.invoke('delete-account')` call (fixed 2026-07-13,
- *     finding F1: the original mock binding had no owner to swap it for a real one, so it would
- *     have shipped silently lying about erasure). `delete-account`'s edge function (#58/#121) has
- *     been deployed to the live project since 2026-07-26 — see `lib/delete-account.ts`'s header —
- *     so this screen reaches it end to end.
- *     As of issue #124, the server can also reject the call with `code: 'reauth_required'` — a
- *     valid session is no longer enough on its own for this one destructive action. This screen
- *     handles that by prompting the user to re-present their credential (a password modal, or a
- *     re-run of Google sign-in) and retrying ONCE — see `beginReauthFlow` below. That gate is
- *     enforced server-side regardless of whether this screen calls these helpers at all; they
- *     exist purely so a real user hitting it gets a real path forward instead of a dead end.
+ *     finding F1). `delete-account`'s edge function (#58/#121) has been deployed to the live
+ *     project since 2026-07-26 — see `lib/delete-account.ts`'s header — so this screen reaches it
+ *     end to end. As of issue #124, the server can also reject the call with
+ *     `code: 'reauth_required'` — a valid session is no longer enough on its own for this one
+ *     destructive action. This screen handles that by prompting the user to re-present their
+ *     credential (a password modal, or a re-run of Google sign-in) and retrying ONCE — see
+ *     `beginReauthFlow` below.
  *
- * CONFIRMATIONS USE NATIVE `Alert`, NOT AN IN-SCREEN SHEET. That is a correctness requirement for
- * sign-out, not a style preference: the moment sign-out resolves, the session flips to null and the
- * route guard unmounts this screen — an inline error would render into a dying tree and never be
- * read. `Alert` outlives the screen. Delete and withdraw use it too, so all three destructive
- * confirmations read identically and get the OS's own accessibility and focus handling for free.
+ * CONFIRMATIONS AND NOTICES ARE ONE `<ConfirmDialog>`, driven by the `dialog` state union below —
+ * the page's own pattern ("re-auth step-up and consent-withdraw dialogs not drawn; same dialog
+ * pattern as the delete confirm"), replacing the native `Alert` every one of them used to be.
+ * `tone="danger"` is spent only on the two destructive confirms (delete account, withdraw
+ * consent). ONE CONSEQUENCE TO KNOW: a dialog is local state, so it cannot outlive this screen
+ * the way a native alert could. The one path that relied on that — `globalRevokeFailed`, where
+ * auth-js has already cleared the local session and the route guard is unmounting the screen as
+ * the result lands — now sets state on a component that is going away, which React treats as a
+ * no-op; the notice is not shown on that path.
  */
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  Alert,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -49,37 +54,19 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ArcLoader } from '@/components/arc-loader';
-import { KineticText } from '@/components/kinetic-text';
-import { CircleIconButton } from '@/components/ui/circle-icon-button';
-import { Eyebrow } from '@/components/ui/eyebrow';
-import { PillButton } from '@/components/ui/pill-button';
-import { ScreenGradient } from '@/components/ui/screen-gradient';
-import { SurfaceCard } from '@/components/ui/surface-card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { SquareButton } from '@/components/ui/square-button';
+import { SquareCard } from '@/components/ui/square-card';
+import { SquareIconButton } from '@/components/ui/square-icon-button';
+import { TextField } from '@/components/ui/text-field';
+import { TopBar } from '@/components/ui/top-bar';
+import { BackIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
-import {
-  Colors,
-  ContentWidth,
-  ControlHeight,
-  FontFamily,
-  FontSize,
-  HitTarget,
-  LineHeight,
-  Motion,
-  Opacity,
-  Radius,
-  Semantic,
-  Spacing,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { hasConsented, UPLOAD_HEALTH_CONSENT, withdrawConsent } from '@/lib/consent';
 import {
   deleteAccountClient,
@@ -90,31 +77,37 @@ import {
   type DeleteAccountResult,
   type DeleteAccountSuccessOutcome,
 } from '@/lib/delete-account';
+import { describeQuota } from '@/lib/quota';
 import { useSession } from '@/lib/session-provider';
 import { signOut, type SignOutResult } from '@/lib/sign-out';
-import { getQuotaStatus } from '@/lib/subscription';
+import { formatRenewalDate, getQuotaStatus, type QuotaStatus, type SubscriptionTier } from '@/lib/subscription';
 import { useAnnounce } from '@/lib/use-announce';
-
-type SubscriptionTier = 'free' | 'pro' | 'elite';
 
 /** Mirrors Home's own quota states. Loading and error are real states, not decoration: a tier we
  *  failed to read must never silently render as "Free" — that would be the client quietly
- *  inventing a plan, which is exactly what CLAUDE.md forbids it from being the authority on. */
-type PlanState =
-  | { status: 'loading' }
-  | { status: 'error' }
-  | { status: 'ready'; tier: SubscriptionTier };
+ *  inventing a plan, which is exactly what CLAUDE.md forbids it from being the authority on. The
+ *  ready state keeps the WHOLE server reading: the page's Plan card draws the tier, the quota
+ *  caption and the renewal date, and all three come off this one object. */
+type PlanState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; quota: QuotaStatus };
 
 /** `hasConsented` THROWS on any query failure and deliberately does not guess (lib/consent.ts
  *  fails closed). So "we don't know" is a first-class state here, distinct from "withdrawn". */
-type ConsentState =
-  | { status: 'loading' }
-  | { status: 'error' }
-  | { status: 'ready'; granted: boolean };
+type ConsentState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; granted: boolean };
 
-/** The inline wait ring, sized to sit on one line beside its caption. Composition, not a token —
- *  the same reasoning `components/pace-readout.tsx` gives for keeping its own ring sizes local. */
-const INLINE_LOADER_SIZE = 24;
+/**
+ * Every dialog this screen can have up, one at a time. The confirms and the Google prompt carry no
+ * payload — their copy is fixed; a `notice` carries its own title/body (the delete and reauth
+ * failures have several) and an optional action to run on dismiss (the orphans-remaining success
+ * signs out on OK). `null` is "nothing up".
+ */
+type Dialog =
+  | { kind: 'signOutConfirm' }
+  | { kind: 'stillSignedIn' }
+  | { kind: 'deleteConfirm' }
+  | { kind: 'googleReauth' }
+  | { kind: 'withdrawConfirm' }
+  | { kind: 'notice'; title: string; body: string; onDismiss?: () => void }
+  | null;
 
 const TIER_LABEL: Record<SubscriptionTier, string> = {
   free: Copy.tier.free,
@@ -122,10 +115,65 @@ const TIER_LABEL: Record<SubscriptionTier, string> = {
   elite: Copy.tier.elite,
 };
 
+const PRESSED_OPACITY = 0.6;
+const DISABLED_OPACITY = 0.4;
+
+// --- The page's row grammar ---------------------------------------------------------------------
+
+/** A 56 pt settings row: a label on the left in `ink`, and whatever the caller puts on the right —
+ *  a `<RowValue>`, a `<RowAction>`, or a spinner. `label` may be a node for the one row whose left
+ *  side is a spinner (the plan read in flight). */
+function Row({ label, children, testID }: { label: ReactNode; children?: ReactNode; testID?: string }) {
+  return (
+    <View style={styles.row} testID={testID}>
+      {typeof label === 'string' ? <Text style={styles.rowLabel}>{label}</Text> : label}
+      {children}
+    </View>
+  );
+}
+
+/** A row's right-hand value: `body` in `ink2`, right-aligned, shrinking before the label does. */
+function RowValue({ children, live, testID }: { children: string; live?: boolean; testID?: string }) {
+  return (
+    <Text style={styles.rowValue} accessibilityLiveRegion={live ? 'polite' : undefined} testID={testID}>
+      {children}
+    </Text>
+  );
+}
+
+type RowActionProps = {
+  label: string;
+  onPress: () => void;
+  accessibilityLabel?: string;
+  disabled?: boolean;
+  busy?: boolean;
+  busyTestID?: string;
+};
+
+/** A row's right-hand action: the page's uppercase `label` in `ink`, a 44 pt target, a plain
+ *  opacity dip on press. `busy` swaps the word for a spinner at the same height. */
+function RowAction({ label, onPress, accessibilityLabel, disabled = false, busy = false, busyTestID }: RowActionProps) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled, busy }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [styles.rowAction, disabled && styles.disabled, pressed && !disabled && styles.pressed]}>
+      {busy ? <ActivityIndicator color={Ink.ink} testID={busyTestID} /> : <Text style={styles.rowActionLabel}>{label}</Text>}
+    </Pressable>
+  );
+}
+
+/** The 1 px `line` rule between rows. Inside the card's 16 pt side padding, so it never meets the
+ *  card's own border — exactly as the page draws it. */
+function Rule() {
+  return <View style={styles.rule} />;
+}
+
 export default function SettingsScreen() {
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = useMemo(() => createStyles(colors, scheme), [colors, scheme]);
+  const insets = useSafeAreaInsets();
   const { session } = useSession();
   const userId = session?.user.id;
   const email = session?.user.email;
@@ -135,27 +183,27 @@ export default function SettingsScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [dialog, setDialog] = useState<Dialog>(null);
   // Issue #124's step-up reauthentication flow. `passwordReauthVisible` gates the password modal
-  // (email/password accounts only — Google's reauth is a native Alert + browser flow, no modal
-  // needed). `isReauthenticating` is scoped to the modal's own Confirm-button busy state; the
-  // outer `isDeleting` stays true through the whole reauth detour so the account-action row keeps
-  // reading "Deleting your account…" and the rest of the screen stays disabled via `isBusy`.
+  // (email/password accounts only — Google's reauth is a dialog + browser flow, no modal needed).
+  // `isReauthenticating` is scoped to the modal's own Confirm-button busy state; the outer
+  // `isDeleting` stays true through the whole reauth detour so the delete control keeps reading
+  // "Deleting account…" and the rest of the screen stays disabled via `isBusy`.
   const [passwordReauthVisible, setPasswordReauthVisible] = useState(false);
   const [reauthPassword, setReauthPassword] = useState('');
   const [reauthPasswordError, setReauthPasswordError] = useState<string | null>(null);
   const [isReauthenticating, setIsReauthenticating] = useState(false);
 
-  // Issue #11: every dynamic status Text below (`rowValueMuted`/`rowValue`/`errorText`/
-  // `destructiveLabel`) carries `accessibilityLiveRegion="polite"`, which is Android-only — these
-  // are the iOS complements, same pattern as app/(tabs)/index.tsx. One derived message per
-  // section, matching whichever caption is actually on screen for that section.
+  // Issue #11: the dynamic status Texts below carry `accessibilityLiveRegion="polite"`, which is
+  // Android-only — these are the iOS complements, same pattern as app/(tabs)/index.tsx. One
+  // derived message per section, matching whichever caption is actually on screen for that section.
   useAnnounce(
     plan.status === 'loading'
       ? Copy.settings.plan.loading
       : plan.status === 'error'
         ? Copy.settings.plan.error
         : plan.status === 'ready'
-          ? TIER_LABEL[plan.tier]
+          ? TIER_LABEL[plan.quota.tier]
           : null
   );
   useAnnounce(
@@ -164,7 +212,9 @@ export default function SettingsScreen() {
       : consent.status === 'error'
         ? Copy.settings.consent.status.error
         : consent.status === 'ready'
-          ? (consent.granted ? Copy.settings.consent.status.granted : Copy.settings.consent.status.withdrawn)
+          ? consent.granted
+            ? Copy.settings.consent.status.granted
+            : Copy.settings.consent.status.withdrawn
           : null
   );
   useAnnounce(isDeleting ? Copy.settings.deleteAccountState.pending : null);
@@ -191,7 +241,7 @@ export default function SettingsScreen() {
     // the edge-function/RPC boundary and are intentionally NOT written into subscriptions.
     const result = await getQuotaStatus();
     if (!isMountedRef.current) return;
-    setPlan(result.ok ? { status: 'ready', tier: result.data.tier } : { status: 'error' });
+    setPlan(result.ok ? { status: 'ready', quota: result.data } : { status: 'error' });
   }, [userId]);
 
   const fetchConsent = useCallback(async () => {
@@ -219,18 +269,18 @@ export default function SettingsScreen() {
 
   const isBusy = isSigningOut || isDeleting || isWithdrawing;
 
+  function closeDialog() {
+    setDialog(null);
+  }
+
+  function showNotice(title: string, body: string, onDismiss?: () => void) {
+    setDialog({ kind: 'notice', title, body, onDismiss });
+  }
+
   // --- Sign out (issue #27) ------------------------------------------------------------------
 
   function confirmSignOut() {
-    Alert.alert(Copy.settings.signOut.confirm.title, Copy.settings.signOut.confirm.body, [
-      { text: Copy.settings.signOut.confirm.cta.secondary, style: 'cancel' },
-      {
-        text: Copy.settings.signOut.confirm.cta.primary,
-        onPress: () => {
-          void handleSignOut();
-        },
-      },
-    ]);
+    setDialog({ kind: 'signOutConfirm' });
   }
 
   async function handleSignOut() {
@@ -240,13 +290,12 @@ export default function SettingsScreen() {
     // Never rejects (lib/sign-out.ts), so no try/catch here by design.
     const result = await signOut();
 
-    // Deliberately NOT guarded by isMountedRef: on a `globalRevokeFailed` result the session has
-    // flipped to null and the route guard is unmounting this screen right now — the alert is a
-    // native, screen-independent surface, which is exactly why the failure is reported through
-    // one rather than inline. On `stillSignedIn` the screen is NOT unmounting (the session is
-    // untouched), so this alert is just an ordinary one either way.
+    // Deliberately NOT guarded by isMountedRef, as before: on `stillSignedIn` the screen is NOT
+    // unmounting (the session is untouched), so the dialog opens normally. On `globalRevokeFailed`
+    // the session has flipped to null and the route guard is unmounting this screen right now —
+    // see this file's header for what that means for the notice.
     if (!result.ok) {
-      showSignOutFailureAlert(result);
+      showSignOutFailureDialog(result);
     }
 
     if (isMountedRef.current) setIsSigningOut(false);
@@ -258,7 +307,7 @@ export default function SettingsScreen() {
    * copy — the exact class of bug finding F3 caught here (a real third state the original two-way
    * model couldn't represent at all).
    */
-  function showSignOutFailureAlert(result: Extract<SignOutResult, { ok: false }>) {
+  function showSignOutFailureDialog(result: Extract<SignOutResult, { ok: false }>) {
     // Bound to a local before switching, not `switch (result.reason)` directly: TypeScript's
     // exhaustiveness narrowing to `never` in the `default` branch doesn't propagate through a
     // property-access discriminant the way it does through a plain variable — a real compiler
@@ -266,28 +315,15 @@ export default function SettingsScreen() {
     const reason = result.reason;
     switch (reason) {
       case 'globalRevokeFailed':
-        Alert.alert(
+        showNotice(
           Copy.settings.signOutError.globalRevokeFailed.title,
-          Copy.settings.signOutError.globalRevokeFailed.body,
-          [{ text: Copy.settings.alertDismiss }]
+          Copy.settings.signOutError.globalRevokeFailed.body
         );
         return;
       case 'stillSignedIn':
         // Unlike globalRevokeFailed, retrying here is real — the local session a retry would
         // authenticate with is still fully intact (see lib/sign-out.ts's header).
-        Alert.alert(
-          Copy.settings.signOutError.stillSignedIn.title,
-          Copy.settings.signOutError.stillSignedIn.body,
-          [
-            { text: Copy.settings.signOutError.stillSignedIn.cta.secondary, style: 'cancel' },
-            {
-              text: Copy.settings.signOutError.stillSignedIn.cta.primary,
-              onPress: () => {
-                void handleSignOut();
-              },
-            },
-          ]
-        );
+        setDialog({ kind: 'stillSignedIn' });
         return;
       default: {
         const exhaustive: never = reason;
@@ -299,20 +335,7 @@ export default function SettingsScreen() {
   // --- Delete account (#58's real edge function, via lib/delete-account.ts) ------------------
 
   function confirmDeleteAccount() {
-    Alert.alert(
-      Copy.settings.deleteAccount.confirm.title,
-      Copy.settings.deleteAccount.confirm.body,
-      [
-        { text: Copy.settings.deleteAccount.confirm.cta.secondary, style: 'cancel' },
-        {
-          text: Copy.settings.deleteAccount.confirm.cta.primary,
-          style: 'destructive',
-          onPress: () => {
-            void handleDeleteAccount();
-          },
-        },
-      ]
-    );
+    setDialog({ kind: 'deleteConfirm' });
   }
 
   /** The one place that calls the client, with the one documented fallback for a thrown
@@ -339,7 +362,7 @@ export default function SettingsScreen() {
   /**
    * Shared by the initial attempt and the post-reauth retry. `isRetryAfterReauth` bounds the
    * reauth detour to exactly ONE loop: if the retry ALSO comes back `reauth_required` (clock
-   * skew, or a second concurrent stale request), this falls through to the ordinary failure alert
+   * skew, or a second concurrent stale request), this falls through to the ordinary failure notice
    * instead of prompting for a credential a second time — see `Copy.settings.reauth.error.stillRequired`.
    */
   async function handleDeleteAccountResult(result: DeleteAccountResult, isRetryAfterReauth: boolean) {
@@ -363,7 +386,7 @@ export default function SettingsScreen() {
 
     if (!isMountedRef.current) return;
     setIsDeleting(false);
-    showDeleteAccountFailureAlert(result.error.code);
+    showDeleteAccountFailureDialog(result.error.code);
   }
 
   /** Decides which credential to ask the user to re-present, based on the CURRENT session's
@@ -380,33 +403,16 @@ export default function SettingsScreen() {
     }
 
     if (provider === 'google') {
-      // A native Alert first, matching this screen's own established idiom for every other
-      // destructive/step-up confirmation — the browser sheet Google reauth opens shouldn't appear
-      // with no warning.
-      Alert.alert(Copy.settings.reauth.googlePrompt.title, Copy.settings.reauth.googlePrompt.body, [
-        {
-          text: Copy.settings.reauth.googlePrompt.cta.secondary,
-          style: 'cancel',
-          onPress: () => {
-            if (isMountedRef.current) setIsDeleting(false);
-          },
-        },
-        {
-          text: Copy.settings.reauth.googlePrompt.cta.primary,
-          onPress: () => {
-            void handleGoogleReauth();
-          },
-        },
-      ]);
+      // A dialog first, matching this screen's idiom for every other destructive/step-up
+      // confirmation — the browser sheet Google reauth opens shouldn't appear with no warning.
+      setDialog({ kind: 'googleReauth' });
       return;
     }
 
     // No reauthentication flow exists for this provider today — say so plainly rather than
     // silently doing nothing or guessing at a flow that isn't built.
     if (isMountedRef.current) setIsDeleting(false);
-    Alert.alert(Copy.settings.reauth.unsupportedProvider.title, Copy.settings.reauth.unsupportedProvider.body, [
-      { text: Copy.settings.alertDismiss },
-    ]);
+    showNotice(Copy.settings.reauth.unsupportedProvider.title, Copy.settings.reauth.unsupportedProvider.body);
   }
 
   async function handleGoogleReauth() {
@@ -418,9 +424,7 @@ export default function SettingsScreen() {
     if (!reauth.ok) {
       setIsDeleting(false);
       if (reauth.cancelled) return; // the user closed the browser sheet — not an error to report
-      Alert.alert(Copy.settings.reauth.error.title, reauth.error ?? Copy.settings.reauth.error.genericBody, [
-        { text: Copy.settings.alertDismiss },
-      ]);
+      showNotice(Copy.settings.reauth.error.title, reauth.error ?? Copy.settings.reauth.error.genericBody);
       return;
     }
 
@@ -441,7 +445,7 @@ export default function SettingsScreen() {
     setIsReauthenticating(false);
 
     if (!reauth.ok) {
-      // Shown INSIDE the modal, not a separate Alert — the user can correct and retry immediately.
+      // Shown INSIDE the modal, under the field — the user can correct and retry immediately.
       setReauthPasswordError(reauth.error ?? Copy.settings.reauth.error.genericBody);
       return;
     }
@@ -476,17 +480,12 @@ export default function SettingsScreen() {
         void signOut();
         return;
       case 'orphansRemaining':
-        Alert.alert(
+        showNotice(
           Copy.settings.deleteAccountState.success.orphansRemaining.title,
           Copy.settings.deleteAccountState.success.orphansRemaining.body,
-          [
-            {
-              text: Copy.settings.alertDismiss,
-              onPress: () => {
-                void signOut();
-              },
-            },
-          ]
+          () => {
+            void signOut();
+          }
         );
         return;
       default: {
@@ -506,24 +505,16 @@ export default function SettingsScreen() {
    * Still switched exhaustively, not defaulted, so a sixth code added later forces a conscious
    * decision here instead of silently inheriting one of these.
    */
-  function showDeleteAccountFailureAlert(code: DeleteAccountErrorCode) {
+  function showDeleteAccountFailureDialog(code: DeleteAccountErrorCode) {
     switch (code) {
       case 'purge_failed':
       case 'rows_failed':
       case 'auth_delete_failed':
       case 'unknown':
-        Alert.alert(
-          Copy.settings.deleteAccountState.error.title,
-          Copy.settings.deleteAccountState.error.body,
-          [{ text: Copy.settings.alertDismiss }]
-        );
+        showNotice(Copy.settings.deleteAccountState.error.title, Copy.settings.deleteAccountState.error.body);
         return;
       case 'reauth_required':
-        Alert.alert(
-          Copy.settings.reauth.error.stillRequired.title,
-          Copy.settings.reauth.error.stillRequired.body,
-          [{ text: Copy.settings.alertDismiss }]
-        );
+        showNotice(Copy.settings.reauth.error.stillRequired.title, Copy.settings.reauth.error.stillRequired.body);
         return;
       default: {
         const exhaustive: never = code;
@@ -535,20 +526,7 @@ export default function SettingsScreen() {
   // --- Consent withdrawal (issue #68) ---------------------------------------------------------
 
   function confirmWithdrawConsent() {
-    Alert.alert(
-      Copy.settings.consent.withdraw.confirm.title,
-      Copy.settings.consent.withdraw.confirm.body,
-      [
-        { text: Copy.settings.consent.withdraw.confirm.cta.secondary, style: 'cancel' },
-        {
-          text: Copy.settings.consent.withdraw.confirm.cta.primary,
-          style: 'destructive',
-          onPress: () => {
-            void handleWithdrawConsent();
-          },
-        },
-      ]
-    );
+    setDialog({ kind: 'withdrawConfirm' });
   }
 
   async function handleWithdrawConsent() {
@@ -563,503 +541,523 @@ export default function SettingsScreen() {
       if (!isMountedRef.current) return;
       // Nothing was recorded, so nothing changed — and we say exactly that rather than optimistically
       // flipping the status to "withdrawn" on a write we can't prove landed.
-      Alert.alert(
-        Copy.settings.consent.withdraw.error.title,
-        Copy.settings.consent.withdraw.error.body,
-        [{ text: Copy.settings.alertDismiss }]
-      );
+      showNotice(Copy.settings.consent.withdraw.error.title, Copy.settings.consent.withdraw.error.body);
     } finally {
       if (isMountedRef.current) setIsWithdrawing(false);
     }
   }
 
+  // --- The one dialog --------------------------------------------------------------------------
+
+  /** Every `dialog` kind resolved to the one `<ConfirmDialog>`'s props. Each primary closes the
+   *  dialog and then runs the same handler the native alert's button used to, in that order. */
+  function renderDialog() {
+    if (dialog === null) return null;
+    switch (dialog.kind) {
+      case 'signOutConfirm':
+        return (
+          <ConfirmDialog
+            visible
+            title={Copy.settings.signOut.confirm.title}
+            body={Copy.settings.signOut.confirm.body}
+            primary={{
+              label: Copy.settings.signOut.confirm.cta.primary,
+              onPress: () => {
+                closeDialog();
+                void handleSignOut();
+              },
+            }}
+            secondary={{ label: Copy.settings.signOut.confirm.cta.secondary, onPress: closeDialog }}
+            testID="settings-dialog"
+          />
+        );
+      case 'stillSignedIn':
+        return (
+          <ConfirmDialog
+            visible
+            title={Copy.settings.signOutError.stillSignedIn.title}
+            body={Copy.settings.signOutError.stillSignedIn.body}
+            primary={{
+              label: Copy.settings.signOutError.stillSignedIn.cta.primary,
+              onPress: () => {
+                closeDialog();
+                void handleSignOut();
+              },
+            }}
+            secondary={{ label: Copy.settings.signOutError.stillSignedIn.cta.secondary, onPress: closeDialog }}
+            testID="settings-dialog"
+          />
+        );
+      case 'deleteConfirm':
+        return (
+          <ConfirmDialog
+            visible
+            tone="danger"
+            title={Copy.settings.deleteAccount.confirm.title}
+            body={Copy.settings.deleteAccount.confirm.body}
+            primary={{
+              label: Copy.settings.deleteAccount.confirm.cta.primary,
+              onPress: () => {
+                closeDialog();
+                void handleDeleteAccount();
+              },
+            }}
+            secondary={{ label: Copy.settings.deleteAccount.confirm.cta.secondary, onPress: closeDialog }}
+            testID="settings-dialog"
+          />
+        );
+      case 'googleReauth':
+        return (
+          <ConfirmDialog
+            visible
+            title={Copy.settings.reauth.googlePrompt.title}
+            body={Copy.settings.reauth.googlePrompt.body}
+            primary={{
+              label: Copy.settings.reauth.googlePrompt.cta.primary,
+              onPress: () => {
+                closeDialog();
+                void handleGoogleReauth();
+              },
+            }}
+            secondary={{
+              label: Copy.settings.reauth.googlePrompt.cta.secondary,
+              onPress: () => {
+                closeDialog();
+                if (isMountedRef.current) setIsDeleting(false);
+              },
+            }}
+            testID="settings-dialog"
+          />
+        );
+      case 'withdrawConfirm':
+        return (
+          <ConfirmDialog
+            visible
+            tone="danger"
+            title={Copy.settings.consent.withdraw.confirm.title}
+            body={Copy.settings.consent.withdraw.confirm.body}
+            primary={{
+              label: Copy.settings.consent.withdraw.confirm.cta.primary,
+              onPress: () => {
+                closeDialog();
+                void handleWithdrawConsent();
+              },
+            }}
+            secondary={{ label: Copy.settings.consent.withdraw.confirm.cta.secondary, onPress: closeDialog }}
+            testID="settings-dialog"
+          />
+        );
+      case 'notice': {
+        const { title, body, onDismiss } = dialog;
+        return (
+          <ConfirmDialog
+            visible
+            title={title}
+            body={body}
+            primary={{
+              label: Copy.settings.alertDismiss,
+              onPress: () => {
+                closeDialog();
+                onDismiss?.();
+              },
+            }}
+            testID="settings-dialog"
+          />
+        );
+      }
+      default: {
+        const exhaustive: never = dialog;
+        throw new Error(`Unhandled dialog: ${String(exhaustive)}`);
+      }
+    }
+  }
+
   return (
-    <ScreenGradient>
-      <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* Back is now the redesign's circular control. The old comment here preferred text over
-            "a chevron glyph" because `components/ui/icon-symbol.tsx` had no `chevron.left`
-            mapping and because a text label scales with Dynamic Type. Neither objection applies
-            now: this uses `@expo/vector-icons/MaterialIcons` directly (the same escape hatch
-            `app/(tabs)/_layout.tsx` already documents for its History tab icon), and the glyph is
-            fixed-size inside a fixed 44pt target, so Dynamic Type has nothing to break. The
-            screen-reader label carries the same word the visible text used to. */}
-        <View style={styles.headerRow}>
-          <CircleIconButton
-            accessibilityLabel={Copy.settings.back}
-            onPress={() => {
-              router.back();
-            }}>
-            <MaterialIcons name="arrow-back" size={20} color={colors.text.primary} />
-          </CircleIconButton>
-          <View style={styles.titleBlock}>
-            <KineticText
-              accessibilityRole="header"
-              staggerMs={Motion.stagger.line}
-              style={styles.title}>
-              {Copy.settings.title}
-            </KineticText>
-          </View>
-        </View>
+    <View style={styles.screen}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: Math.max(insets.top, Layout.canvas.safeTop),
+            paddingBottom: Math.max(insets.bottom, Layout.canvas.safeBottom),
+          },
+        ]}>
+        <TopBar
+          align="leading"
+          title={Copy.settings.title}
+          leading={
+            <SquareIconButton
+              accessibilityLabel={Copy.settings.back}
+              bleed="left"
+              onPress={() => {
+                router.back();
+              }}>
+              <BackIcon />
+            </SquareIconButton>
+          }
+        />
 
         {/* --- Account ------------------------------------------------------------------- */}
-        {/* Section headings are now `<Eyebrow>`, the app-wide micro-label register, rather than a
-            local restatement of it. `tone="primary"` because these sit on the wash, which
-            `Gradient`'s contract proves for primary text only; `accessibilityRole="header"` moves
-            with the text, so the rotor is unchanged. */}
         <View style={styles.section}>
-          <Eyebrow tone="primary" accessibilityRole="header">
+          <Text style={styles.sectionHeading} accessibilityRole="header">
             {Copy.settings.section.account}
-          </Eyebrow>
-          <SurfaceCard>
-            <View style={styles.cardBody}>
-              <Text style={styles.rowLabel}>{Copy.settings.account.email.label}</Text>
-              <Text style={styles.rowValue}>{email ?? Copy.settings.account.email.unknown}</Text>
-            </View>
-          </SurfaceCard>
+          </Text>
+          <SquareCard padding={0} style={styles.card}>
+            <Row label={Copy.settings.account.email.label}>
+              <RowValue>{email ?? Copy.settings.account.email.unknown}</RowValue>
+            </Row>
+            <Rule />
+            {/* The page shows the word twice: as the row's label and as its action. */}
+            <Row label={Copy.settings.signOut.cta}>
+              <RowAction
+                label={Copy.settings.signOut.cta}
+                disabled={isBusy}
+                busy={isSigningOut}
+                busyTestID="settings-sign-out-busy"
+                onPress={confirmSignOut}
+              />
+            </Row>
+          </SquareCard>
         </View>
 
         {/* --- Plan (display-only; the server is the authority) -------------------------- */}
         <View style={styles.section}>
-          <Eyebrow tone="primary" accessibilityRole="header">
+          <Text style={styles.sectionHeading} accessibilityRole="header">
             {Copy.settings.section.plan}
-          </Eyebrow>
-          {/* `padding={0}` + an inner padded `cardBody` is the shape every card on this screen
-              uses, so the three of them stay structurally identical. (It also used to be what let
-              the retired arc ornament radiate from the card's real corner; the ornament is gone
-              with the Cadence Arcs motif, the shape stays because the other cards share it.) */}
-          <SurfaceCard padding={0}>
-            <View style={styles.cardBody}>
+          </Text>
+          <SquareCard padding={0} style={styles.card}>
             {plan.status === 'loading' && (
-              <View style={styles.inlineRow}>
-                <ArcLoader size={INLINE_LOADER_SIZE} testID="settings-plan-loading" />
-                <Text style={styles.rowValueMuted} accessibilityLiveRegion="polite">
-                  {Copy.settings.plan.loading}
-                </Text>
-              </View>
+              <Row label={<ActivityIndicator color={Ink.ink2} testID="settings-plan-loading" />}>
+                <RowValue live>{Copy.settings.plan.loading}</RowValue>
+              </Row>
             )}
 
             {plan.status === 'ready' && (
               <>
-                <Text style={styles.rowValue} accessibilityLiveRegion="polite">
-                  {TIER_LABEL[plan.tier]}
-                </Text>
+                {/* The tier and the same quota caption Home draws, off the same reading. */}
+                <Row label={TIER_LABEL[plan.quota.tier]}>
+                  <RowValue live>{describeQuota(plan.quota).primary}</RowValue>
+                </Row>
+                {/* Only a paid tier renews. Free is lifetime (`periodEnd` null) — the page's own
+                    note: no downgrade offered, and a lifetime plan has no renewal — so the row is
+                    absent rather than blank. */}
+                {plan.quota.periodEnd !== null && (
+                  <>
+                    <Rule />
+                    <Row label={Copy.settings.plan.renews}>
+                      <RowValue>{formatRenewalDate(plan.quota.periodEnd)}</RowValue>
+                    </Row>
+                  </>
+                )}
+                <Rule />
                 {/* Issue #52. Settings is the only place a user who is NOT out of quota can go
                     looking for their plan options — Home's upgrade CTA only appears once they
                     are exhausted. Without this, a Free user who simply wants to upgrade has
                     nowhere to do it. */}
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    router.push('/paywall');
-                  }}
-                  style={({ pressed }) => [styles.textAction, pressed && styles.pressed]}>
-                  <Text style={styles.textActionLabel}>{Copy.settings.plan.cta}</Text>
-                </Pressable>
+                <Row label={Copy.settings.plan.cta}>
+                  <RowAction
+                    label={Copy.settings.plan.cta}
+                    onPress={() => {
+                      router.push('/paywall');
+                    }}
+                  />
+                </Row>
               </>
             )}
 
             {plan.status === 'error' && (
-              <View style={styles.errorBlock}>
-                <Text style={styles.errorText} accessibilityLiveRegion="polite">
-                  {Copy.settings.plan.error}
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
+              <Row
+                label={
+                  <Text style={styles.rowLabel} accessibilityLiveRegion="polite">
+                    {Copy.settings.plan.error}
+                  </Text>
+                }>
+                <RowAction
+                  label={Copy.settings.plan.retry}
                   accessibilityLabel={Copy.settings.plan.retryA11yLabel}
                   onPress={() => {
                     void fetchPlan();
                   }}
-                  style={({ pressed }) => [styles.textAction, pressed && styles.pressed]}>
-                  <Text style={styles.textActionLabel}>{Copy.settings.plan.retry}</Text>
-                </Pressable>
-              </View>
+                />
+              </Row>
             )}
-            </View>
-          </SurfaceCard>
+          </SquareCard>
         </View>
 
         {/* --- Privacy (the #68 restatement + withdrawal + the policy) -------------------- */}
         <View style={styles.section}>
-          <Eyebrow tone="primary" accessibilityRole="header">
+          <Text style={styles.sectionHeading} accessibilityRole="header">
             {Copy.settings.section.privacy}
-          </Eyebrow>
-          <SurfaceCard>
-            <View style={styles.cardBody}>
-            <Text style={styles.bodyText}>{Copy.settings.privacy.body}</Text>
-            <Text style={styles.bodyTextMuted}>{Copy.settings.privacy.deleteNote}</Text>
+          </Text>
+          <SquareCard padding={0} style={styles.card}>
+            <Text style={styles.paragraph}>{Copy.settings.privacy.body}</Text>
+            <Rule />
+            <Text style={styles.paragraph}>{Copy.settings.privacy.deleteNote}</Text>
+            <Rule />
 
-            <View style={styles.divider} />
+            <Row label={Copy.settings.consent.label}>
+              {consent.status === 'loading' && (
+                <View style={styles.rowValueGroup}>
+                  <ActivityIndicator color={Ink.ink2} testID="settings-consent-loading" />
+                  <RowValue live>{Copy.settings.consent.status.loading}</RowValue>
+                </View>
+              )}
 
-            {consent.status === 'loading' && (
-              <View style={styles.inlineRow}>
-                <ArcLoader size={INLINE_LOADER_SIZE} testID="settings-consent-loading" />
-                <Text style={styles.rowValueMuted} accessibilityLiveRegion="polite">
-                  {Copy.settings.consent.status.loading}
-                </Text>
-              </View>
-            )}
+              {consent.status === 'error' && (
+                <View style={styles.rowValueStack}>
+                  <RowValue live>{Copy.settings.consent.status.error}</RowValue>
+                  <RowAction
+                    label={Copy.settings.consent.status.retry}
+                    accessibilityLabel={Copy.settings.consent.status.retryA11yLabel}
+                    onPress={() => {
+                      void fetchConsent();
+                    }}
+                  />
+                </View>
+              )}
 
-            {consent.status === 'error' && (
-              <View style={styles.errorBlock}>
-                <Text style={styles.errorText} accessibilityLiveRegion="polite">
-                  {Copy.settings.consent.status.error}
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={Copy.settings.consent.status.retryA11yLabel}
-                  onPress={() => {
-                    void fetchConsent();
-                  }}
-                  style={({ pressed }) => [styles.textAction, pressed && styles.pressed]}>
-                  <Text style={styles.textActionLabel}>{Copy.settings.consent.status.retry}</Text>
-                </Pressable>
-              </View>
-            )}
-
-            {consent.status === 'ready' && (
-              <>
-                <Text style={styles.bodyText} accessibilityLiveRegion="polite">
-                  {consent.granted
-                    ? Copy.settings.consent.status.granted
-                    : Copy.settings.consent.status.withdrawn}
-                </Text>
-                {/* Only offered when there is a live consent to withdraw. Art. 7(3) requires
-                    withdrawal to be as easy as giving it — one tap, right here, no support email. */}
-                {consent.granted && (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={Copy.settings.consent.withdraw.cta}
-                    accessibilityState={{ disabled: isBusy, busy: isWithdrawing }}
-                    disabled={isBusy}
-                    onPress={confirmWithdrawConsent}
-                    style={({ pressed }) => [
-                      styles.textAction,
-                      isBusy && styles.disabled,
-                      pressed && !isBusy && styles.pressed,
-                    ]}>
-                    {isWithdrawing ? (
-                      <ArcLoader size={INLINE_LOADER_SIZE} testID="settings-withdraw-busy" />
-                    ) : (
-                      <Text style={styles.textActionLabel}>
-                        {Copy.settings.consent.withdraw.cta}
-                      </Text>
-                    )}
-                  </Pressable>
-                )}
-              </>
-            )}
-
-            <View style={styles.divider} />
-
-            {/* The policy is drafted but NOT published (docs/privacy-policy.md's DO NOT PUBLISH
-                guard: the data-controller identity is unresolved). There is no URL to link to and
-                inventing one is not an option, so this renders as an honest pending state — not a
-                dead link, and not the draft itself, which would show users placeholder legal
-                identity and rights promises they could not exercise. The certified disclosure is
-                the summary directly above. */}
-            <Text style={styles.rowLabel}>{Copy.settings.privacyPolicy.label}</Text>
-            <Text style={styles.bodyTextMuted}>{Copy.settings.privacyPolicy.pending}</Text>
-            </View>
-          </SurfaceCard>
-        </View>
-
-        {/* --- Account actions ----------------------------------------------------------- */}
-        <View style={styles.section}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.settings.signOut.cta}
-            accessibilityState={{ disabled: isBusy, busy: isSigningOut }}
-            disabled={isBusy}
-            onPress={confirmSignOut}
-            style={({ pressed }) => [
-              styles.actionRow,
-              isBusy && styles.disabled,
-              pressed && !isBusy && styles.pressed,
-            ]}>
-            {isSigningOut ? (
-              <ArcLoader size={INLINE_LOADER_SIZE} testID="settings-sign-out-busy" />
-            ) : (
-              <Text style={styles.actionRowLabel}>{Copy.settings.signOut.cta}</Text>
-            )}
-          </Pressable>
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={Copy.settings.deleteAccount.cta}
-            accessibilityState={{ disabled: isBusy, busy: isDeleting }}
-            disabled={isBusy}
-            onPress={confirmDeleteAccount}
-            style={({ pressed }) => [
-              styles.actionRow,
-              isBusy && styles.disabled,
-              pressed && !isBusy && styles.pressed,
-            ]}>
-            {isDeleting ? (
-              <View style={styles.inlineRow}>
-                {/* The one loader on this screen that is NOT clay: a destructive action in flight
-                    keeps the `Semantic.error` role its label already carries, so the row reads as
-                    one thing rather than as a warning beside a brand ornament. */}
-                <ArcLoader
-                  size={INLINE_LOADER_SIZE}
-                  color={Semantic.error[scheme]}
-                  testID="settings-delete-busy"
+              {/* Only offered when there is a live consent to withdraw. Art. 7(3) requires
+                  withdrawal to be as easy as giving it — one tap, right here, no support email. */}
+              {consent.status === 'ready' && consent.granted && (
+                <RowAction
+                  label={Copy.settings.consent.withdraw.cta}
+                  disabled={isBusy}
+                  busy={isWithdrawing}
+                  busyTestID="settings-withdraw-busy"
+                  onPress={confirmWithdrawConsent}
                 />
-                <Text style={styles.destructiveLabel} accessibilityLiveRegion="polite">
-                  {Copy.settings.deleteAccountState.pending}
-                </Text>
-              </View>
-            ) : (
-              <Text style={styles.destructiveLabel}>{Copy.settings.deleteAccount.cta}</Text>
-            )}
-          </Pressable>
+              )}
+              {consent.status === 'ready' && !consent.granted && (
+                <RowValue live>{Copy.settings.consent.status.withdrawn}</RowValue>
+              )}
+            </Row>
+
+            <Rule />
+            {/* Not on the page, but a live disclosure. The policy is drafted but NOT published
+                (docs/privacy-policy.md's DO NOT PUBLISH guard: the data-controller identity is
+                unresolved). There is no URL to link to and inventing one is not an option, so this
+                renders as an honest pending state — not a dead link, and not the draft itself. The
+                certified disclosure is the paragraph at the top of this card. */}
+            <View style={styles.paragraphBlock}>
+              <Text style={styles.rowLabel}>{Copy.settings.privacyPolicy.label}</Text>
+              <Text style={styles.paragraphInBlock}>{Copy.settings.privacyPolicy.pending}</Text>
+            </View>
+          </SquareCard>
         </View>
+
+        {/* --- Delete account: the page's ruled `danger` control, pushed to the foot ------- */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={Copy.settings.deleteAccount.cta}
+          accessibilityState={{ disabled: isBusy, busy: isDeleting }}
+          disabled={isBusy}
+          onPress={confirmDeleteAccount}
+          style={({ pressed }) => [styles.deleteButton, isBusy && styles.disabled, pressed && !isBusy && styles.pressed]}>
+          {isDeleting ? (
+            <View style={styles.deleteBusy}>
+              <ActivityIndicator color={Ink.danger} testID="settings-delete-busy" />
+              <Text style={styles.deleteLabel} accessibilityLiveRegion="polite">
+                {Copy.settings.deleteAccountState.pending}
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.deleteLabel}>{Copy.settings.deleteAccount.cta}</Text>
+          )}
+        </Pressable>
       </ScrollView>
 
-      {/* Issue #124's step-up reauthentication for password accounts. A full-opaque-screen Modal
-          rather than a translucent-backdrop sheet — this repo has no scrim/overlay color token
-          (constants/theme.ts), and CLAUDE.md's "theme tokens only" rule means one isn't invented
-          here; a full page using the same background/surface tokens as the rest of this screen
-          reads as a natural continuation of it instead. `onRequestClose` (the Android back button)
-          is wired to the same cancel path as the Cancel button, not a silent dismiss. */}
-      <Modal
-        visible={passwordReauthVisible}
-        animationType="slide"
-        onRequestClose={cancelPasswordReauth}>
-        <SafeAreaView style={styles.reauthSafeArea}>
-          <KeyboardAvoidingView
-            style={styles.flex}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <ScrollView contentContainerStyle={styles.reauthContent} keyboardShouldPersistTaps="handled">
-              <Text style={styles.title} accessibilityRole="header">
-                {Copy.settings.reauth.passwordPrompt.title}
-              </Text>
-              <Text style={styles.bodyText}>{Copy.settings.reauth.passwordPrompt.body}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder={Copy.settings.reauth.passwordPrompt.placeholder}
-                accessibilityLabel={Copy.settings.reauth.passwordPrompt.placeholder}
-                placeholderTextColor={colors.text.secondary}
-                value={reauthPassword}
-                onChangeText={setReauthPassword}
-                secureTextEntry
-                autoCapitalize="none"
-                textContentType="password"
-                // Same pair issue #28 established on sign-in: `textContentType` covers iOS only,
-                // so `autoComplete` is what lets an Android password manager fill this step-up
-                // prompt. `returnKeyType="go"` + `onSubmitEditing` submits from the keyboard —
-                // this field is `autoFocus`ed, so the keyboard is already up and the button is
-                // the only thing standing between a filled password and the reauth.
-                autoComplete="current-password"
-                returnKeyType="go"
-                onSubmitEditing={() => {
-                  void handlePasswordReauthSubmit();
-                }}
-                editable={!isReauthenticating}
-                autoFocus
-              />
-              {reauthPasswordError !== null && (
-                <Text style={styles.errorText} accessibilityLiveRegion="polite">
-                  {reauthPasswordError}
-                </Text>
-              )}
-              <PillButton
-                label={Copy.settings.reauth.passwordPrompt.cta.primary}
-                disabled={isReauthenticating}
-                busy={isReauthenticating}
-                onPress={() => {
-                  void handlePasswordReauthSubmit();
-                }}
-              />
-              <PillButton
-                variant="ghost"
-                label={Copy.settings.reauth.passwordPrompt.cta.secondary}
-                disabled={isReauthenticating}
-                onPress={cancelPasswordReauth}
-                block
-              />
-            </ScrollView>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
+      {renderDialog()}
+
+      {/* Issue #124's step-up reauthentication for password accounts. Not drawn on the page: a
+          full `Ink.bg` Modal in the same column as the screen, the sheet's own fade. `onRequestClose`
+          (the Android back button) is wired to the same cancel path as the Cancel button, not a
+          silent dismiss. */}
+      <Modal visible={passwordReauthVisible} animationType="fade" onRequestClose={cancelPasswordReauth}>
+        <KeyboardAvoidingView style={styles.reauthFill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView
+            contentContainerStyle={[
+              styles.reauthContent,
+              {
+                paddingTop: Math.max(insets.top, Layout.canvas.safeTop),
+                paddingBottom: Math.max(insets.bottom, Layout.canvas.safeBottom),
+              },
+            ]}
+            keyboardShouldPersistTaps="handled">
+            <Text style={styles.reauthTitle} accessibilityRole="header">
+              {Copy.settings.reauth.passwordPrompt.title}
+            </Text>
+            <Text style={styles.reauthBody}>{Copy.settings.reauth.passwordPrompt.body}</Text>
+            <TextField
+              placeholder={Copy.settings.reauth.passwordPrompt.placeholder}
+              accessibilityLabel={Copy.settings.reauth.passwordPrompt.placeholder}
+              value={reauthPassword}
+              onChangeText={setReauthPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              textContentType="password"
+              // Same pair issue #28 established on sign-in: `textContentType` covers iOS only,
+              // so `autoComplete` is what lets an Android password manager fill this step-up
+              // prompt. `returnKeyType="go"` + `onSubmitEditing` submits from the keyboard —
+              // this field is `autoFocus`ed, so the keyboard is already up and the button is
+              // the only thing standing between a filled password and the reauth.
+              autoComplete="current-password"
+              returnKeyType="go"
+              onSubmitEditing={() => {
+                void handlePasswordReauthSubmit();
+              }}
+              editable={!isReauthenticating}
+              autoFocus
+              error={reauthPasswordError}
+            />
+            <SquareButton
+              label={Copy.settings.reauth.passwordPrompt.cta.primary}
+              disabled={isReauthenticating}
+              busy={isReauthenticating}
+              onPress={() => {
+                void handlePasswordReauthSubmit();
+              }}
+            />
+            <SquareButton
+              variant="link"
+              label={Copy.settings.reauth.passwordPrompt.cta.secondary}
+              disabled={isReauthenticating}
+              onPress={cancelPasswordReauth}
+            />
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
-      </SafeAreaView>
-    </ScreenGradient>
+    </View>
   );
 }
 
-function createStyles(colors: ThemeColors, scheme: ColorScheme) {
-  return StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      // Transparent — `<ScreenGradient>` behind it owns the fill.
-      backgroundColor: 'transparent',
-    },
-    // width/maxWidth/alignSelf: the tablet readable-column cap (issue #63) this screen was
-    // missing — settings did not exist when the first #63 pass swept the other twelve screens. A
-    // no-op on any phone; see ContentWidth's own comment in constants/theme.ts. The centring is
-    // `alignSelf` on the contentContainerStyle, never `alignItems` on the ScrollView's own
-    // `style` — see lib/__tests__/scrollview-style-contract.test.ts for why that is a crash.
-    content: {
-      // flexGrow, not flex — the same Dynamic Type rule every other screen here follows: reflow
-      // and scroll at the largest text sizes, never clip (design brief §7).
-      flexGrow: 1,
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      padding: Spacing.xl,
-      gap: Spacing.xl,
-    },
-    headerRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: Spacing.lg,
-    },
-    titleBlock: {
-      flex: 1,
-      // Optically centres the title against the 44pt circular button beside it.
-      paddingTop: Spacing.xs,
-    },
-    title: {
-      fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.xxl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xxl * LineHeight.display,
-      color: colors.text.primary,
-    },
-    section: {
-      gap: Spacing.md,
-    },
-    // `sectionHeading` is gone: it was a local restatement of the eyebrow register (written before
-    // `<Eyebrow>` existed, and missing its tracking until a later pass added it by hand). The
-    // headings now mount that component, which carries `accessibilityRole="header"` through, so the
-    // a11y tree is unchanged.
-    //
-    // `card` is gone the same way — it was a hand-rolled `<SurfaceCard>` (same fill, same hairline,
-    // same `Radius.card`, same padding). The interior stack it used to own is `cardBody` below,
-    // because `<SurfaceCard>` renders TWO nodes and its `style` prop lands on the outer one, whose
-    // only child is the clip node — a `gap` there would space nothing.
-    cardBody: {
-      gap: Spacing.md,
-    },
-    rowLabel: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.xs,
-      color: colors.text.secondary,
-    },
-    rowValue: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.md,
-      color: colors.text.primary,
-    },
-    rowValueMuted: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      color: colors.text.secondary,
-    },
-    bodyText: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
-    },
-    bodyTextMuted: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.xs,
-      color: colors.text.secondary,
-    },
-    divider: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: colors.hairline,
-    },
-    inlineRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: Spacing.sm,
-    },
-    errorBlock: {
-      gap: Spacing.xs,
-      alignItems: 'flex-start',
-    },
-    errorText: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: Semantic.error[scheme],
-    },
-    /** A text-only action (Retry, Withdraw consent). The 44pt floor is non-negotiable (brief §7) —
-     *  padding alone would leave these well under it. */
-    textAction: {
-      minHeight: HitTarget.min,
-      justifyContent: 'center',
-    },
-    textActionLabel: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.sm,
-      color: colors.text.primary,
-      textDecorationLine: 'underline',
-    },
-    actionRow: {
-      backgroundColor: colors.surface.base,
-      borderColor: colors.hairline,
-      borderRadius: Radius.card,
-      borderWidth: StyleSheet.hairlineWidth * 2,
-      minHeight: HitTarget.min,
-      paddingVertical: Spacing.lg,
-      paddingHorizontal: Spacing.xl,
-      justifyContent: 'center',
-    },
-    actionRowLabel: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.md,
-      color: colors.text.primary,
-    },
-    // Semantic.error, not Score.low — a destructive action is a system state, not a score band
-    // (see the Semantic role's note in constants/theme.ts).
-    destructiveLabel: {
-      fontFamily: FontFamily.body.medium,
-      fontSize: FontSize.md,
-      color: Semantic.error[scheme],
-    },
-    disabled: {
-      opacity: Opacity.disabled,
-    },
-    pressed: {
-      opacity: Opacity.pressed,
-    },
-    // --- issue #124: the step-up password reauthentication Modal --------------------------------
-    flex: {
-      flex: 1,
-    },
-    // The modal is presented OVER the screen, so it keeps an opaque fill rather than becoming
-    // another gradient — two washes stacked read as a rendering bug, not as depth.
-    reauthSafeArea: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    // Capped too (issue #63): this modal is full-screen, so on an iPad its password field would
-    // otherwise stretch the whole ~1024pt width while the screen behind it sits in a 560pt column.
-    reauthContent: {
-      flexGrow: 1,
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      justifyContent: 'center',
-      padding: Spacing.xl,
-      gap: Spacing.lg,
-    },
-    // Mirrors app/(auth)/sign-in.tsx's own `input` style (not imported/shared — that screen is
-    // outside this fix's file lane) so the password field this modal reuses for reauthentication
-    // looks and behaves identically to the one at sign-in.
-    input: {
-      minHeight: ControlHeight.standard,
-      // `Radius.pill`, matching app/(auth)/sign-in.tsx's field exactly — that file's own comment
-      // explains why a 52pt field takes the pill rather than the card corner.
-      borderRadius: Radius.pill,
-      borderWidth: 1,
-      borderColor: colors.control.border,
-      backgroundColor: colors.surface.base,
-      paddingHorizontal: Spacing.xl,
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.md,
-      color: colors.text.primary,
-    },
-  });
-}
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: Ink.bg,
+  },
+  scroll: {
+    flex: 1,
+  },
+  // flexGrow, not flex — reflow and scroll at the largest text sizes, never clip. The page is a
+  // single column at the gutter (`padding:59px 24px 34px; gap:32px`); the vertical insets are the
+  // live ones with the canvas's as minimums, applied inline. `flexGrow: 1` is also what lets the
+  // delete control's `marginTop: 'auto'` reach the foot of a short page.
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: Layout.gutter,
+    gap: Space.xxl,
+  },
+  section: {
+    gap: Space.sm,
+  },
+  sectionHeading: {
+    ...Type.label,
+    color: Ink.ink2,
+  },
+  // The page's `padding:0 16px`: rows run edge to edge vertically and the rules sit inside the
+  // side padding.
+  card: {
+    paddingHorizontal: Layout.cardPadding,
+  },
+  row: {
+    minHeight: Layout.rowHeight,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Space.lg,
+  },
+  rowLabel: {
+    ...Type.body,
+    color: Ink.ink,
+  },
+  rowValue: {
+    ...Type.body,
+    color: Ink.ink2,
+    textAlign: 'right',
+    flexShrink: 1,
+  },
+  /** A spinner beside a value, on one line. */
+  rowValueGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.sm,
+    flexShrink: 1,
+  },
+  /** A value with an action beneath it (the consent read's error state), right-aligned. */
+  rowValueStack: {
+    alignItems: 'flex-end',
+    flexShrink: 1,
+  },
+  rowAction: {
+    minHeight: Layout.hitTarget,
+    justifyContent: 'center',
+  },
+  rowActionLabel: {
+    ...Type.label,
+    color: Ink.ink,
+  },
+  rule: {
+    height: Layout.hairline,
+    backgroundColor: Ink.line,
+  },
+  paragraph: {
+    ...Type.note,
+    color: Ink.ink2,
+    paddingVertical: Layout.cardPadding,
+  },
+  // The privacy-policy notice is not on the page (see the comment at its render site): a row
+  // label over the page's paragraph register, padded like the paragraphs above it, rather than a
+  // label/value row whose value would run to four lines.
+  paragraphBlock: {
+    paddingVertical: Layout.cardPadding,
+    gap: Space.xs,
+  },
+  paragraphInBlock: {
+    ...Type.note,
+    color: Ink.ink2,
+  },
+  deleteButton: {
+    marginTop: 'auto',
+    minHeight: Layout.controlHeight,
+    borderWidth: Layout.hairline,
+    borderColor: Ink.danger,
+    borderRadius: Layout.radius,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Layout.cardPadding,
+  },
+  deleteBusy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.sm,
+  },
+  deleteLabel: {
+    ...Type.label,
+    color: Ink.danger,
+  },
+  disabled: {
+    opacity: DISABLED_OPACITY,
+  },
+  pressed: {
+    opacity: PRESSED_OPACITY,
+  },
+  // --- issue #124: the step-up password reauthentication Modal --------------------------------
+  reauthFill: {
+    flex: 1,
+    backgroundColor: Ink.bg,
+  },
+  reauthContent: {
+    flexGrow: 1,
+    paddingHorizontal: Layout.gutter,
+    gap: Space.xl,
+  },
+  reauthTitle: {
+    ...Type.h2,
+    color: Ink.ink,
+  },
+  reauthBody: {
+    ...Type.body,
+    color: Ink.ink2,
+  },
+});

@@ -1,68 +1,52 @@
 /**
- * Home's hero slot — the Cadence Arcs composition of "the last thing you did", and Home's entry
- * point back into it (design brief §4.2: "once there's history, the most recent gait-plate
- * thumbnail"; Home previously had no route to a past result at all, so the only way back to a
- * finished analysis was the History tab).
+ * Home's lead card — the user's most recent analysis, and Home's entry point back into it
+ * (design brief §4.2: "once there's history, the most recent gait-plate thumbnail"; Home
+ * previously had no route to a past result at all, so the only way back to a finished analysis
+ * was the History tab). Transcribed from V23-07's first and third artboards.
  *
- * WHY A RING RATHER THAN A THUMBNAIL. The brief predates the redesign and asked for a stored frame
- * here. The motif answers the same need better: an arc ring is the shape this app already uses for
- * a score everywhere else (`components/pace-readout.tsx`'s overall ring, `app/(tabs)/history.tsx`'s
- * row rings), so the thing Home leads with is recognisably the same object the result screen
- * ended on, one size up. A 56pt frame crop of a runner, at Home scale, carries no information the
- * score does not — and Past Analyses is where the frames genuinely belong.
+ * WHAT IT DRAWS. A 24 pt `<SquareCard>`: the "Overall" label and the date on one baseline; the
+ * overall numeral (`Type.score`, 96 pt) with the band word beside it; a hairline; then the four
+ * pillar letters over their scores, one column each. The page's own note: "the app's arc-ring
+ * score is replaced by the V2.3 numeral + P/A/C/E row". A null pillar score is the page's "—"
+ * (third artboard, C), never a zero.
  *
  * FOUR STATES, and the split between the last two is the honest one. `empty` says "nothing
- * analyzed yet" — a claim. `unavailable` is what a failed read gets: the ring still draws (the
- * composition survives) but NOTHING claims the user has no history, because we do not know. Home
- * is fully usable in either: the quota block and the primary CTA below this are untouched by it.
+ * analyzed yet" — a claim, and the page's dashed box with its title and sentence. `unavailable`
+ * is what a failed read gets: the same dashed box, but NOTHING inside it claims the user has no
+ * history, because we do not know. Home is fully usable in either: the quota card and the primary
+ * CTA below this are untouched by it. `loading` is the dashed box at the same padding with a
+ * quiet indicator, so nothing jumps when the read lands.
  *
- * The `empty` and `unavailable` rings are drawn with `<ArcRing fraction={null}>` — the dashed,
- * unfilled track that means "nothing to report" everywhere else in the app. That is deliberate
- * reuse of the motif's own vocabulary rather than a new picture for a new screen: a user who has
- * seen a not-assessed pillar already knows what a dashed ring means.
- *
- * SURFACE CONTRACT (CLAUDE.md § Code conventions). The ready state sits on an opaque
- * `<SurfaceCard>` because it carries `text.secondary` (the date) and `Score[band].text` (the band
- * word), neither of which `Gradient.page` is proven for. The empty state carries `text.primary`
- * only, so it may sit directly on the wash — which is what lets it stay a big, airy hero instead
- * of a card announcing that there is nothing in it.
+ * NOT-ASSESSED OVERALL is a state the page does not draw. The numeral's slot holds "—" in the
+ * disabled tone and the band word's slot holds the readout's own not-assessed sentence — the
+ * same rule `components/pace-readout.tsx` is built around: `null` is a first-class state, never
+ * a stringified null and never a zero.
  *
  * NO BUSINESS LOGIC. This component renders whichever state it is handed and emits one intent
  * (open this analysis). It does not fetch, does not decide what "recent" means, and does not read
  * tier or quota.
  */
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { KineticText } from '@/components/kinetic-text';
-import { ArcLoader } from '@/components/arc-loader';
-import { ArcRing } from '@/components/ui/arc-ring';
-import { Eyebrow } from '@/components/ui/eyebrow';
-import { SurfaceCard } from '@/components/ui/surface-card';
+import { SquareCard } from '@/components/ui/square-card';
 import { Copy } from '@/constants/copy';
-import {
-  Meter,
-  Colors,
-  FontFamily,
-  FontSize,
-  LineHeight,
-  Motion,
-  Opacity,
-  Score,
-  ScoreBandLabel,
-  Spacing,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+// Copy, not a visual token: the band word ("Solid", "Strong") is the app's one band vocabulary
+// and lives beside the band type. The only import this file takes from the old theme file.
+import { ScoreBandLabel } from '@/constants/theme';
+import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { formatHistoryDate, formatHistoryItemA11yLabel, type HistoryListItem } from '@/lib/history';
+import { pillarLetter } from '@/lib/pace-readout';
+import { PACE_PILLARS } from '@shared/pace';
 
-/** The hero ring's geometry. Composition, not tokens — same call `components/pace-readout.tsx`
- *  makes for its own two ring sizes, and for the same reason: a ring's diameter expresses this
- *  screen's hierarchy, not a reusable scale step. Deliberately a little smaller than the result
- *  screen's 208pt overall ring, so arriving at a result still feels like a step up. */
-const HERO_RING_SIZE = 176;
-const HERO_RING_STROKE = 12;
+/** The page's hairline sits `margin: 20px 0 16px` — 20 above is off the 8 pt grid and is the
+ *  page's own number, so it is named here rather than rounded to a `Space` step. */
+const RULE_MARGIN_TOP = 20;
+
+/** The page's "—" for a pillar that carries no score (V23-07, third artboard). A glyph, not a
+ *  word, so it is not copy. */
+const NO_SCORE_GLYPH = '—';
+
+const PRESSED_OPACITY = 0.6;
 
 export type RecentAnalysisState =
   | { status: 'loading' }
@@ -79,48 +63,33 @@ export function RecentAnalysis({
   state: RecentAnalysisState;
   onOpen: (item: HistoryListItem) => void;
 }) {
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = createStyles(colors);
-
   if (state.status === 'loading') {
-    // The motif's own wait state, at the exact diameter the ring that replaces it will occupy —
-    // so the hero does not resize when the read lands. Indeterminate by construction; see
-    // `<ArcLoader>`'s header on why it can never be read as progress.
     return (
-      <View style={styles.heroBlock}>
-        <ArcLoader size={HERO_RING_SIZE} testID="home-recent-loading" />
-      </View>
+      <SquareCard dashed style={styles.dashedBox}>
+        <ActivityIndicator color={Ink.ink2} testID="home-recent-loading" />
+      </SquareCard>
     );
   }
 
-  if (state.status !== 'ready') {
+  if (state.status === 'empty') {
     return (
-      <View style={styles.heroBlock}>
-        <ArcRing
-          testID="home-recent-empty-ring"
-          size={HERO_RING_SIZE}
-          strokeWidth={HERO_RING_STROKE}
-          fraction={null}
-          color={Meter[scheme].rule}
-        />
-        {/* Only the genuinely-empty branch gets to say so — the failed-read branch shows the ring
-            and stays silent rather than telling a user with a full history that they have none. */}
-        {state.status === 'empty' ? (
-          <KineticText
-            style={styles.emptyLine}
-            containerStyle={styles.emptyLineRow}
-            staggerMs={Motion.stagger.line}
-            testID="home-hero-line">
-            {Copy.home.empty.caption}
-          </KineticText>
-        ) : null}
-      </View>
+      <SquareCard dashed style={styles.dashedBox}>
+        <Text style={styles.emptyTitle} testID="home-hero-line">
+          {Copy.home.empty.caption}
+        </Text>
+        <Text style={styles.emptyBody}>{Copy.home.empty.body}</Text>
+      </SquareCard>
     );
+  }
+
+  if (state.status === 'unavailable') {
+    // The outline survives, so the composition does; the words do not, because the only words
+    // this box has would tell a user with a full history that they have none.
+    return <SquareCard dashed style={styles.dashedBox} testID="home-recent-unavailable" />;
   }
 
   const { item } = state;
-  const { overall } = item.outcome.result;
+  const { overall, pillars } = item.outcome.result;
   const dateLabel = formatHistoryDate(item.createdAt);
   const assessed = overall.score !== null && overall.band !== null;
 
@@ -129,113 +98,136 @@ export function RecentAnalysis({
       accessibilityRole="button"
       accessibilityLabel={formatHistoryItemA11yLabel(item, dateLabel)}
       onPress={() => onOpen(item)}
-      style={({ pressed }) => [styles.recentPressable, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.pressable, pressed && styles.pressed]}
       testID="home-recent">
-      <SurfaceCard tone="raised" style={styles.recentCard}>
-        <View style={styles.recentInner}>
-          <Eyebrow>{Copy.result.overall.label}</Eyebrow>
-          <ArcRing
-            testID="home-recent-ring"
-            size={HERO_RING_SIZE}
-            strokeWidth={HERO_RING_STROKE}
-            fraction={overall.score !== null ? overall.score / 100 : null}
-            color={overall.band !== null ? Score[overall.band][scheme].fill : Meter[scheme].rule}>
-            {assessed && overall.band !== null ? (
-              <View style={styles.scoreStack}>
-                {/* Home's ONE display-or-larger element (spec 2026-07-26 §3.1). The empty state's
-                    kinetic line is `xxl`, so the rule holds in both branches. `adjustsFontSizeToFit`
-                    for the same Dynamic Type reason the readout's own numeral carries it. */}
-                <Text
-                  testID="home-recent-score"
-                  style={styles.numeral}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.5}>
-                  {overall.score}
-                </Text>
-                <Text style={[styles.bandWord, { color: Score[overall.band][scheme].text }]}>
-                  {ScoreBandLabel[overall.band]}
-                </Text>
-              </View>
-            ) : null}
-          </ArcRing>
-          {/* A not-assessed overall keeps the dashed ring and states the reason below it, exactly
-              as `components/pace-readout.tsx` does — never a stringified null, never a zero. */}
-          {assessed ? (
-            <Text style={styles.dateLine}>{dateLabel}</Text>
+      <SquareCard padding={Layout.cardPaddingLg}>
+        <View style={styles.headerRow}>
+          <Text style={styles.overallLabel}>{Copy.result.overall.label}</Text>
+          <Text style={styles.date}>{dateLabel}</Text>
+        </View>
+
+        <View style={styles.scoreRow}>
+          {assessed && overall.band !== null ? (
+            <>
+              <Text testID="home-recent-score" style={styles.score} numberOfLines={1}>
+                {overall.score}
+              </Text>
+              <Text style={styles.bandWord}>{ScoreBandLabel[overall.band]}</Text>
+            </>
           ) : (
-            <Text style={styles.notAssessed}>{Copy.result.pillar.notAssessed.generic}</Text>
+            <>
+              <Text style={styles.scoreAbsent} numberOfLines={1}>
+                {NO_SCORE_GLYPH}
+              </Text>
+              <Text style={styles.notAssessed}>{Copy.result.pillar.notAssessed.generic}</Text>
+            </>
           )}
         </View>
-      </SurfaceCard>
+
+        <View style={styles.rule} />
+
+        <View style={styles.pillarRow}>
+          {PACE_PILLARS.map((id) => {
+            const score = pillars[id].score;
+            return (
+              <View key={id} style={styles.pillarCell}>
+                <Text style={styles.pillarLetter}>{pillarLetter(id)}</Text>
+                <Text style={styles.pillarScore} testID={`home-recent-pillar-${id}`}>
+                  {score === null ? NO_SCORE_GLYPH : score}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      </SquareCard>
     </Pressable>
   );
 }
 
-function createStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    heroBlock: {
-      alignItems: 'center',
-      alignSelf: 'stretch',
-      gap: Spacing.xl,
-    },
-    emptyLineRow: {
-      justifyContent: 'center',
-      paddingHorizontal: Spacing.xl,
-    },
-    emptyLine: {
-      color: colors.text.primary,
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xxl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xxl * LineHeight.display,
-      textAlign: 'center',
-    },
-    recentPressable: {
-      alignSelf: 'stretch',
-    },
-    recentCard: {
-      alignSelf: 'stretch',
-    },
-    recentInner: {
-      alignItems: 'center',
-      gap: Spacing.lg,
-    },
-    scoreStack: {
-      alignItems: 'center',
-      gap: Spacing.xs,
-    },
-    numeral: {
-      color: colors.text.primary,
-      fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.display,
-      letterSpacing: Tracking.hero,
-      lineHeight: FontSize.display * LineHeight.hero,
-      textAlign: 'center',
-    },
-    bandWord: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.sm,
-      letterSpacing: Tracking.eyebrow,
-      textAlign: 'center',
-      textTransform: 'uppercase',
-    },
-    // The date is metadata about a measurement, so it takes the metrics face — the same register
-    // the quota caption below it uses, which is what makes the two read as one column of facts.
-    dateLine: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.mono.regular,
-      fontSize: FontSize.xs,
-      textAlign: 'center',
-    },
-    notAssessed: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.sm,
-      textAlign: 'center',
-    },
-    pressed: {
-      opacity: Opacity.pressed,
-    },
-  });
-}
+const styles = StyleSheet.create({
+  // The page's empty box: `padding: 40px 24px`, centred, 16 pt between its two lines. Loading
+  // and unavailable share it so the slot holds one height across all three.
+  dashedBox: {
+    paddingVertical: Space.section,
+    paddingHorizontal: Space.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Space.lg,
+  },
+  emptyTitle: {
+    ...Type.display,
+    color: Ink.ink,
+    textAlign: 'center',
+  },
+  emptyBody: {
+    ...Type.body,
+    color: Ink.ink2,
+    textAlign: 'center',
+  },
+  pressable: {
+    alignSelf: 'stretch',
+  },
+  pressed: {
+    opacity: PRESSED_OPACITY,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
+  overallLabel: {
+    ...Type.label,
+    color: Ink.ink2,
+  },
+  date: {
+    ...Type.mono,
+    color: Ink.ink2,
+  },
+  scoreRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: Space.md,
+    marginTop: Space.lg,
+  },
+  score: {
+    ...Type.score,
+    color: Ink.ink,
+  },
+  // The not-assessed numeral slot: the same 96 pt glyph box in the disabled tone, so the card
+  // keeps the page's height and the dash reads as an absence rather than a value.
+  scoreAbsent: {
+    ...Type.score,
+    color: Ink.ink3,
+  },
+  bandWord: {
+    ...Type.label,
+    color: Ink.ink,
+  },
+  notAssessed: {
+    ...Type.note,
+    color: Ink.ink2,
+    flexShrink: 1,
+  },
+  rule: {
+    height: Layout.hairline,
+    backgroundColor: Ink.line,
+    marginTop: RULE_MARGIN_TOP,
+    marginBottom: Space.lg,
+  },
+  // `grid-template-columns: repeat(4, 1fr); gap: 8px` — four equal columns.
+  pillarRow: {
+    flexDirection: 'row',
+    gap: Space.sm,
+  },
+  pillarCell: {
+    flex: 1,
+  },
+  pillarLetter: {
+    ...Type.letter,
+    color: Ink.ink,
+  },
+  pillarScore: {
+    ...Type.metricSm,
+    color: Ink.ink,
+  },
+});

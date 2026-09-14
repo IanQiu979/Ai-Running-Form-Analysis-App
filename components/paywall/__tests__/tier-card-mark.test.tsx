@@ -2,10 +2,10 @@
  * Layout lock for the tier mark — the ladder of rules a `<TierCard>` wears (see that file's
  * header for why the ladder itself is the comparison and must not become a badge).
  *
- * THE REGRESSION THIS PINS: the mark shipped absolutely positioned at a 16pt inset over a card
- * whose content column sits at 24pt, so a three-rule ladder's lower rules were drawn straight
- * through the right-aligned price. The retired `<CornerArcs>` ripple was translucent enough to get
- * away with overlapping type; `Meter.rule` is opaque and cannot.
+ * THE REGRESSION THIS PINS: the mark once shipped absolutely positioned at a 16pt inset over a
+ * card whose content column sits at 24pt, so a three-rule ladder's lower rules were drawn straight
+ * through the right-aligned price. A translucent ripple could get away with overlapping type; an
+ * opaque `ink2` rule cannot.
  *
  * Jest performs no layout here, so nothing below measures pixels. What it asserts is the structural
  * property that makes an overlap IMPOSSIBLE at any rule count: the mark is a NON-ABSOLUTE child of
@@ -13,6 +13,9 @@
  * in-flow rows of a column cannot occupy the same space, whatever either of them contains — so a
  * future fourth rung cannot silently re-introduce the collision. The reserved lane is asserted
  * separately, because that is what keeps the type from moving between tiers.
+ *
+ * Since V23-11 (2026-09-14) the card IS the column: `<SquareCard>` is one padded `View`, so the
+ * node under test is the card's own `testID`, not an inner `-content` wrapper.
  */
 import { render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
@@ -38,6 +41,9 @@ const renderCard = (marks: number) =>
 const node = (suffix: string) =>
   screen.getByTestId(`${TEST_ID}-${suffix}`, { includeHiddenElements: true });
 
+/** The card itself — the single padded column every row, the mark first, sits in. */
+const card = () => screen.getByTestId(TEST_ID, { includeHiddenElements: true });
+
 const flat = (suffix: string) => StyleSheet.flatten(node(suffix).props.style) ?? {};
 
 /** Ladder counts the product ships (1, 2, 3) plus the one it does not yet: a fourth tier must not
@@ -54,7 +60,7 @@ describe.each(LADDER_COUNTS)('a %i-rule ladder', (marks) => {
 
   it('sits in the content column, not over it, so it cannot reach the price', async () => {
     await renderCard(marks);
-    const content = node('content');
+    const content = card();
     const column = StyleSheet.flatten(content.props.style) ?? {};
 
     // A column: children stack, they do not share space.

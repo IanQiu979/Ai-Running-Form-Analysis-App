@@ -352,7 +352,12 @@ export const Copy = {
       },
     },
     empty: {
+      // The dashed empty box's title (V23-07, second artboard). The page's string is this key's
+      // existing value verbatim, so it keeps its name rather than gaining a duplicate `title`.
       caption: 'No analyses yet.',
+      // NEW key (V23-07): the sentence under the title in the same box. Not in the copy deck —
+      // the Cadence Arcs empty state carried the title alone.
+      body: 'Submit a photo or video of your run for a precise assessment of your form.',
     },
     // NEW key group, nested inside the existing `home:` namespace (issue #140's own instruction:
     // no new top-level namespace). Not in the copy deck — #64/#140's process-kill recovery is
@@ -824,6 +829,10 @@ export const Copy = {
       // The deck's `settings.plan.cta`. It was written but deliberately left unrendered until
       // there was a Paywall route for it to point at (issue #52) — that route now exists.
       cta: 'See plans',
+      // V23-12 (2026-09-14): the Plan section's second row label, beside the renewal date read
+      // off the live `QuotaStatus.periodEnd`. Only rendered for a paid tier — Free is lifetime and
+      // has no renewal, so the row is absent rather than blank.
+      renews: 'Renews',
     },
     signOutError: {
       // THE ISSUE #27 STRING(S). A security audit on PR #122 (finding F3) found a THIRD real
@@ -882,6 +891,11 @@ export const Copy = {
       // The #68 restatement: Settings repeats the disclosure shown before the first upload, and is
       // where consent can be withdrawn (GDPR Art. 7(3): withdrawal must be as easy as giving it —
       // hence a plain row here, not a support email).
+      //
+      // V23-12 (2026-09-14): the Privacy card's consent ROW label — "Consent" on the left, the
+      // withdraw action or the withdrawn status on the right, the same label/value shape as
+      // every other settings row.
+      label: 'Consent',
       status: {
         granted: 'You have consented to health-related analysis of your uploaded frames.',
         withdrawn: 'You have not consented to health-related analysis. You will be asked again before your next upload.',
@@ -1201,9 +1215,13 @@ export const Copy = {
   },
   capture: {
     title: 'Record your run',
+    // V23-10 (third artboard) draws these two as ONE line under the framing guide —
+    // "Side-on, full body, good light. Muted." — so the tip matches `sourcePicker.framingTip`
+    // word for word and the muted note is the single word the page shows. `app/capture/record.tsx`
+    // joins them with a space; the tip drops out while recording and the note stays.
     overlay: {
-      tip: 'Side-on, full body in frame, about 10 metres back. Level camera, good light.',
-      muted: 'Recording is muted. No audio is captured.',
+      tip: 'Side-on, full body, good light.',
+      muted: 'Muted.',
     },
     recording: {
       autoCap: 'Recording stops automatically at 15 seconds.',

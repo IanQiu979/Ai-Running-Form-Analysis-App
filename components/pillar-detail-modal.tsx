@@ -1,18 +1,22 @@
 /**
- * Per-pillar detail (the "tap the info icon" panel `components/pace-readout.tsx`'s `PillarRow`
- * opens). Reuses `app/settings.tsx`'s step-up-reauth `Modal` pattern verbatim — the only
- * full-screen modal precedent in this codebase — rather than inventing a bottom sheet or pulling
- * in a third-party sheet library: a full-screen, opaque-per-frame, `animationType="slide"` RN
- * `<Modal>` wrapping `<ScreenGradient>` + `SafeAreaView` + `ScrollView`, with `onRequestClose`
- * (the Android back button) wired to the same dismiss handler as its own close control.
+ * Per-pillar detail (V23-08's third artboard — the "tap the info icon" panel
+ * `components/pace-readout.tsx`'s `PillarRow` opens). A full-screen, opaque, `animationType="slide"`
+ * RN `<Modal>` painted `Ink.bg`, with `onRequestClose` (the Android back button) wired to the same
+ * dismiss handler as its own close control — the same full-screen modal shape `app/settings.tsx`'s
+ * step-up re-auth uses, rather than a bottom sheet or a third-party sheet library.
+ *
+ * THIS IS THE ONLY PLACE FLAGS AND DRILLS RENDER. The page's result rows carry a score, a band
+ * word, a bar and one line of coaching prose; the risk flags and drills a Pro/Elite pillar carries
+ * are read here, at length, under their own labels.
  *
  * WHAT THIS DOES NOT DO: it renders exactly the `PacePillarResult` it is handed — the same
  * score/band/feedback/flags/drills/notAssessedReason fields `<PillarRow>` already renders, just
- * with room to read them at length. It never fabricates additional explanatory copy the
- * `@shared/pace` contract doesn't carry, and it upholds the same rule `pace-readout.tsx`'s own
- * header states: `score: null` renders NO numeral, ever — only the honest not-assessed reason.
- * Business logic (tier, quota, which fields a Free vs. Pro/Elite result carries) stays out of
- * this file too — it renders whichever `flags`/`drills` arrays it's given.
+ * with room to read them. It never fabricates additional explanatory copy the `@shared/pace`
+ * contract doesn't carry, and it upholds the same rule `pace-readout.tsx`'s own header states:
+ * `score: null` renders NO numeral, ever — only the honest not-assessed reason. Business logic
+ * (tier, quota, which fields a Free vs. Pro/Elite result carries) stays out of this file too — it
+ * renders whichever `flags`/`drills` arrays it's given, and never an empty "Risk flags"/"Drills"
+ * label.
  *
  * ACCESSIBILITY: unlike the not-assessed reason inside `<PillarRow>` (which is deliberately hidden
  * from the a11y tree — `accessibilityElementsHidden` — because the row's own header already speaks
@@ -22,32 +26,20 @@
  * real `accessibilityLabel`, and the pillar name is `accessibilityRole="header"` — both are how a
  * screen-reader user finds and leaves this view without relying on touch.
  */
-import { useMemo } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CircleIconButton } from '@/components/ui/circle-icon-button';
-import { Eyebrow } from '@/components/ui/eyebrow';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { ScreenGradient } from '@/components/ui/screen-gradient';
-import { SurfaceCard } from '@/components/ui/surface-card';
+import { SquareCard } from '@/components/ui/square-card';
+import { SquareIconButton } from '@/components/ui/square-icon-button';
 import { Copy } from '@/constants/copy';
-import {
-  Colors,
-  ContentWidth,
-  FontFamily,
-  FontSize,
-  LineHeight,
-  Score,
-  ScoreBandLabel,
-  Spacing,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ScoreBandLabel } from '@/constants/theme';
+import { Font, Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { notAssessedCopy, pillarLabel, pillarLetter } from '@/lib/pace-readout';
 import type { PacePillarId, PacePillarResult } from '@shared/pace';
+
+/** The page's close glyph: `400 22px/1 'Inter Tight'`, a text "×" rather than an icon. */
+const CLOSE_GLYPH = '×';
+const CLOSE_GLYPH_SIZE = 22;
 
 type Props = {
   visible: boolean;
@@ -57,9 +49,7 @@ type Props = {
 };
 
 export function PillarDetailModal({ visible, onDismiss, pillarId, pillar }: Props) {
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
   const label = pillarLabel(pillarId);
   const hasFlagsOrDrills = pillar.flags.length > 0 || pillar.drills.length > 0;
 
@@ -69,176 +59,149 @@ export function PillarDetailModal({ visible, onDismiss, pillarId, pillar }: Prop
       animationType="slide"
       onRequestClose={onDismiss}
       testID={`pillar-detail-modal-${pillarId}`}>
-      <ScreenGradient>
-        <SafeAreaView style={styles.safeArea}>
-          <ScrollView contentContainerStyle={styles.content}>
-            <View style={styles.headerRow}>
-              {/* Letter + name as one accessible heading — the letter alone ("P") carries no
-                  useful spoken content on its own, so it's a leading child of the same Text node
-                  a screen reader announces as one sentence, not a separately-hidden decoration. */}
-              <Text testID={`pillar-detail-heading-${pillarId}`} accessibilityRole="header" style={styles.heading}>
-                <Text style={styles.headingLetter}>{pillarLetter(pillarId)}  </Text>
-                {label}
-              </Text>
-              <CircleIconButton
-                testID={`pillar-detail-close-${pillarId}`}
-                accessibilityLabel={Copy.result.pillar.detail.close}
-                onPress={onDismiss}>
-                <IconSymbol name="xmark" size={FontSize.md} color={colors.text.primary} />
-              </CircleIconButton>
+      <View style={styles.screen}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingTop: Math.max(insets.top, Layout.canvas.safeTop),
+              paddingBottom: Math.max(insets.bottom, Layout.canvas.safeBottom),
+            },
+          ]}>
+          <View style={styles.headerRow}>
+            {/* Letter + name as ONE accessible heading — the letter alone ("A") carries no
+                useful spoken content on its own, so the two sit in a single `accessible` node a
+                screen reader announces as one sentence, not as a separately-hidden decoration.
+                A row `View` rather than nested `Text`: the page sets the two on a shared baseline
+                with a 12 pt gap, and a nested `Text` cannot carry that gap. */}
+            <View
+              testID={`pillar-detail-heading-${pillarId}`}
+              accessible
+              accessibilityRole="header"
+              style={styles.heading}>
+              <Text style={[Type.displayFigure, styles.ink2]}>{pillarLetter(pillarId)}</Text>
+              <Text style={[Type.h2, styles.ink]}>{label}</Text>
             </View>
+            <SquareIconButton
+              testID={`pillar-detail-close-${pillarId}`}
+              accessibilityLabel={Copy.result.pillar.detail.close}
+              onPress={onDismiss}
+              bleed="right">
+              <Text style={styles.closeGlyph}>{CLOSE_GLYPH}</Text>
+            </SquareIconButton>
+          </View>
 
-            {/* `SurfaceCard`'s own `style` prop lands on its OUTER shadow-owning node, not the
-                inner one its children actually render into (see that component's header on why
-                the shadow/clip split is two nodes) — so the vertical rhythm between this card's
-                own children needs its own wrapping `View`, not a `style` passed to the card. */}
-            <SurfaceCard tone="raised" testID={`pillar-detail-card-${pillarId}`}>
-              <View style={styles.card}>
-                {pillar.score !== null && pillar.band !== null ? (
-                  <View style={styles.scoreRow}>
-                    <Text testID={`pillar-detail-score-${pillarId}`} style={styles.scoreNumeral}>
-                      {pillar.score}
-                    </Text>
-                    <Text
-                      testID={`pillar-detail-band-${pillarId}`}
-                      style={[styles.bandWord, { color: Score[pillar.band][scheme].text }]}>
-                      {ScoreBandLabel[pillar.band]}
-                    </Text>
-                  </View>
-                ) : (
-                  // Same honesty rule as `<PillarRow>`: no numeral, ever, for a not-assessed
-                  // pillar — only the reason, and it's reachable here (not hidden, see this
-                  // file's header on why the modal's copy of it can't take the row's shortcut).
-                  <Text testID={`pillar-detail-not-assessed-${pillarId}`} style={styles.notAssessedText}>
-                    {notAssessedCopy(pillar.notAssessedReason)}
-                  </Text>
-                )}
-
-                {/* The coach's own writing — same `FontFamily.prose` convention as
-                    `pace-readout.tsx`'s `feedbackText` (spec 2026-07-26 §3.2: coaching prose is
-                    never set in the UI-chrome family). Static here — no per-word reveal, this is
-                    a detail view opened well after the readout's own reveal has already played. */}
-                {pillar.feedback ? (
-                  <Text testID={`pillar-detail-feedback-${pillarId}`} style={styles.feedbackText}>
-                    {pillar.feedback}
-                  </Text>
-                ) : null}
-
-                {hasFlagsOrDrills ? <View style={styles.divider} /> : null}
-
-                {pillar.flags.length > 0 ? (
-                  <View style={styles.subList} testID={`pillar-detail-flags-${pillarId}`}>
-                    <Eyebrow>{Copy.result.pillar.flagsLabel}</Eyebrow>
-                    {pillar.flags.map((flag, index) => (
-                      <View key={`${flag.pattern}-${index}`} style={styles.subListItem}>
-                        <Text style={styles.subListTitle}>{flag.pattern}</Text>
-                        <Text style={styles.subListDetail}>{flag.detail}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-
-                {pillar.drills.length > 0 ? (
-                  <View style={styles.subList} testID={`pillar-detail-drills-${pillarId}`}>
-                    <Eyebrow>{Copy.result.pillar.drillsLabel}</Eyebrow>
-                    {pillar.drills.map((drill, index) => (
-                      <View key={`${drill.name}-${index}`} style={styles.subListItem}>
-                        <Text style={styles.subListTitle}>{drill.name}</Text>
-                        <Text style={styles.subListDetail}>{drill.instructions}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
+          <SquareCard
+            padding={Layout.cardPaddingLg}
+            style={styles.card}
+            testID={`pillar-detail-card-${pillarId}`}>
+            {pillar.score !== null && pillar.band !== null ? (
+              <View style={styles.scoreRow}>
+                <Text testID={`pillar-detail-score-${pillarId}`} style={[Type.scoreMd, styles.ink]}>
+                  {pillar.score}
+                </Text>
+                <Text testID={`pillar-detail-band-${pillarId}`} style={[Type.label, styles.ink]}>
+                  {ScoreBandLabel[pillar.band]}
+                </Text>
               </View>
-            </SurfaceCard>
-          </ScrollView>
-        </SafeAreaView>
-      </ScreenGradient>
+            ) : (
+              // Same honesty rule as `<PillarRow>`: no numeral, ever, for a not-assessed
+              // pillar — only the reason, and it's reachable here (not hidden, see this
+              // file's header on why the modal's copy of it can't take the row's shortcut).
+              <Text testID={`pillar-detail-not-assessed-${pillarId}`} style={[Type.body, styles.ink2]}>
+                {notAssessedCopy(pillar.notAssessedReason)}
+              </Text>
+            )}
+
+            {pillar.feedback ? (
+              <Text testID={`pillar-detail-feedback-${pillarId}`} style={[Type.body, styles.ink2]}>
+                {pillar.feedback}
+              </Text>
+            ) : null}
+
+            {/* The page's 1 px rule between the prose and the lists — only when there IS a list
+                below, so the rule never leads to nothing. */}
+            {hasFlagsOrDrills ? <View style={styles.rule} /> : null}
+
+            {pillar.flags.length > 0 ? (
+              <View style={styles.list} testID={`pillar-detail-flags-${pillarId}`}>
+                <Text style={[Type.label, styles.ink2]}>{Copy.result.pillar.flagsLabel}</Text>
+                {pillar.flags.map((flag, index) => (
+                  <View key={`${flag.pattern}-${index}`} style={styles.listItem}>
+                    <Text style={[Type.bodySmSemi, styles.ink]}>{flag.pattern}</Text>
+                    <Text style={[Type.note, styles.ink2]}>{flag.detail}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            {pillar.drills.length > 0 ? (
+              <View style={styles.list} testID={`pillar-detail-drills-${pillarId}`}>
+                <Text style={[Type.label, styles.ink2]}>{Copy.result.pillar.drillsLabel}</Text>
+                {pillar.drills.map((drill, index) => (
+                  <View key={`${drill.name}-${index}`} style={styles.listItem}>
+                    <Text style={[Type.bodySmSemi, styles.ink]}>{drill.name}</Text>
+                    <Text style={[Type.note, styles.ink2]}>{drill.instructions}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </SquareCard>
+        </ScrollView>
+      </View>
     </Modal>
   );
 }
 
-function createStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      // Transparent — `<ScreenGradient>` behind it owns the fill, same convention as every other
-      // screen's `SafeAreaView` (e.g. `app/result/[id].tsx`'s own `safeArea`).
-      backgroundColor: 'transparent',
-    },
-    content: {
-      alignSelf: 'center',
-      flexGrow: 1,
-      gap: Spacing.xl,
-      maxWidth: ContentWidth.readable,
-      padding: Spacing.xl,
-      width: '100%',
-    },
-    headerRow: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      gap: Spacing.sm,
-      justifyContent: 'space-between',
-    },
-    heading: {
-      color: colors.text.primary,
-      flex: 1,
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xl,
-      letterSpacing: Tracking.display,
-    },
-    headingLetter: {
-      color: colors.text.secondary,
-    },
-    card: {
-      gap: Spacing.lg,
-    },
-    scoreRow: {
-      alignItems: 'baseline',
-      flexDirection: 'row',
-      gap: Spacing.sm,
-    },
-    scoreNumeral: {
-      color: colors.text.primary,
-      fontFamily: FontFamily.mono.bold,
-      fontSize: FontSize.xxl,
-    },
-    bandWord: {
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.md,
-    },
-    notAssessedText: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.md,
-      lineHeight: FontSize.md * LineHeight.body,
-    },
-    feedbackText: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.prose.regular,
-      fontSize: FontSize.md,
-      lineHeight: FontSize.md * LineHeight.body,
-    },
-    divider: {
-      backgroundColor: colors.hairline,
-      height: StyleSheet.hairlineWidth,
-    },
-    subList: {
-      gap: Spacing.sm,
-    },
-    subListItem: {
-      gap: Spacing.xs,
-    },
-    subListTitle: {
-      color: colors.text.primary,
-      fontFamily: FontFamily.body.semiBold,
-      fontSize: FontSize.sm,
-    },
-    subListDetail: {
-      color: colors.text.secondary,
-      fontFamily: FontFamily.prose.regular,
-      fontSize: FontSize.xs,
-      lineHeight: FontSize.xs * 1.4,
-    },
-  });
-}
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: Ink.bg,
+  },
+  content: {
+    flexGrow: 1,
+    gap: Space.xl,
+    paddingHorizontal: Layout.gutter,
+  },
+  headerRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  heading: {
+    alignItems: 'baseline',
+    flex: 1,
+    flexDirection: 'row',
+    gap: Space.md,
+  },
+  closeGlyph: {
+    color: Ink.ink2,
+    fontFamily: Font.tight.regular,
+    fontSize: CLOSE_GLYPH_SIZE,
+    lineHeight: CLOSE_GLYPH_SIZE,
+  },
+  card: {
+    gap: Space.xl,
+  },
+  scoreRow: {
+    alignItems: 'baseline',
+    flexDirection: 'row',
+    gap: Space.md,
+  },
+  ink: {
+    color: Ink.ink,
+  },
+  ink2: {
+    color: Ink.ink2,
+  },
+  rule: {
+    backgroundColor: Ink.line,
+    height: Layout.hairline,
+  },
+  list: {
+    gap: Space.md,
+  },
+  listItem: {
+    gap: Space.xs,
+  },
+});

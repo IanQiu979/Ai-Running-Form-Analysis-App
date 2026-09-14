@@ -1,20 +1,23 @@
 /**
  * Honesty locks for <PaceReadout /> (issue #56). The assertions that matter most: a not-assessed
- * pillar (`score: null`) never mounts a numeral, a band word, or a swept arc — it renders a
- * hollow, dashed ring and a plain-language reason instead. If a future edit ever coerces `null`
- * into "0", these are the tests that must go red.
+ * pillar (`score: null`) never mounts a numeral, a band word, or a bar fill — it renders a dashed
+ * track and a plain-language reason instead. If a future edit ever coerces `null` into "0", these
+ * are the tests that must go red.
  *
- * UPDATED 2026-09-01 (Cadence Arcs): the bars became rings, so the assertions that named a bar's
- * WIDTH now name a ring's SWEPT ARC. Not one of them was relaxed in the move — the same facts are
- * proven about a different shape, and the score-to-geometry arithmetic is re-derived here from
- * the fixture rather than copied from an observed render.
+ * UPDATED 2026-09-14 (V23-08): the rings became 2 px bars, so the assertions that named a ring's
+ * SWEPT ARC now name a fill's WIDTH. Not one of them was relaxed in the move — the same facts are
+ * proven about a different shape. Flags and drills moved out of the rows and into the pillar
+ * detail modal, so the "tier gating by array emptiness" locks now read through the modal.
+ *
+ * Every press is wrapped in an awaited `act` — see CLAUDE.md § Testing on the open-act-scope
+ * quirk that otherwise empties the next test's tree.
  */
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { PaceReadout } from '../pace-readout';
 import { Copy } from '@/constants/copy';
-import { FontFamily } from '@/constants/theme';
+import { Font, Ink, Type } from '@/constants/v23-theme';
 import {
   allNotAssessedResult,
   freeTierVideoResult,
@@ -25,22 +28,30 @@ import {
 import { pillarDetailA11yLabel, pillarLabel } from '@/lib/pace-readout';
 import type { PaceResult } from '@shared/pace';
 
-/** The `<ArcRing>` geometry `<PaceReadout>` renders a pillar at, re-derived here rather than
- *  copied from a render: the sweep must be the score as a fraction of the full circle. */
-const PILLAR_CIRCUMFERENCE = 2 * Math.PI * ((64 - 6) / 2);
+// Every row mounts its (closed) detail modal, which pads by the live safe-area insets.
+jest.mock('react-native-safe-area-context', () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('react-native-safe-area-context/jest/mock').default
+);
+
 const HIDDEN = { includeHiddenElements: true } as const;
 
+/** The bar fill is decorative (hidden from the a11y tree), so it is queried with hidden nodes. */
+const fillStyle = (pillar: string) =>
+  StyleSheet.flatten(screen.getByTestId(`pillar-bar-${pillar}`, HIDDEN).props.style);
+const trackStyle = (pillar: string) =>
+  StyleSheet.flatten(screen.getByTestId(`pillar-bar-track-${pillar}`).props.style);
+
 describe('an assessed pillar (proTierVideoResult)', () => {
-  it('renders the numeral, the band word, and an arc swept in proportion to the score', async () => {
+  it('renders the numeral, the band word, and a fill as wide as the score', async () => {
     await render(<PaceReadout result={proTierVideoResult} />);
 
     expect(screen.getByTestId('pillar-score-posture').props.children).toBe(78);
     expect(screen.getByTestId('pillar-band-posture').props.children).toBe('Solid');
-    // 78/100 of the way round, expressed as the dash offset still to travel.
-    expect(screen.getByTestId('pillar-ring-posture-fill', HIDDEN).props.strokeDashoffset).toBeCloseTo(
-      PILLAR_CIRCUMFERENCE * 0.22,
-      4
-    );
+    // The page's `width:78%` — the score is the fill's layout width, never re-derived.
+    expect(fillStyle('posture').width).toBe('78%');
+    expect(fillStyle('posture').backgroundColor).toBe(Ink.ink);
+    expect(trackStyle('posture').backgroundColor).toBe(Ink.line);
   });
 
   it('renders the overall headline numeral + band', async () => {
@@ -53,36 +64,37 @@ describe('an assessed pillar (proTierVideoResult)', () => {
 });
 
 describe('a not-assessed pillar never reads as a zero (photoResult: Cadence + Elasticity are null)', () => {
-  it('renders no score/band/arc nodes at all for Cadence', async () => {
+  it('renders no score/band/fill nodes at all for Cadence', async () => {
     await render(<PaceReadout result={photoResult} />);
 
     expect(screen.queryByTestId('pillar-score-cadence')).toBeNull();
     expect(screen.queryByTestId('pillar-band-cadence')).toBeNull();
-    // No fill arc — not a fill arc swept to zero. `<ArcRing>` enforces this independently too.
-    expect(screen.queryByTestId('pillar-ring-cadence-fill', HIDDEN)).toBeNull();
+    // No fill — not a fill at 0 %.
+    expect(screen.queryByTestId('pillar-bar-cadence', HIDDEN)).toBeNull();
   });
 
-  it('draws the ring’s track dashed for Cadence and solid for the pillar beside it', async () => {
+  it('draws the bar track dashed for Cadence and solid for the pillar beside it', async () => {
     await render(<PaceReadout result={photoResult} />);
 
-    // The successor of the old bar's `barTrackNotAssessed` dashed border (M1, v23-ux-audit-r1):
-    // "could not be scored" must be structurally distinct from "scored zero" at a glance.
-    expect(screen.getByTestId('pillar-ring-cadence-track', HIDDEN).props.strokeDasharray).toEqual([5, 5]);
-    expect(screen.getByTestId('pillar-ring-posture-track', HIDDEN).props.strokeDasharray).toBeUndefined();
+    // M1 (v23-ux-audit-r1): "could not be scored" must be structurally distinct from "scored
+    // zero" at a glance — the page's `height:0;border-top:2px dashed`.
+    expect(trackStyle('cadence').borderStyle).toBe('dashed');
+    expect(trackStyle('cadence').borderColor).toBe(Ink.line);
+    expect(trackStyle('posture').borderStyle).toBeUndefined();
   });
 
   it('renders the "needs video" reason, not a numeral, for Cadence and Elasticity', async () => {
     await render(<PaceReadout result={photoResult} />);
 
-    // Issue #62 review follow-up: the not-assessed reason still renders visually but is now
-    // hidden from the a11y tree (the pillar header label already speaks it), so RNTL excludes it
-    // from testID queries unless we opt back into hidden elements.
-    expect(
-      screen.getByTestId('pillar-not-assessed-cadence', { includeHiddenElements: true }).props.children
-    ).toBe(Copy.result.pillar.notAssessed.needsVideo);
-    expect(
-      screen.getByTestId('pillar-not-assessed-elasticity', { includeHiddenElements: true }).props.children
-    ).toBe(Copy.result.pillar.notAssessed.needsVideo);
+    // Issue #62 review follow-up: the not-assessed reason still renders visually but is hidden
+    // from the a11y tree (the pillar header label already speaks it), so RNTL excludes it from
+    // testID queries unless we opt back into hidden elements.
+    expect(screen.getByTestId('pillar-not-assessed-cadence', HIDDEN).props.children).toBe(
+      Copy.result.pillar.notAssessed.needsVideo
+    );
+    expect(screen.getByTestId('pillar-not-assessed-elasticity', HIDDEN).props.children).toBe(
+      Copy.result.pillar.notAssessed.needsVideo
+    );
   });
 
   it('still renders real scores for Posture and Arm swing from the same photo', async () => {
@@ -98,6 +110,16 @@ describe('a not-assessed pillar never reads as a zero (photoResult: Cadence + El
     // The not-assessed pillars must contribute no "0" text node — proves null was never
     // stringified into a fabricated score rather than just checking the testID is absent.
     expect(screen.queryByText('0')).toBeNull();
+  });
+
+  it('sets the page’s em dash in the disabled tone where the numeral would be', async () => {
+    await render(<PaceReadout result={photoResult} />);
+
+    // Two not-assessed pillars, two dashes; `ink3` is the one tone the sheet reserves for
+    // exactly this (a placeholder, never copy the user has to read).
+    const dashes = screen.getAllByText('—');
+    expect(dashes).toHaveLength(2);
+    expect(StyleSheet.flatten(dashes[0].props.style).color).toBe(Ink.ink3);
   });
 });
 
@@ -125,7 +147,7 @@ it('speaks the single-frame-from-video reason, never "not a photo", for a clippe
 
 // A Pro/Elite multi-frame analysis may honestly report a pillar as not-assessed AND write real
 // explanatory prose for it (`_shared/pace.ts` permits exactly that). The marker must not vanish
-// just because feedback is present — a dashed ring alone does not say "not assessed".
+// just because feedback is present — a dashed track alone does not say "not assessed".
 it('keeps the not-assessed marker on a Pro pillar that carries its own feedback', async () => {
   const proWithNote: PaceResult = {
     ...proTierVideoResult,
@@ -147,146 +169,127 @@ it('keeps the not-assessed marker on a Pro pillar that carries its own feedback'
   expect(screen.getByTestId('pillar-not-assessed-armSwing', HIDDEN).props.children).toBe(
     Copy.result.pillar.notAssessed.angle
   );
-  expect(screen.getByTestId('pillar-feedback-armSwing').props.accessibilityLabel).toBe(
-    'Keep the elbows near 90 degrees.'
-  );
+  expect(screen.getByTestId('pillar-feedback-armSwing').props.children).toBe('Keep the elbows near 90 degrees.');
   expect(screen.queryByTestId('pillar-score-armSwing')).toBeNull();
 });
 
 it('renders the "angle" reason distinctly from "needsVideo" for a badly-framed pillar', async () => {
   await render(<PaceReadout result={poorFramingPhotoResult} />);
 
-  // Issue #62 review follow-up: not-assessed reason renders visually but is hidden from the a11y
-  // tree, so opt back into hidden elements for the testID lookup (see the "needs video" test).
-  expect(
-    screen.getByTestId('pillar-not-assessed-posture', { includeHiddenElements: true }).props.children
-  ).toBe(Copy.result.pillar.notAssessed.angle);
-  expect(
-    screen.getByTestId('pillar-not-assessed-cadence', { includeHiddenElements: true }).props.children
-  ).toBe(Copy.result.pillar.notAssessed.needsVideo);
+  expect(screen.getByTestId('pillar-not-assessed-posture', HIDDEN).props.children).toBe(
+    Copy.result.pillar.notAssessed.angle
+  );
+  expect(screen.getByTestId('pillar-not-assessed-cadence', HIDDEN).props.children).toBe(
+    Copy.result.pillar.notAssessed.needsVideo
+  );
 });
 
 it('renders the overall headline as not-assessed, never a fabricated 0, when every pillar is null', async () => {
   await render(<PaceReadout result={allNotAssessedResult} />);
 
   expect(screen.queryByTestId('overall-score')).toBeNull();
+  expect(screen.queryByTestId('overall-band')).toBeNull();
   expect(screen.getByTestId('overall-not-assessed').props.children).toBe(Copy.result.pillar.notAssessed.generic);
-  // The headline ring gets the same treatment its pillars do: an empty dashed track and no arc.
-  expect(screen.queryByTestId('overall-ring-fill', HIDDEN)).toBeNull();
-  expect(screen.getByTestId('overall-ring-track', HIDDEN).props.strokeDasharray).toEqual([5, 5]);
+  expect(screen.queryByText('0')).toBeNull();
 });
 
 describe('tier gating via array emptiness only — no client-side tier re-derivation', () => {
-  it('renders no Flags/Drills sections at all for a Free-shaped result (every array empty)', async () => {
-    await render(<PaceReadout result={freeTierVideoResult} />);
-
-    for (const pillarId of ['posture', 'armSwing', 'cadence', 'elasticity']) {
-      expect(screen.queryByTestId(`pillar-flags-${pillarId}`)).toBeNull();
-      expect(screen.queryByTestId(`pillar-drills-${pillarId}`)).toBeNull();
-    }
-    // Free still gets real scores and one line of feedback per pillar.
-    expect(screen.getByTestId('pillar-score-cadence').props.children).toBe(44);
-    // Read via the ACCESSIBILITY LABEL, not `props.children`. The Calm redesign renders coaching
-    // feedback through `<KineticText>`, which splits the sentence into one `Text` per word so each
-    // can be revealed independently — so `children` is now an array of word nodes, not the string.
-    // The label is where the whole, unsplit sentence lives, and it is also exactly what a screen
-    // reader receives, so asserting on it tests the thing that actually matters rather than the
-    // internal node shape.
-    expect(screen.getByTestId('pillar-feedback-cadence').props.accessibilityLabel).toBe(
-      'Foot lands well ahead of your hips.'
-    );
-  });
-
-  it('renders Flags/Drills for a Pro-shaped result wherever the pillar carries them', async () => {
+  it('renders no flags or drills in any row — the page keeps them in the detail modal', async () => {
     await render(<PaceReadout result={proTierVideoResult} />);
 
-    expect(screen.getByTestId('pillar-flags-cadence')).toBeTruthy();
+    // Cadence carries a flag and a drill in this fixture; neither is on the row.
+    expect(screen.queryByText('Overstriding')).toBeNull();
+    expect(screen.queryByText('Metronome Runs')).toBeNull();
+    expect(screen.queryByText(Copy.result.pillar.flagsLabel)).toBeNull();
+    expect(screen.queryByText(Copy.result.pillar.drillsLabel)).toBeNull();
+  });
+
+  it('renders real scores and one line of feedback per pillar for a Free-shaped result', async () => {
+    await render(<PaceReadout result={freeTierVideoResult} />);
+
+    expect(screen.getByTestId('pillar-score-cadence').props.children).toBe(44);
+    // A plain `Text`, so the whole sentence is its children — and what a screen reader receives.
+    expect(screen.getByTestId('pillar-feedback-cadence').props.children).toBe('Foot lands well ahead of your hips.');
+  });
+
+  it('renders Flags/Drills in the modal for a Pro-shaped pillar that carries them, and not otherwise', async () => {
+    await render(<PaceReadout result={proTierVideoResult} />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('pillar-detail-button-cadence'));
+    });
+    expect(screen.getByTestId('pillar-detail-flags-cadence')).toBeTruthy();
     expect(screen.getByText('Overstriding')).toBeTruthy();
-    expect(screen.getByTestId('pillar-drills-cadence')).toBeTruthy();
+    expect(screen.getByTestId('pillar-detail-drills-cadence')).toBeTruthy();
     expect(screen.getByText('Metronome Runs')).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('pillar-detail-close-cadence'));
+    });
 
     // Elasticity has neither a flag nor a drill in this fixture — must not render empty sections.
-    expect(screen.queryByTestId('pillar-flags-elasticity')).toBeNull();
-    expect(screen.queryByTestId('pillar-drills-elasticity')).toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('pillar-detail-button-elasticity'));
+    });
+    expect(screen.queryByTestId('pillar-detail-flags-elasticity')).toBeNull();
+    expect(screen.queryByTestId('pillar-detail-drills-elasticity')).toBeNull();
   });
 });
 
 it('gives every pillar row an accessible label with score, band, and pillar name', async () => {
   await render(<PaceReadout result={proTierVideoResult} />);
 
-  // Issue #62 fix #1: `accessible`/`accessibilityLabel` now live on the inner header block
+  // Issue #62 fix #1: `accessible`/`accessibilityLabel` live on the inner header block
   // (`pillar-header-${id}`), not the outer row (`pillar-row-${id}`) — the outer row must NOT
-  // collapse the rest of the row (feedback/flags/drills) into this one opaque node.
+  // collapse the rest of the row (the feedback prose) into this one opaque node.
   expect(screen.getByTestId('pillar-header-posture').props.accessibilityLabel).toBe(
     'Posture, 78 out of 100, Solid.'
   );
+  expect(screen.getByTestId('pillar-row-posture').props.accessible).toBeUndefined();
 });
 
 // Issue #62 audit finding #1 (Blocker): before the fix, the outer `pillar-row-*` View carried
 // `accessible` + `accessibilityLabel`, which collapses the ENTIRE row — including
-// `pillar.feedback`, every `flags` pattern/detail, and every `drills` name/instructions — into
-// one opaque VoiceOver/TalkBack node, making all of that paid-tier coaching content structurally
-// unreachable. This proves each piece survives as its own individually-queryable text node.
-it('does not swallow feedback, flags, and drills into the row-level accessible node', async () => {
+// `pillar.feedback` — into one opaque VoiceOver/TalkBack node, making the paid-tier coaching
+// content structurally unreachable. This proves the prose survives as its own text node, and that
+// the info control keeps its own name rather than being swallowed by the header group.
+it('does not swallow the feedback prose or the info control into the row-level accessible node', async () => {
   await render(<PaceReadout result={proTierVideoResult} />);
 
-  // Cadence carries feedback, a flag, and a drill in this fixture.
-  //
-  // The feedback is asserted via its accessibility LABEL rather than via `getByText`. The Calm
-  // redesign renders it through `<KineticText>`, which splits the sentence into one hidden `Text`
-  // per word so each can reveal independently, and puts the whole sentence on the container as its
-  // label. That is structurally the same thing a plain `<Text>` already was — ONE accessible node
-  // carrying ONE sentence — so #62's actual finding is unaffected: the concern there was the
-  // OUTER ROW collapsing feedback + flags + drills into a single opaque node, and the three are
-  // still three separate nodes, as the assertions below prove.
   expect(
-    screen.getByLabelText(
+    screen.getByText(
       'Foot is landing well ahead of the hips with a near-straight knee — the clearest fix available here.'
     )
   ).toBeTruthy();
-  expect(screen.getByText('Overstriding')).toBeTruthy();
-  expect(
-    screen.getByText(
-      'Foot lands ahead of the centre of mass with an extended knee, amplifying braking force. Associated with shin splints and patellofemoral pain — shorten and quicken the stride.'
-    )
-  ).toBeTruthy();
-  expect(screen.getByText('Metronome Runs')).toBeTruthy();
-  expect(
-    screen.getByText('Set a metronome +2–3 SPM above baseline, 10 min on / 5 min off, 2–3x.')
-  ).toBeTruthy();
+  expect(screen.getByLabelText(pillarDetailA11yLabel(pillarLabel('cadence')))).toBeTruthy();
 });
 
-// ---------------------------------------------------------------------------------------------
-// Redesign Phase 1 (spec 2026-07-26 §3.2): coaching feedback is writing by a coach, not UI
-// chrome, so it renders in the prose serif. Everything measured stays in mono — the pair below
-// is what stops a future edit sliding the whole readout into one family again.
-// ---------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------
 // Part 2 — the per-pillar detail modal (tap the info icon). The modal itself is proven in
 // `components/__tests__/pillar-detail-modal.test.tsx`; these tests cover the WIRING — the row's
 // own info button opens the RIGHT pillar's modal with the right content.
 // ---------------------------------------------------------------------------------------------
-describe('the per-pillar info button opens that pillar\'s detail modal', () => {
+describe("the per-pillar info button opens that pillar's detail modal", () => {
   it('carries an accessible name naming the pillar, and no modal content is mounted until tapped', async () => {
     await render(<PaceReadout result={proTierVideoResult} />);
 
     const button = screen.getByTestId('pillar-detail-button-posture');
     expect(button.props.accessibilityLabel).toBe(pillarDetailA11yLabel(pillarLabel('posture')));
+    expect(button.props.accessibilityHint).toBe(Copy.result.pillar.detail.a11yHint);
     expect(screen.queryByTestId('pillar-detail-modal-posture')).toBeNull();
   });
 
-  it('opens that pillar\'s modal, with its own score/feedback, when the info button is pressed', async () => {
+  it("opens that pillar's modal, with its own score/feedback, when the info button is pressed", async () => {
     await render(<PaceReadout result={proTierVideoResult} />);
 
-    await fireEvent.press(screen.getByTestId('pillar-detail-button-cadence'));
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('pillar-detail-button-cadence'));
+    });
 
     expect(screen.getByTestId('pillar-detail-modal-cadence')).toBeTruthy();
     expect(screen.getByTestId('pillar-detail-score-cadence').props.children).toBe(44);
-    expect(
-      screen.getByText(
-        'Foot is landing well ahead of the hips with a near-straight knee — the clearest fix available here.'
-      )
-    ).toBeTruthy();
+    expect(screen.getByTestId('pillar-detail-feedback-cadence').props.children).toBe(
+      'Foot is landing well ahead of the hips with a near-straight knee — the clearest fix available here.'
+    );
     // A different pillar's modal never mounts as a side effect of opening this one.
     expect(screen.queryByTestId('pillar-detail-modal-posture')).toBeNull();
   });
@@ -294,7 +297,9 @@ describe('the per-pillar info button opens that pillar\'s detail modal', () => {
   it('shows the not-assessed reason, never a fabricated numeral, for a null pillar (photoResult.cadence)', async () => {
     await render(<PaceReadout result={photoResult} />);
 
-    await fireEvent.press(screen.getByTestId('pillar-detail-button-cadence'));
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('pillar-detail-button-cadence'));
+    });
 
     expect(screen.getByTestId('pillar-detail-not-assessed-cadence').props.children).toBe(
       Copy.result.pillar.notAssessed.needsVideo
@@ -303,32 +308,29 @@ describe('the per-pillar info button opens that pillar\'s detail modal', () => {
   });
 });
 
-describe('coaching feedback typography', () => {
-  it('renders per-pillar feedback in the prose serif, not the UI family', async () => {
+// ---------------------------------------------------------------------------------------------
+// V23-08 typography: the page sets prose in Inter Tight body and every number in Barlow
+// Condensed. The pair below is what stops a future edit sliding one into the other's family.
+// ---------------------------------------------------------------------------------------------
+describe('readout typography', () => {
+  it('sets per-pillar feedback as body prose in the secondary tone', async () => {
     await render(<PaceReadout result={proTierVideoResult} />);
 
-    // The feedback node is now a `<KineticText>` container whose per-word `Text` children each
-    // carry the passed style (see the redesign note on the test above). The family therefore has
-    // to be read off a WORD, not off the container — the container only carries layout. Reading
-    // the first word is sufficient: every word is rendered from the same `style` prop. Word nodes
-    // are hidden from the a11y tree, hence `includeHiddenElements` — the same RNTL convention
-    // CLAUDE.md § Testing documents for any `accessibilityElementsHidden` node.
-    const firstWord = screen.getByTestId('pillar-feedback-cadence-word-0', {
-      includeHiddenElements: true,
-    });
-    const style = StyleSheet.flatten(firstWord.props.style);
-
-    expect(style.fontFamily).toBe(FontFamily.prose.regular);
+    const style = StyleSheet.flatten(screen.getByTestId('pillar-feedback-cadence').props.style);
+    expect(style.fontFamily).toBe(Font.tight.regular);
+    expect(style.fontSize).toBe(Type.body.fontSize);
+    expect(style.color).toBe(Ink.ink2);
   });
 
-  it('leaves the measured score numeral in mono — only prose changes family', async () => {
+  it('sets the pillar numeral as a condensed metric and the overall as the score role', async () => {
     await render(<PaceReadout result={proTierVideoResult} />);
 
-    const score = screen.getByTestId('pillar-score-cadence');
-    const style = Array.isArray(score.props.style)
-      ? Object.assign({}, ...score.props.style)
-      : score.props.style;
+    const pillar = StyleSheet.flatten(screen.getByTestId('pillar-score-cadence').props.style);
+    expect(pillar.fontFamily).toBe(Font.condensed.bold);
+    expect(pillar.fontSize).toBe(Type.metric.fontSize);
 
-    expect(style.fontFamily).toBe(FontFamily.mono.bold);
+    const overall = StyleSheet.flatten(screen.getByTestId('overall-score').props.style);
+    expect(overall.fontFamily).toBe(Font.condensed.extraBold);
+    expect(overall.fontSize).toBe(Type.score.fontSize);
   });
 });

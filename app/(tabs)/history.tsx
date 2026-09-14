@@ -1,69 +1,50 @@
 /**
- * (tabs)/history — Screen 8, Past Analyses (issue #55). The second `Tabs.Screen`
- * `app/(tabs)/_layout.tsx`'s own header comment said would land "then, not before" — this is
- * "then".
+ * (tabs)/history — Screen 8, History (issue #55), cut to V23-09 (2026-09-14).
  *
  * Lists the caller's own `analyses` rows (a plain RLS-guarded read — `lib/history.ts`'s
  * `fetchHistoryList`, not an edge function: `docs/architecture.md` "Direct Supabase-client reads
- * ... list own `analyses`"), each with a frame strip resolved through short-TTL signed URLs
+ * ... list own `analyses`"), each with a frame deck resolved through short-TTL signed URLs
  * (`lib/history.ts`'s `signFrameStrip` — see that file's header for THE MEDIA RULE this screen
  * depends on: the `media` bucket is private, there are no public URLs, and a signed URL is never
  * logged). Tap a row to reopen its stored result at `/result/[id]`; tap Delete to purge it (row +
  * frames together, via `DELETE /functions/v1/analysis/:id` — `lib/history.ts`'s
- * `deleteHistoryAnalysis`) after a native confirm, same `Alert`-based confirmation pattern
- * `app/settings.tsx` already established for its own destructive actions.
+ * `deleteHistoryAnalysis`) after a confirm. The confirm is the page's own `<ConfirmDialog
+ * tone="danger">` — "danger used on the destructive action only" — and a failed delete reports
+ * through the same dialog as a one-button notice; no native `Alert` is raised from this screen.
  *
  * Renders every state CLAUDE.md's "build the states, not just the happy view" requires: loading,
  * error (the fetch itself failed), empty (no analyses yet), and ready — where "ready" already
  * covers the long-content case for free, because the list is a virtualized `FlatList`, not a
  * `ScrollView` mapping every row eagerly.
  *
+ * THE TAB BAR IS PART OF THE SCROLL. The page says "tab bar sits at the end of the scroll, not
+ * floating": the navigator (`app/(tabs)/_layout.tsx`) renders no bar on this tab, and this screen
+ * lays the inline `<V23TabBar>` out itself — as the list's footer in the ready state, and pinned
+ * under the centred column in the loading / error / empty states. So the list needs no bottom
+ * clearance for a floating bar; the footer's own margin pays the bottom inset.
+ *
  * NO BUSINESS LOGIC HERE (CLAUDE.md: "No business rules in the client"): this screen does not
  * decide which rows are deletable, does not compute a tier/quota gate on the list, and does not
  * decide whether Storage successfully purged anything — it only renders what `lib/history.ts`'s
  * reads report and sends the caller's own intent (open, delete) to the server.
  *
- * CADENCE ARCS (2026-09-01) — this file is now the screen's I/O and state machine, and very little
- * else. The row moved out to `components/history/history-row.tsx` (which owns the recomposed
- * ring-led row and documents what changed about it); what stays here is the header, the four
- * states, and the list. The two visual changes that belong to THIS file:
- *   - the header is two tiers (chrome line, then the display title on its own full-width line),
- *     so the 64pt title no longer shares a row with a 44pt circular control;
- *   - the empty state leads with the motif's own "nothing to report" picture — a dashed,
- *     unfilled `<ArcRing>` — rather than with two lines of type on a bare wash.
- * The DELETE INTERACTION is deliberately untouched: a persistent, visibly labelled per-row control
- * behind a native confirm, per `docs/design/copy-deck.md` Screen 8 (which supersedes the design
- * brief's "swipe/long-press"). Only its placement inside the row changed.
+ * The row lives in `components/history/history-row.tsx`; what stays here is the header, the four
+ * states, the list, and the two dialogs.
  */
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ArcLoader } from '@/components/arc-loader';
 import { HistoryRow } from '@/components/history/history-row';
-import { KineticText } from '@/components/kinetic-text';
-import { ArcRing } from '@/components/ui/arc-ring';
-import { CircleIconButton } from '@/components/ui/circle-icon-button';
-import { PillButton } from '@/components/ui/pill-button';
-import { ScreenGradient } from '@/components/ui/screen-gradient';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { SquareButton } from '@/components/ui/square-button';
+import { SquareIconButton } from '@/components/ui/square-icon-button';
+import { TopBar } from '@/components/ui/top-bar';
+import { SettingsIcon } from '@/components/ui/v23-icons';
+import { V23TabBar } from '@/components/v23-tab-bar';
 import { Copy } from '@/constants/copy';
-import {
-  Meter,
-  Colors,
-  ContentWidth,
-  FontFamily,
-  FontSize,
-  LineHeight,
-  Motion,
-  Spacing,
-  TabBar,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import {
   deleteHistoryAnalysis,
   fetchHistoryList,
@@ -73,17 +54,20 @@ import {
 import { useSession } from '@/lib/session-provider';
 import { useAnnounce } from '@/lib/use-announce';
 
-/** The empty state's ring. Composition, not a token — the same call `components/pace-readout.tsx`
- *  makes for its own ring sizes. Drawn with `fraction={null}`, i.e. the dashed, unfilled track the
- *  whole app already uses for "nothing to report", so an empty History reads as the same idea a
- *  not-assessed pillar does rather than as a bespoke empty-state illustration. */
-const EMPTY_RING_SIZE = 160;
-const EMPTY_RING_STROKE = 10;
+/** The empty state's box (page: `width:120px;height:120px;border:1px dashed #2A2A2A`) — an
+ *  outline of where a row would go, not a card with nothing in it. */
+const EMPTY_BOX_SIZE = 120;
 
 type ScreenState =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'ready'; items: HistoryListItem[] };
+
+/** The one dialog this screen can show at a time, modelled as local state so each kind renders
+ *  its own `<ConfirmDialog>` and nothing native is raised. */
+type Dialog =
+  | { kind: 'deleteConfirm'; item: HistoryListItem }
+  | { kind: 'deleteFailed' };
 
 /** Mirrors `app/(tabs)/index.tsx`'s own `ActiveFlag` pattern: minted per fetch attempt, flipped
  * off on unmount/blur/re-fetch, so a slow or superseded request can never overwrite newer state
@@ -98,25 +82,24 @@ export default function HistoryScreen() {
 }
 
 function HistoryScreenContent({ userId }: { userId: string | undefined }) {
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  // Issue #63: mirrors app/(tabs)/index.tsx — the floating tab bar moves up to clear Android's
-  // system navigation bar, so the list's bottom padding has to move with it or the last row
-  // scrolls under the bar and stops there. A no-op on iOS; see `TabBar.bottomOffset`.
+  // The page's 59 / 34 are the design's minimum breathing room; a device with a larger inset
+  // gets its own (the entry flow's pattern, `app/(auth)/details.tsx`).
   const insets = useSafeAreaInsets();
-  const tabBarClearance = TabBar.clearanceFor(insets.bottom);
-  const listContentStyle = useMemo(
-    () => [styles.listContent, { paddingBottom: tabBarClearance }],
-    [styles.listContent, tabBarClearance],
-  );
+  const safeTop = Math.max(insets.top, Layout.canvas.safeTop);
+  const safeBottom = Math.max(insets.bottom, Layout.canvas.safeBottom);
+  const headerStyle = useMemo(() => [styles.header, { paddingTop: safeTop }], [safeTop]);
+  // Both bars pay the bottom inset themselves (the page's 34): the list's bar as the scroll's
+  // last item, the pinned bar as the column's last child.
+  const listBarStyle = useMemo(() => [styles.listBar, { marginBottom: safeBottom }], [safeBottom]);
+  const pinnedBarStyle = useMemo(() => [styles.pinnedBar, { marginBottom: safeBottom }], [safeBottom]);
 
   const [state, setState] = useState<ScreenState>({ status: 'loading' });
   // Keyed by analysis id -> resolved frame-strip URLs. Separate from `state` so a thumbnail
   // resolving in has nothing to do with the list's own load/error/ready status — a row renders
-  // with an empty strip (a placeholder) until, or unless, its own signing settles.
+  // with placeholder cells until, or unless, its own signing settles.
   const [thumbnails, setThumbnails] = useState<Record<string, string[]>>({});
   const [deletingIds, setDeletingIds] = useState<ReadonlySet<string>>(new Set());
+  const [dialog, setDialog] = useState<Dialog | null>(null);
   const activeFlagRef = useRef<ActiveFlag>({ active: false });
   // Issue #11: the loading/error captions below carry `accessibilityLiveRegion="polite"`, which
   // is Android-only — this is the iOS complement, same pattern as app/(tabs)/index.tsx.
@@ -178,20 +161,11 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
   );
 
   function confirmDelete(item: HistoryListItem) {
-    Alert.alert(
-      Copy.history.delete.confirm.title,
-      Copy.history.delete.confirm.body,
-      [
-        { text: Copy.history.delete.confirm.cta.secondary, style: 'cancel' },
-        {
-          text: Copy.history.delete.confirm.cta.primary,
-          style: 'destructive',
-          onPress: () => {
-            void handleDelete(item);
-          },
-        },
-      ]
-    );
+    setDialog({ kind: 'deleteConfirm', item });
+  }
+
+  function dismissDialog() {
+    setDialog(null);
   }
 
   async function handleDelete(item: HistoryListItem) {
@@ -216,9 +190,7 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
     });
 
     if (!result.ok) {
-      Alert.alert(Copy.history.delete.error.title, Copy.history.delete.error.body, [
-        { text: Copy.history.delete.error.dismiss },
-      ]);
+      setDialog({ kind: 'deleteFailed' });
       return;
     }
 
@@ -246,6 +218,10 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
     router.push('/compare');
   }
 
+  function openSettings() {
+    router.push('/settings');
+  }
+
   function retry() {
     load(activeFlagRef.current);
   }
@@ -254,91 +230,90 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
     router.push('/capture');
   }
 
+  function goHome() {
+    router.navigate('/');
+  }
+
+  const tabBar = (style: typeof listBarStyle | typeof pinnedBarStyle) => (
+    <V23TabBar
+      mode="inline"
+      active="history"
+      onPressHome={goHome}
+      onPressHistory={() => {}}
+      style={style}
+      testID="history-tab-bar"
+    />
+  );
+
   return (
-    // edges excludes 'bottom' — same reasoning as app/(tabs)/index.tsx (issue #63): the tab bar
-    // already pads itself by the bottom safe-area inset, so this screen must not pad it a
-    // second time.
-    <ScreenGradient>
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        {/* A two-tier header, not the old title-and-button row. The 64pt display title used to
-            share a row with a 44pt circular control, which left it a narrow column to wrap into
-            and made the screen's largest element read as one of two things competing for the top
-            edge. Chrome now sits on its own line ABOVE the title, and the title gets the full
-            readable column to itself — the reference's content-detail treatment.
-            Still no eyebrow above the title: the copy deck has exactly one string for this
-            screen's name, and setting the same words twice to manufacture hierarchy is filler. */}
-        <View style={styles.header}>
-          <View style={styles.chromeRow}>
-            {/* M5 (v23-ux-audit-r1): Home's top bar has a Settings entry point
-                (`app/(tabs)/index.tsx`'s `home-settings`); History had none, so reaching Settings
-                from here required going back to Home first. Same control, same destination. */}
-            <CircleIconButton
+    <View style={styles.screen}>
+      {/* Page: `padding:59px 24px 0; gap:16px` — the chrome row (only the Settings control, at
+          the right; M5 of v23-ux-audit-r1 gave History the same entry point Home has) and then
+          the display title on its own full-width line. */}
+      <View style={headerStyle}>
+        <TopBar
+          trailing={
+            <SquareIconButton
               accessibilityLabel={Copy.settings.title}
-              onPress={() => {
-                router.push('/settings');
-              }}
+              bleed="right"
+              onPress={openSettings}
               testID="history-settings">
-              <MaterialIcons name="tune" size={20} color={colors.text.primary} />
-            </CircleIconButton>
-          </View>
-          <KineticText
-            accessibilityRole="header"
-            staggerMs={Motion.stagger.line}
-            style={styles.headerTitle}
-            testID="history-title">
-            {Copy.history.title}
-          </KineticText>
-        </View>
+              <SettingsIcon />
+            </SquareIconButton>
+          }
+        />
+        <Text accessibilityRole="header" style={styles.title} testID="history-title">
+          {Copy.history.title}
+        </Text>
+      </View>
 
       {state.status === 'loading' && (
-        <View style={styles.centerBlock}>
-          {/* Cadence Arcs (2026-09-01): the motif's own wait state, replacing the stock
-              spinner. Indeterminate by construction — `<ArcLoader>` draws nothing that
-              could be read as progress, and the live-region caption beside it is what
-              actually says what is happening. */}
-          <ArcLoader size={88} testID="history-loading" />
-          <Text style={styles.caption} accessibilityLiveRegion="polite">
-            {Copy.history.loading}
-          </Text>
-        </View>
+        <>
+          <View style={styles.centerBlock}>
+            {/* Not drawn on the page: the quietest faithful wait state — the same indicator
+                `SquareButton busy` uses, and a live-region caption that says what is happening. */}
+            <ActivityIndicator color={Ink.ink2} testID="history-loading" />
+            <Text style={styles.caption} accessibilityLiveRegion="polite">
+              {Copy.history.loading}
+            </Text>
+          </View>
+          {tabBar(pinnedBarStyle)}
+        </>
       )}
 
       {state.status === 'error' && (
-        <View style={styles.centerBlock}>
-          <Text style={styles.caption} accessibilityLiveRegion="polite">
-            {Copy.history.error.loadFailed}
-          </Text>
-          <PillButton variant="ghost" label={Copy.history.error.retry} onPress={retry} />
-        </View>
+        <>
+          <View style={styles.centerBlock}>
+            <Text style={styles.caption} accessibilityLiveRegion="polite">
+              {Copy.history.error.loadFailed}
+            </Text>
+            <SquareButton variant="link" label={Copy.history.error.retry} onPress={retry} />
+          </View>
+          {tabBar(pinnedBarStyle)}
+        </>
       )}
 
       {state.status === 'ready' && state.items.length === 0 && (
-        <View style={styles.centerBlock}>
-          {/* The motif carrying the empty state, instead of two lines of type alone. A dashed,
-              unfilled ring is what this app already draws for "there is nothing to report here"
-              (a not-assessed pillar, a not-assessed overall) — so an empty History is the same
-              idea at hero scale rather than a one-off illustration. Decorative: `<ArcRing>` hides
-              itself from the a11y tree and the copy below carries the whole meaning. */}
-          <ArcRing
-            testID="history-empty-ring"
-            size={EMPTY_RING_SIZE}
-            strokeWidth={EMPTY_RING_STROKE}
-            fraction={null}
-            color={Meter[scheme].rule}
-          />
-          <Text style={styles.emptyTitle}>{Copy.history.empty.title}</Text>
-          <Text style={styles.caption}>{Copy.history.empty.body}</Text>
-          {/* `secondary`, not `primary`: `Accent` is reserved for the one primary CTA per screen
-              (constants/theme.ts), and this empty-state action used to be a `surface.raised` +
-              `control.border` button expressing exactly that restraint. The pill's `secondary`
-              variant IS that treatment, so the restraint is preserved, not spent. */}
-          <PillButton
-            variant="secondary"
-            label={Copy.history.empty.cta}
-            onPress={goAnalyze}
-            style={styles.emptyCta}
-          />
-        </View>
+        <>
+          <View style={styles.centerBlock}>
+            {/* The page's dashed, unfilled 120 pt box: an outline of where a row would go.
+                Decorative — the copy below carries the whole meaning. */}
+            <View
+              style={styles.emptyBox}
+              testID="history-empty-box"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            />
+            <Text style={styles.emptyTitle}>{Copy.history.empty.title}</Text>
+            <Text style={styles.emptyBody}>{Copy.history.empty.body}</Text>
+            {/* `secondary` (the 1 px `line` border), as the page draws it — `accent` is the one
+                primary CTA per screen and this is not it. */}
+            <View style={styles.emptyCta}>
+              <SquareButton variant="secondary" label={Copy.history.empty.cta} onPress={goAnalyze} />
+            </View>
+          </View>
+          {tabBar(pinnedBarStyle)}
+        </>
       )}
 
       {state.status === 'ready' && state.items.length > 0 && (
@@ -346,25 +321,22 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
           data={state.items}
           keyExtractor={(item) => item.id}
           style={styles.list}
-          contentContainerStyle={listContentStyle}
+          contentContainerStyle={styles.listContent}
           ListHeaderComponent={
             state.items.length >= 2 ? (
-              // A tools shelf above the content, separated by a hairline rather than by spacing
-              // alone — without the rule this pill read as a first row of the list that happened
-              // to be button-shaped. No label above it: the pill already says what it does, and
-              // setting those words twice to manufacture a hierarchy would be filler (the same
-              // call this screen's header makes about its own missing eyebrow).
-              <View style={styles.listHeader}>
-                <PillButton
-                  variant="secondary"
-                  label={Copy.history.compare.cta}
-                  accessibilityHint={Copy.history.compare.a11yHint}
-                  onPress={openCompare}
-                />
-                <View style={styles.listHeaderRule} />
-              </View>
+              // The Compare entry point. The page does not draw it, but it is live functionality
+              // with its own screen (issue #60), so it stays: a secondary button above the rows,
+              // set apart by the list's own gap and nothing else — no hairline, no label.
+              <SquareButton
+                variant="secondary"
+                label={Copy.history.compare.cta}
+                accessibilityHint={Copy.history.compare.a11yHint}
+                onPress={openCompare}
+                testID="history-compare"
+              />
             ) : null
           }
+          ListFooterComponent={tabBar(listBarStyle)}
           renderItem={({ item }) => (
             <HistoryRow
               item={item}
@@ -376,103 +348,109 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
           )}
         />
       )}
-      </SafeAreaView>
-    </ScreenGradient>
+
+      {/* Page, third artboard: "Delete confirm · danger used on the destructive action only". */}
+      <ConfirmDialog
+        tone="danger"
+        visible={dialog?.kind === 'deleteConfirm'}
+        title={Copy.history.delete.confirm.title}
+        body={Copy.history.delete.confirm.body}
+        primary={{
+          label: Copy.history.delete.confirm.cta.primary,
+          onPress: () => {
+            if (dialog?.kind !== 'deleteConfirm') return;
+            const { item } = dialog;
+            setDialog(null);
+            void handleDelete(item);
+          },
+        }}
+        secondary={{ label: Copy.history.delete.confirm.cta.secondary, onPress: dismissDialog }}
+        testID="history-delete-confirm"
+      />
+      {/* Not drawn on the page: a failed delete's own outcome, as the same dialog with one button. */}
+      <ConfirmDialog
+        visible={dialog?.kind === 'deleteFailed'}
+        title={Copy.history.delete.error.title}
+        body={Copy.history.delete.error.body}
+        primary={{ label: Copy.history.delete.error.dismiss, onPress: dismissDialog }}
+        testID="history-delete-failed"
+      />
+    </View>
   );
 }
 
-function createStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      // Transparent — `<ScreenGradient>` behind it owns the fill.
-      backgroundColor: 'transparent',
-    },
-    // width/maxWidth/alignSelf here and on centerBlock/listContent below: the same tablet
-    // readable-column cap as app/(tabs)/index.tsx (issue #63) — a no-op on any phone, see
-    // ContentWidth's own comment in constants/theme.ts.
-    header: {
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      gap: Spacing.md,
-      paddingHorizontal: Spacing.xl,
-      paddingTop: Spacing.lg,
-      paddingBottom: Spacing.xl,
-    },
-    // The chrome line above the title. Right-aligned, so the control sits where a top-bar control
-    // is expected and has nothing beside it to compete with.
-    chromeRow: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      justifyContent: 'flex-end',
-    },
-    headerTitle: {
-      fontFamily: FontFamily.display.bold,
-      // xl -> display (24 -> 64). The screen's ONE oversized element, per spec 2026-07-26 §3.1's
-      // still-standing "at most one display-or-larger element per screen".
-      fontSize: FontSize.display,
-      letterSpacing: Tracking.hero,
-      lineHeight: FontSize.display * LineHeight.hero,
-      color: colors.text.primary,
-    },
-    centerBlock: {
-      flex: 1,
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: Spacing.lg,
-      padding: Spacing.xl,
-    },
-    caption: {
-      fontFamily: FontFamily.body.regular,
-      fontSize: FontSize.md,
-      lineHeight: FontSize.md * LineHeight.body,
-      // `text.primary`: these captions sit directly on the page wash, proven for the primary tone
-      // only (`Gradient`'s contract, constants/theme.ts).
-      color: colors.text.primary,
-      textAlign: 'center',
-    },
-    emptyTitle: {
-      fontFamily: FontFamily.display.semiBold,
-      fontSize: FontSize.xxl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xxl * LineHeight.display,
-      color: colors.text.primary,
-      textAlign: 'center',
-      // The ring above already carries this block's air; without an extra step here the title sits
-      // closer to the ring than to the body line under it, and the three read as two groups.
-      marginTop: Spacing.md,
-    },
-    emptyCta: {
-      marginTop: Spacing.sm,
-    },
-    list: {
-      flex: 1,
-    },
-    listContent: {
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      paddingHorizontal: Spacing.xl,
-      // The tab bar floats and reserves no layout space — see `TabBar` in constants/theme.ts.
-      // Without this the last row scrolls under the bar and stops there. The phone default here
-      // is the floor; the render site overlays `TabBar.clearanceFor(insets.bottom)` (issue #63).
-      paddingBottom: TabBar.clearance,
-      gap: Spacing.md,
-    },
-    // The tools shelf above the list, ruled off from the rows below it. Every per-row style that
-    // used to live here moved to `components/history/history-row.tsx` with the row itself.
-    listHeader: {
-      alignSelf: 'stretch',
-      gap: Spacing.lg,
-      marginBottom: Spacing.sm,
-    },
-    listHeaderRule: {
-      backgroundColor: colors.hairline,
-      height: StyleSheet.hairlineWidth,
-    },
-  });
-}
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: Ink.bg,
+  },
+  // Page: `padding:59px 24px 0; gap:16px` — the top inset is applied at the render site.
+  header: {
+    paddingHorizontal: Layout.gutter,
+    gap: Space.lg,
+  },
+  title: {
+    ...Type.display,
+    color: Ink.ink,
+  },
+  // Page (empty artboard): `flex:1; align-items:center; justify-content:center; gap:16px;
+  // padding:24px; text-align:center`.
+  centerBlock: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Space.lg,
+    padding: Layout.gutter,
+  },
+  caption: {
+    ...Type.body,
+    color: Ink.ink,
+    textAlign: 'center',
+  },
+  emptyBox: {
+    width: EMPTY_BOX_SIZE,
+    height: EMPTY_BOX_SIZE,
+    borderWidth: Layout.hairline,
+    borderColor: Ink.line,
+    borderStyle: 'dashed',
+    borderRadius: Layout.radius,
+  },
+  emptyTitle: {
+    ...Type.h2,
+    color: Ink.ink,
+    textAlign: 'center',
+    marginTop: Space.sm,
+  },
+  emptyBody: {
+    ...Type.body,
+    color: Ink.ink2,
+    textAlign: 'center',
+  },
+  emptyCta: {
+    alignSelf: 'stretch',
+    marginTop: Space.sm,
+  },
+  list: {
+    flex: 1,
+  },
+  // Page: `padding:24px 24px 0; gap:16px`. No bottom clearance — the bar is the last item.
+  listContent: {
+    paddingTop: Space.xl,
+    paddingHorizontal: Layout.gutter,
+    gap: Space.lg,
+  },
+  // Page: the list's bar is `margin:24px -8px 34px`. The FlatList's own 16 pt `gap` already
+  // separates the last row from the footer, so the footer pays only the remaining 8 of the
+  // page's 24 (`Space.xl - Space.lg`). The -8 bleeds the bar past the 24 gutter so it sits 16
+  // from the edge (`Layout.tabBar.inset`), where Home's floating bar sits too. The bottom 34 is
+  // the live inset, applied at the render site.
+  listBar: {
+    marginTop: Space.xl - Space.lg,
+    marginHorizontal: -(Layout.gutter - Layout.tabBar.inset),
+  },
+  // Page (empty artboard): `margin:24px 16px 34px` under the centred column.
+  pinnedBar: {
+    marginTop: Space.xl,
+    marginHorizontal: Layout.tabBar.inset,
+  },
+});

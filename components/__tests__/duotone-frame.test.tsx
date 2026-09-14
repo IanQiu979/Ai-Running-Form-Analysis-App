@@ -1,11 +1,14 @@
 /**
- * Locks the two rules that make DuotoneFrame safe on real bodies (spec 2026-07-26 §3.5):
- * the grade is a warm overlay, never a hue shift of the subject; and the frame always carries
- * a text alternative (brief §7 requires the annotated hero to have one).
+ * Locks the two rules that make DuotoneFrame safe on real bodies: the grade is a low-opacity
+ * wash of the page's black, never a hue shift of the subject; and the frame always carries a
+ * text alternative. The annotation marks and the vignette are the result screen's own layers
+ * now, not this component's, so there is nothing about them to lock here.
  */
 import { render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 import { DuotoneFrame } from '../duotone-frame';
+import { Ink } from '@/constants/v23-theme';
 
 describe('DuotoneFrame', () => {
   it('renders the supplied image', async () => {
@@ -13,50 +16,23 @@ describe('DuotoneFrame', () => {
     expect(screen.getByTestId('frame')).toBeTruthy();
   });
 
-  it('carries the text alternative brief §7 requires', async () => {
+  it('carries the text alternative the hero requires', async () => {
     await render(<DuotoneFrame uri="file:///frame-01.jpg" accessibilityLabel="your running frame" testID="frame" />);
     expect(screen.getByLabelText('your running frame')).toBeTruthy();
   });
 
-  it('grades with a warm overlay rather than recolouring the subject', async () => {
+  it('grades toward the page’s black with a light wash rather than recolouring the subject', async () => {
     await render(<DuotoneFrame uri="file:///frame-01.jpg" accessibilityLabel="your running frame" testID="frame" />);
     const overlay = screen.getByTestId('frame-grade', { includeHiddenElements: true });
-    const style = Array.isArray(overlay.props.style) ? Object.assign({}, ...overlay.props.style) : overlay.props.style;
+    const style = StyleSheet.flatten(overlay.props.style);
+    expect(style.backgroundColor).toBe(Ink.bg);
     // A grade heavy enough to tint the interface, light enough to leave skin readable.
     expect(style.opacity).toBeLessThanOrEqual(0.2);
     expect(overlay.props.accessibilityElementsHidden).toBe(true);
   });
-});
 
-describe('DuotoneFrame — moment 3 annotations (spec 2026-07-26 §4, Phase 2 plan Task 5)', () => {
-  it('renders no annotation lines when annotate is not set — every screen before this plan', async () => {
+  it('draws no annotation marks of its own — those are the hero box’s layers', async () => {
     await render(<DuotoneFrame uri="file:///frame-01.jpg" accessibilityLabel="frame" testID="frame" />);
     expect(screen.queryByTestId('frame-annotations-ground', { includeHiddenElements: true })).toBeNull();
-  });
-
-  it('renders all three fixed-geometry lines, already fully drawn, when annotate is set but playAnnotation is not', async () => {
-    await render(<DuotoneFrame uri="file:///frame-01.jpg" accessibilityLabel="frame" testID="frame" annotate />);
-    expect(screen.getByTestId('frame-annotations-ground', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.getByTestId('frame-annotations-posture', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.getByTestId('frame-annotations-landing', { includeHiddenElements: true })).toBeTruthy();
-  });
-
-  it('calls onAnnotationComplete once the draw finishes when playAnnotation is set', async () => {
-    jest.useFakeTimers();
-    const onAnnotationComplete = jest.fn();
-    await render(
-      <DuotoneFrame
-        uri="file:///frame-01.jpg"
-        accessibilityLabel="frame"
-        testID="frame"
-        annotate
-        playAnnotation
-        onAnnotationComplete={onAnnotationComplete}
-      />
-    );
-    jest.advanceTimersByTime(3000);
-    await Promise.resolve();
-    expect(onAnnotationComplete).toHaveBeenCalledTimes(1);
-    jest.useRealTimers();
   });
 });

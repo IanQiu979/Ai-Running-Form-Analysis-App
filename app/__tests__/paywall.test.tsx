@@ -1,5 +1,4 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert } from 'react-native';
 
 jest.mock('react-native-safe-area-context', () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -24,27 +23,24 @@ jest.mock('@/lib/subscription', () => ({
 // eslint-disable-next-line import/first
 import PaywallScreen from '../paywall';
 
-const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+const FREE_EXHAUSTED = {
+  tier: 'free',
+  used: 1,
+  limit: 1,
+  remaining: 0,
+  frameCap: 1,
+  unlimited: false,
+  isLifetime: true,
+  periodStart: null,
+  periodEnd: null,
+  blocked: false,
+  blockedReason: null,
+  blockedUntil: null,
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockGetQuotaStatus.mockResolvedValue({
-    ok: true,
-    data: {
-      tier: 'free',
-      used: 1,
-      limit: 1,
-      remaining: 0,
-      frameCap: 1,
-      unlimited: false,
-      isLifetime: true,
-      periodStart: null,
-      periodEnd: null,
-      blocked: false,
-      blockedReason: null,
-      blockedUntil: null,
-    },
-  });
+  mockGetQuotaStatus.mockResolvedValue({ ok: true, data: FREE_EXHAUSTED });
 });
 
 describe('PaywallScreen plan promises', () => {
@@ -70,6 +66,81 @@ describe('PaywallScreen plan promises', () => {
   });
 });
 
+// V23-11's two artboards: Gated (Free exhausted — gate card, Free "Current plan", two upgrades)
+// and Voluntary (Pro current — no gate card, Pro "Current plan", Free with NO control, one
+// upgrade). The screen derives all of it from the fresh quota read, never from a route param.
+describe('PaywallScreen artboards', () => {
+  it('Gated: gate card, Free is the current plan, Pro and Elite offer upgrades', async () => {
+    await render(<PaywallScreen />);
+    await waitFor(() => expect(screen.getByText('Free analysis used')).toBeTruthy());
+
+    expect(screen.getByRole('header', { name: 'Choose a plan' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
+    expect(screen.getAllByText('Current plan')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Upgrade to Pro' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Upgrade to Elite' })).toBeTruthy();
+    expect(screen.getByText('Elite adds detail and comparison, not a different analysis.')).toBeTruthy();
+  });
+
+  it('Voluntary: no gate card, Pro is the current plan, Free carries no control', async () => {
+    mockGetQuotaStatus.mockResolvedValue({
+      ok: true,
+      data: {
+        ...FREE_EXHAUSTED,
+        tier: 'pro',
+        used: 2,
+        limit: 10,
+        remaining: 8,
+        isLifetime: false,
+        periodStart: '2026-09-01T00:00:00Z',
+        periodEnd: '2026-10-01T00:00:00Z',
+      },
+    });
+
+    await render(<PaywallScreen />);
+    await waitFor(() => expect(screen.getAllByText('Current plan')).toHaveLength(1));
+
+    expect(screen.queryByText('Free analysis used')).toBeNull();
+    expect(screen.queryByText('No analyses remaining this period')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Upgrade to Pro' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Upgrade to Elite' })).toBeTruthy();
+    // The one selected card is Pro; Free is a plain raised card with nothing under its detail.
+    expect(screen.getByTestId('paywall-tier-pro')).toBeTruthy();
+    expect(screen.getByTestId('paywall-tier-free')).toBeTruthy();
+  });
+
+  it('shows a quiet loading row until the plan read resolves, then removes it', async () => {
+    let resolvePlan: (value: unknown) => void = () => {};
+    mockGetQuotaStatus.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePlan = resolve;
+      })
+    );
+
+    await render(<PaywallScreen />);
+    expect(screen.getByTestId('paywall-plan-loading')).toBeTruthy();
+    expect(screen.getByText('Checking plan…')).toBeTruthy();
+
+    await act(async () => {
+      resolvePlan({ ok: true, data: FREE_EXHAUSTED });
+    });
+    expect(screen.queryByTestId('paywall-plan-loading')).toBeNull();
+  });
+
+  it('offers a Retry when the plan read fails, and re-reads on press', async () => {
+    mockGetQuotaStatus.mockResolvedValueOnce({ ok: false, error: { code: 'unknown', message: 'x' } });
+
+    await render(<PaywallScreen />);
+    await waitFor(() => expect(screen.getByText('Plan could not be loaded.')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Retry' }));
+    });
+    expect(mockGetQuotaStatus).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.getByText('Free analysis used')).toBeTruthy());
+  });
+});
+
 // v23 user-audit 2026-09-12: tapping a paid plan surfaced "This build can't complete an upgrade
 // right now. Check back soon." — copy that blamed the build and promised the state would clear on
 // its own. Neither is true. There is NO in-app purchase in this app (no StoreKit/RevenueCat
@@ -91,28 +162,58 @@ describe('PaywallScreen purchase unavailable (purchase-tier gate off)', () => {
     await render(<PaywallScreen />);
     await waitFor(() => expect(screen.getByText('Free analysis used')).toBeTruthy());
 
+    // Nothing is up before the press.
+    expect(screen.queryByTestId('paywall-notice-card')).toBeNull();
+
     // Same `act` wrap app/__tests__/analyzing.test.tsx uses: the press starts an async purchase
     // whose settling setState would otherwise land outside React's act() scope.
     await act(async () => {
       fireEvent.press(screen.getByText('Upgrade to Pro'));
     });
 
-    expect(alertSpy).toHaveBeenCalledTimes(1);
     expect(mockPurchaseTier).toHaveBeenCalledWith('pro');
 
-    const [title, body] = alertSpy.mock.calls[0] as [string, string];
-    expect(title).toBe('Upgrades are not available yet');
-    expect(body).toBe(
+    // The result is the page's one-button dialog, not a native alert.
+    expect(screen.getByRole('header', { name: 'Upgrades are not available yet' })).toBeTruthy();
+    const body = screen.getByText(
       'Purchasing a plan is not yet supported. Your plan has not changed, and you were not charged.'
     );
     // The two claims the old copy made that were false: it is not the build, and it will not
     // clear on its own.
-    expect(body).not.toMatch(/build/i);
-    expect(body).not.toMatch(/check back/i);
+    expect(body.props.children).not.toMatch(/build/i);
+    expect(body.props.children).not.toMatch(/check back/i);
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
 
     // A refused purchase never re-reads the plan — there is nothing new to read — and the CTA
     // must come back so the screen isn't stuck "Upgrading…".
     expect(mockGetQuotaStatus).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Upgrade to Pro')).toBeTruthy();
+
+    // OK dismisses it.
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'OK' }));
+    });
+    expect(screen.queryByRole('header', { name: 'Upgrades are not available yet' })).toBeNull();
+  });
+});
+
+describe('PaywallScreen purchase success', () => {
+  it('reports the new plan in a dialog and re-reads the plan from the server', async () => {
+    mockPurchaseTier.mockResolvedValue({
+      ok: true,
+      data: { tier: 'pro', periodStart: '2026-09-01T00:00:00Z', periodEnd: '2026-10-01T00:00:00Z' },
+    });
+
+    await render(<PaywallScreen />);
+    await waitFor(() => expect(screen.getByText('Free analysis used')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByText('Upgrade to Pro'));
+    });
+
+    expect(screen.getByRole('header', { name: 'Upgraded to Pro' })).toBeTruthy();
+    expect(screen.getByText('Your new plan is active.')).toBeTruthy();
+    // Success re-derives the true state from the server rather than trusting the purchase body.
+    expect(mockGetQuotaStatus).toHaveBeenCalledTimes(2);
   });
 });
