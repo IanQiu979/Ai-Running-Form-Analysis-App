@@ -16,8 +16,10 @@
  *      stock bar's `tabBarIcon`/`tabBarLabelStyle` slots compose the way the page composes them.
  *
  * `start`/`end` (not `left`/`right`) still position the floating bar, for the reason
- * lib/__tests__/tab-bar-style-contract.test.ts spells out — the property now lives in the bar
- * component's own stylesheet, and that test reads it there.
+ * components/__tests__/v23-tab-bar.test.tsx spells out — the property lives in the bar
+ * component's own stylesheet, and that test asserts it on the rendered node. This file's own
+ * renderer (bottom inset, History returning null, the tab-press contract) is locked by
+ * app/(tabs)/__tests__/tab-layout.test.tsx.
  *
  * Every tab screen pads its own bottom to clear the floating bar (Home) or ends with the inline
  * bar (History); the navigator reserves no layout space for it.
@@ -34,7 +36,7 @@ import { Layout } from '@/constants/v23-theme';
 const ROUTE_TO_TAB: Record<string, V23Tab> = { index: 'home', history: 'history' };
 
 /** The navigator's bar: V23-07's floating strip, mounted on Home only. */
-function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
+export function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const focused = state.routes[state.index];
   const active = ROUTE_TO_TAB[focused.name] ?? 'home';

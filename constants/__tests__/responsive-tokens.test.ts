@@ -50,7 +50,7 @@ describe('TabBar.sideInset', () => {
   // NOT "keeps its shipped geometry": what shipped was full-bleed, because the bar was setting
   // `left`/`right`, which React Navigation's own `start: 0, end: 0` overrode. This function returns
   // the plain 24pt inset on a phone — the geometry the redesign specified and never achieved. See
-  // lib/__tests__/tab-bar-style-contract.test.ts.
+  // components/__tests__/v23-tab-bar.test.tsx.
   it('is the plain 24pt inset on every phone — the geometry the redesign specified', () => {
     for (const width of PHONE_WIDTHS) {
       expect(TabBar.sideInset(width)).toBe(TabBar.inset);

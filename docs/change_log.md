@@ -38,7 +38,9 @@ Free account (a throwaway account was created for it and deleted afterwards). No
 - **The tab bar is the page's own, in two modes.** `app/(tabs)/_layout.tsx` renders
   `<V23TabBar>` through the navigator's `tabBar` slot — floating over Home (absolute, bottom edge
   on the bottom inset, translucent over a backdrop blur, `start`/`end` positioned per
-  `lib/__tests__/tab-bar-style-contract.test.ts`) and **absent on History**, where the same
+  `components/__tests__/v23-tab-bar.test.tsx`, which replaced the static source check
+  `lib/__tests__/tab-bar-style-contract.test.ts` with a render of the bar; the renderer itself is
+  locked by `app/(tabs)/__tests__/tab-layout.test.tsx`) and **absent on History**, where the same
   component sits inline, opaque, as the last item of the list ("tab bar sits at the end of the
   scroll, not floating"). `components/haptic-tab.tsx` and `ui/icon-symbol*.tsx` are deleted.
 - **Home (V23-07).** Top bar "HOME" + Settings glyph; the recent analysis as a 24 pt card —

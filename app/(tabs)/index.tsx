@@ -348,9 +348,16 @@ export default function HomeScreen() {
                   {readyCaption.primary}
                 </Text>
                 {/* Pro/Elite's "Renews {date}" secondary line, or issue #6's anti-farm "blocked"
-                    notice — never both; see lib/quota.ts's `describeQuota`. */}
+                    notice — never both; see lib/quota.ts's `describeQuota`. Only the "Renews" line
+                    is the page's `ink3`; the blocked/cooldown notice is a status the user has to
+                    read, so it takes `ink2`. `blocked` is the same server field `describeQuota`
+                    branches on. */}
                 {readyCaption.secondary !== null && (
-                  <Text style={styles.quotaSecondary}>{readyCaption.secondary}</Text>
+                  <Text
+                    style={quota.blocked ? styles.quotaNotice : styles.quotaRenews}
+                    testID={quota.blocked ? 'home-quota-notice' : 'home-quota-renews'}>
+                    {readyCaption.secondary}
+                  </Text>
                 )}
               </>
             )}
@@ -364,7 +371,9 @@ export default function HomeScreen() {
                     it next to the plain failure line above would imply a cached value exists
                     when there isn't one. */}
                 {quota.lastKnown !== null && (
-                  <Text style={styles.quotaSecondary}>{Copy.home.quota.error.stale}</Text>
+                  <Text style={styles.quotaNotice} testID="home-quota-notice">
+                    {Copy.home.quota.error.stale}
+                  </Text>
                 )}
                 {/* The page draws no error state; the retry is a quiet text link, 44 pt tall. */}
                 <Pressable
@@ -488,9 +497,17 @@ const styles = StyleSheet.create({
     color: Ink.ink2,
     textAlign: 'center',
   },
-  quotaSecondary: {
+  // The page-mandated `#5C5C5C` "Renews …" line — the one line of copy on the screen in `ink3`.
+  quotaRenews: {
     ...Type.small,
     color: Ink.ink3,
+    textAlign: 'center',
+  },
+  // Status captions the page does not draw (anti-farm blocked / cooldown, stale last-known
+  // value): the user has to read these, so they stay on the AA-proven `ink2`.
+  quotaNotice: {
+    ...Type.small,
+    color: Ink.ink2,
     textAlign: 'center',
   },
   // The page's strip: 40 pt tall, bled to the screen edges past the gutter, at half opacity, with

@@ -120,7 +120,7 @@ const styles = StyleSheet.create({
   },
   floating: {
     position: 'absolute',
-    // `start`/`end`, not `left`/`right` — see lib/__tests__/tab-bar-style-contract.test.ts.
+    // `start`/`end`, not `left`/`right` — see components/__tests__/v23-tab-bar.test.tsx.
     start: Layout.tabBar.inset,
     end: Layout.tabBar.inset,
   },

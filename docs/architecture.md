@@ -1087,8 +1087,9 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   mounts hidden and flips `visible` in an effect.
 - **The tab bar** is the navigator's `tabBar` renderer in `app/(tabs)/_layout.tsx`: floating on
   Home (absolute, bottom edge on the bottom inset, `Chrome.tabBar` over a 16 pt blur, `start`/`end`
-  positioned — `lib/__tests__/tab-bar-style-contract.test.ts` reads the property in the bar's own
-  stylesheet now) and `null` on History, where `app/(tabs)/history.tsx` renders the same
+  positioned — `components/__tests__/v23-tab-bar.test.tsx` asserts it on the rendered node's
+  flattened style, and `app/(tabs)/__tests__/tab-layout.test.tsx` locks the renderer's bottom
+  inset and tab-press contract) and `null` on History, where `app/(tabs)/history.tsx` renders the same
   `<V23TabBar mode="inline">` as the list footer or pinned under the empty/loading/error column.
   Home pads its ticker `Layout.tabBar.height + 30` above the inset so nothing sits under the bar.
 - **Home** (`app/(tabs)/index.tsx`, `components/home/recent-analysis.tsx`, `components/marquee.tsx`)
