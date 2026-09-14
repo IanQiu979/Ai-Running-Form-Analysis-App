@@ -97,9 +97,10 @@ export default function SignInScreen() {
   const reduceMotion = useReducedMotion();
 
   // Sign-up is the default (the details page sends new users here). `?mode=signIn` seeds the
-  // other mode for callers who know the user already has an account — the password-reset
-  // screens' "Back to sign in" — so an expired-recovery-link user does not land on "Create
-  // account". Any other value keeps the default.
+  // other mode for a caller who knows the user already has an account and has no sign-in screen
+  // beneath it — update-password's "Back to sign in", reached by deep link — so an
+  // expired-recovery-link user does not land on "Create account". Any other value keeps the
+  // default.
   const params = useLocalSearchParams<{ mode?: string }>();
   const [mode, setMode] = useState<Mode>(params.mode === 'signIn' ? 'signIn' : 'signUp');
   const [email, setEmail] = useState('');

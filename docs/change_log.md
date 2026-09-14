@@ -71,10 +71,12 @@ side until it does. Auth logic and the analyzing state machine are unchanged. No
   screen's mode. The sign-in artboard is unchanged at rest; a Google tap with consent unticked
   reveals the same consent row (same `signup-consent` testID, same place) with
   `consentRequired` and does not launch OAuth until it is ticked. The tick is shared across
-  modes. (b) `/sign-in?mode=signIn` seeds sign-in mode; the password-reset screens' "Back to sign
-  in" (`reset-password`, `update-password`) use it, so an expired-recovery-link user no longer
-  lands on "Create account". Any other value keeps the sign-up default; details keeps pushing
-  plain `/sign-in`.
+  modes. (b) `/sign-in?mode=signIn` seeds sign-in mode; `update-password`'s "Back to sign in"
+  uses it (that screen is deep-link-entered with no sign-in beneath it), so an expired-recovery-
+  link user no longer lands on "Create account". `reset-password` keeps `router.back()`: it is
+  only ever pushed from sign-in in sign-in mode, so back returns to that same instance with the
+  typed email intact. Any other value keeps the sign-up default; details keeps pushing plain
+  `/sign-in`.
 - **`app/(auth)/details.tsx` — the open card is keyed by pillar (second review pass,
   2026-09-14).** Switching straight from one open pillar to another remounts `OpenBox` (fresh
   expand tween and measurement) instead of re-dressing the previous card, and a collapse hands

@@ -229,8 +229,8 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
 });
 
 /**
- * `?mode=signIn` seeds sign-in mode for the password-reset screens' "Back to sign in", so an
- * expired-recovery-link user does not land on "Create account". Anything else is sign-up.
+ * `?mode=signIn` seeds sign-in mode for update-password's deep-link-entered "Back to sign in",
+ * so an expired-recovery-link user does not land on "Create account". Anything else is sign-up.
  */
 describe('sign-in screen: the mode search param', () => {
   it('opens in sign-in mode for ?mode=signIn — no checkbox, no widget', async () => {

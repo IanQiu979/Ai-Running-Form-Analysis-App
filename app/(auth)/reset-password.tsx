@@ -116,7 +116,7 @@ export default function ResetPasswordScreen() {
           <PillButton
             variant="ghost"
             label={Copy.auth.reset.request.cta.backToSignIn}
-            onPress={() => router.replace({ pathname: '/sign-in', params: { mode: 'signIn' } })}
+            onPress={() => router.back()}
             block
           />
         </View>
@@ -190,7 +190,7 @@ export default function ResetPasswordScreen() {
           <PillButton
             variant="ghost"
             label={Copy.auth.reset.request.cta.backToSignIn}
-            onPress={() => router.replace({ pathname: '/sign-in', params: { mode: 'signIn' } })}
+            onPress={() => router.back()}
             disabled={isBusy}
             block
           />
