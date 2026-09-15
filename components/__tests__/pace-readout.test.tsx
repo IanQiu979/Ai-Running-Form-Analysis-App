@@ -12,7 +12,7 @@
  * Every press is wrapped in an awaited `act` — see CLAUDE.md § Testing on the open-act-scope
  * quirk that otherwise empties the next test's tree.
  */
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { PaceReadout } from '../pace-readout';
@@ -25,6 +25,7 @@ import {
   poorFramingPhotoResult,
   proTierVideoResult,
   safetySignalPhotoResult,
+  NOT_ASSESSED_SAFETY_NOTE_FIXTURE,
   SAFETY_NOTE_FIXTURE,
 } from '@/lib/pace-fixtures';
 import { pillarDetailA11yLabel, pillarLabel } from '@/lib/pace-readout';
@@ -353,7 +354,7 @@ describe('a certified stop-running note (safetySignalPhotoResult)', () => {
     await render(<PaceReadout result={safetySignalPhotoResult} />);
 
     expect(screen.getByTestId('pillar-safety-note-posture').props.children).toBe(SAFETY_NOTE_FIXTURE);
-    expect(screen.getByText(Copy.result.pillar.safetyLabel)).toBeTruthy();
+    expect(within(screen.getByTestId('pillar-safety-posture')).getByText(Copy.result.pillar.safetyLabel)).toBeTruthy();
 
     // The coaching is still there and carries NONE of the warning's words — the two are separate
     // fields rendered as separate nodes, not one string split back apart.
@@ -386,7 +387,9 @@ describe('a certified stop-running note (safetySignalPhotoResult)', () => {
   it('sets the notice apart from the coaching — a danger label and a primary-ink sentence', async () => {
     await render(<PaceReadout result={safetySignalPhotoResult} />);
 
-    const label = StyleSheet.flatten(screen.getByText(Copy.result.pillar.safetyLabel).props.style);
+    const label = StyleSheet.flatten(
+      within(screen.getByTestId('pillar-safety-posture')).getByText(Copy.result.pillar.safetyLabel).props.style
+    );
     const note = StyleSheet.flatten(screen.getByTestId('pillar-safety-note-posture').props.style);
     const coaching = StyleSheet.flatten(screen.getByTestId('pillar-feedback-posture').props.style);
 
@@ -402,11 +405,31 @@ describe('a certified stop-running note (safetySignalPhotoResult)', () => {
   it('renders nothing at all for a `none` declaration or for no declaration', async () => {
     await render(<PaceReadout result={safetySignalPhotoResult} />);
 
-    // armSwing declares `signal: 'none'`; cadence carries no `safety` field at all.
+    // armSwing declares `signal: 'none'`; cadence carries no `safety` field at all. Posture and
+    // elasticity are the fixture's two declarations, so exactly two labels mount.
     expect(screen.queryByTestId('pillar-safety-armSwing')).toBeNull();
     expect(screen.queryByTestId('pillar-safety-cadence')).toBeNull();
-    expect(screen.queryByTestId('pillar-safety-elasticity')).toBeNull();
-    expect(screen.getAllByText(Copy.result.pillar.safetyLabel)).toHaveLength(1);
+    expect(screen.getAllByText(Copy.result.pillar.safetyLabel)).toHaveLength(2);
+  });
+
+  it('stands alone on a NOT-ASSESSED pillar: the note mounts, no numeral, band or fill does', async () => {
+    await render(<PaceReadout result={safetySignalPhotoResult} />);
+
+    expect(screen.getByTestId('pillar-safety-note-elasticity').props.children).toBe(
+      NOT_ASSESSED_SAFETY_NOTE_FIXTURE
+    );
+    const block = screen.getByTestId('pillar-safety-elasticity');
+    expect(block.props.accessibilityRole).toBe('alert');
+    expect(block.props.accessibilityLabel).toBe(
+      `${Copy.result.pillar.safetyLabel}. ${NOT_ASSESSED_SAFETY_NOTE_FIXTURE}`
+    );
+
+    // The honesty rule holds beside it: `score: null` renders no numeral, no band word, no fill.
+    expect(screen.getByTestId('pillar-not-assessed-elasticity', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.queryByTestId('pillar-score-elasticity', { includeHiddenElements: true })).toBeNull();
+    expect(screen.queryByTestId('pillar-band-elasticity', { includeHiddenElements: true })).toBeNull();
+    expect(screen.queryByTestId('pillar-bar-elasticity', { includeHiddenElements: true })).toBeNull();
+    expect(screen.queryByTestId('pillar-feedback-elasticity')).toBeNull();
   });
 
   it('renders no notice anywhere on a result with no signal at all', async () => {

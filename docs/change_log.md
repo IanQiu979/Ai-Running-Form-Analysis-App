@@ -31,7 +31,14 @@ the captain's 2026-09-13 decision, rebuilt on the V23 result components #223 shi
   row drew as one paragraph in one tone; `composeSafetyLedFeedback` is gone, `feedback` is coaching
   only, and the note travels solely on `safety`. The prompt's SAFETY rules and the schema's
   `safety` description now say the warning lives in `safety.note` and must not be repeated in
-  `feedback`. `ANALYZE_FORM_ANALYZER_REVISION` → `analyze-form/2026-09-16-v1` (a wire-shape
+  `feedback`. Prompt compliance is not validation, so the same function also guards the echo
+  case: on a pillar with a certified signal, a `feedback` whose trimmed text starts with the
+  trimmed note has that leading copy removed (trimmed prefix equality only, nothing fuzzy, nothing
+  else rewritten), and becomes `null` if nothing remains — flow tests cover echo-plus-coaching,
+  echo-only, a trailing mention (kept) and a near-match (kept), returned and persisted alike.
+  The client fixture's elasticity pillar is not assessed yet carries its own note, and the readout
+  test proves the notice stands alone there with no numeral, band or fill.
+  `ANALYZE_FORM_ANALYZER_REVISION` → `analyze-form/2026-09-16-v1` (a wire-shape
   change; zero persisted rows carried a signal, verified live). **Not deployed** — `supabase
   functions deploy analyze-form` must ship before or with the client, or a live result would show
   the note twice (once structurally, once at the head of the still-composed `feedback`).
