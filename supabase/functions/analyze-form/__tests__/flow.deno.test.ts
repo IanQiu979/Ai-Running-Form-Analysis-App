@@ -2845,6 +2845,59 @@ Deno.test('a note the model ECHOES at the head of feedback is stripped from feed
   assertEquals(settled, result);
 });
 
+Deno.test('the echo guard needs a boundary: an unpunctuated note that merely opens a longer sentence is left alone', async () => {
+  const unpunctuated = 'Stop and get it checked';
+  const continued = 'Stop and get it checked out before running again. Keep the lean ankle-driven.';
+  const punctuated = 'Stop and get it checked.';
+  const echoedThenCoaching = 'Stop and get it checked. Keep the lean ankle-driven.';
+  const h = harness([
+    ok({
+      pillars: {
+        posture: pillarWithSafety('sharpOrWorseningPain', unpunctuated, { feedback: continued }),
+        armSwing: pillarWithSafety('sharpOrWorseningPain', punctuated, { feedback: echoedThenCoaching }),
+        cadence: pillarWithSafety('sharpOrWorseningPain', unpunctuated, {
+          feedback: `${unpunctuated}\nKeep the lean ankle-driven.`,
+        }),
+        elasticity: pillarWithSafety('none', ''),
+      },
+      overall: { score: 71, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'pro' },
+    error: null,
+  });
+
+  const res = await run(h, VIDEO_BODY);
+
+  assertEquals(res.status, 200);
+  const result = res.body.result as {
+    pillars: Record<string, { feedback: string | null; safety?: { note: string } | null }>;
+  };
+  assertEquals(
+    result.pillars.posture.feedback,
+    continued,
+    'a space after an unpunctuated note is mid-sentence, not a boundary: nothing is cut'
+  );
+  assertEquals(result.pillars.posture.safety?.note, unpunctuated);
+  assertEquals(
+    result.pillars.armSwing.feedback,
+    'Keep the lean ankle-driven.',
+    'a note ending in terminal punctuation followed by a space is a boundary: the echo is stripped'
+  );
+  assertEquals(result.pillars.armSwing.safety?.note, punctuated);
+  assertEquals(
+    result.pillars.cadence.feedback,
+    'Keep the lean ankle-driven.',
+    'a newline after the note is a boundary even when the note is unpunctuated'
+  );
+
+  const settled = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
+  assertEquals(settled.pillars.posture.feedback, continued);
+  assertEquals(settled.pillars.armSwing.feedback, 'Keep the lean ankle-driven.');
+  assertEquals(settled, result);
+});
+
 Deno.test('a note that merely appears LATER in feedback, or only resembles it, is left alone', async () => {
   const note = 'Stop if the heel pain sharpens.';
   const trailing = `${SAFETY_FIXTURE_COACHING} ${note}`;

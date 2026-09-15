@@ -1476,14 +1476,34 @@ function normalizeForEvidenceAndTier(
  * The echo guard described in `normalizeForEvidenceAndTier()`'s doc comment: a certified note the
  * model ALSO wrote at the head of `feedback` is removed from `feedback` once, by trimmed prefix
  * equality, so the client's own notice is the only place the runner reads it.
+ *
+ * Prefix equality alone is not enough: an unpunctuated note ("Stop and get it checked") is a
+ * prefix of a longer sentence ("Stop and get it checked out before running again."), and cutting
+ * it out would leave a garbled fragment under the notice. So the match must also end at a
+ * boundary. It strips ONLY when the trimmed feedback IS the trimmed note, or when the character
+ * right after the match is whitespace AND either the note ends with terminal punctuation
+ * (`.`, `!`, `?`, optionally followed by a closing quote or bracket) or that whitespace is a
+ * newline. Any other continuation — a letter, digit, or punctuation carrying the sentence on, or a
+ * space after an unpunctuated note — leaves `feedback` untouched. Still structural: no keyword,
+ * fuzzy or paraphrase detection, and nothing else about the coaching is rewritten.
  */
+const NOTE_ENDS_A_SENTENCE = /[.!?]["'\u2019\u201d)\]]?$/;
+
 function stripEchoedSafetyNote(pillar: PacePillarResult): string | null {
   if (typeof pillar.feedback !== 'string' || !hasSafetySignal(pillar.safety)) {
     return pillar.feedback;
   }
   const feedback = pillar.feedback.trim();
   const note = pillar.safety.note.trim();
+  if (feedback === note) {
+    return null;
+  }
   if (!feedback.startsWith(note)) {
+    return pillar.feedback;
+  }
+  const next = feedback.charAt(note.length);
+  const atBoundary = next === '\n' || (/\s/.test(next) && NOTE_ENDS_A_SENTENCE.test(note));
+  if (!atBoundary) {
     return pillar.feedback;
   }
   const remainder = feedback.slice(note.length).trimStart();
