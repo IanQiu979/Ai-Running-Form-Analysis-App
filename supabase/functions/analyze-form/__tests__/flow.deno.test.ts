@@ -489,8 +489,8 @@ Deno.test('canonical result: reserve receives the exact server-derived identity 
 
   assertEquals(res.status, 200);
   assertEquals(h.rpc.to('reserve_analysis')[0].args.p_analysis_identity, {
-    input_fingerprint: 'd67a7ad536bd482f156a25e4a278cbb26f10cddbc4d00ce59d88f7ce87cde8a9',
-    analyzer_revision: 'analyze-form/2026-09-09-v1',
+    input_fingerprint: '7b981636f0249235274907d5c6f6ab6636228ad2d6ff23798b69823e0082e893',
+    analyzer_revision: 'analyze-form/2026-09-16-v1',
   });
 });
 
@@ -2613,9 +2613,11 @@ for (const testCase of SAFETY_CASES) {
     };
     const elasticity = result.pillars.elasticity;
 
-    // THE WARNING IS THERE, in the runner's face, and unaltered.
-    assertEquals(elasticity.feedback, testCase.note);
+    // THE WARNING IS THERE, unaltered, on the STRUCTURED field the client renders as its own notice
+    // (`lib/pace-readout.ts`'s `safetyNote()`). It is never concatenated into `feedback` — a
+    // composed string is exactly what the readout drew as one indistinguishable paragraph (#212).
     assertEquals(elasticity.safety, { signal: testCase.signal, note: testCase.note });
+    assertEquals(elasticity.feedback, null, 'a one-frame motion pillar keeps no prose; the note stands alone on `safety`');
 
     // AND THE ASSESSMENT CLAIM IS GONE — score, band, and the model's prose about a bounce cycle
     // and a cadence figure a single frame cannot support.
@@ -2632,7 +2634,8 @@ for (const testCase of SAFETY_CASES) {
 
     // And it is what was PERSISTED, not just what was returned.
     const settled = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
-    assertEquals(settled.pillars.elasticity.feedback, testCase.note);
+    assertEquals(settled.pillars.elasticity.safety, { signal: testCase.signal, note: testCase.note });
+    assertEquals(settled.pillars.elasticity.feedback, null);
     assertEquals(settled.pillars.elasticity.score, null);
   });
 }
@@ -2715,7 +2718,7 @@ Deno.test('a PHOTO submission keeps needsVideo, which is true there', async () =
   assertEquals(pillars.cadence.notAssessedReason, 'needsVideo');
 });
 
-Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier and frame path', async () => {
+Deno.test('a certified safety note is carried STRUCTURALLY, never composed into feedback, on every tier and frame path', async () => {
   const paths = [
     { tier: 'free', body: ONE_FRAME_VIDEO_BODY },
     { tier: 'pro', body: ONE_FRAME_VIDEO_BODY },
@@ -2730,8 +2733,9 @@ Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier 
     elasticity: 'Elasticity safety note from the certified declaration.',
   } as const;
   // The two motion pillars are forced not-assessed on a one-frame submission, which discards their
-  // prose outright; the warning then stands alone. Everywhere else the prose is supportable and
-  // must survive UNDER the warning.
+  // prose outright; the warning then stands alone on `safety`. Everywhere else the prose is
+  // supportable and must survive — as `feedback`, UNTOUCHED, with the note beside it and never
+  // inside it (#212: the client draws the two as separate elements, note first).
   const MOTION = ['cadence', 'elasticity'] as const;
 
   for (const { tier, body } of paths) {
@@ -2764,27 +2768,22 @@ Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier 
       const strippedByNormalization = oneFrame && (MOTION as readonly string[]).includes(id);
 
       assertEquals(
-        feedback.startsWith(notes[id]),
-        true,
-        `${label}: the certified warning must come FIRST, not after the coaching`
+        result.pillars[id].safety?.note,
+        notes[id],
+        `${label}: the certified warning must survive on the structured field`
       );
       assertEquals(
-        feedback.includes(SAFETY_FIXTURE_COACHING),
-        !strippedByNormalization,
+        feedback.includes(notes[id]),
+        false,
+        `${label}: the warning must never be composed into feedback`
+      );
+      assertEquals(
+        result.pillars[id].feedback,
+        strippedByNormalization ? null : SAFETY_FIXTURE_COACHING,
         strippedByNormalization
           ? `${label}: prose one frame cannot support must stay discarded`
-          : `${label}: supportable coaching must survive under the warning`
+          : `${label}: supportable coaching must survive, untouched`
       );
-      if (!strippedByNormalization) {
-        assertEquals(
-          feedback,
-          `${notes[id]}\n\n${SAFETY_FIXTURE_COACHING}`,
-          `${label}: warning, blank line, then the coaching`
-        );
-      } else {
-        assertEquals(feedback, notes[id], `${label}: the warning stands alone`);
-      }
-      assertEquals(result.pillars[id].safety?.note, notes[id]);
     }
     assertEquals(
       h.rpc.to('settle_analysis')[0].args.p_result,
@@ -2792,6 +2791,143 @@ Deno.test('a certified safety note LEADS every pillar\'s feedback on every tier 
       `${tier}/${body.frames.length} frame(s): persisted output must match visible output`
     );
   }
+});
+
+Deno.test('a note the model ECHOES at the head of feedback is stripped from feedback, once, and only there', async () => {
+  const note = 'The left leg cannot take even weight and you are guarding it. See someone before your next run.';
+  const h = harness([
+    ok({
+      pillars: {
+        posture: pillarWithSafety('swellingLimpOrFavouringOneSide', note, {
+          feedback: `${note}\n\n${SAFETY_FIXTURE_COACHING}`,
+        }),
+        armSwing: pillarWithSafety('sharpOrWorseningPain', note, { feedback: note }),
+        cadence: pillarWithSafety('achillesOrHeelCordPain', note, {
+          feedback: `  ${note}   \n\n  ${SAFETY_FIXTURE_COACHING}`,
+        }),
+        elasticity: pillarWithSafety('none', '', {
+          feedback: `${note}\n\n${SAFETY_FIXTURE_COACHING}`,
+        }),
+      },
+      overall: { score: 71, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'pro' },
+    error: null,
+  });
+
+  const res = await run(h, VIDEO_BODY);
+
+  assertEquals(res.status, 200);
+  const result = res.body.result as {
+    pillars: Record<string, { feedback: string | null; safety?: { signal: string; note: string } | null }>;
+  };
+
+  // Echo + coaching: the coaching survives alone, the note stays on the structured field.
+  assertEquals(result.pillars.posture.feedback, SAFETY_FIXTURE_COACHING);
+  assertEquals(result.pillars.posture.safety, { signal: 'swellingLimpOrFavouringOneSide', note });
+  // Echo with nothing after it: no coaching is left, so feedback is null — never an empty string.
+  assertEquals(result.pillars.armSwing.feedback, null);
+  assertEquals(result.pillars.armSwing.safety, { signal: 'sharpOrWorseningPain', note });
+  // Surrounding whitespace does not defeat the guard.
+  assertEquals(result.pillars.cadence.feedback, SAFETY_FIXTURE_COACHING);
+  assertEquals(result.pillars.cadence.safety, { signal: 'achillesOrHeelCordPain', note });
+  // No certified signal means nothing to strip: feedback passes through byte for byte.
+  assertEquals(result.pillars.elasticity.feedback, `${note}\n\n${SAFETY_FIXTURE_COACHING}`);
+
+  // And it is what was PERSISTED, not just what was returned.
+  const settled = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
+  assertEquals(settled.pillars.posture.feedback, SAFETY_FIXTURE_COACHING);
+  assertEquals(settled.pillars.posture.safety?.note, note);
+  assertEquals(settled.pillars.armSwing.feedback, null);
+  assertEquals(settled.pillars.armSwing.safety?.note, note);
+  assertEquals(settled, result);
+});
+
+Deno.test('the echo guard needs a boundary: an unpunctuated note that merely opens a longer sentence is left alone', async () => {
+  const unpunctuated = 'Stop and get it checked';
+  const continued = 'Stop and get it checked out before running again. Keep the lean ankle-driven.';
+  const punctuated = 'Stop and get it checked.';
+  const echoedThenCoaching = 'Stop and get it checked. Keep the lean ankle-driven.';
+  const h = harness([
+    ok({
+      pillars: {
+        posture: pillarWithSafety('sharpOrWorseningPain', unpunctuated, { feedback: continued }),
+        armSwing: pillarWithSafety('sharpOrWorseningPain', punctuated, { feedback: echoedThenCoaching }),
+        cadence: pillarWithSafety('sharpOrWorseningPain', unpunctuated, {
+          feedback: `${unpunctuated}\nKeep the lean ankle-driven.`,
+        }),
+        elasticity: pillarWithSafety('none', ''),
+      },
+      overall: { score: 71, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'pro' },
+    error: null,
+  });
+
+  const res = await run(h, VIDEO_BODY);
+
+  assertEquals(res.status, 200);
+  const result = res.body.result as {
+    pillars: Record<string, { feedback: string | null; safety?: { note: string } | null }>;
+  };
+  assertEquals(
+    result.pillars.posture.feedback,
+    continued,
+    'a space after an unpunctuated note is mid-sentence, not a boundary: nothing is cut'
+  );
+  assertEquals(result.pillars.posture.safety?.note, unpunctuated);
+  assertEquals(
+    result.pillars.armSwing.feedback,
+    'Keep the lean ankle-driven.',
+    'a note ending in terminal punctuation followed by a space is a boundary: the echo is stripped'
+  );
+  assertEquals(result.pillars.armSwing.safety?.note, punctuated);
+  assertEquals(
+    result.pillars.cadence.feedback,
+    'Keep the lean ankle-driven.',
+    'a newline after the note is a boundary even when the note is unpunctuated'
+  );
+
+  const settled = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
+  assertEquals(settled.pillars.posture.feedback, continued);
+  assertEquals(settled.pillars.armSwing.feedback, 'Keep the lean ankle-driven.');
+  assertEquals(settled, result);
+});
+
+Deno.test('a note that merely appears LATER in feedback, or only resembles it, is left alone', async () => {
+  const note = 'Stop if the heel pain sharpens.';
+  const trailing = `${SAFETY_FIXTURE_COACHING} ${note}`;
+  const resembling = `Stop if the heel pain sharpens tomorrow. ${SAFETY_FIXTURE_COACHING}`;
+  const h = harness([
+    ok({
+      pillars: {
+        posture: pillarWithSafety('achillesOrHeelCordPain', note, { feedback: trailing }),
+        armSwing: pillarWithSafety('achillesOrHeelCordPain', note, { feedback: resembling }),
+        cadence: pillarWithSafety('none', ''),
+        elasticity: pillarWithSafety('none', ''),
+      },
+      overall: { score: 71, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'pro' },
+    error: null,
+  });
+
+  const res = await run(h, VIDEO_BODY);
+
+  assertEquals(res.status, 200);
+  const result = res.body.result as { pillars: Record<string, { feedback: string | null }> };
+  assertEquals(result.pillars.posture.feedback, trailing, 'prefix equality only: a trailing mention is not stripped');
+  assertEquals(
+    result.pillars.armSwing.feedback,
+    resembling,
+    'prefix equality only: the note plus one more word is a different sentence, and nothing is rewritten'
+  );
 });
 
 Deno.test('a pillar with no stop-running signal keeps no prose at all after the one-frame strip', async () => {

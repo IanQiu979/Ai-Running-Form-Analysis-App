@@ -557,6 +557,13 @@ export const Copy = {
       // per-pillar detail modal's own controls.
       flagsLabel: 'Risk flags',
       drillsLabel: 'Drills',
+      // The label above a pillar's certified stop-running note (`PaceSafety.note`,
+      // `supabase/functions/_shared/pace.ts`). The note itself is never written here — it is the
+      // model's certified sentence, carried structurally on `pillar.safety` and rendered verbatim.
+      // This label exists so the note cannot be mistaken for more coaching: it is the one thing on
+      // this screen that is not advice about form. Named plainly, like its two neighbours above
+      // (2026-09-12 register): it says what the block is, not how alarmed to be.
+      safetyLabel: 'Safety notice',
       detail: {
         a11yLabel: '{pillar} details',
         a11yHint: 'Opens full detail for this pillar.',

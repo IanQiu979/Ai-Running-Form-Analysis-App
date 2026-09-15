@@ -167,3 +167,36 @@ export const photoOutcome: PaceAnalysisOutcome = { result: photoResult, isFallba
 export const poorFramingPhotoOutcome: PaceAnalysisOutcome = { result: poorFramingPhotoResult, isFallback: false };
 export const fallbackOutcome: PaceAnalysisOutcome = { result: fallbackResult, isFallback: true };
 export const allNotAssessedOutcome: PaceAnalysisOutcome = { result: allNotAssessedResult, isFallback: false };
+
+/** THE SAFETY FIXTURE. Posture carries a certified stop-running declaration alongside ordinary
+ * coaching prose, which is the one combination the readout must keep visually apart: the note is
+ * not advice about form, and a runner who reads only one of the two must read that one. It lives
+ * on the structured `safety` field — never concatenated into `feedback` — so both surfaces that
+ * show it (`components/pace-readout.tsx` and `components/pillar-detail-modal.tsx`) read the same
+ * value through `lib/pace-readout.ts`'s `safetyNote()`. Arm swing deliberately declares
+ * `signal: 'none'` and cadence carries no `safety` field at all, so the same fixture also proves
+ * both no-signal cases render nothing. Elasticity is NOT assessed (a photo cannot show a bounce
+ * cycle) yet carries its own declaration: the honesty rule says a `score: null` pillar renders no
+ * numeral, band or fill, and the note must still stand alone there — it is the one thing a single
+ * frame can warrant saying. */
+export const SAFETY_NOTE_FIXTURE =
+  'The left leg cannot take even weight and you are guarding it — see someone before your next run.';
+
+export const NOT_ASSESSED_SAFETY_NOTE_FIXTURE =
+  'Pain at the back of the heel that sharpens as you push off is a reason to stop. Have it assessed before your next run.';
+
+export const safetySignalPhotoResult: PaceResult = {
+  pillars: {
+    posture: {
+      ...scored(82, 'good', 'Ankle-driven lean looks close to ideal in this frame.'),
+      safety: { signal: 'swellingLimpOrFavouringOneSide', note: SAFETY_NOTE_FIXTURE },
+    },
+    armSwing: { ...scored(70, 'good', 'Elbow angle and hand position look compact.'), safety: { signal: 'none', note: '' } },
+    cadence: notAssessed('needsVideo'),
+    elasticity: {
+      ...notAssessed('needsVideo'),
+      safety: { signal: 'sharpOrWorseningPain', note: NOT_ASSESSED_SAFETY_NOTE_FIXTURE },
+    },
+  },
+  overall: { score: 76, band: 'good' },
+};

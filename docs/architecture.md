@@ -572,7 +572,8 @@ pure/client split as `ai-guard.ts`. 46 Deno tests.
   or hallucinated. The model's half is the *boundary* (never diagnose, never name a condition, never
   prescribe treatment), which is unconditional at every tier, plus an explicit instruction **not** to
   re-emit the disclaimer text (it would double-render). **Stop-running safety signals override the
-  tier dial** and reach Free as prose in `feedback`, since Free's `flags` is always `[]`.
+  tier dial** and reach Free on the pillar's `safety` field (rendered as its own notice by the
+  client, #212), since Free's `flags` is always `[]`.
 - **The output contract IS `PaceResult`.** `submit_pace_analysis`, `strict: true`, forced. A test
   round-trips schema-shaped responses (fully assessed, the photo case with Cadence/Elasticity `null`,
   and the all-null case) through `isPaceResult` — so #45 can never reject a perfectly obedient
@@ -3214,11 +3215,20 @@ and is never merely prompt-guided:
   `knowledge/injury_flags.md`'s certified stop-running list plus the calm `note` to show the
   runner — and it exists precisely so a
   stop-running warning is separated from assessment prose AT THE SOURCE rather than classified out
-  of it afterwards. Normalization copies it across and places a certified non-`none` signal's `note`
-  FIRST in that pillar's visible feedback on every tier, frame path, and pillar, keeping whatever
-  coaching prose survived normalization underneath it; no keyword matching is involved, in either
-  direction, and supportable coaching is never deleted because a warning fired. It is never
-  tier-gated.
+  of it afterwards. Normalization copies it across untouched on every tier, frame path, and pillar,
+  and **the client renders it as its own element** (issue #212, 2026-09-16): `lib/pace-readout.ts`'s
+  `safetyNote()` is the one read of `pillar.safety`, and both `components/pace-readout.tsx`'s
+  `PillarRow` and `components/pillar-detail-modal.tsx` draw a non-`none` signal's `note` as a
+  labelled "Safety notice" block (`Ink.danger` label, primary-ink sentence, one `alert`-role
+  VoiceOver node) ABOVE the coaching, and nothing at all for `none` or no declaration. Until #212
+  the server composed `"note\n\ncoaching"` into `feedback` in `normalizeForEvidenceAndTier`, and the
+  row drew that one string as one paragraph in one tone — the warning led the coaching and was
+  indistinguishable from it. `feedback` is now coaching only; the prompt tells the model the note
+  lives in `safety.note` and must not be repeated in `feedback`. No keyword matching is involved in
+  either direction, supportable coaching is never deleted because a warning fired, and the field is
+  never tier-gated. `ANALYZE_FORM_ANALYZER_REVISION` was bumped to `2026-09-16-v1` for the wire
+  change, so no pinned pre-#212 verdict (there were none in production) can replay the composed
+  string.
 - **ABSENT IS INVALID ON A PILLAR THAT DECLARED ANYTHING, and that is what makes the sentence above
   true.** `PACE_RESULT_SCHEMA` marks `safety` `required`, but a schema is a request to the model,
   not a guarantee we may lean on — so `analyze-form-validation.ts` refuses to call a response

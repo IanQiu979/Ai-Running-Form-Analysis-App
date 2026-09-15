@@ -1811,6 +1811,12 @@ still standing between here and a public/TestFlight release:
   rebased onto it, so the hero is on `main` and the pillar reveal sits under its real mount. Until
   this branch merges, `main` ships that hero on espresso/clay. See the M7 row above and
   `docs/change_log.md`'s 2026-09-04 entry.
+- **Issue #212 (safety notes render structurally, 2026-09-16)** — landed on
+  `fm/v23-safety-notes-rendering-orphan`: the client draws a pillar's certified stop-running
+  note as its own labelled notice above the coaching on the result screen and in the detail modal,
+  and `analyze-form` stops composing it into `feedback`. **Not deployed**: the function must be
+  redeployed before or with the client, or a live result shows the note twice. See
+  `docs/change_log.md`'s 2026-09-16 entry.
 - **Known Issues #43 and #44** — the Free-tier real-analysis rewrite of `analyze-form`, and the
   analysis-limit pre-flight on top of it, are code-complete with focused regression coverage but
   **not deployed**. #44 also carries the `$defs` schema fix WITHOUT WHICH THE ENDPOINT IS DOWN:

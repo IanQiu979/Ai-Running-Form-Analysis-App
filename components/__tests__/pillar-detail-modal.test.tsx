@@ -12,7 +12,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react-n
 
 import { PillarDetailModal } from '../pillar-detail-modal';
 import { Copy } from '@/constants/copy';
-import { photoResult, proTierVideoResult } from '@/lib/pace-fixtures';
+import { photoResult, proTierVideoResult, safetySignalPhotoResult, SAFETY_NOTE_FIXTURE } from '@/lib/pace-fixtures';
 
 // The modal pads its column by the live safe-area insets; the package's own jest mock supplies
 // them without a native module.
@@ -218,5 +218,58 @@ describe('a not-assessed pillar never reads as a zero (photoResult.cadence is nu
     // (hidden because the row's header already speaks it aloud), this modal has no duplicate
     // announcement standing in for it, so it must be found WITHOUT opting into hidden elements.
     expect(screen.getByTestId('pillar-detail-not-assessed-cadence')).toBeTruthy();
+  });
+});
+
+describe('a certified stop-running note (safetySignalPhotoResult.posture)', () => {
+  it('renders the note as its own labelled, alert-role node above the coaching', async () => {
+    await render(
+      <PillarDetailModal
+        visible
+        onDismiss={jest.fn()}
+        pillarId="posture"
+        pillar={safetySignalPhotoResult.pillars.posture}
+      />
+    );
+
+    const block = screen.getByTestId('pillar-detail-safety-posture');
+    expect(block.props.accessible).toBe(true);
+    expect(block.props.accessibilityRole).toBe('alert');
+    expect(block.props.accessibilityLabel).toBe(`${Copy.result.pillar.safetyLabel}. ${SAFETY_NOTE_FIXTURE}`);
+    expect(within(block).getByText(Copy.result.pillar.safetyLabel)).toBeTruthy();
+    expect(screen.getByTestId('pillar-detail-safety-note-posture').props.children).toBe(SAFETY_NOTE_FIXTURE);
+
+    // The coaching is untouched and separate, and the note comes first in the card.
+    const feedback = screen.getByTestId('pillar-detail-feedback-posture').props.children;
+    expect(feedback).toBe(safetySignalPhotoResult.pillars.posture.feedback);
+    expect(feedback).not.toContain(SAFETY_NOTE_FIXTURE);
+    const card = JSON.stringify(screen.getByTestId('pillar-detail-card-posture').toJSON());
+    expect(card.indexOf(SAFETY_NOTE_FIXTURE)).toBeLessThan(card.indexOf(feedback));
+  });
+
+  it('renders no notice for a `none` declaration (armSwing)', async () => {
+    await render(
+      <PillarDetailModal
+        visible
+        onDismiss={jest.fn()}
+        pillarId="armSwing"
+        pillar={safetySignalPhotoResult.pillars.armSwing}
+      />
+    );
+    expect(screen.queryByTestId('pillar-detail-safety-armSwing')).toBeNull();
+    expect(screen.queryByText(Copy.result.pillar.safetyLabel)).toBeNull();
+  });
+
+  it('renders no notice for a pillar with no declaration at all (cadence)', async () => {
+    await render(
+      <PillarDetailModal
+        visible
+        onDismiss={jest.fn()}
+        pillarId="cadence"
+        pillar={safetySignalPhotoResult.pillars.cadence}
+      />
+    );
+    expect(screen.queryByTestId('pillar-detail-safety-cadence')).toBeNull();
+    expect(screen.queryByText(Copy.result.pillar.safetyLabel)).toBeNull();
   });
 });

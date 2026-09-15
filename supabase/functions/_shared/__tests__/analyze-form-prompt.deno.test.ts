@@ -522,8 +522,9 @@ Deno.test('stop-running safety signals reach Free, overriding the paid-tier flag
   const free = fullPromptText(videoInput('free'));
 
   // injury_flags.md: the stop-running language is "shown to ALL tiers". Free's flags[] is always
-  // empty (paid-tier content), so the signal has to arrive as safety prose in `feedback` instead
-  // — the one thing the verbosity dial is not allowed to suppress.
+  // empty (paid-tier content), so the signal has to arrive on the pillar's `safety` field instead
+  // — the one thing the verbosity dial is not allowed to suppress (#212: the note lives THERE,
+  // not in `feedback`, because the app renders it as its own notice above the coaching).
   assertIncludes(free, 'STOP-RUNNING SIGNALS OVERRIDE THE TIER DIAL', 'Free can suppress a safety signal.');
   assertIncludes(free, 'at EVERY tier including Free', 'The override does not name Free explicitly.');
   assertIncludes(
@@ -531,6 +532,8 @@ Deno.test('stop-running safety signals reach Free, overriding the paid-tier flag
     'never withheld because a tier is cheap',
     'The safety override is not stated as unconditional.'
   );
+  assertIncludes(free, '`safety.note` IS WHERE THE WARNING LIVES', 'The prompt does not name `safety.note` as the warning\'s home.');
+  assertIncludes(free, 'Do NOT repeat the warning in `feedback`', 'The prompt still lets the warning be doubled into `feedback`.');
 });
 
 // -------------------------------------------------------------------------------------------
