@@ -13,7 +13,7 @@ and the linked brainstorm / product / engineering docs it indexes.
 
 ## Architecture at a glance
 
-Client: Expo SDK 54, expo-router, TypeScript strict. Backend: Supabase (Postgres + Auth +
+Client: Expo SDK 57, expo-router, TypeScript strict. Backend: Supabase (Postgres + Auth +
 Storage + Edge Functions). AI: Claude (`claude-sonnet-5`), called only from the `analyze-form`
 edge function, never from the client. The app, its migrations, and all seven edge functions exist
 and are live on the Supabase project — the sign-up → analysis → result path ran end to end against
@@ -47,7 +47,7 @@ contract..." section for why the Deno/Jest split is where it is.
 
 To actually SEE a change in the running app you need a native build (`expo run:ios --device
 <udid>`), and two things bite before it works: an agent worktree usually has no `node_modules`, so
-`npx expo` silently fetches the newest Expo CLI instead of this project's SDK 54 — run
+`npx expo` silently fetches the newest Expo CLI instead of this project's SDK 57 — run
 `npm install` and call `./node_modules/.bin/expo` — and **`expo run:ios` rewrites `package.json`**,
 flipping the `ios`/`android` scripts from `expo start --*` to `expo run:*`. That is a tracked file
 and contradicts the table above: `git checkout -- package.json` after any native build.
@@ -55,8 +55,9 @@ and contradicts the table above: `git checkout -- package.json` after any native
 `expo-dev-client` is a dependency, so plain `expo start` defaults to a development build and its
 QR code is an `exp+…://expo-development-client/` deep link that **Expo Go cannot open**. Use
 `npm run start:go` (or press `s` in the running dev server) to get an Expo Go `exp://` URL.
-Expo Go on the **iOS App Store is pinned to SDK 54**, which matches this project; Expo Go on the
-**Play Store tracks the newest SDK and will reject this project** — Android needs a dev build.
+Expo Go on the **iOS App Store is pinned to the newest SDK (57 as of 2026-09-05)**, which matches
+this project; Expo Go on the **Play Store tracks the newest SDK too, and will reject this project
+the moment Expo ships SDK 58** — Android needs a dev build.
 
 ## Secrets & env — read this before touching any env file
 

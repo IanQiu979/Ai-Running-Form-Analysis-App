@@ -5,6 +5,24 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-16 (Expo SDK 57 patch bumps)
+
+**On `fm/v23-expo-sdk57-patch-bumps`.** Dependency versions only — no application behaviour
+change.
+
+- `npx expo-doctor` reported (2026-09-12) 22 `expo-*` packages behind their expected SDK 57
+  patch; `npx expo install --fix` brought every one to its pin (`expo ^57.0.9` -> `~57.0.23`, `expo-router ~57.0.19`
+  -> `~57.0.21`, `expo-camera`, `expo-image`, `expo-video`, `expo-auth-session`,
+  `expo-image-picker`, `expo-image-manipulator`, `expo-dev-client` and the rest by one or two
+  patches; `package.json` + `package-lock.json`). `expo install --fix` also registered the
+  `expo-image` config plugin in `app.json`'s `plugins`. expo-doctor now passes 21/21. Every bumped
+  package's SDK 57 changelog was read: no breaking changes or deprecations; `expo 57.0.23`'s
+  opt-in iOS UIKit scene-lifecycle support and `expo-router 57.0.21`'s `LocaleProvider` need no
+  code here. `npm run test:canary` was run live to confirm the bumped `jest-expo` does not regress
+  the 2026-09-12 HIBP global-fetch-stub workaround (PR #217). `AGENTS.md`'s pin and the stale
+  "SDK 54" wording in `CLAUDE.md`/`README.md` (left behind by the 2026-09-05 upgrade) are updated
+  in the same branch.
+
 ## 2026-09-14 (V23 theme application, lane 2 — Home, Result, History, Capture, Paywall, Settings)
 
 **On `fm/v23-theme-application-lane2`.** Lane 2 of the V23 redesign: the six signed-in screens

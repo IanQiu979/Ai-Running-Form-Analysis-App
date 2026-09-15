@@ -1828,8 +1828,10 @@ still standing between here and a public/TestFlight release:
   history, and password-reset screens still need `ux-copywriter`/Ian review.
 - [`docs/blocked-on-apple.md`](blocked-on-apple.md) — everything gated on the Apple Developer
   Program (the TestFlight pipeline, Sign in with Apple).
-- **The Expo SDK 54 -> 57 upgrade is unmerged** — `fm/v23-sdk57-upgrade` (2026-09-05), so the
-  captain's Expo Go 57.0.0 still can't open what `main` ships until this merges. `expo-doctor`,
+- **The Expo SDK 54 -> 57 upgrade MERGED to `main` 2026-09-05 as PR #198** (this bullet used to say
+  it was unmerged); `expo-doctor` reported 22 packages behind their expected SDK 57 patch on
+  2026-09-12 and `npx expo install --fix` brought every one to its pin (`expo ~57.0.23`, `expo-router
+  ~57.0.21`, ...; no source changes, expo-doctor 21/21). At the upgrade itself, `expo-doctor`,
   typecheck, lint, and the full 1458 Jest + Deno test suite are green at every step; the
   branch also launches in Expo Go 57.0.9 (which reports SDK 57.0.0) and reaches the genuine
   signed-out landing screen. Glass surfaces stayed translucent/tinted in both light and dark mode,
