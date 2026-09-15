@@ -33,9 +33,11 @@ the captain's 2026-09-13 decision, rebuilt on the V23 result components #223 shi
   `safety` description now say the warning lives in `safety.note` and must not be repeated in
   `feedback`. Prompt compliance is not validation, so the same function also guards the echo
   case: on a pillar with a certified signal, a `feedback` whose trimmed text starts with the
-  trimmed note has that leading copy removed (trimmed prefix equality only, nothing fuzzy, nothing
-  else rewritten), and becomes `null` if nothing remains — flow tests cover echo-plus-coaching,
-  echo-only, a trailing mention (kept) and a near-match (kept), returned and persisted alike.
+  trimmed note AND ends that match at a sentence boundary has the leading copy removed (exact
+  prefix only, nothing fuzzy, nothing else rewritten — `stripEchoedSafetyNote`'s doc comment owns
+  the boundary rule), and becomes `null` if nothing remains — flow tests cover echo-plus-coaching,
+  echo-only, a trailing mention (kept), a near-match (kept) and an unpunctuated note that is
+  merely the prefix of a longer sentence (kept), returned and persisted alike.
   The client fixture's elasticity pillar is not assessed yet carries its own note, and the readout
   test proves the notice stands alone there with no numeral, band or fill.
   `ANALYZE_FORM_ANALYZER_REVISION` → `analyze-form/2026-09-16-v1` (a wire-shape

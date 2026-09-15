@@ -1373,10 +1373,11 @@ const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
  *     stands alone. The prompt tells the model not to repeat the warning in `feedback`, but prompt
  *     compliance is not validation: if the model echoes it anyway, the client would draw the same
  *     sentence twice — the one thing this contract exists to prevent. So on every pillar carrying
- *     a certified signal, a `feedback` whose trimmed text STARTS WITH the trimmed note has that
- *     leading exact copy (and the whitespace after it) removed; if nothing remains, `feedback`
- *     becomes `null`. Trimmed prefix equality only — no keyword, fuzzy or paraphrase detection,
- *     and no other rewriting of the coaching. This function may assume the declaration is THERE:
+ *     a certified signal, `stripEchoedSafetyNote()` removes an exact copy of the note from the
+ *     head of `feedback` (its doc comment owns the precise rule: trimmed prefix equality that also
+ *     ends at a sentence boundary — no keyword, fuzzy or paraphrase detection, and no other
+ *     rewriting of the coaching); if nothing remains, `feedback` becomes `null`. This function may
+ *     assume the declaration is THERE:
  *     `analyze-form-validation.ts` refuses to call a response
  *     deliverable unless every pillar carries a usable one, so an absent, malformed, ungrounded,
  *     or blank-note `safety` never reaches this code — it fails closed into a retry and then a
