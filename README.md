@@ -25,7 +25,7 @@ Important current limitations:
 
 ## Stack
 
-- Expo SDK 54, React Native, expo-router, TypeScript strict
+- Expo SDK 57, React Native, expo-router, TypeScript strict
 - Supabase Auth, Postgres, private Storage, and Deno Edge Functions
 - Claude (`claude-sonnet-5`) called server-side by `analyze-form`
 - Jest / React Native Testing Library for the app and Deno tests for Edge Functions
@@ -68,8 +68,9 @@ Use the explicit Expo Go command when testing with Expo Go:
 npm run start:go
 ```
 
-Expo Go on the iOS App Store supports this project's SDK 54 build. The Android Play Store version
-of Expo Go tracks the newest SDK and may reject SDK 54, so use a development build on Android.
+Expo Go on the iOS App Store supports this project's SDK 57 build. The Android Play Store version
+of Expo Go tracks the newest SDK and may reject SDK 57 once a newer one ships, so use a
+development build on Android.
 Other targets are available through `npm run ios`, `npm run android`, and `npm run web`.
 
 ## Validation

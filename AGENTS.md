@@ -2,8 +2,10 @@
 
 Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code.
 
-This project is pinned to Expo SDK 57 (`expo ^57.0.9`). Docs for a newer SDK describe APIs
-this project does not have. If you upgrade the SDK, update this link in the same commit.
+This project is pinned to Expo SDK 57 (`expo ~57.0.23`; every `expo-*` package sits at the
+patch `npx expo-doctor` expects — run it after any dependency change). Docs for a newer SDK
+describe APIs this project does not have. If you upgrade the SDK, update this link in the same
+commit.
 
 # Agent routing
 
