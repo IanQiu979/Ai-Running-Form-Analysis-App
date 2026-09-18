@@ -5,6 +5,23 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-18 (EAS development builds on both platforms, the first Android one — issue #84)
+
+**On `fm/v23-eas-dev-build`.** Docs-only; the builds themselves needed zero repo changes.
+
+- **`eas build --profile development` produced an iOS simulator `.app`
+  (`dbd22da6-b42b-4d4b-a270-0e6fd138e42b`) and the first-ever Android `.apk`
+  (`2cdd073d-48a8-4cfb-a499-6e65a81fd7e3`)** from `main` at `f5a94dd`, account `ianbeatingpros`,
+  v1.0.0 build 1, SDK 57.0.0, on the free tier with no payment or Apple prompt. The Android run
+  generated the project's Android keystore in the cloud.
+- **The iOS build was installed, launched and driven to the V23 Welcome screen entirely
+  headlessly** (`simctl` only, Simulator.app never opened) via a local Metro. The
+  `--initialUrl` launch argument and the `EXDevMenuIsOnboardingFinished` default are what make
+  that possible; the recipe is in `docs/architecture.md`'s "EAS build & release config" section.
+- `docs/status.md` Known Issue #7 records what is still open from #84: the APK is not installed
+  anywhere (no Android SDK on this Mac) and the Google sign-in tap-through that gates #69 is
+  still undone.
+
 ## 2026-09-16 (safety notes render structurally — issue #212)
 
 **On `fm/v23-safety-notes-rendering-orphan`.** The second feature orphaned on the parked

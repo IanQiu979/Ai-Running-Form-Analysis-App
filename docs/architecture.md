@@ -1180,7 +1180,7 @@ scripts/
   (most recently Cold Read, 2026-09-04); `constants/theme.ts` owns the current hexes — `app.json`
   still carries the same two token values, not template defaults, so issue #26 remains closed.
 
-## Current — EAS build & release config (groundwork only; the pipeline half is Apple-blocked)
+## Current — EAS build & release config (dev builds live on both platforms; the pipeline half is Apple-blocked)
 
 `eas init` created the EAS project `@ianbeatingpros/pace-analysis-ai`
 (`d19968ff-22b8-4851-8e74-087aeb9846b0`, in `app.json`'s `extra.eas.projectId`). `app.json` also
@@ -1219,9 +1219,69 @@ Apple (`docs/status.md` Known Issue #3) is the same dependency. Both are tracked
 holds only work that is actionable without the Apple account.
 
 Removing `exp://**` from the Supabase redirect allowlist (issue #69, see "Current — Supabase
-config" below) is a required pre-first-dev-build cleanup, not yet done. It is **not** Apple-blocked:
-the `development` profile's `ios.simulator: true` build needs no Apple account and is enough to
-retire Expo Go. See `docs/status.md` Known Issue #7.
+config" below) is still not done. The dev build it waited on now exists (next subsection); what it
+waits on now is one real Google sign-in tapped through on that build, which no headless run has
+exercised. It is **not** Apple-blocked: the `development` profile's `ios.simulator: true` build
+needs no Apple account and is enough to retire Expo Go. See `docs/status.md` Known Issue #7.
+
+### Producing and running the `development` build (done 2026-09-18, issue #84)
+
+Both platforms build clean from a clean `main` with **no repo changes** — the profile was already
+right (`developmentClient`, `distribution: internal`, `environment: development`,
+`ios.simulator: true`, `android.buildType: apk`). `eas-cli` is not installed globally; use
+`npx eas-cli@latest` (24.7.0 on 2026-09-18) and run `whoami` first — the account is
+`ianbeatingpros`. Builds run non-interactively and are polled, never waited on:
+
+```sh
+npx eas-cli@latest build --profile development --platform ios --non-interactive --no-wait
+npx eas-cli@latest build --profile development --platform android --non-interactive --no-wait
+npx eas-cli@latest build:list --limit 2 --json --non-interactive   # poll on a 60–90 s cadence
+npx eas-cli@latest build:view <id> --json                          # artifacts.buildUrl when FINISHED
+```
+
+`artifacts.buildUrl` is a **signed, expiring download link** — read it at run time from
+`build:view <id> --json` when the build is `FINISHED`; it is never committed. The stable
+references are the build IDs and their `expo.dev` build pages (`docs/status.md` Known Issue #7).
+
+Three things about the build itself that are easy to get wrong:
+
+- **A development build embeds no JS bundle.** Its `.app`/`.apk` is the native dev client only;
+  Metro serves the JS, and Metro inlines `EXPO_PUBLIC_*` at bundle time from the **local `.env`**
+  of whichever machine runs `expo start`. The EAS `development` environment's three variables
+  (verified present with `eas env:list --environment development`; they match `.env`) are what
+  the cloud build step loads — they matter for `preview`/`production`, which do embed a bundle.
+  So a dev build reaching the Welcome screen proves `lib/supabase.ts` got a URL and key from the
+  Metro host's `.env` (it throws at import without them), not that the EAS values are correct.
+- **`cli.appVersionSource: "remote"`** means EAS owns the build number. The Android run initialised
+  the remote `versionCode` at 1; both builds report v1.0.0 build 1.
+- **The Android keystore now exists, generated in the cloud** on the first Android build (there is
+  no `keytool` locally). `eas credentials -p android` lists it. Nothing about it is in the repo.
+
+**Installing and driving the iOS build headlessly** — Simulator.app must never be opened (it takes
+screen focus); every step below is `simctl`:
+
+```sh
+UD=$(xcrun simctl list devices available -j | python3 -c "import json,sys;print(next(d['udid'] for v in json.load(sys.stdin)['devices'].values() for d in v if d['name']=='iPhone 17'))")
+URL=$(npx eas-cli@latest build:view <id> --json | python3 -c "import json,sys;print(json.load(sys.stdin)['artifacts']['buildUrl'])")
+curl -sSL -o app.tar.gz "$URL" && tar -xzf app.tar.gz                    # -> PaceAnalysisAI.app
+xcrun simctl bootstatus $UD -b                                            # boots if needed, waits
+xcrun simctl install $UD PaceAnalysisAI.app
+./node_modules/.bin/expo start --dev-client --port 8091 &                  # Metro, explicit port
+xcrun simctl spawn $UD defaults write com.ian.paceanalysisai EXDevMenuIsOnboardingFinished -bool true
+xcrun simctl launch $UD com.ian.paceanalysisai --initialUrl "http://localhost:8091"
+xcrun simctl io $UD screenshot welcome.png
+```
+
+Why those two non-obvious lines: `simctl openurl` with the
+`paceanalysisai://expo-development-client/?url=…` deep link makes SpringBoard raise an
+"Open in Pace Analysis AI?" alert that nothing headless can tap, and the alert survives app
+restarts (only `simctl shutdown`/`boot` clears it). `expo-dev-launcher` instead reads a
+`--initialUrl <url>` **process argument** (`EXDevLauncherController.initialUrlFromProcessInfo`)
+and loads that bundle directly with no prompt. And `expo-dev-menu` shows a first-run onboarding
+sheet over the app until "Continue" is tapped; the `EXDevMenuIsOnboardingFinished` default is the
+switch it reads. With both in place the app comes up on the V23 Welcome screen ~60 s after
+launch. The Android APK cannot be installed on this Mac (no Android SDK, `adb` or emulator); it
+is a real, downloadable artifact and needs a machine with an emulator or a device.
 
 ## Current — CI (`hibp-canary.yml` added 2026-07-12; `ci.yml`, the commit gate, added 2026-07-13, issue #82)
 
@@ -2521,8 +2581,9 @@ to own).
   password reset, magic links — under the same scheme), and `exp://**` (Expo Go dev testing via
   `npm run start:go`; scoped to a local-dev-only scheme, tracked as a pre-EAS-build cleanup item
   in `config.toml` and as [issue #69](https://github.com/IanQiu979/v2.3_RunningFormAna/issues/69)
-  — it is blocked until the first dev build exists, since Expo Go's `makeRedirectUri` produces
-  exactly the `exp://` URI that entry allowlists); `mailer_autoconfirm = true`
+  — the dev build it waited on exists since 2026-09-18, but the entry stays until one Google
+  sign-in is confirmed on that build, since Expo Go's `makeRedirectUri` produces exactly the
+  `exp://` URI that entry allowlists — `docs/status.md` Known Issue #7); `mailer_autoconfirm = true`
   (`enable_confirmations = false` in the file —
   the two are inverses) since no transactional email provider or confirmation-pending screen
   exists yet; `minimum_password_length = 8` (raised from 6, a security-audit LOW finding).
