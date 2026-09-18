@@ -1238,6 +1238,10 @@ npx eas-cli@latest build:list --limit 2 --json --non-interactive   # poll on a 6
 npx eas-cli@latest build:view <id> --json                          # artifacts.buildUrl when FINISHED
 ```
 
+`artifacts.buildUrl` is a **signed, expiring download link** — read it at run time from
+`build:view <id> --json` when the build is `FINISHED`; it is never committed. The stable
+references are the build IDs and their `expo.dev` build pages (`docs/status.md` Known Issue #7).
+
 Three things about the build itself that are easy to get wrong:
 
 - **A development build embeds no JS bundle.** Its `.app`/`.apk` is the native dev client only;
@@ -1257,8 +1261,9 @@ screen focus); every step below is `simctl`:
 
 ```sh
 UD=$(xcrun simctl list devices available -j | python3 -c "import json,sys;print(next(d['udid'] for v in json.load(sys.stdin)['devices'].values() for d in v if d['name']=='iPhone 17'))")
-curl -sSL -o app.tar.gz "<artifacts.buildUrl>" && tar -xzf app.tar.gz     # -> PaceAnalysisAI.app
-xcrun simctl boot $UD && xcrun simctl bootstatus $UD -b
+URL=$(npx eas-cli@latest build:view <id> --json | python3 -c "import json,sys;print(json.load(sys.stdin)['artifacts']['buildUrl'])")
+curl -sSL -o app.tar.gz "$URL" && tar -xzf app.tar.gz                    # -> PaceAnalysisAI.app
+xcrun simctl bootstatus $UD -b                                            # boots if needed, waits
 xcrun simctl install $UD PaceAnalysisAI.app
 ./node_modules/.bin/expo start --dev-client --port 8091 &                  # Metro, explicit port
 xcrun simctl spawn $UD defaults write com.ian.paceanalysisai EXDevMenuIsOnboardingFinished -bool true

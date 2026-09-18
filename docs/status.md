@@ -255,9 +255,13 @@ milestone "done" criteria.
    **2026-09-18 — BOTH platforms built on EAS from `main` (`f5a94dd`, issue #84), and the iOS one
    was installed, launched and driven to the app's own first screen headlessly.** Account
    `ianbeatingpros`, profile `development`, v1.0.0 build 1, SDK 57.0.0, zero repo changes needed:
-   iOS simulator build `dbd22da6-b42b-4d4b-a270-0e6fd138e42b` and the first-ever Android APK
-   `2cdd073d-48a8-4cfb-a499-6e65a81fd7e3` (EAS generated the Android keystore in the cloud on this
-   run — `eas credentials -p android` shows it). No payment, credit or Apple prompt appeared; the
+   iOS simulator build `dbd22da6-b42b-4d4b-a270-0e6fd138e42b`
+   (https://expo.dev/accounts/ianbeatingpros/projects/pace-analysis-ai/builds/dbd22da6-b42b-4d4b-a270-0e6fd138e42b)
+   and the first-ever Android APK `2cdd073d-48a8-4cfb-a499-6e65a81fd7e3`
+   (https://expo.dev/accounts/ianbeatingpros/projects/pace-analysis-ai/builds/2cdd073d-48a8-4cfb-a499-6e65a81fd7e3)
+   — EAS generated the Android keystore in the cloud on this run (`eas credentials -p android`
+   shows it). The artifact download links on those pages are signed and expire, so they are not
+   recorded here. No payment, credit or Apple prompt appeared; the
    Android build sat ~25 min in the free-tier queue. The iOS `.app` was `simctl install`ed on the
    "iPhone 17" simulator and reached the V23 Welcome screen through a local Metro, with
    Simulator.app never opened — the exact recipe (including the `--initialUrl` launch argument
