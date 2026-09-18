@@ -1223,6 +1223,60 @@ config" below) is a required pre-first-dev-build cleanup, not yet done. It is **
 the `development` profile's `ios.simulator: true` build needs no Apple account and is enough to
 retire Expo Go. See `docs/status.md` Known Issue #7.
 
+### Producing and running the `development` build (done 2026-09-18, issue #84)
+
+Both platforms build clean from a clean `main` with **no repo changes** — the profile was already
+right (`developmentClient`, `distribution: internal`, `environment: development`,
+`ios.simulator: true`, `android.buildType: apk`). `eas-cli` is not installed globally; use
+`npx eas-cli@latest` (24.7.0 on 2026-09-18) and run `whoami` first — the account is
+`ianbeatingpros`. Builds run non-interactively and are polled, never waited on:
+
+```sh
+npx eas-cli@latest build --profile development --platform ios --non-interactive --no-wait
+npx eas-cli@latest build --profile development --platform android --non-interactive --no-wait
+npx eas-cli@latest build:list --limit 2 --json --non-interactive   # poll on a 60–90 s cadence
+npx eas-cli@latest build:view <id> --json                          # artifacts.buildUrl when FINISHED
+```
+
+Three things about the build itself that are easy to get wrong:
+
+- **A development build embeds no JS bundle.** Its `.app`/`.apk` is the native dev client only;
+  Metro serves the JS, and Metro inlines `EXPO_PUBLIC_*` at bundle time from the **local `.env`**
+  of whichever machine runs `expo start`. The EAS `development` environment's three variables
+  (verified present with `eas env:list --environment development`; they match `.env`) are what
+  the cloud build step loads — they matter for `preview`/`production`, which do embed a bundle.
+  So a dev build reaching the Welcome screen proves `lib/supabase.ts` got a URL and key from the
+  Metro host's `.env` (it throws at import without them), not that the EAS values are correct.
+- **`cli.appVersionSource: "remote"`** means EAS owns the build number. The Android run initialised
+  the remote `versionCode` at 1; both builds report v1.0.0 build 1.
+- **The Android keystore now exists, generated in the cloud** on the first Android build (there is
+  no `keytool` locally). `eas credentials -p android` lists it. Nothing about it is in the repo.
+
+**Installing and driving the iOS build headlessly** — Simulator.app must never be opened (it takes
+screen focus); every step below is `simctl`:
+
+```sh
+UD=$(xcrun simctl list devices available -j | python3 -c "import json,sys;print(next(d['udid'] for v in json.load(sys.stdin)['devices'].values() for d in v if d['name']=='iPhone 17'))")
+curl -sSL -o app.tar.gz "<artifacts.buildUrl>" && tar -xzf app.tar.gz     # -> PaceAnalysisAI.app
+xcrun simctl boot $UD && xcrun simctl bootstatus $UD -b
+xcrun simctl install $UD PaceAnalysisAI.app
+./node_modules/.bin/expo start --dev-client --port 8091 &                  # Metro, explicit port
+xcrun simctl spawn $UD defaults write com.ian.paceanalysisai EXDevMenuIsOnboardingFinished -bool true
+xcrun simctl launch $UD com.ian.paceanalysisai --initialUrl "http://localhost:8091"
+xcrun simctl io $UD screenshot welcome.png
+```
+
+Why those two non-obvious lines: `simctl openurl` with the
+`paceanalysisai://expo-development-client/?url=…` deep link makes SpringBoard raise an
+"Open in Pace Analysis AI?" alert that nothing headless can tap, and the alert survives app
+restarts (only `simctl shutdown`/`boot` clears it). `expo-dev-launcher` instead reads a
+`--initialUrl <url>` **process argument** (`EXDevLauncherController.initialUrlFromProcessInfo`)
+and loads that bundle directly with no prompt. And `expo-dev-menu` shows a first-run onboarding
+sheet over the app until "Continue" is tapped; the `EXDevMenuIsOnboardingFinished` default is the
+switch it reads. With both in place the app comes up on the V23 Welcome screen ~60 s after
+launch. The Android APK cannot be installed on this Mac (no Android SDK, `adb` or emulator); it
+is a real, downloadable artifact and needs a machine with an emulator or a device.
+
 ## Current — CI (`hibp-canary.yml` added 2026-07-12; `ci.yml`, the commit gate, added 2026-07-13, issue #82)
 
 The repo previously had **no CI at all**. `.github/workflows/hibp-canary.yml` is the first

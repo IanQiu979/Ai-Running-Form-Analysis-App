@@ -251,6 +251,22 @@ milestone "done" criteria.
    the booted "iPhone 17 Pro" simulator, `npx expo start --dev-client` is running in this repo
    (Metro on `localhost:8081`) — open the Simulator, tap the `localhost:8081` row on the launcher
    screen, then use the app's normal sign-in screen.
+
+   **2026-09-18 — BOTH platforms built on EAS from `main` (`f5a94dd`, issue #84), and the iOS one
+   was installed, launched and driven to the app's own first screen headlessly.** Account
+   `ianbeatingpros`, profile `development`, v1.0.0 build 1, SDK 57.0.0, zero repo changes needed:
+   iOS simulator build `dbd22da6-b42b-4d4b-a270-0e6fd138e42b` and the first-ever Android APK
+   `2cdd073d-48a8-4cfb-a499-6e65a81fd7e3` (EAS generated the Android keystore in the cloud on this
+   run — `eas credentials -p android` shows it). No payment, credit or Apple prompt appeared; the
+   Android build sat ~25 min in the free-tier queue. The iOS `.app` was `simctl install`ed on the
+   "iPhone 17" simulator and reached the V23 Welcome screen through a local Metro, with
+   Simulator.app never opened — the exact recipe (including the `--initialUrl` launch argument
+   that avoids the un-tappable "Open in Pace Analysis AI?" prompt and the dev-menu onboarding
+   sheet) is in `docs/architecture.md`'s "EAS build & release config" section. **Still open from
+   this note:** the Android APK is not installed anywhere (this Mac has no Android SDK, `adb` or
+   emulator), and the Google sign-in tap-through that gates removing `exp://**` (#69) is still not
+   done — the headless path above gets to the Welcome screen but the sign-in flow itself was not
+   exercised. #84's scope items 3–5 stay open; only "produce both builds" is done.
 8. **Echo V1's Supabase project** (`IanQiu979's Project`, ref `trgpnnyqonaxhnyhtmlz`) is
    **paused**, which is what freed the Free-plan slot for `v2.3Analysis`. 90-day restore
    window from 2026-07-10.
