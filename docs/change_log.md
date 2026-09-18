@@ -5,7 +5,7 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
-## 2026-09-18 (first EAS development builds, both platforms — issue #84)
+## 2026-09-18 (EAS development builds on both platforms, the first Android one — issue #84)
 
 **On `fm/v23-eas-dev-build`.** Docs-only; the builds themselves needed zero repo changes.
 

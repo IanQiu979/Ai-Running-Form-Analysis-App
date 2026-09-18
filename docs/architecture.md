@@ -1180,7 +1180,7 @@ scripts/
   (most recently Cold Read, 2026-09-04); `constants/theme.ts` owns the current hexes — `app.json`
   still carries the same two token values, not template defaults, so issue #26 remains closed.
 
-## Current — EAS build & release config (groundwork only; the pipeline half is Apple-blocked)
+## Current — EAS build & release config (dev builds live on both platforms; the pipeline half is Apple-blocked)
 
 `eas init` created the EAS project `@ianbeatingpros/pace-analysis-ai`
 (`d19968ff-22b8-4851-8e74-087aeb9846b0`, in `app.json`'s `extra.eas.projectId`). `app.json` also
@@ -1219,9 +1219,10 @@ Apple (`docs/status.md` Known Issue #3) is the same dependency. Both are tracked
 holds only work that is actionable without the Apple account.
 
 Removing `exp://**` from the Supabase redirect allowlist (issue #69, see "Current — Supabase
-config" below) is a required pre-first-dev-build cleanup, not yet done. It is **not** Apple-blocked:
-the `development` profile's `ios.simulator: true` build needs no Apple account and is enough to
-retire Expo Go. See `docs/status.md` Known Issue #7.
+config" below) is still not done. The dev build it waited on now exists (next subsection); what it
+waits on now is one real Google sign-in tapped through on that build, which no headless run has
+exercised. It is **not** Apple-blocked: the `development` profile's `ios.simulator: true` build
+needs no Apple account and is enough to retire Expo Go. See `docs/status.md` Known Issue #7.
 
 ### Producing and running the `development` build (done 2026-09-18, issue #84)
 
@@ -2580,8 +2581,9 @@ to own).
   password reset, magic links — under the same scheme), and `exp://**` (Expo Go dev testing via
   `npm run start:go`; scoped to a local-dev-only scheme, tracked as a pre-EAS-build cleanup item
   in `config.toml` and as [issue #69](https://github.com/IanQiu979/v2.3_RunningFormAna/issues/69)
-  — it is blocked until the first dev build exists, since Expo Go's `makeRedirectUri` produces
-  exactly the `exp://` URI that entry allowlists); `mailer_autoconfirm = true`
+  — the dev build it waited on exists since 2026-09-18, but the entry stays until one Google
+  sign-in is confirmed on that build, since Expo Go's `makeRedirectUri` produces exactly the
+  `exp://` URI that entry allowlists — `docs/status.md` Known Issue #7); `mailer_autoconfirm = true`
   (`enable_confirmations = false` in the file —
   the two are inverses) since no transactional email provider or confirmation-pending screen
   exists yet; `minimum_password_length = 8` (raised from 6, a security-audit LOW finding).

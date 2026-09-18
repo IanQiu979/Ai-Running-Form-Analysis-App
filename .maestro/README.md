@@ -55,10 +55,12 @@ local iOS Simulator / Android emulator.)
 
 ## Prerequisites — read before running anything
 
-1. **An EAS development build, installed on a simulator (issue #84, not built yet).**
-   `expo-dev-client` is a dependency, so plain `expo start` serves a dev-client deep link
-   (`exp+…://expo-development-client/`) that **Expo Go cannot open**. Until #84 produces a real
-   development build, there is no app for Maestro to launch, full stop. Once one exists:
+1. **An EAS build installed on a simulator.** `expo-dev-client` is a dependency, so plain
+   `expo start` serves a dev-client deep link (`exp+…://expo-development-client/`) that **Expo Go
+   cannot open** — without a real build there is no app for Maestro to launch, full stop. The
+   `development` profile builds on both platforms (issue #84, 2026-09-18); the build, poll and
+   headless `simctl` install/launch recipe lives in `docs/architecture.md`'s "EAS build & release
+   config" section. Then:
    ```bash
    maestro test .maestro/flows/happy-path.yaml
    ```

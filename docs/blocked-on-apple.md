@@ -41,8 +41,9 @@ first TestFlight submission**, never after (see #67 below).
 3. **Provision iOS credentials**, then run the `development-device` and `preview` profiles that
    already exist in `eas.json` but have never been usable.
 4. **Remove `exp://**` from the Supabase redirect allowlist** — this is still an open GitHub issue
-   (#69) and is **not** Apple-blocked; a simulator dev build is enough to retire Expo Go. Do it
-   whenever the first dev build lands, whichever kind it is.
+   (#69) and is **not** Apple-blocked; the simulator dev build that unblocks it exists since
+   2026-09-18 — what remains is the Google sign-in confirmation `docs/status.md` Known Issue #7
+   sets as the condition.
 5. **Resolve the privacy-policy placeholders** (controller name/country + contact email), publish
    it at a public URL, and attach it to the App Store Connect record.
 6. **Enter the App Store privacy labels** from `docs/app-store-privacy-labels.md` — the answers are
