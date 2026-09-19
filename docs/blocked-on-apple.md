@@ -179,13 +179,9 @@ from it:
   the App Store Connect field is left.
 - **Enter the App Store privacy labels.** The answers are already derived and recorded in
   `docs/app-store-privacy-labels.md`, so this is data entry once the record exists.
-- **Resolve the data-controller legal identity** — the blocker on publishing the policy at all. It
-  is *really* a question about the Apple account type: an **Individual** account publishes Ian's own
-  legal name; an **Organization** account uses a registered business entity. The policy's controller
-  name, country, and contact email are placeholders until this is decided, and publishing with
-  placeholders both fails App Review and makes every rights promise in it unexercisable.
-- Policy publication is **additionally** gated on in-app account deletion actually shipping and
-  purging (Guideline 5.1.1(v)) — that is M6 work, tracked in issues #57 and #58, and is *not* Apple-blocked.
+- ~~**Resolve the data-controller legal identity**~~ — resolved (Individual enrollment: Ian Qiu,
+  sole trader, Thailand) and the deletion gate (Guideline 5.1.1(v), #58) shipped before
+  publication; both are recorded in `docs/status.md` Known Issue #15.
 
 **Note for counsel (carried over, not Apple-related but easy to lose):** the Australian Privacy
 Act's small-business exemption does **not** apply to a business holding health information

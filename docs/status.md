@@ -38,8 +38,8 @@ milestone "done" criteria.
   pass, after the original mock binding turned out to have no owner ever assigned to swap it for a
   real one. Two caveats, both tracked as Known Issues below: the edge function it calls (#58/#121)
   is **built but not yet merged or deployed** (#22), and the screen ships **uncertified copy**
-  needing review (#24). The privacy policy is deliberately **not linked** — it is still
-  `DO NOT PUBLISH`.
+  needing review (#24). The privacy policy is deliberately **not linked** — it was still
+  `DO NOT PUBLISH` then; published 2026-09-19 (Known Issue #15), the in-app link is a follow-up.
 - Expo SDK 54 app scaffolded (expo-router template, TypeScript strict, `@/*` path alias ->
   `./*`; no `src/` in this project — code lives at the repo root in `app/`, `components/`,
   `constants/`, `hooks/`).
@@ -1977,9 +1977,8 @@ still standing between here and a public/TestFlight release:
   (`supabase/functions/signup-with-captcha`, not native `auth.captcha`).
 - **Known Issue #17** — a hard spend ceiling in the Anthropic Console is still unset (needs Ian's
   Anthropic Console access).
-- **Known Issue #15** — `docs/privacy-policy.md` publication is on hold pending Ian's answer on
-  data controller identity (Individual vs. Organization Apple Developer enrollment) and a contact
-  email; the policy carries a `DO NOT PUBLISH` guard until then.
+- ~~**Known Issue #15** — `docs/privacy-policy.md` publication is on hold~~ **RESOLVED
+  2026-09-19** — published; see that entry above.
 - **GitHub issue #39** (M3 milestone row above) — Ian's certification review of the Elasticity content is
   still open; the prompt ships his name.
 - ~~**The Cadence Arcs redesign is unmerged**~~ **RESOLVED 2026-09-01** — it merged to `main` as

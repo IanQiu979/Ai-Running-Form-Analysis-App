@@ -941,14 +941,12 @@ export const Copy = {
     },
     privacyPolicy: {
       label: 'Full privacy policy',
-      // The policy is DRAFTED but NOT PUBLISHED — docs/privacy-policy.md carries a DO NOT PUBLISH
-      // guard because the data-controller legal identity, country, and contact email are still
-      // unresolved (blocked on the Apple Developer account decision — docs/blocked-on-apple.md).
-      // We therefore do not link out (there is no URL, and inventing one is not an option) and we
-      // do not render the draft in-app either: it would show users placeholder legal identity and
-      // rights promises they could not actually exercise, which is the precise failure the guard
-      // exists to prevent. Instead we say where things stand and point at the disclosure that IS
-      // certified and true today — the summary directly above it on this screen.
+      // The policy IS published since 2026-09-19 (issue #202) at
+      // https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/ — but this
+      // string still says "not yet published" because replacing it with a link label needs
+      // captain-certified copy (a follow-up; docs/architecture.md's Settings section). Until
+      // then it stays honest by pointing at the disclosure that IS certified — the summary
+      // directly above it on this screen.
       pending:
         'The full policy is not yet published. The summary above is the complete, current description of how your data is handled.',
     },

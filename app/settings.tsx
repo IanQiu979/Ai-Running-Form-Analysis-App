@@ -834,11 +834,10 @@ export default function SettingsScreen() {
             </Row>
 
             <Rule />
-            {/* Not on the page, but a live disclosure. The policy is drafted but NOT published
-                (docs/privacy-policy.md's DO NOT PUBLISH guard: the data-controller identity is
-                unresolved). There is no URL to link to and inventing one is not an option, so this
-                renders as an honest pending state — not a dead link, and not the draft itself. The
-                certified disclosure is the paragraph at the top of this card. */}
+            {/* Not on the page, but a live disclosure. The policy is published (2026-09-19, see
+                Copy.settings.privacyPolicy), but linking it needs new certified copy, so this still
+                renders as the pending state — not a dead link. The certified disclosure is the
+                paragraph at the top of this card. */}
             <View style={styles.paragraphBlock}>
               <Text style={styles.rowLabel}>{Copy.settings.privacyPolicy.label}</Text>
               <Text style={styles.paragraphInBlock}>{Copy.settings.privacyPolicy.pending}</Text>

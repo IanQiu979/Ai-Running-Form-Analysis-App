@@ -6,7 +6,8 @@
  * WHY THIS EXISTS: Supabase Auth's native `auth.captcha` is project-wide, not per-endpoint —
  * verified live against the hosted project on 2026-08-02: enabling it also 400s
  * `signInWithPassword`, not just `signUp`. `supabase/functions/signup-with-captcha` puts the
- * Turnstile check in front of a plain, unprivileged `signUp()` proxy instead, so
+ * Turnstile check in front of account creation instead (the server-side mechanics are that
+ * function's business — see its header), so
  * `supabase/config.toml`'s `[auth.captcha]` stays disabled and sign-in is never gated. See that
  * function's `_shared/signup-with-captcha.ts` for the full story.
  *
@@ -17,7 +18,7 @@
  * `code: string` to the codes this function actually emits.
  *
  * ON SUCCESS, THIS FUNCTION DOES NOT SIGN THE USER IN ITSELF — it returns the session the server
- * already established (via its own `signUp()` call); the caller must hand it to
+ * already established (via its own sign-in call); the caller must hand it to
  * `supabase.auth.setSession()` to hydrate the on-device session. `lib/session-provider.tsx`'s
  * `onAuthStateChange` listener treats a `setSession`-triggered `SIGNED_IN` event identically to
  * one from `signUp`/`signInWithPassword` — no special-casing needed there.

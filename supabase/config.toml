@@ -355,8 +355,9 @@ web3 = 30
 # whole point is gating disposable SIGNUP without touching sign-in, which this setting cannot do.
 #
 # THE ACTUAL FIX: `supabase/functions/signup-with-captcha`. It verifies the Turnstile token
-# itself (`_shared/captcha.ts`, Cloudflare's siteverify API) and, only if that passes, proxies a
-# plain, unprivileged `supabase.auth.signUp()` call — so `minimum_password_length` and
+# itself (`_shared/captcha.ts`, Cloudflare's siteverify API) and, only if that passes, creates
+# the account (since 2026-09-19 via `auth.admin.createUser`, which runs the same password checks
+# — see `_shared/signup-client.ts`) — so `minimum_password_length` and
 # `password_hibp_enabled` above keep being enforced exactly as before, and sign-in
 # (`supabase.auth.signInWithPassword`, called directly, unchanged) never sees a captcha
 # requirement. `app/(auth)/sign-in.tsx` renders the Turnstile widget and calls this function only
