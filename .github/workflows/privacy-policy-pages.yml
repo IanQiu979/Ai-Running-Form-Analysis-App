@@ -51,8 +51,9 @@ jobs:
           mkdir -p _pages_src
           {
             printf -- '---\nlayout: default\ntitle: Pace Analysis AI — Privacy Policy\npermalink: /privacy-policy/\n---\n\n'
-            sed '1,/^-->$/d' docs/privacy-policy.md
+            awk 'NR == 1 { skip = ($0 == "<!--") } skip { if ($0 == "-->") skip = 0; next } { print }' docs/privacy-policy.md
           } > _pages_src/privacy-policy.md
+          grep -qxF '# Pace Analysis AI — Privacy Policy' _pages_src/privacy-policy.md
           printf -- '---\nlayout: default\ntitle: Pace Analysis AI\npermalink: /\n---\n\n[Privacy Policy](./privacy-policy/)\n' > _pages_src/index.md
           printf 'title: Pace Analysis AI\ndescription: Privacy policy for the Pace Analysis AI app\ntheme: jekyll-theme-primer\n' > _pages_src/_config.yml
 
