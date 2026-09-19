@@ -43,9 +43,7 @@
 
 appId: com.ian.paceanalysisai
 ---
-- launchApp:
-    clearState: true
-
+- setAirplaneMode: disabled
 - runFlow: subflows/sign-up.yaml
 
 - tapOn: "Start analysis"
@@ -58,7 +56,9 @@ appId: com.ian.paceanalysisai
 - tapOn: "OK" # OS permission dialog — see happy-path.yaml's note on iOS-version wording
 - tapOn:
     id: "record-button"
-- wait: 2000
+- extendedWaitUntil:
+    visible: "2s / 15s"
+    timeout: 5000
 - tapOn:
     id: "record-button"
 - extendedWaitUntil:
@@ -68,7 +68,7 @@ appId: com.ian.paceanalysisai
 # Go offline BEFORE tapping the analyze CTA, so the pre-flight check (which fires the instant
 # app/analyzing.tsx's submit effect runs) is guaranteed to see the offline state rather than
 # racing it.
-- setAirplaneMode: true
+- setAirplaneMode: enabled
 
 - tapOn: "Start analysis" # upload.ready.cta -> hands off into /analyzing
 - assertVisible: "Analyzing" # analyzing.title renders immediately; the pre-flight check runs
@@ -83,20 +83,18 @@ appId: com.ian.paceanalysisai
 - assertVisible: "Cancel" # analyzing.error.cta.cancel
 
 # Prove Retry actually resumes once reconnected — not just dismisses into a second dead end.
-- setAirplaneMode: false
+- setAirplaneMode: disabled
 - tapOn: "Retry"
 - assertVisible: "Analyzing"
-# Retry re-runs checkConnectivity() then, if online, analyzeFormClient.submit() — the mock
-# resolves 'success' after ~4s (see happy-path.yaml's identical budget/reasoning). NOTE: this
-# lands on the SAME "unavailable" result state happy-path.yaml does, not a real PaceReadout — the
-# mock's non-UUID `analysisId` fails app/result/[id].tsx's UUID_PATTERN guard before any fetch is
-# even attempted. See happy-path.yaml's own note on this for the full explanation; the point
-# THIS flow cares about is unchanged either way: Retry-after-reconnect reaches a real screen with
-# a real exit, not a second, silent dead end.
+# Retry re-runs the live pre-flight and deployed analysis request. It must reach the persisted
+# result readout, not merely dismiss the offline panel into another dead end.
 - extendedWaitUntil:
-    visible: "Back to Home"
-    timeout: 15000
-- assertVisible: "Analysis not found." # result.error.notFound — see note above
+    visible:
+      id: "result-readout-card"
+    timeout: 130000
+- assertVisible:
+    id: "pace-readout"
+- setAirplaneMode: disabled
 
 # ============================================================================================
 # ALSO WORTH TESTING, NOT DONE HERE: Cancel's own exit (asserting it returns to Home rather than

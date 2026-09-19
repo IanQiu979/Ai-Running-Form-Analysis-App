@@ -17,6 +17,7 @@
     "test": "jest --runInBand && npm run test:edge",
     "test:edge": "npm run verify:knowledge && deno test --config supabase/functions/deno.json --allow-read --allow-env=SUPABASE_PUBLISHABLE_KEYS,SUPABASE_SECRET_KEYS,SUPABASE_URL supabase/functions",
     "test:edge:local": "bash scripts/test-edge-local.sh",
+    "e2e:maestro:ios-dev": "bash scripts/run-maestro-ios-dev-build.sh",
     "test:canary": "jest --config jest.canary.config.js",
     "eval:grounding": "deno run --config supabase/functions/deno.json --env-file=supabase/functions/.env --allow-env=ANTHROPIC_API_KEY,GITHUB_SHA --allow-net=api.anthropic.com --allow-write=supabase/functions/_shared/evals supabase/functions/_shared/evals/grounding-eval.live.ts",
     "generate:knowledge": "node ./scripts/generate-knowledge-bundle.js",

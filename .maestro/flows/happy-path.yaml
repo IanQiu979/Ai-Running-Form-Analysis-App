@@ -1,56 +1,11 @@
 # ============================================================================================
-# Issue #86 — the M7 gate: "a stranger can go sign-up -> analysis -> result with no dead end."
-#
-# READ ../README.md BEFORE RUNNING THIS. This flow was rewritten 2026-07-13 (same day as the
-# rest of this directory) after re-reading the CURRENT screens, because several things the
-# original version of this file assumed as blocked have since landed:
-#   - #135: app/capture/extracting.tsx's "Frames ready" CTA now reads "Start analysis"
-#     (Copy.upload.ready.cta) and hands off into /analyzing via the
-#     setPendingAnalyzeFormRequest() + router.replace('/analyzing') mailbox — confirmed by
-#     reading that file directly, not inferred.
-#   - #55: (tabs)/history is a real registered tab ("History" — Copy.history.title).
-#   - #52/#54: app/paywall.tsx exists and Home's quota-exhausted CTA routes to it — not exercised
-#     by THIS flow (a fresh stranger never exhausts quota), but recorded here so the next reader
-#     doesn't re-discover it from scratch.
-#
-# Updated 2026-07-25 (issue #92's local Supabase stack + issue #84's first EAS simulator build):
-# ran this for real, for the first time, against a `preview-local` build. Confirmed by direct
-# read of `app/result/[id].tsx` and `lib/analysis-result.ts`, NOT the original assumption this
-# flow shipped with: `app/result/[id].tsx` always does a real `SELECT` on `public.analyses` by
-# `id` (issue #92's local stack serves this — no edge function needed), regardless of whether the
-# id is UUID-shaped. `lib/analyze-form.ts`'s mock mints a real `Crypto.randomUUID()` id (fixed
-# 2026-07-13, see that file's `mockAnalysisId` comment) but never writes an `analyses` row, so the
-# `SELECT` always comes back empty and `readAnalysisRow(null)` always resolves to `kind: 'notFound'`
-# — the exact same `unavailable` state a bad/deleted id would produce. That is a genuine, useful
-# finding for issue #86: even the mock's success path does not produce a dead end (a real Retry
-# AND "Back to Home" are both offered, per issue #56's own rule), but it also means this flow, run
-# only against the dev mock, CANNOT prove the real `PaceReadout` (pillar scores, hero image,
-# disclaimer) ever renders end to end — that needs #44 deployed.
-#
-# WHAT THIS FLOW PROVES, TODAY, given the dev-mock binding (see lib/analyze-form.ts's header —
-# `analyzeFormClient` is hardcoded to `createMockAnalyzeFormClient()`'s zero-arg defaults,
-# `outcome: 'success'`, `delayMs: 4000` — #44's real edge function is written but not deployed):
-#   sign-up -> consent -> record a clip -> extract frames -> "Frames ready" -> tap "Start
-#   analysis" -> Analyzing (mock waits ~4s) -> Result screen's honest not-found state (no real
-#   `analyses` row exists for the mock's id) -> "Back to Home" -> Home -> History tab (EMPTY — the
-#   mock never writes an `analyses` row, so this genuinely proves the empty state, not a
-#   stubbed-out list) -> Settings -> sign out.
-#
-# WHAT IT STILL DOES NOT REACH, AND WHY — not a scripting gap, the app genuinely can't get there:
-#   - A REAL analysis result: this flow is proving the WIRING (screen-to-screen handoff, no dead
-#     end), not that a real Claude call happened or that a real PaceReadout renders. #44 (deploy)
-#     + #128 flipping the seam's binding to the real implementation.
-#   - History delete: `deleteHistoryAnalysis` (lib/history.ts) calls
-#     `DELETE /functions/v1/analysis/:id` (#57) — written+tested but NOT DEPLOYED, and moot here
-#     anyway since this flow's mock never creates a row to delete. See dead-end-quota-exhausted's
-#     header for the account-seeding gap that would be needed to test delete against a real row.
+# Issue #86 — the M7 gate: a stranger can sign up, receive a persisted live analysis, inspect its
+# PACE readout, delete it from History, and sign out with no dead end. The iOS dev-build wrapper
+# owns the fresh install and initial launch; this flow owns the user journey only.
 # ============================================================================================
 
 appId: com.ian.paceanalysisai
 ---
-- launchApp:
-    clearState: true
-
 # --- Sign-up (subflow leaves us on Home, freshly authenticated) --------------------------------
 - runFlow: subflows/sign-up.yaml
 
@@ -81,8 +36,9 @@ appId: com.ian.paceanalysisai
 # checks before navigating on) is comfortably satisfied.
 - tapOn:
     id: "record-button"
-- waitForAnimationToEnd:
-    timeout: 2000
+- extendedWaitUntil:
+    visible: "2s / 15s"
+    timeout: 5000
 - tapOn:
     id: "record-button"
 
@@ -100,50 +56,39 @@ appId: com.ian.paceanalysisai
 - tapOn: "Start analysis" # upload.ready.cta
 - assertVisible: "Analyzing" # analyzing.title
 
-# The mock waits ~4s (lib/analyze-form.ts's default delayMs) before resolving 'success'. 15s
-# budgets generously past that plus the step-list pacing (~2.55s) and any simulator slowness.
+# The deployed analysis service persists the completed result before this route resolves.
 - extendedWaitUntil:
-    visible: "Back to Home" # result.cta.done — see the note above on WHY this is what actually
-                             # renders, not a real PACE readout.
-    timeout: 15000
+    visible:
+      id: "result-readout-card"
+    timeout: 130000
 
-# --- Result screen — NOT the real readout; see the header note above for why the mock's success
-# path lands here (a real UUID id, but no matching `analyses` row to fetch). ---------------------
-- assertVisible: "Analysis not found." # result.error.notFound
-- assertVisible: "Retry" # result.error.retry — real, not decorative
-- assertVisible: "Back to Home" # result.cta.done
-- tapOn: "Back to Home"
-- assertVisible: "Start analysis" # back on Home
+# --- Result -> persisted History row ------------------------------------------------------------
+- assertVisible:
+    id: "pace-readout"
+- tapOn:
+    id: "result-done"
+- tapOn:
+    id: "tab-bar-history"
+- extendedWaitUntil:
+    visible:
+      id: "history-delete-.*"
+    timeout: 30000
+- tapOn:
+    id: "history-delete-.*"
+- assertVisible:
+    id: "history-delete-confirm"
+- tapOn: "Delete analysis"
+- extendedWaitUntil:
+    visible: "No analyses yet" # history.empty.title
+    timeout: 30000
 
-# --- History tab (issue #55, now real) — EMPTY is the honest, correct assertion here: the mock
-# client never talks to Supabase (lib/analyze-form.ts's header: "nothing here calls the Anthropic
-# API, Supabase, or any edge function"), so no `analyses` row was ever created for this account,
-# no matter how many times the block above runs in this same launch. ---------------------------
-- tapOn: "History" # history.title — the tab bar label, matched by text (no `tab-history`
-                    # testID exists yet; see ../README.md's HANDOFF)
-- assertVisible: "No analyses yet" # history.empty.title
-- assertVisible: "Start analysis" # history.empty.cta — proves History's own empty state isn't
-                                   # a dead end either, independent of Home's identical CTA
-
-# --- Settings -> sign out (independently real and reachable — does not depend on an analysis
-# existing, so it's exercised here even though no analysis was ever persisted). -----------------
-- tapOn: "Settings"
+# --- Settings -> sign out -----------------------------------------------------------------------
+- tapOn:
+    id: "history-settings"
 - assertVisible: "Settings"
 - tapOn: "Sign out"
-- assertVisible: "Sign out?" # native Alert confirm (Settings' confirmSignOut) — Alert is modal,
-                              # so the second "Sign out" tap below can only hit the Alert's own
-                              # button, not the row that opened it.
+- assertVisible:
+    id: "settings-dialog" # in-app confirmation dialog; the second tap reaches its primary action.
 - tapOn: "Sign out"
 - assertVisible:
     id: "entry-hero" # back at the signed-out hero — session cleared, guard swapped
-
-# ============================================================================================
-# STILL NOT COVERED HERE — genuine remaining gaps, not oversights:
-#   - Delete-analysis: `history-item-{id}` testID doesn't exist yet (rows are dynamic/list-based;
-#     only `history-frame-strip-{id}` / `history-frame-placeholder-{id}` do), and needs a real row
-#     — #44/#128 deploy plus #57 deploy.
-#   - Compare (Elite-only, #60) — this stranger is never Elite tier.
-#   - A cold-relaunch mid-analysis (#140's persisted marker) — needs killing/relaunching the
-#     simulator process mid-flow, a different Maestro mechanism (`stopApp` + `launchApp` without
-#     `clearState`) not exercised by this pass.
-# ============================================================================================

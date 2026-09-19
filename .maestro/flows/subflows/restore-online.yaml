@@ -1,0 +1,4 @@
+# Wrapper cleanup subflow — no launch command, only restores the Simulator network state.
+appId: com.ian.paceanalysisai
+---
+- setAirplaneMode: disabled

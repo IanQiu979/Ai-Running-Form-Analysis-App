@@ -21,23 +21,12 @@
 # forward rather than a dead end" — is genuinely true on `main` today. This flow is still
 # BLOCKED, but only on the precondition below, not on missing UI.
 #
-# PRECONDITION THIS FLOW STILL CANNOT SET UP ITSELF: a Free-tier account that has already spent
-# its one lifetime analysis needs a real `analyses` row with `status IN ('reserved','delivered')`
-# (app/(tabs)/index.tsx's own `hasUsedFreeAnalysis` query) — which needs a real, successful
-# `reserve_analysis`/`settle_analysis` RPC call, which needs `analyze-form` (#44) DEPLOYED (it is
-# written but not deployed — see ../flows/happy-path.yaml's header) and the capture->analyze
-# handoff, which is real now (#135) but talks to the dev MOCK, which never calls
-# `reserve_analysis`/writes a DB row (lib/analyze-form.ts's header: "nothing here calls the
-# Anthropic API, Supabase, or any edge function"). So even a full pass of happy-path.yaml,
-# repeated any number of times, cannot organically produce a quota-exhausted account today.
-# Until #44 deploys, this flow's `${MAESTRO_QUOTA_EXHAUSTED_EMAIL}`/
-# `${MAESTRO_QUOTA_EXHAUSTED_PASSWORD}` test account has to be seeded out of band — e.g. a
-# `seed-data`/`mocks-testdata` fixture that inserts one 'delivered' `analyses` row directly
-# (service-role, bypassing the RPC) for a known test user. No such fixture exists in this repo
-# today, and this worktree does not have service-role production access to seed one by hand
-# either (out of scope for the `.maestro/`-only file lane this issue's run was given, and CLAUDE.md's
-# "uploaded media is sensitive" / no-defense-in-depth cautions argue against ad hoc production
-# writes from an E2E script regardless). See HANDOFF in ../README.md.
+# PRECONDITION THIS FLOW CANNOT SET UP ITSELF: a Free-tier account that has already spent its one
+# lifetime analysis needs a persisted `analyses` row with `status IN ('reserved','delivered')`
+# (app/(tabs)/index.tsx's own `hasUsedFreeAnalysis` query). Its
+# `${MAESTRO_QUOTA_EXHAUSTED_EMAIL}` / `${MAESTRO_QUOTA_EXHAUSTED_PASSWORD}` fixture account must
+# be provisioned out of band. The wrapper requires those credentials and explicit fixture-flow
+# opt-in; this flow never seeds production data itself.
 #
 # Run with: maestro test --env MAESTRO_QUOTA_EXHAUSTED_EMAIL=... \
 #                          --env MAESTRO_QUOTA_EXHAUSTED_PASSWORD=... \
@@ -46,9 +35,6 @@
 
 appId: com.ian.paceanalysisai
 ---
-- launchApp:
-    clearState: true
-
 # The V23 entry flow (2026-09-14): a cold signed-out launch lands on the hero (app/(auth)/welcome),
 # whose "Continue" cue only becomes tappable once the hero's 3.2 s timeline has held (~4 s) —
 # hence `enabled: true`, not a bare visibility wait, or the tap lands on a disabled control and

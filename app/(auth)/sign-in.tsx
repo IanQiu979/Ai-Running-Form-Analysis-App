@@ -474,6 +474,7 @@ export default function SignInScreen() {
               <SquareButton
                 label={isSignUp ? Copy.auth.signUp.submit : Copy.auth.signIn.submit}
                 onPress={handleEmailSubmit}
+                testID="auth-email-submit"
                 disabled={isBusy || (isSignUp && (!captchaToken || !consentChecked))}
                 // Only when the button can NEVER become enabled. A missing token with a key
                 // present is the ordinary "solve the challenge" wait, which the visible widget

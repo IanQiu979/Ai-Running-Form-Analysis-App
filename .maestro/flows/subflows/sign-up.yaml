@@ -1,9 +1,9 @@
 # Subflow — signs up a brand-new "stranger" via email/password and lands on Home.
 #
 # Not a standalone test (excluded from ../../config.yaml's `flows/*.yaml` glob). The caller is
-# expected to have already run `launchApp: { clearState: true }` — a real stranger has no
-# existing session, and this subflow doesn't force that itself so it can also be reused later
-# for a repeat-signup negative test without double-clearing app state.
+# expected to have been freshly installed and launched by the iOS dev-build wrapper — a real
+# stranger has no existing session, and this subflow doesn't force that itself so it can also be
+# reused later for a repeat-signup negative test without double-clearing app state.
 #
 # Sets ${output.e2eEmail} / ${output.e2ePassword} so the caller can assert against the same
 # account afterward (e.g. signing back in, or a future delete-account flow).
@@ -13,8 +13,8 @@
 # Email/password is the only path a fully scripted "stranger" can take end to end.
 #
 # The installed Maestro CLI (1.39.0) requires every file it loads — including a runFlow:
-# subflow — to declare appId, even though it's inert here (the caller's launchApp already set the
-# target app). Added below 2026-07-25 after the first real execution attempt failed to parse
+# subflow — to declare appId, even though it is inert here (the wrapper already set the target
+# app). Added below 2026-07-25 after the first real execution attempt failed to parse
 # without it; contrary to this comment block's original assumption, "not a standalone test" does
 # not exempt a file from this version's parser.
 appId: com.ian.paceanalysisai
@@ -22,8 +22,8 @@ appId: com.ian.paceanalysisai
 - evalScript: ${output.e2eEmail = 'maestro.e2e+' + Date.now() + '@example.com'}
 - evalScript: ${output.e2ePassword = 'Pace-e2e-' + Date.now() + '!Aa'}
 
-# extendedWaitUntil, not a bare assertVisible: a cold app launch (right after launchApp's
-# clearState) takes noticeably longer to reach the first screen than a warm one, and Maestro's
+# extendedWaitUntil, not a bare assertVisible: a fresh wrapper-owned app launch takes noticeably
+# longer to reach the first screen than a warm one, and Maestro's
 # own iOS driver can take 15-20s just to finish connecting on a loaded host before it can query
 # anything at all. 45s gives real headroom for both — but see ../../README.md's 2026-07-25 update
 # before assuming a longer timeout alone fixes a failure here: this exact assertion has also
@@ -48,7 +48,7 @@ appId: com.ian.paceanalysisai
 
 # The screen opens in sign-up mode (V23-06's first artboard) — no mode toggle needed; the footer
 # reads "Already have an account? Sign in" and is left alone.
-- assertVisible: "Create account"
+- assertVisible: "Get started"
 
 # No testID on these two TextInputs today — matched by their placeholder text, which doubles as
 # their accessibilityLabel (app/(auth)/sign-in.tsx). See the HANDOFF block in ../../README.md:
@@ -59,11 +59,32 @@ appId: com.ian.paceanalysisai
 - tapOn: "Password"
 - inputText: "${output.e2ePassword}"
 
-# The 16+ / Terms consent checkbox (app/(auth)/sign-in.tsx). "Create account" stays disabled
-# until it is ticked, alongside the captcha token.
+# The 16+ / Terms consent checkbox always gates account creation. Cloudflare can either present
+# its visible challenge or auto-resolve, so tap the challenge only when it is actually present.
+# Its success state expands the form and can push the submit button below the viewport.
 - tapOn:
     id: "signup-consent"
-- tapOn: "Create account"
+- runFlow:
+    when:
+      visible: "Verify you are human"
+    commands:
+      - tapOn: "Verify you are human"
+- extendedWaitUntil:
+    visible: "Success!"
+    timeout: 45000
+- scrollUntilVisible:
+    element:
+      id: "auth-email-submit"
+    direction: DOWN
+    timeout: 45000
+- extendedWaitUntil:
+    visible:
+      id: "auth-email-submit"
+      enabled: true
+    timeout: 45000
+- takeScreenshot: "auth-email-submit-ready"
+- tapOn:
+    id: "auth-email-submit"
 
 # Supabase email confirmation is disabled for this MVP (supabase/config.toml) — the session
 # should exist immediately, and app/_layout.tsx's Stack.Protected should swap straight from
