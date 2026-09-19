@@ -628,9 +628,10 @@ npm run test:edge        # npm run verify:knowledge && deno test --config supaba
 
 — folded into the existing commands rather than left as a second gate someone has to remember:
 `npm run typecheck` is now `tsc --noEmit && npm run typecheck:edge`, and `npm run test` is now
-`jest && npm run test:edge`. CLAUDE.md's mandated `npm run typecheck && npm run lint && npm test`
-therefore covers edge code for the first time, with no change to the commands anyone actually
-types. Running `deno check` for the first time immediately caught a real, previously-invisible
+`jest && npm run test:edge` (a third leg, `npm run test:e2e-harness`, was chained on 2026-09-20 —
+CLAUDE.md's Commands table owns the current composition). CLAUDE.md's mandated
+`npm run typecheck && npm run lint && npm test` therefore covers edge code for the first time, with
+no change to the commands anyone actually types. Running `deno check` for the first time immediately caught a real, previously-invisible
 bug in `ai-guard-client.ts` (issue #91): `@supabase/supabase-js`'s `.rpc()` returns a
 `PostgrestFilterBuilder` — thenable, but not structurally a `Promise` (missing `catch`/`finally`/
 `Symbol.toStringTag`) — which didn't satisfy `RpcClient.rpc()`'s declared `Promise<...>` return
@@ -3895,6 +3896,16 @@ screenshot from the same failed assertion shows is genuinely on screen — diagn
 problem (45s wasn't enough either) and not an app or script bug. Re-run on an otherwise-idle host,
 or against a newer Maestro CLI, to get a clean pass — see `.maestro/README.md` for the full
 diagnosis.
+
+**UPDATE 2026-09-20 (issue #203):** the flows now run against the `development`-profile EAS build
+and the live production project through `npm run e2e:maestro:ios-dev`
+(`scripts/run-maestro-ios-dev-build.sh`, whose preflight is behavior-checked by
+`scripts/test-run-maestro-ios-dev-build.sh` inside `npm test`). `happy-path` and
+`dead-end-offline` sign in with a fixture account via the new `subflows/sign-in.yaml` (sign-up is
+blocked by app bug #230), `happy-path` clears History first via `subflows/clear-history.yaml`, and
+both reach the Record step before failing on `expo-camera`'s `SimulatorNotSupported` (app/SDK bug
+#232). `.maestro/README.md`'s 2026-09-20 section owns the fixture account, the run command, its
+environment variables and the per-flow pass/fail matrix — do not copy them here.
 
 ## Current — local Supabase stack (issue #92, 2026-07-25)
 

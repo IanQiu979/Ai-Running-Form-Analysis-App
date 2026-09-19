@@ -222,7 +222,8 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
 ## Testing
 
 `jest-expo` is installed via `jest.config.js` (`passWithNoTests: true` is a leftover from when the
-repo had no tests; it now has a large suite — run `npm test` for the current count, app + edge).
+repo had no tests; it now has a large suite — run `npm test` for the current count: app, edge and
+the Maestro harness checks).
 New logic added to `lib/` gets a test alongside it — that rule is load-bearing, not aspirational.
 
 Two RNTL conventions this repo's setup requires, neither of which is the library's documented

@@ -968,6 +968,14 @@ milestone "done" criteria.
     in this sandbox (a Maestro iOS accessibility-tree driver flakiness, not an app/script bug). Do
     not yet treat these as a passing gate. See `docs/architecture.md`'s `.maestro/` E2E section and
     `.maestro/README.md`'s 2026-07-25 update for the full diagnosis and how to get a clean run.
+    **UPDATE 2026-09-20 (issue #203):** a repeatable command now exists (`npm run
+    e2e:maestro:ios-dev`, against the EAS development build and the live project) and the
+    accessibility-bridge flakiness is no longer what blocks the pass — two real app bugs are:
+    sign-up's "Create account" button is not painted after Turnstile succeeds (issue #230; the
+    flows sign in with a fixture account instead), and `expo-camera`'s `record()` throws
+    `SimulatorNotSupported` on the Simulator (issue #232), which stops both runnable flows before
+    the capture→analyze handoff. Still not a passing gate. `.maestro/README.md`'s 2026-09-20
+    section owns the fixture account, run command and pass/fail matrix.
 32. **RESOLVED 2026-08-06 — the per-user orphan-purge ACTION is now scheduled (issue #7's action
     half, 2026-07-13; decision `orphan-sweep-scheduling-mechanism`).**
     `supabase/functions/_shared/storage-sweep.ts`'s `sweepOrphanedMediaPrefixes()` is pure,
@@ -2072,8 +2080,8 @@ still standing between here and a public/TestFlight release:
   before or with the client release (the new client rejects the retired sample shape), and the
   local Postgres integration proof for it could not be run this session (Docker was stopped) —
   report that proof as **unproven**, never as passing.
-- **Known Issue #31** — `.maestro/` E2E flows ran for the first time 2026-07-25 but are not yet a
-  clean, repeatable pass.
+- **Known Issue #31** — `.maestro/` E2E flows have a repeatable dev-build command (2026-09-20) but
+  are not yet a clean pass: blocked by app bugs #230 (sign-up CTA) and #232 (Simulator `record()`).
 - **Known Issue #24/#34** — several blocks of uncertified copy across Settings, consent, paywall,
   history, and password-reset screens still need `ux-copywriter`/Ian review.
 - [`docs/blocked-on-apple.md`](blocked-on-apple.md) — everything gated on the Apple Developer
