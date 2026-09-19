@@ -610,12 +610,15 @@ describe('extractFrames — video input — low-frame-rate footage still produce
     expect(player.release).toHaveBeenCalledTimes(1);
   });
 
-  // The floor is `min(3, requested)`, not a flat 3: Free's video cap is a single frame
-  // (`PACE_FRAME_CAP.free === 1`), and a caller that only asked for one has lost nothing to
-  // collisions. A flat floor would have made every free-tier video permanently unanalyzable.
-  it('still accepts a free-tier single-frame video, which can never reach three frames', async () => {
+  // The floor is `min(3, requested)`, not a flat 3: a caller that only asked for one frame has
+  // lost nothing to collisions. No shipped tier asks for one any more — Free's video cap moved to
+  // Pro's 5-frame burst on 2026-09-19 (issue #89) — but a single-frame request is still a valid
+  // input (a stale client build, or a caller with no cap at all), and a flat floor would have made
+  // it permanently unanalyzable.
+  it('still accepts a single-frame video request, which can never reach three frames', async () => {
+    const SINGLE_FRAME = 1;
     const durationMs = 10_000;
-    const timestamps = sampleTimestamps(durationMs, PACE_FRAME_CAP.free);
+    const timestamps = sampleTimestamps(durationMs, SINGLE_FRAME);
     mockCreateVideoPlayer.mockReturnValueOnce(
       createFakePlayer({ thumbnailsResult: [fakeThumbnail(timestamps[0], timestamps[0])] }),
     );
@@ -623,7 +626,7 @@ describe('extractFrames — video input — low-frame-rate footage still produce
 
     const result = await extractFrames(
       { mediaType: 'video', uri: 'file://clip.mp4', durationMs },
-      PACE_FRAME_CAP.free,
+      SINGLE_FRAME,
     );
 
     expect(result.frames).toHaveLength(1);
@@ -757,15 +760,18 @@ describe('extractFrames — client/server tier-cap agreement (reserve_analysis a
   // function that is the ACTUAL enforcement point (CLAUDE.md: "No business rules in the client";
   // this file's own header: "a build that sent more frames than its tier allows would still be
   // rejected there, not here") — hardcodes its own, independently-maintained copy of the same
-  // numbers (`supabase/migrations/20260711150400_quota_reserve_settle_release.sql`: `v_frame_cap
-  // := case v_tier when 'free' then 1 when 'pro' then 5 when 'elite' then 8 end;`, reasserted
-  // byte-for-byte in every migration that has since replaced `reserve_analysis`'s body). Nothing
-  // makes a TypeScript object literal and a Postgres CASE expression stay equal automatically —
-  // this test is that guarantee for the repo's two source files. If it fails, the two have
-  // drifted: either `reserve_analysis` now rejects a tier's honestly-built submission with
-  // `frame_cap_exceeded`, or the client is under-using a tier the user paid for.
-  it("matches reserve_analysis's hardcoded per-tier frame caps exactly (free:1 / pro:5 / elite:8)", () => {
-    expect(PACE_FRAME_CAP).toEqual({ free: 1, pro: 5, elite: 8 });
+  // numbers (`supabase/migrations/20260919120000_free_video_stride_burst_frame_cap.sql`:
+  // `v_frame_cap := case v_tier when 'free' then 5 when 'pro' then 5 when 'elite' then 8 end;` —
+  // Free was 1 from 20260711150400 until issue #89 was decided on 2026-09-19, and the expression
+  // is reasserted byte-for-byte in every migration that replaces `reserve_analysis`'s body).
+  // Nothing makes a TypeScript object literal and a Postgres CASE expression stay equal
+  // automatically — this test is that guarantee for the repo's two source files, and
+  // `supabase/functions/_shared/__tests__/free-video-frame-cap-sql.deno.test.ts` proves the SQL
+  // side behaviourally. If it fails, the two have drifted: either `reserve_analysis` now rejects
+  // a tier's honestly-built submission with `frame_cap_exceeded`, or the client is under-using a
+  // tier the user paid for.
+  it("matches reserve_analysis's hardcoded per-tier frame caps exactly (free:5 / pro:5 / elite:8)", () => {
+    expect(PACE_FRAME_CAP).toEqual({ free: 5, pro: 5, elite: 8 });
   });
 
   // THE fail-safe-DIRECTION lock. `extractVideoFrames` has no ceiling of its own — it

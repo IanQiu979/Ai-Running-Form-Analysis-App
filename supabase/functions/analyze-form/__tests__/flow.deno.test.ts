@@ -2718,6 +2718,107 @@ Deno.test('a PHOTO submission keeps needsVideo, which is true there', async () =
   assertEquals(pillars.cadence.notAssessedReason, 'needsVideo');
 });
 
+/** A Free VIDEO as the client extracts it since issue #89 (2026-09-19): Pro's 5-frame stride burst
+ * (`lib/frames.ts` `sampleTimestamps` — one ~700ms window, ~175ms apart), inside
+ * `MAX_STRIDE_BURST_SPAN_MS` so the prompt classifies it as a burst. */
+const FREE_BURST_VIDEO_BODY = {
+  mediaType: 'video',
+  frames: ['AAAA', 'BBBB', 'CCCC', 'DDDD', 'EEEE'],
+  timestamps: [0, 175, 350, 525, 700],
+  idempotencyKey: 'free-burst-video',
+};
+
+Deno.test('#89: a Free 5-frame stride burst keeps all four pillars, drops only paid content, and averages all four', async () => {
+  // The model scored every pillar and — as a paid tier would — also raised a flag and a drill on
+  // Cadence. On Free the two MOTION pillars must SURVIVE (this is the whole decision: the burst is
+  // what makes them honest), while flags/drills are still stripped on every pillar (Free content
+  // rule, unchanged). `overall` is recomputed from the four surviving scores, not copied from the
+  // model, because normalization touched the result.
+  const h = harness([
+    ok({
+      pillars: {
+        posture: scoredPillar(80, 'good'),
+        armSwing: scoredPillar(72, 'good'),
+        cadence: {
+          ...scoredPillar(60, 'mid'),
+          feedback: 'The foot lands ahead of the hips at contact.',
+          flags: [{ pattern: 'Overstriding', detail: 'Landing ahead of the hips.' }],
+          drills: [{ name: 'Wall drill', instructions: 'Lean from the ankles.' }],
+        },
+        elasticity: scoredPillar(90, 'strong'),
+      },
+      // Deliberately wrong so the test can tell a recompute from a pass-through: mean(80,72,60,90)
+      // is 75.5 -> 76, and the model said 50.
+      overall: { score: 50, band: 'mid' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, FREE_BURST_VIDEO_BODY);
+
+  assertEquals(res.status, 200);
+  const result = res.body.result as {
+    pillars: Record<
+      string,
+      { score: number | null; band: string | null; notAssessedReason?: string; flags: unknown[]; drills: unknown[] }
+    >;
+    overall: { score: number | null; band: string | null };
+  };
+
+  for (const id of ['posture', 'armSwing', 'cadence', 'elasticity']) {
+    assert(result.pillars[id].score !== null, `${id} must survive on a Free 5-frame burst`);
+    assertEquals(result.pillars[id].notAssessedReason, undefined, `${id} must carry no not-assessed reason`);
+    assertEquals(result.pillars[id].flags, [], `${id}: flags are paid-tier content on Free`);
+    assertEquals(result.pillars[id].drills, [], `${id}: drills are paid-tier content on Free`);
+  }
+  assertEquals(result.pillars.cadence.score, 60, 'the burst-scored Cadence is delivered as scored');
+  assertEquals(result.pillars.elasticity.score, 90, 'the burst-scored Elasticity is delivered as scored');
+  // The rule where it is computed (`deriveOverall`): the mean of ASSESSED pillars only, rounded.
+  assertEquals(result.overall, { score: 76, band: 'good' });
+
+  // The burst was handed the cross-frame rules, not the one-frame rule — the frame count picks
+  // the medium rules, and five frames is not one. The medium rules ride in the system prompt; the
+  // tier dial rides in the user turn, so both halves of the request are read.
+  const request = h.model.requests[0];
+  const prompt =
+    systemText(request) +
+    '\n' +
+    request.messages[0].content
+      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n');
+  assert(prompt.includes('WHAT ONE STRIDE CYCLE CAN AND CANNOT SUPPORT'), 'Free burst must get the stride-burst rules');
+  assert(!prompt.includes('You CANNOT assess Cadence or Elasticity from one frame'), 'Free burst must not get the photo rule');
+  assert(prompt.includes('TIER: FREE.'), 'the Free depth dial still applies');
+
+  // Charged as a normal delivered result: not zero-pillar, not a fallback, one settle.
+  const settle = h.rpc.to('settle_analysis');
+  assertEquals(settle.length, 1);
+  assertEquals(settle[0].args.p_zero_pillar, false);
+  assertEquals(res.body.isFallback, false);
+});
+
+Deno.test('#89: a Free PHOTO is still one frame and still reads 2 of 4 — the burst did not loosen the photo rule', async () => {
+  const h = harness([ok()]);
+  h.rpc.handlers.reserve_analysis = () => freeReserve();
+
+  const res = await run(h, ONE_FRAME_PHOTO_BODY);
+
+  assertEquals(res.status, 200);
+  const result = res.body.result as {
+    pillars: Record<string, { score: number | null; notAssessedReason?: string }>;
+    overall: { score: number | null; band: string | null };
+  };
+  assertEquals(result.pillars.posture.score, 80);
+  assertEquals(result.pillars.armSwing.score, 72);
+  assertEquals(result.pillars.cadence.score, null);
+  assertEquals(result.pillars.cadence.notAssessedReason, 'needsVideo');
+  assertEquals(result.pillars.elasticity.score, null);
+  assertEquals(result.pillars.elasticity.notAssessedReason, 'needsVideo');
+  // mean(80, 72) = 76 — the two withheld pillars are neither zeros nor divisors.
+  assertEquals(result.overall, { score: 76, band: 'good' });
+});
+
 Deno.test('a certified safety note is carried STRUCTURALLY, never composed into feedback, on every tier and frame path', async () => {
   const paths = [
     { tier: 'free', body: ONE_FRAME_VIDEO_BODY },

@@ -99,7 +99,9 @@ supabase/functions/
 
 ### Frame pipeline (the new part vs Echo)
 
-- **Per-tier frame counts:** Free 1 / Pro 5 / Elite 8, enforced server-side against the tier.
+- **Per-tier frame counts:** Free 5 / Pro 5 / Elite 8 for a video (a photo is exactly 1 frame on
+  every tier; Free was 1 until issue #89, 2026-09-19 — see `PACE_FRAME_CAP` in
+  `supabase/functions/_shared/pace.ts`), enforced server-side against the tier.
 - **Sampling:** requested timestamps are spaced evenly across the **5%–95%** window of the clip
   (never t=0/end — extractor edge failures); Android snaps to the nearest keyframe and exposes no
   way to read back the frame it actually decoded, so what's recorded and passed to the prompt is

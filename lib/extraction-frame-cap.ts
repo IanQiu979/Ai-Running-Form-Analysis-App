@@ -36,10 +36,11 @@ import { PACE_FRAME_CAP } from '@shared/pace';
 import type { QuotaStatusResult } from './quota';
 
 /**
- * THE DELIBERATE FALLBACK, and the whole reason it is a named constant rather than a bare `1`:
- * every path below that cannot obtain a trustworthy server number lands here on purpose, not by
- * accident. Free's cap is the smallest of the three, so falling back to it can only ever
- * UNDER-request frames — never over-request them against a tier the caller does not have.
+ * THE DELIBERATE FALLBACK, and the whole reason it is a named constant rather than a bare
+ * number: every path below that cannot obtain a trustworthy server number lands here on purpose,
+ * not by accident. Free's cap is the smallest of the three (5 since #89 — Pro's burst; it was 1
+ * before 2026-09-19), so falling back to it can only ever UNDER-request frames — never
+ * over-request them against a tier the caller does not have.
  *
  * Sourced from `@shared/pace` rather than written as a literal so it cannot drift from the value
  * `reserve_analysis` enforces for free (locked by `lib/__tests__/frames.test.ts`'s

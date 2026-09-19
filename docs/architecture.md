@@ -1474,8 +1474,9 @@ app/capture/
                 # caption cannot promise a count the extraction won't produce; a bounded
                 # `preparing` state (spinner under the existing title, no new copy) covers the
                 # window before it is known. A failed/unauthorized/slow lookup degrades to the
-                # free cap on purpose, never upward. A PHOTO is always exactly 1 frame and makes
-                # no quota call at all. Surfaces `FrameBudgetExceededError`
+                # free cap on purpose, never upward (the free cap is Pro's 5-frame burst since
+                # issue #89, 2026-09-19 — still the smallest of the three). A PHOTO is always
+                # exactly 1 frame and makes no quota call at all. Surfaces `FrameBudgetExceededError`
                 # (`upload.error.budgetExceeded`, no Retry — the same input would fail again),
                 # InsufficientFramesError (`upload.error.unsupportedFootage`, also no Retry —
                 # low-frame-rate footage collides identically every time; issue #199, checked
@@ -1658,10 +1659,17 @@ the original video (see "Media pipeline" below).
    not-yet-updated client build might still send (`MAX_STRIDE_BURST_SPAN_MS`,
    `analyze-form-prompt.ts`). The frames ride in the request body as base64 and are **not**
    uploaded by the client — the server writes them to the bucket itself, after the model call
-   (#88). Frame count per tier: Free 1 / Pro 5 / Elite 8 — the client learns which applies to a
-   given caller from `quota-status`'s authoritative `frameCap` field
-   (`lib/extraction-frame-cap.ts`), never by indexing its own per-tier table, and
-   `reserve_analysis` re-checks the real cap server-side regardless.
+   (#88). Frame count per tier: **Free 5 / Pro 5 / Elite 8** for a VIDEO (a photo is exactly 1
+   frame on every tier) — the client learns which applies to a given caller from `quota-status`'s
+   authoritative `frameCap` field (`lib/extraction-frame-cap.ts`), never by indexing its own
+   per-tier table, and `reserve_analysis` re-checks the real cap server-side regardless. **Free
+   was 1 until 2026-09-19 (issue #89):** the captain's decision gives Free's one lifetime VIDEO
+   analysis the SAME stride burst as Pro, so Cadence and Elasticity can be assessed on the free
+   trial instead of every trial reading 2 of 4 by construction; a Free PHOTO stays one frame with
+   the honest "Requires video" copy on those two pillars
+   (`supabase/migrations/20260919120000_free_video_stride_burst_frame_cap.sql`). `overall` is the
+   rounded mean of the ASSESSED pillars only — the rule is stated once, where it is computed, on
+   `deriveOverall` in `analyze-form-validation.ts`.
 7. **Build the grounded prompt** — **built, issue #41**: `supabase/functions/_shared/analyze-form-prompt.ts`.
    System message = the certified PACE knowledge (framework + injury flags + drills, bundled with
    the function, not fetched per call), then the image block(s) each labelled with their
@@ -2156,8 +2164,9 @@ retaining these live four-argument functions for DB-first rollout and rollback.*
   its status** — a caller MUST branch on the returned `status`, not just `allowed` (a replayed
   request against a since-released reservation returns `allowed: true, existing: true, status:
   "released"`). Tier is derived server-side from `subscriptions` (no row = `free`), never
-  trusted from the caller. Enforces, in order: frame-count cap per tier (Free 1 / Pro 5 /
-  Elite 8 — photo must be exactly 1 frame), the 3-failed-attempt anti-farming cap (counts
+  trusted from the caller. Enforces, in order: frame-count cap per tier (Free 5 / Pro 5 /
+  Elite 8 since `20260919120000` (issue #89); photo must be exactly 1 frame on every tier), the
+  3-failed-attempt anti-farming cap (counts
   `'released'` rows in the window — a released reservation never counts toward the quota limit,
   but does count here, since failures/fallbacks don't cost quota and would otherwise be a free
   retry farm), then the quota limit itself (Free 1 **lifetime**, count of all
@@ -3264,7 +3273,9 @@ counter), and a new, unconditional, server-side **normalization step** —
 `normalizeForEvidenceAndTier()` in `flow.ts` — that runs after the model call and before settle,
 and is never merely prompt-guided:
 
-- **Any one-frame submission** (Free's only allowance, and any photo from any tier) has Cadence and
+- **Any one-frame submission** (any photo from any tier, and any video that reached the server as
+  one frame — Free's only allowance until issue #89, 2026-09-19; a Free video is now the same
+  5-frame burst as Pro and keeps all four pillars) has Cadence and
   Elasticity forced to not-assessed, discarding EVERYTHING the model claimed about them — score,
   band, feedback prose, flags, drills — closing exactly the hallucinated-cadence failure mode the
   old sample shipped, this time for real model output too, not just the canned one. The reason

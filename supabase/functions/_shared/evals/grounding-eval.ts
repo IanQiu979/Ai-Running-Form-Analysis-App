@@ -320,9 +320,11 @@ async function pngFrame(bytes: Uint8Array, requestedTimestampMs: number): Promis
 }
 
 /**
- * FIVE CASES, FIVE LIVE CALLS. This is the minimum set that proves all four gates plus the safety
+ * SIX CASES, SIX LIVE CALLS. This is the minimum set that proves all four gates plus the safety
  * contract — not a matrix. Each call is billed, so every case here has to earn its place, and one
- * that proves nothing the others do not should be deleted rather than kept for symmetry.
+ * that proves nothing the others do not should be deleted rather than kept for symmetry. The sixth
+ * (`stride-video-free`) was added when #89 was decided: it is the only case that can show the
+ * free tier scoring Cadence/Elasticity from a burst while still withholding paid content.
  *
  * THE ELITE CASE WAS ADDED FOR THE SAFETY CONTRACT, and only for it. This set deliberately had no
  * Elite case before, on the sound reasoning that Elite and Pro run the same prompt path and differ
@@ -350,9 +352,10 @@ export async function buildCases(): Promise<GroundingCase[]> {
       tier: 'free',
       media: 'photo',
       intent:
-        'The free tier as it actually ships: ONE frame (PACE_FRAME_CAP.free === 1). A runner with ' +
-        'a plain overstride. Cadence and Elasticity are motion over time and CANNOT be scored from ' +
-        'one still — the model must say so rather than guess. This is issue #89 in the flesh.',
+        'A free-tier PHOTO: one frame, on every tier. A runner with a plain overstride. Cadence ' +
+        'and Elasticity are motion over time and CANNOT be scored from one still — the model must ' +
+        'say so rather than guess. Since #89 was decided (2026-09-19) this is the honest 2-of-4 ' +
+        'shape a PHOTO keeps; a Free VIDEO now runs the stride burst (see `stride-video-free`).',
       proves: ['gate 2 (pillars + parse)', 'gate 3 (no unsupported pillar)', 'gate 4 (Free: no drills)'],
       frames: [stillFrame],
       expect: {
@@ -412,10 +415,11 @@ export async function buildCases(): Promise<GroundingCase[]> {
       tier: 'pro',
       media: 'video',
       intent:
-        'Five frames of a stride cycle, torso rising and falling. THE COMPLEMENT OF #89: with ' +
-        'motion across frames, all four pillars become assessable — which is what makes the ' +
-        "free tier's one-frame cap a product decision rather than a law of physics. Also the only " +
-        'case that can prove the flag->drill path: a flag raised must bring a certified drill with it.',
+        'Five frames of a stride cycle, torso rising and falling. With motion across frames, all ' +
+        'four pillars become assessable — the observation that made the free tier\'s old one-frame ' +
+        'cap a product decision rather than a law of physics (#89, decided 2026-09-19: Free video ' +
+        'now extracts this same burst). Also the only case that can prove the flag->drill path: a ' +
+        'flag raised must bring a certified drill with it.',
       proves: [
         'gate 2 (all four pillars scoreable with motion)',
         'gate 4 (flags -> certified drills)',
@@ -438,6 +442,24 @@ export async function buildCases(): Promise<GroundingCase[]> {
       proves: [
         'the safety contract at the top tier (`invalid_safety` is not reachable in practice)',
         'gate 3 (Elite depth still cannot unlock a fabrication)',
+      ],
+      frames: strideFrames,
+      expect: { unsupportedPillars: [], nothingAssessable: false },
+    },
+    {
+      id: 'stride-video-free',
+      tier: 'free',
+      media: 'video',
+      intent:
+        'ISSUE #89 AS DECIDED (2026-09-19): the free tier\'s ONE lifetime VIDEO analysis runs the ' +
+        'same stride burst as Pro (PACE_FRAME_CAP.free === PACE_FRAME_CAP.pro), so Cadence and ' +
+        'Elasticity CAN be assessed on the free trial — byte-identical frames to `stride-video-pro`, ' +
+        'only the tier differs. What Free still must not get is unchanged: no flags, no drills, one ' +
+        'sentence per pillar (gate 4). No pillar is out of reach here; a null Cadence/Elasticity on ' +
+        'this input is not dishonesty, but a scored one is what the decision exists to make possible.',
+      proves: [
+        'gate 2 (all four pillars scoreable with motion, ON FREE)',
+        'gate 4 (Free: no flags, no drills, even with motion evidence)',
       ],
       frames: strideFrames,
       expect: { unsupportedPillars: [], nothingAssessable: false },
@@ -1280,8 +1302,10 @@ export { readAttempt };
 // -------------------------------------------------------------------------------------------
 
 export interface FreeTierCeiling {
+  /** How many frames a Free submission of this medium actually carries: 1 for a photo (every
+   * tier), `PACE_FRAME_CAP.free` for a video. */
   frameCap: number;
-  /** Pillars a free submission can never have scored, given the cap. */
+  /** Pillars a free submission of this medium can never have scored, given that frame count. */
   unreachablePillars: PacePillarId[];
   /** e.g. "2 of 4". */
   bestCase: string;
@@ -1290,21 +1314,22 @@ export interface FreeTierCeiling {
 /**
  * ISSUE #89, AS ARITHMETIC. No model, no images, no spend — just the repo's own constants.
  *
- * `PACE_FRAME_CAP.free` is 1. A one-frame submission is a single still. `analyze-form-prompt.ts`'s
- * MEDIUM_RULES.photo says a still "CANNOT assess Cadence or Elasticity ... Both are motion over
- * time" and requires `score: null` for both. Therefore a Free user — even one who submits a
- * flawless side-on clip — can be scored on AT MOST 2 of the 4 pillars in the product's own name.
- * Every time. By construction.
+ * The ceiling is a property of the MEDIUM, not the tier. A photo is one frame on every tier, and
+ * `analyze-form-prompt.ts`'s MEDIUM_RULES.photo says a still "CANNOT assess Cadence or Elasticity
+ * ... Both are motion over time" and requires `score: null` for both — so a Free PHOTO is scored on
+ * at most 2 of the 4 pillars, honestly and by construction. A Free VIDEO carries
+ * `PACE_FRAME_CAP.free` frames: while that was 1 (before 2026-09-19) the same 2-of-4 ceiling
+ * applied to every free trial, clip or not — the collision #89 was filed about. The captain's
+ * decision raised it to Pro's 5-frame stride burst, so a Free video can now reach all four.
  *
- * That is not a bug in the model and this harness must not "fix" it: it is the expected, correct
- * behaviour of an honest analyzer under a product decision nobody has made yet. #89 is blocked on
- * Ian (raise Free's cap to ~3 frames, or keep the cap and sell the limitation honestly in the
- * paywall copy). What this harness owes the decision is EVIDENCE, and this function is it — plus
- * the `still-free` fixture, which shows the live model doing exactly this.
+ * This function is the evidence in both directions: the deno test over it asserts that Free video
+ * CAN reach Cadence/Elasticity and that Free photo never does, so the day either half changes,
+ * the change announces itself. The harness must never "fix" the photo half: it is the expected,
+ * correct behaviour of an honest analyzer.
  */
-export function freeTierCeiling(): FreeTierCeiling {
-  const frameCap = PACE_FRAME_CAP.free;
-  // A cap of 1 frame is a photo, and a photo cannot carry motion-over-time.
+export function freeTierCeiling(media: PaceMediaKind): FreeTierCeiling {
+  const frameCap = media === 'photo' ? 1 : PACE_FRAME_CAP.free;
+  // One frame is a still, and a still cannot carry motion-over-time.
   const unreachablePillars: PacePillarId[] = frameCap < 2 ? ['cadence', 'elasticity'] : [];
   const reachable = PACE_PILLARS.length - unreachablePillars.length;
   return {

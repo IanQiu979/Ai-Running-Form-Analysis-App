@@ -20,6 +20,7 @@ import { Copy } from '@/constants/copy';
 import {
   allNotAssessedResult,
   fallbackResult,
+  freeTierVideoResult,
   photoResult,
   poorFramingPhotoResult,
   proTierVideoResult,
@@ -34,6 +35,9 @@ describe('countAssessedPillars', () => {
 
   it('counts exactly two for a photo result (Cadence + Elasticity are structurally unassessable)', () => {
     expect(countAssessedPillars(photoResult)).toBe(2);
+    // Issue #89: a Free VIDEO result carries all four scores (flags/drills empty), so the
+    // "Partial read" banner the screen gates on this count never appears for it.
+    expect(countAssessedPillars(freeTierVideoResult)).toBe(4);
   });
 
   it('counts one for a badly-framed photo (Posture also fails)', () => {
