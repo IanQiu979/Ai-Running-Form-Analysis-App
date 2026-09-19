@@ -39,6 +39,8 @@ Environment:
   MAESTRO_OUTPUT_DIR                  Run-scoped JUnit and debug-artifact directory
   MAESTRO_ALLOW_PAID_ANALYSIS=1       Required for each live analysis flow
   MAESTRO_ALLOW_FIXTURE_FLOWS=1       Required for the quota fixture flow
+  MAESTRO_E2E_EMAIL/PASSWORD          Required for happy-path/dead-end-offline (sign-up is
+                                      blocked by issue #230 on this build; see README)
 
 The caller's MAESTRO_* credential variables are preserved for Maestro interpolation.
 EOF
@@ -170,6 +172,7 @@ validate_flow_policy() {
       ;;
     happy-path.yaml|dead-end-offline.yaml)
       [[ "${MAESTRO_ALLOW_PAID_ANALYSIS:-}" == "1" ]] || fail "$flow_name submits a live analysis and requires MAESTRO_ALLOW_PAID_ANALYSIS=1."
+      [[ -n "${MAESTRO_E2E_EMAIL:-}" && -n "${MAESTRO_E2E_PASSWORD:-}" ]] || fail "$flow_name signs in to a pre-provisioned fixture account (issue #230 blocks sign-up on this build) and requires MAESTRO_E2E_EMAIL and MAESTRO_E2E_PASSWORD."
       ;;
   esac
 }
@@ -340,16 +343,39 @@ fresh_install() {
   xcrun simctl privacy "$UDID" reset all "$APP_ID" || return 1
 }
 
+flow_env_args() {
+  # `maestro test` only interpolates ${VAR} for names passed via -e/--env — it does NOT read the
+  # process environment on its own (confirmed empirically 2026-09-19: an exported-but-not--e'd
+  # var renders as the literal string "null" in the flow, not its value). Each flow gets exactly
+  # the credential pair its own yaml references, so an unset, irrelevant var never leaks in as
+  # "null" for a flow that doesn't need it.
+  local flow_name="$1"
+  local -a env_args=()
+  case "$flow_name" in
+    happy-path.yaml|dead-end-offline.yaml)
+      env_args=(-e "MAESTRO_E2E_EMAIL=${MAESTRO_E2E_EMAIL:-}" -e "MAESTRO_E2E_PASSWORD=${MAESTRO_E2E_PASSWORD:-}")
+      ;;
+    dead-end-quota-exhausted.yaml)
+      env_args=(-e "MAESTRO_QUOTA_EXHAUSTED_EMAIL=${MAESTRO_QUOTA_EXHAUSTED_EMAIL:-}" -e "MAESTRO_QUOTA_EXHAUSTED_PASSWORD=${MAESTRO_QUOTA_EXHAUSTED_PASSWORD:-}")
+      ;;
+  esac
+  printf '%s\n' "${env_args[@]}"
+}
+
 run_flow() {
   local flow="$1" name output_dir
+  local -a env_args=()
   name="$(basename "$flow" .yaml)"
   output_dir="$RUN_OUTPUT_DIR/$name"
   mkdir -m 700 "$output_dir" || return 1
+  while IFS= read -r arg; do
+    [[ -n "$arg" ]] && env_args+=("$arg")
+  done < <(flow_env_args "$(basename "$flow")")
 
   fresh_install || return 1
   xcrun simctl spawn "$UDID" defaults write "$APP_ID" EXDevMenuIsOnboardingFinished -bool YES || return 1
   xcrun simctl launch "$UDID" "$APP_ID" --initialUrl "http://localhost:$METRO_PORT" || return 1
-  maestro --udid "$UDID" test --format junit --output "$output_dir/junit.xml" --debug-output "$output_dir/debug" "$flow"
+  maestro --udid "$UDID" test "${env_args[@]}" --format junit --output "$output_dir/junit.xml" --debug-output "$output_dir/debug" "$flow"
 }
 
 [[ $# -gt 0 ]] || {

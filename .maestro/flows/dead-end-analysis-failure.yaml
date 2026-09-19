@@ -68,7 +68,7 @@ appId: com.ian.paceanalysisai
     id: "source-card-record"
 - runFlow: subflows/grant-consent.yaml
 - tapOn: "Allow camera access"
-- tapOn: "OK" # OS permission dialog — see happy-path.yaml's note on iOS-version wording
+- tapOn: "Allow" # OS permission dialog (confirmed "Allow"/"Don't Allow" 2026-09-19) — see happy-path.yaml
 - tapOn:
     id: "record-button"
 - waitForAnimationToEnd:

@@ -12,9 +12,9 @@
 # this run's own instruction to re-verify selectors against current screens.
 #
 # Not a standalone test. Assumes the caller just tapped either source-picker card
-# (app/capture/index.tsx's `source-card-upload` / `source-card-record`) as a first-ever attempt
-# for this account, so `ConsentGate` is currently mounted in place of the source-picker cards
-# (handleCardPress -> pendingAction set -> the gate renders, replacing the cards entirely).
+# (app/capture/index.tsx's `source-card-upload` / `source-card-record`) that triggers this gate,
+# so `ConsentGate` is currently mounted in place of the source-picker cards (handleCardPress ->
+# pendingAction set -> the gate renders, replacing the cards entirely).
 #
 # Every testID used here already exists on `main` (components/consent-gate.tsx) — this is
 # the one leg of the whole capture flow that needs no new testIDs at all.
@@ -24,26 +24,46 @@
 # added 2026-07-25 after the first real execution attempt.
 appId: com.ian.paceanalysisai
 ---
-# --- Phase 1 ('health'): two once-ever checkboxes, both required. ------------------------------
-- assertVisible: "Before you upload" # consent.upload.title
-- assertVisible: "I consent to my images being analyzed to produce health-related feedback, and to Anthropic processing them to do so." # consent.upload.checkbox
-
-- tapOn:
-    id: "consent-checkbox"
-- tapOn:
-    id: "consent-age-checkbox" # consent.upload.age.checkbox — "I confirm I am 16 or older."
-                                # (issue #94) — the primary CTA stays disabled without this one
-                                # too; omitting it is exactly the bug this rewrite fixes.
-
-- tapOn:
-    id: "consent-cta-primary" # consent.upload.cta.primary — advances to phase 'subject', does
-                               # NOT call onConsented() yet (see module docblock: phase 'subject'
-                               # runs on every presentation, no short-circuit).
+# --- Phase 1 ('health'): two once-ever checkboxes, both required, gated by an append-only
+# `public.consents` row keyed to the signed-in account (lib/consent.ts) — NOT by local app state.
+# A fresh install (this repo's per-flow wrapper uninstalls+reinstalls every run) does not reset
+# it for a REUSED account, so phase 1 only renders on that account's genuine first grant.
+# Retargeted for issue #203 (2026-09-19): flows now sign in to a persistent fixture account
+# (see subflows/sign-in.yaml) instead of minting a fresh stranger per run, so this phase is
+# conditional from here on — `runFlow: when:` mirrors the existing Turnstile pattern in
+# sign-up.yaml. -------------------------------------------------------------------------------
+- runFlow:
+    when:
+      visible: "Before you upload" # consent.upload.title
+    commands:
+      - assertVisible: "I consent to my images being analyzed to produce health-related feedback, and to Anthropic processing them to do so." # consent.upload.checkbox
+      - tapOn:
+          id: "consent-checkbox"
+      - tapOn:
+          id: "consent-age-checkbox" # consent.upload.age.checkbox — "I confirm I am 16 or older."
+                                      # (issue #94) — the primary CTA stays disabled without this
+                                      # one too; omitting it is exactly the bug this rewrite fixes.
+      - tapOn:
+          id: "consent-cta-primary" # consent.upload.cta.primary — advances to phase 'subject',
+                                     # does NOT call onConsented() yet (see module docblock:
+                                     # phase 'subject' runs on every presentation, no short-circuit).
 
 # --- Phase 2 ('subject'): always shown, every presentation, no once-ever shortcut. Picking
 # "This is me" is the simplest path a self-filming stranger takes and needs no extra checkbox
 # (that's only for "Someone else" -> consent-subject-checkbox) --------------------------------
-- assertVisible: "Who is in this photo or video?" # consent.upload.subject.title
+#
+# Asserted by testID, not text: observed 2026-09-19 failing repeatedly (even with a 20s
+# extendedWaitUntil) on a REUSED account landing here immediately after phase 1 was skipped,
+# while every one of those failures' own screenshots showed this exact text rendered correctly —
+# the same iOS accessibility-tree bridge flakiness ../../README.md's 2026-07-25 update already
+# documents for `entry-hero-cue` (a longer timeout did not fix it there either). Waiting on
+# `consent-subject-option-me`'s id instead of the "Who is in this photo or video?" text reached
+# the same screen state reliably, so the flakiness is specific to resolving THIS TEXT node, not
+# the screen transition itself.
+- extendedWaitUntil:
+    visible:
+      id: "consent-subject-option-me"
+    timeout: 20000
 - tapOn:
     id: "consent-subject-option-me" # consent.upload.subject.option.me — "This is me"
 - tapOn:

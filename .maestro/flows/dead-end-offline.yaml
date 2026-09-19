@@ -30,10 +30,14 @@
 #      "capture itself is not blocked" line, just not signposted with a banner at that stage
 #      beyond the passive global one.
 #
-# This flow now exercises the REAL, reachable gate (#2 above) instead of the imagined one. It
-# mints a fresh stranger (same subflow happy-path.yaml uses) rather than requiring a seeded
-# account via `--env`, since any signed-up account works for this and there's no reason to make
-# the caller supply one.
+# This flow exercises the REAL, reachable gate (#2 above). It used to mint a fresh stranger via
+# subflows/sign-up.yaml, since any signed-up account works for this and there was no reason to
+# make the caller supply one. RETARGETED for issue #203 (2026-09-19): sign-up is blocked by a
+# real app bug on the EAS development build (GitHub issue #230, evidence in
+# docs/evidence/issue-203/signup-cta-unreachable.md), so this now signs in to the same
+# pre-provisioned fixture account happy-path.yaml uses (`${MAESTRO_E2E_EMAIL}` /
+# `${MAESTRO_E2E_PASSWORD}` — see subflows/sign-in.yaml and ../README.md's "Fixture account"
+# section). Re-point this back at sign-up.yaml once #230 is fixed and re-verified.
 #
 # `setAirplaneMode` is Maestro's mechanism for this on iOS Simulator — verify against the
 # installed `maestro -v` version and the actual simulator's behavior before trusting it; the
@@ -44,16 +48,21 @@
 appId: com.ian.paceanalysisai
 ---
 - setAirplaneMode: disabled
-- runFlow: subflows/sign-up.yaml
+- runFlow: subflows/sign-in.yaml
 
 - tapOn: "Start analysis"
 - assertVisible: "Add footage"
 - tapOn:
     id: "source-card-record"
 - runFlow: subflows/grant-consent.yaml
-- assertVisible: "Record your run"
+
+# Soft-ask first, title assertion after — see happy-path.yaml's 2026-09-19/#203 note: the
+# "Record your run" title only renders once camera permission is granted, not on the
+# 'undetermined' soft-ask panel this always-privacy-reset harness lands on first.
+- assertVisible: "Camera access required" # capture.permission.camera.title
 - tapOn: "Allow camera access"
-- tapOn: "OK" # OS permission dialog — see happy-path.yaml's note on iOS-version wording
+- tapOn: "Allow" # OS permission dialog (confirmed "Allow"/"Don't Allow" 2026-09-19) — see happy-path.yaml
+- assertVisible: "Record your run"
 - tapOn:
     id: "record-button"
 - extendedWaitUntil:

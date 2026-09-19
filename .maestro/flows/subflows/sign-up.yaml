@@ -1,5 +1,13 @@
 # Subflow — signs up a brand-new "stranger" via email/password and lands on Home.
 #
+# CURRENTLY BLOCKED on the EAS development build — GitHub issue #230 (2026-09-19): the enabled
+# `auth-email-submit` ("Create account") button is reachable in the accessibility tree but not
+# painted in the viewport after Turnstile succeeds, so this subflow cannot reach Home there. No
+# caller in this directory uses it right now (see subflows/sign-in.yaml, used instead by
+# happy-path.yaml/dead-end-offline.yaml) — kept as-is, not deleted, since it documents real,
+# previously-verified flow-drift fixes (the stable-ID scroll in particular) and is correct again
+# the moment #230 is fixed. Evidence: docs/evidence/issue-203/signup-cta-unreachable.md.
+#
 # Not a standalone test (excluded from ../../config.yaml's `flows/*.yaml` glob). The caller is
 # expected to have been freshly installed and launched by the iOS dev-build wrapper — a real
 # stranger has no existing session, and this subflow doesn't force that itself so it can also be

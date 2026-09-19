@@ -1,13 +1,23 @@
 # ============================================================================================
-# Issue #86 — the M7 gate: a stranger can sign up, receive a persisted live analysis, inspect its
+# Issue #86 — the M7 gate: a user can reach Home, receive a persisted live analysis, inspect its
 # PACE readout, delete it from History, and sign out with no dead end. The iOS dev-build wrapper
 # owns the fresh install and initial launch; this flow owns the user journey only.
+#
+# RETARGETED to sign-in for issue #203 (2026-09-19): this flow used to open with
+# `runFlow: subflows/sign-up.yaml`, minting a fresh stranger each run. Sign-up is currently
+# blocked by a real app bug on the EAS development build — GitHub issue #230, evidence in
+# docs/evidence/issue-203/signup-cta-unreachable.md — so a fresh-install run can no longer create
+# an account through the UI. This flow now signs in to a pre-provisioned fixture account instead
+# (see subflows/sign-in.yaml and ../README.md's "Fixture account" section). This is flow drift,
+# not a scope change: the M7 gate this flow proves is "an authenticated user has no dead end
+# through analysis," and sign-in reaches that same starting state. Re-point this back at
+# sign-up.yaml once #230 is fixed and re-verified.
 # ============================================================================================
 
 appId: com.ian.paceanalysisai
 ---
-# --- Sign-up (subflow leaves us on Home, freshly authenticated) --------------------------------
-- runFlow: subflows/sign-up.yaml
+# --- Sign-in (subflow leaves us on Home, authenticated as the fixture account) ------------------
+- runFlow: subflows/sign-in.yaml
 
 # --- Home -> source picker ----------------------------------------------------------------------
 - tapOn: "Start analysis"
@@ -21,14 +31,24 @@ appId: com.ian.paceanalysisai
     id: "source-card-record"
 - runFlow: subflows/grant-consent.yaml
 
-# consent granted -> handleConsented() -> goToRecord() -> pushes /capture/record
-- assertVisible: "Record your run"
+# consent granted -> handleConsented() -> goToRecord() -> pushes /capture/record. FIXED ORDER
+# for issue #203 (2026-09-19): app/capture/record.tsx only renders the "Record your run" title
+# in its GRANTED-permission branch — the 'undetermined' soft-ask panel (shown here, since every
+# harness run resets Simulator privacy via `xcrun simctl privacy reset all`) renders
+# "Camera access required" instead, with no "Record your run" text anywhere on screen. The old
+# order (assert the title, then tap the soft-ask) never actually passed against this reset-
+# privacy harness; it only ever worked when the permission was already granted from a prior run
+# on the same install. Soft-ask first, title assertion after, matches the real state machine.
+- assertVisible: "Camera access required" # capture.permission.camera.title
 
 # Camera permission soft-ask (first time only). The OS system dialog's exact button text is
 # iOS-version-dependent ("Allow"/"OK"/"Don't Allow" have all shipped across iOS releases) —
 # verify against the actual simulator's iOS version before trusting this line; see README.
+# Confirmed 2026-09-19 on iOS 26.5 / this build: the dialog reads "Allow" / "Don't Allow", not
+# "OK" — RE-VERIFY against the actual simulator's iOS version before trusting this line.
 - tapOn: "Allow camera access"
-- tapOn: "OK" # <- OS permission dialog. ADJUST to match the simulator's actual iOS version.
+- tapOn: "Allow" # <- OS permission dialog. ADJUST to match the simulator's actual iOS version.
+- assertVisible: "Record your run"
 
 # Record a short clip. `record-button` (testID, app/capture/record.tsx) toggles start/stop;
 # CameraView auto-caps at MAX_CLIP_DURATION_MS (15s) regardless, so 2s here is a deliberately

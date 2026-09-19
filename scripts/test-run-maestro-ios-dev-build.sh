@@ -128,6 +128,8 @@ assert_no_external_tools "missing-UDID rejection happens before external tools"
 run_harness \
   MAESTRO_IOS_SIMULATOR_UDID=test-udid \
   MAESTRO_ALLOW_PAID_ANALYSIS=1 \
+  MAESTRO_E2E_EMAIL=fixture@example.invalid \
+  MAESTRO_E2E_PASSWORD=fixture-password \
   -- happy-path happy-path.yaml
 assert_failed_with "duplicate aliases for one flow are rejected" "Duplicate flow argument: happy-path.yaml"
 assert_no_external_tools "duplicate rejection happens before external tools"
@@ -149,6 +151,15 @@ assert_no_external_tools "paid-analysis rejection happens before external tools"
 run_harness \
   MAESTRO_IOS_SIMULATOR_UDID=test-udid \
   MAESTRO_ALLOW_PAID_ANALYSIS=1 \
+  -- happy-path
+assert_failed_with "live analysis requires the fixture sign-in credentials (issue #230)" "happy-path.yaml signs in to a pre-provisioned fixture account (issue #230 blocks sign-up on this build) and requires MAESTRO_E2E_EMAIL and MAESTRO_E2E_PASSWORD."
+assert_no_external_tools "fixture-credential rejection happens before external tools"
+
+run_harness \
+  MAESTRO_IOS_SIMULATOR_UDID=test-udid \
+  MAESTRO_ALLOW_PAID_ANALYSIS=1 \
+  MAESTRO_E2E_EMAIL=fixture@example.invalid \
+  MAESTRO_E2E_PASSWORD=fixture-password \
   -- happy-path dead-end-offline
 assert_failed_with "the two-flow live budget stops at simulator validation" "MAESTRO_IOS_SIMULATOR_UDID is not an available iOS Simulator device: test-udid"
 if [[ "$OUTPUT" != *"Selected client endpoint submission budget: 2"* || "$OUTPUT" != *"cap: 2"* ]]; then
