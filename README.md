@@ -21,7 +21,9 @@ Important current limitations:
 - The paywall does not process a real in-app purchase yet.
 - TestFlight and Apple-dependent work are tracked in
   [`docs/blocked-on-apple.md`](docs/blocked-on-apple.md).
-- The privacy policy remains captain-owned and must not be published until its own hold is cleared.
+- The privacy policy is published at
+  <https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/> (source:
+  `docs/privacy-policy.md`) and opens from the Settings screen's "Full privacy policy" row.
 
 ## Stack
 

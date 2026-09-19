@@ -1,36 +1,29 @@
 <!--
-  SOURCE OF TRUTH — this file is the text that gets published to a public URL for the
-  App Store Connect privacy policy field. If the published copy needs to change, edit
-  it here first, then republish. Do not edit a hosted/copied version instead of this file.
--->
+  SOURCE OF TRUTH — this file is the text published at
+  https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/ (GitHub Pages,
+  built by `.github/workflows/privacy-policy-pages.yml` from this file on every push to `main`
+  that touches it). Edit here, merge, and the page rebuilds; never edit a hosted copy.
 
-<!--
-  DO NOT PUBLISH — unresolved: data controller legal name, country of establishment,
-  contact email. Publishing with these placeholders fails App Review and makes every
-  rights promise unexercisable. See issue #68.
+  Analysis, not legal advice. Drafted from the engineering and product record of the app as
+  built; counsel reviews this policy, the in-app consent mechanism, and the App Store privacy
+  label answers before any public store submission (`docs/privacy-checklist-m7.md`).
 
-  Analysis, not legal advice. This document was drafted from the engineering and product
-  record of the app as designed; counsel reviews this policy, the in-app consent
-  mechanism, and the App Store privacy label answers before any public store submission.
-
-  This policy describes the app as designed for its TestFlight release. If a section below
-  describes something not yet available in the build you're using, the in-app behavior is
-  the source of truth for what's live today.
-
-  Publication is also gated on in-app account deletion actually shipping and purging data
-  (App Store Guideline 5.1.1(v)) — today the "Your rights" section below relies on the
-  email fallback because the Past Analyses / Settings screens it describes don't exist yet
-  (repo is at M1).
+  Attaching this URL to the App Store Connect record is Apple-gated and tracked in
+  `docs/blocked-on-apple.md`, not here.
 -->
 
 # Pace Analysis AI — Privacy Policy
 
-**Last updated: 2026-07-12**
+**Last updated: 2026-09-19**
 
-Pace Analysis AI ("the app," "we," "us") is operated by
-**[DATA CONTROLLER — LEGAL NAME AND COUNTRY TBC]**. This policy explains what we collect
-when you use the app, why, how long we keep it, who else sees it, and how to get it
-deleted.
+Pace Analysis AI ("the app," "we," "us") is operated by **Ian Qiu**, a sole trader
+established in **Thailand**, who is the data controller for everything described below. This
+policy explains what we collect when you use the app, why, how long we keep it, who else sees
+it, and how to get it deleted.
+
+Pace Analysis AI is built and run by Ian Qiu, a **McMillan Running certified coach** (certified
+May 2026). The form rubric every analysis applies — the four pillars, their metric ranges, and
+the injury-risk flags — is his own coaching work; the AI applies that rubric to your frames.
 
 ---
 
@@ -161,11 +154,9 @@ processing agreement — and name it here before that happens.
 
 Wherever you're located, we offer these controls to every user:
 
-- **Access.** You can see your own analyses and results in the app's Past Analyses screen,
-  when that screen is available to you.
-- **Deletion.** You can delete a single analysis, or delete your entire account and all
-  of its data, directly in the app's Settings screen, when that screen is available to
-  you.
+- **Access.** You can see your own analyses and results in the app's History screen.
+- **Deletion.** You can delete a single analysis from the History screen, or delete your entire
+  account and all of its data from the app's Settings screen.
 - **Export.** If you'd like a copy of your data in a portable format, contact us (below)
   and we'll provide it. This is currently a manual, support-driven process rather than an
   automated in-app export.
@@ -183,8 +174,7 @@ Wherever you're located, we offer these controls to every user:
 
 **However you reach us:** you can also ask us to delete your account and all its data, or
 request a copy of everything we hold about you, by emailing us at the address below; we'll
-action it within 30 days. This works whether or not the in-app screens above are available
-to you.
+action it within 30 days.
 
 If you are in the EU/UK, these map to your GDPR rights of access (Art. 15), rectification
 (Art. 16), erasure (Art. 17), restriction (Art. 18), portability (Art. 20), objection
@@ -215,4 +205,4 @@ for your consent again before the change applies to you.
 ## Contact
 
 Questions about this policy or your data, or to request a deletion or export outside the
-in-app tools: **[CONTACT EMAIL — TBC]**
+in-app tools: **i78979848@gmail.com**

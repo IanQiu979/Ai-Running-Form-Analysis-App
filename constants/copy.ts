@@ -103,9 +103,10 @@ export const Copy = {
     // V23-06's consent line under the fields: a 12 pt checkbox and one line of fine print with
     // "Terms" and "Privacy Policy" underlined. Split into parts so the screen can underline the
     // two names without a second string. "I am", not the page's "I'm" — the tone rule above
-    // (no contractions) outranks a two-glyph difference on the artboard. NOTE: neither document
-    // is published yet (see `settings.privacyPolicy.pending`), so the underlines are the page's
-    // styling and not a link; the screen says so in its own comment.
+    // (no contractions) outranks a two-glyph difference on the artboard. NOTE: the underlines are
+    // the page's styling and not links — the Terms are unpublished, and the Privacy Policy
+    // (published; opened from Settings via `PRIVACY_POLICY_URL`) sits inside the checkbox's own
+    // tap target; the screen says so in its own comment.
     consent: {
       prefix: 'I am 16+ and agree to the ',
       terms: 'Terms',
@@ -940,17 +941,11 @@ export const Copy = {
       },
     },
     privacyPolicy: {
+      // The Settings row that opens the published policy (`PRIVACY_POLICY_URL` in
+      // `constants/links.ts`; issue #202). Captain-certified 2026-09-19: the row is a link and
+      // the former "not yet published" line is gone — the certified disclosure that precedes it
+      // on the screen is unchanged.
       label: 'Full privacy policy',
-      // The policy is DRAFTED but NOT PUBLISHED — docs/privacy-policy.md carries a DO NOT PUBLISH
-      // guard because the data-controller legal identity, country, and contact email are still
-      // unresolved (blocked on the Apple Developer account decision — docs/blocked-on-apple.md).
-      // We therefore do not link out (there is no URL, and inventing one is not an option) and we
-      // do not render the draft in-app either: it would show users placeholder legal identity and
-      // rights promises they could not actually exercise, which is the precise failure the guard
-      // exists to prevent. Instead we say where things stand and point at the disclosure that IS
-      // certified and true today — the summary directly above it on this screen.
-      pending:
-        'The full policy is not yet published. The summary above is the complete, current description of how your data is handled.',
     },
     // --- issue #53 NEW copy ends ---
 

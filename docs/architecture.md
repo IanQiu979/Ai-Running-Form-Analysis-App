@@ -1032,7 +1032,9 @@ above is still what those screens are built on and both font sets load at startu
   `SquareButton`s, and a footer that flips modes; **sign-up is the default mode**. In sign-up
   mode a 12 pt consent checkbox — "I am 16+ and agree to the Terms and Privacy Policy" — gates
   Create account **alongside** the captcha token. The Terms / Privacy underlines are the page's
-  styling, not links: neither document is published (`Copy.settings.privacyPolicy.pending`).
+  styling, not links: the Terms are unpublished, and the Privacy Policy — published, opened from
+  Settings via `PRIVACY_POLICY_URL` — sits inside the checkbox's own tap target, so linking it
+  there needs a control of its own (noted, not done, 2026-09-19).
   Kept although the page does not draw them: the Turnstile widget and its no-key notice
   (sign-up; Known Issue #12), "Forgot password?" (sign-in; issue #81), and the password rule as
   the field's `accessibilityHint` (issue #9). Validation → HIBP → captcha → `signUpWithCaptcha` →
@@ -1828,7 +1830,7 @@ RLS.
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #50, 2026-07-12; deployed with #128); **redeployed 2026-09-19 as v16**, which recognises `blockedReason: 'zero_pillar_cooldown'` from the 2026-09-19 `pace_quota_status` — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `409 in_progress` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). `409 in_progress` (2026-09-06, not yet deployed) refuses a row still `'reserved'` with a model call in flight — deleting it then would refund spend; `lib/history.ts` surfaces that code and its retry-after-it-finishes message. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Redeployed 2026-07-26 from the current repo code, so issue #132's second-purge/`orphans_remaining` behavior is now live** — that deploy also carried the shared-key parse fix (`docs/status.md` Known Issue #35). |
 | `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26, verified live** (issue #58, 2026-07-13; response contract fixed post-review, same date; deployed with #128 — see `docs/status.md` Known Issue #35). The client (`lib/delete-account.ts`) has called the real function since PR #122 (2026-07-13, `docs/status.md` Known Issue #23), so the Settings flow reaches it end to end. See "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
-| `POST /functions/v1/signup-with-captcha` | none (pre-auth) | `{ email, password, captchaToken }` | `200 { session, user }` or `400 { error, code }` for `invalid_body` / `captcha_invalid` / `email_in_use` / `weak_password_length` / `weak_password_pwned` / `signup_failed`, or `500` for `signup_unavailable` / `no_session` | **Built, Deno-tested, and DEPLOYED to the live project 2026-08-03** (issue #12/Known Issue #12 — see `docs/status.md`). Verifies a Cloudflare Turnstile token server-side, then — only if valid — proxies a plain `supabase.auth.signUp()` (publishable key, no admin API), so GoTrue's own `minimum_password_length` keeps being enforced unchanged (`password_hibp_enabled` is off since 2026-09-12, see "Current — Supabase config" below — `weak_password_pwned` would fire again if it's ever re-enabled). Replaces native `auth.captcha`, which was tried live and reverted the same day for gating sign-in too (project-wide, not per-endpoint). `app/(auth)/sign-in.tsx` calls this in sign-up mode only; sign-in calls `signInWithPassword` directly, untouched. |
+| `POST /functions/v1/signup-with-captcha` | none (pre-auth) | `{ email, password, captchaToken }` | `200 { session, user }` or `400 { error, code }` for `invalid_body` / `captcha_invalid` / `email_in_use` / `weak_password_length` / `weak_password_pwned` / `signup_failed`, or `500` for `signup_unavailable` / `no_session` | **Built, Deno-tested, and DEPLOYED to the live project 2026-08-03** (issue #12/Known Issue #12 — see `docs/status.md`). Verifies a Cloudflare Turnstile token server-side, then — only if valid — creates the account. Deployed version: proxies a plain `supabase.auth.signUp()` (publishable key). **Committed 2026-09-19, PENDING DEPLOY (issue #48 residual):** `auth.admin.createUser` on the secret key + `signInWithPassword` on the publishable key, paired with the `before-user-created` hook that closes raw `/auth/v1/signup` — same wire contract; ordered deploy in `docs/auth-config-runbook.md` § 1. Either way GoTrue's own `minimum_password_length` is enforced unchanged — the admin API runs the same `checkPasswordStrength` (`password_hibp_enabled` is off since 2026-09-12, see "Current — Supabase config" below — `weak_password_pwned` would fire again if it's ever re-enabled). Replaces native `auth.captcha`, which was tried live and reverted the same day for gating sign-in too (project-wide, not per-endpoint). `app/(auth)/sign-in.tsx` calls this in sign-up mode only; sign-in calls `signInWithPassword` directly, untouched. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
 `supabase.functions.invoke()` wraps non-2xx responses in a generic `FunctionsHttpError` whose
@@ -2674,18 +2676,47 @@ disabled, permanently, by design.
 **Design.** `_shared/captcha.ts`'s `TurnstileVerifier` posts the token to Cloudflare's siteverify
 API and resolves `false` on ANY failure mode (network, non-2xx, malformed JSON, `success: false`)
 — fails CLOSED, unlike `lib/hibp.ts`'s client-side check, because this IS the anti-farming gate
-itself. Only once that passes does `_shared/signup-client.ts` proxy a plain
-`supabase.auth.signUp()` call using the PUBLISHABLE key — no admin/service-role API anywhere in
-this path, so `minimum_password_length` (`supabase/config.toml`) keeps being enforced by GoTrue
-exactly as before; `password_hibp_enabled` is off since 2026-09-12 (Pro-only, Pro cancelled — see
+itself. Only once that passes does `_shared/signup-client.ts` create the account.
+
+**Account creation goes through the admin API, and the raw `/auth/v1/signup` route is closed
+(issue #48 residual, 2026-09-19; pending deploy — `docs/auth-config-runbook.md` § 1).** Until
+then `signup-client.ts` proxied a plain `supabase.auth.signUp()` on the publishable key — which is
+GoTrue's `/auth/v1/signup`, and that route stayed open to anyone holding the publishable key, so
+the CAPTCHA gated only the app's own path. Now: `auth.admin.createUser({ email, password,
+email_confirm: true })` on the SECRET key (one call; the key never leaves that module), then
+`auth.signInWithPassword` on the PUBLISHABLE key to mint an ordinary user session. A
+`before-user-created` auth hook — `public.pace_before_user_created`,
+`supabase/migrations/20260919140000_before_user_created_hook.sql`, wired by
+`hook_before_user_created_enabled`/`_uri` and mirrored in `config.toml`'s
+`[auth.hook.before_user_created]` — rejects every `email`/`phone` creation GoTrue routes through
+it (raw `/signup`, magic-link sign-ups) with a 403 and allows only the `google` and `apple` providers; the admin API
+is the one path GoTrue does not route through the hook, so this function is the only way to get an
+email-and-password account. **`disable_signup` was rejected for the job**: GoTrue checks it on the
+OAuth path too (`internal/api/external.go`, `models.CreateAccount`), so it would refuse every
+first-time Google sign-in. The admin API does not relax password policy — `adminUserCreate` runs
+the same `checkPasswordStrength` (`minimum_password_length`; HIBP when enabled) as `/signup` and
+raises the same weak-password error — which contradicts this section's earlier claim that the admin
+path "bypasses" those checks; that was true of an older GoTrue and was verified wrong against the
+current source. `password_hibp_enabled` is off since 2026-09-12 (Pro-only, Pro cancelled — see
 "Current — Supabase config" above), so `lib/hibp.ts` is what actually screens breached passwords
-now, not this GoTrue setting. The
-already-registered-email non-enumeration behavior (`{ session: null }` with an empty `identities`
-array) and the weak-password length-vs-pwned precedence are both ported from
-`app/(auth)/sign-in.tsx`'s prior inline logic — `weak_password_length` vs `weak_password_pwned` is
-decided server-side (not via a `reasons` array on the wire) because `lib/functions-client.ts`'s
-shared `invokeFunction` wrapper only forwards `{ error, code }` on a non-2xx response, and
-widening that contract for one caller wasn't worth it.
+now, not this GoTrue setting. An already-registered address surfaces as GoTrue's `email_exists`
+on the admin call and maps to the same `email_in_use` outcome and client copy (no new enumeration:
+with `mailer_autoconfirm` on, raw `/signup` already answered `user_already_exists`). The hook is an
+**allow-list** — `google` and `apple` pass, everything else (`email`, `phone`, `anonymous`, a
+future provider, a missing provider, admin invites) is refused — so a Dashboard toggle can never
+reopen CAPTCHA-free creation; a new provider is a migration. Re-enabling email confirmations later
+also means changing `signup-client.ts`'s `email_confirm: true` (noted in `config.toml`). The
+2026-09-19 security review found no exploitable path; the live `auth.users` table has zero
+unconfirmed rows, so GoTrue's confirm-on-resignup path for legacy unconfirmed users is moot. The
+weak-password
+length-vs-pwned precedence is decided server-side (not via a `reasons` array on the wire) because
+`lib/functions-client.ts`'s shared `invokeFunction` wrapper only forwards `{ error, code }` on a
+non-2xx response, and widening that contract for one caller wasn't worth it. Deploy order matters
+and is in the runbook: function first, then the migration, then the hook PATCH — enabling the hook
+against the previous function version rejects every app sign-up. `_shared/__tests__/
+signup-client.deno.test.ts` locks the call order and outcome mapping against a fake auth surface;
+`hygiene-batch-sql.deno.test.ts` applies the migration to PGlite and proves the hook's
+provider decisions and that only `supabase_auth_admin` may execute it.
 
 **Client.** `components/turnstile-widget.tsx` hosts Cloudflare's `turnstile/v0/api.js` inside a
 minimal `react-native-webview` HTML shell (Turnstile has no first-party React Native SDK) and
@@ -3106,7 +3137,7 @@ of session. This screen hosts sign-out and account deletion; it must never be re
 | Sign out | `lib/sign-out.ts` | Real, and correct against all three real outcomes — see below. |
 | Delete account | `lib/delete-account.ts` | Real client, calls the `delete-account` edge function through the shared `invokeFunction()` wrapper (`lib/functions-client.ts`, issue #46, 2026-07-13) rather than `supabase.functions.invoke` directly. ⚠️ The edge function it calls (#58/#121) is built but not yet merged/deployed — see below. |
 | Privacy disclosure + consent withdrawal | `lib/consent.ts` | Real. Restates the pre-upload disclosure (#68) and calls `withdrawConsent`, which had been built and waiting for a caller since #68. |
-| Privacy policy link | — | **Deliberately not linked.** See below. |
+| Privacy policy link | `constants/links.ts` (`PRIVACY_POLICY_URL`) | Real since 2026-09-19 (issue #202): the "Full privacy policy" row is a `link` that `Linking.openURL`s the published page. See below. |
 
 **`lib/sign-out.ts` — the issue #27 fix, made once, in its final home.** The bug: `signOut()` was
 fire-and-forget, so a failed **global** token revoke left server-side refresh tokens alive while the
@@ -3159,15 +3190,20 @@ success (proven by test); and the exact contract may still drift, since this PR 
 `#121`'s real `DeleteAccountErrorCode` type (barred from touching `supabase/functions/`) and
 instead hand-maintains a mirror of it — see `lib/delete-account.ts`'s header.
 
-**The privacy policy is not linked, and the draft is not rendered in-app.** `docs/privacy-policy.md`
-still carries its `DO NOT PUBLISH` guard: the data-controller legal identity, country, and contact
-email are unresolved (blocked on the Apple Developer account decision — `docs/blocked-on-apple.md`).
-So there is no URL, and inventing one is not an option. Rendering the *draft* in-app was rejected
-for the same reason the guard exists — it would show users placeholder legal identity and rights
-promises they could not actually exercise, which is worse than saying nothing. The screen instead
-shows an honest pending state and points at the disclosure that **is** certified and true today
-(`settings.privacy.body`, the fuller version of the pre-upload consent line). Replace the pending
-state with a real link in the same change that publishes the policy.
+**The privacy policy is published and linked from Settings.** `docs/privacy-policy.md`
+lost its `DO NOT PUBLISH` guard on 2026-09-19 (issue #202): the controller is Ian Qiu, sole
+trader, Thailand; the contact is `i78979848@gmail.com`; and it carries the McMillan-certified-coach
+line. It is served at
+`https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/` by
+`.github/workflows/privacy-policy-pages.yml`, which stages that ONE file into a scratch Jekyll
+source and deploys it through the Pages Actions source (enabled on the repo the same day) — the
+branch/`docs`-folder source would have rendered every planning doc as a page. The source file is
+the published text; the page rebuilds on every push to `main` that touches it. The Settings
+screen's "Full privacy policy" row (captain-certified 2026-09-19) is a `link`-role row that opens
+`PRIVACY_POLICY_URL` (`constants/links.ts`) with `Linking.openURL`; the former "not yet published"
+sentence is gone, and `app/__tests__/settings.test.tsx` locks both the role and the URL. The
+sign-up consent line still underlines "Privacy Policy" without linking: that word sits inside the
+consent checkbox's own tap target, so a link there needs a control of its own — left as is.
 
 **Not built, deliberately:** `settings.plan.cta` ("See plans") and `settings.restorePurchases.cta`.
 Both route to a Paywall (#52) and an IAP flow that do not exist; shipping them would build a dead
@@ -3631,12 +3667,20 @@ now pinned in `supabase/config.toml`'s `[functions.sweep-orphaned-media]` so a f
 `supabase functions deploy` can't regress it; (2) verified end to end via a manual
 `net.http_post` call (bypassing the schedule) — `200`, `{"mode":"dry_run","candidateCount":0,...}`.
 
-**Still dry-run only.** The scheduled request body is `{}`, which defaults to `dryRun: true` (the
-function's own posture for "freshly wired-up but not-yet-reviewed"). Flipping to live deletion
-(`{"dryRun": false}` in the `cron.schedule` body) is a deliberate follow-up act once dry-run output
-has been reviewed in the edge function logs — it permanently deletes user media and was
-intentionally left to a human decision, not made here. See `docs/status.md` Known Issues #32 and
-#35.
+**Armed for live deletion (issue #137's last step, captain's 2026-08-15 launch-gate ruling;
+migration written 2026-09-19, pending `db push`).** From 2026-08-06 the scheduled body was `{}`,
+which defaults to `dryRun: true` — the function's own posture for "freshly wired-up but
+not-yet-reviewed". The job ran daily and succeeded every day (`cron.job_run_details`), and its
+dry-run output was reviewed on 2026-09-19: the 2026-09-18 response (`net._http_response` id 46)
+listed three candidate prefixes, one object each, whose `analyses` rows do not exist (from the
+first live end-to-end runs of 2026-07-26/27 and 08-02), and `list_orphaned_media_prefixes('15
+minutes', 500)` returned the same three. `supabase/migrations/20260919150000_sweep_orphaned_
+media_live.sql` re-issues the same `cron.schedule` with `body := '{"dryRun": false}'` — pg_cron
+updates a job by name in place, so `jobid` 2 and its history survive; everything else (cadence,
+endpoint, Vault-sourced secret by name, timeout, the function's `olderThan`/`limit` defaults) is
+unchanged. `_shared/__tests__/hygiene-batch-sql.deno.test.ts` applies both migrations to PGlite
+and proves the second updates the first's row rather than adding a job. Roll back with the same
+statement and `body := '{}'`. See `docs/status.md` Known Issues #32 and #35.
 
 ## Current — the two-phase consent gate (issues #68 restatement + #94, 2026-07-13)
 

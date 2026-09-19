@@ -44,9 +44,9 @@
 // committed file, closing the gap point (2) above named.
 //
 // THIS ROUTE IS ARMED: `cron.job` shows the active schedule (`sweep-orphaned-media-daily`,
-// `0 9 * * *` UTC). The scheduled request body is `{}`, which `parseSweepRequest` defaults to
-// `dryRun: true` — flipping to live deletion is a deliberate separate follow-up, not part of this
-// change.
+// `0 9 * * *` UTC). The scheduled request body was `{}` (dry-run by default) from 2026-08-06;
+// `supabase/migrations/20260919150000_sweep_orphaned_media_live.sql` re-schedules it with
+// `{"dryRun": false}` after the dry-run review recorded in that file's header.
 //
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 // AUTH — a shared secret, not a user JWT. See `core.ts`'s `checkCronAuth` for the mechanics.

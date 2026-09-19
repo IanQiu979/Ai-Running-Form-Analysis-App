@@ -5,6 +5,70 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-19 (hygiene batch — privacy policy published, raw sign-up route closed, sweeper armed, mailer and allowlist runbooks — issues #202, #48, #137, #139, #69)
+
+- **Privacy policy: placeholders filled and published (issue #202).** `docs/privacy-policy.md`
+  names the controller (**Ian Qiu, sole trader, Thailand**), the contact
+  (`i78979848@gmail.com`), and carries the credibility line the captain asked for (Ian is a
+  McMillan Running certified coach, May 2026; the rubric is his). The `DO NOT PUBLISH` guard is
+  gone; the rights section names the History and Settings screens that exist now instead of
+  "when available". Published at
+  `https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/` by the new
+  `.github/workflows/privacy-policy-pages.yml`, which stages that one file into a scratch Jekyll
+  source (front matter injected at build time; the source stays plain Markdown) and deploys it
+  through the Pages **Actions** source, enabled on the repo the same day — the branch/`docs`
+  source would have rendered every planning doc. The 2026-07-12 plan for a separate public repo
+  is moot: this repo is public. The page goes live on the first push to `main` after merge; the
+  build was smoke-tested locally with the same theme. **In-app link (captain-certified
+  2026-09-19, same batch):** the Settings screen's "Full privacy policy" row is now a `link`-role
+  row that opens the page with `Linking.openURL` (`PRIVACY_POLICY_URL` in the new
+  `constants/links.ts`); the "The full policy is not yet published." sentence
+  (`settings.privacyPolicy.pending`) is removed, every other string is unchanged, and
+  `app/__tests__/settings.test.tsx` locks the role and the URL. The sign-up consent underline is
+  left as is — "Privacy Policy" sits inside the consent checkbox's own tap target, so linking it
+  needs a control of its own. Attaching the URL in App Store Connect stays Apple-gated.
+- **Raw `/auth/v1/signup` closed; `signup-with-captcha` creates accounts through the admin API
+  (issue #48 residual; code + migration + config, PENDING DEPLOY — `docs/auth-config-runbook.md`
+  § 1 has the ordered commands).** `_shared/signup-client.ts` now calls `auth.admin.createUser`
+  (secret key, `email_confirm: true`) and then `auth.signInWithPassword` (publishable key) for the
+  session; the handler, wire contract and client are unchanged. New
+  `20260919140000_before_user_created_hook.sql` adds `public.pace_before_user_created`, a
+  `before-user-created` auth hook that allow-lists `google` and `apple` and refuses every other
+  provider (`email`, `phone`, `anonymous`, unknown, missing) with a 403, executable by
+  `supabase_auth_admin` only; `supabase/config.toml` enables
+  `[auth.hook.before_user_created]` pointing at it. **`disable_signup` was deliberately NOT
+  used**: GoTrue checks it on the OAuth path too (`internal/api/external.go`), so it would refuse
+  every first-time Google sign-in; the hook is the per-provider form of the same gate. The admin
+  API runs the same `checkPasswordStrength` as `/signup` (verified in the `supabase/auth` source),
+  so the earlier header claim that it bypassed password policy was wrong and is corrected. Tests:
+  `signup-client.deno.test.ts` (call order — never a sign-in after `email_exists` — and outcome
+  mapping) and `hygiene-batch-sql.deno.test.ts` (the migration on PGlite: provider decisions,
+  fail-closed on a missing provider, execute privileges). Deploy order: function → migration →
+  hook PATCH; the hook against the old function would reject every app sign-up.
+- **Orphaned-media sweeper armed for live deletion (issue #137, captain's 2026-08-15 launch-gate
+  ruling; migration PENDING `db push`).** `20260919150000_sweep_orphaned_media_live.sql`
+  re-issues `cron.schedule('sweep-orphaned-media-daily', …)` with `body := '{"dryRun": false}'`
+  — pg_cron updates the job by name in place (`jobid` 2 and its run history survive; proven on
+  PGlite in `hygiene-batch-sql.deno.test.ts`). Reviewed before arming: the job has succeeded
+  daily since 2026-08-06; the 2026-09-18 dry run listed three candidate prefixes, one object
+  each, whose `analyses` rows do not exist (2026-07-26/27, 08-02 test runs), and
+  `list_orphaned_media_prefixes('15 minutes', 500)` returns the same three today. The migration
+  header records that evidence and the one-statement rollback.
+- **Mailer runbook (issue #139, captain chose Resend free tier): `docs/email-runbook.md`.** DNS
+  records to expect from Resend (DKIM TXT, `send` MX+TXT or their post-August-2026 CNAME
+  equivalents, `_dmarc`), the Supabase SMTP fields as one scoped Management API PATCH
+  (`smtp.resend.com:465`, user `resend`, password = API key, sender on the verified domain),
+  `rate_limit_email_sent` 2 → 30, a branded recovery subject/template in the copy rules, the
+  proof steps, and the three things the captain must paste. Nothing applied; no account created.
+  Flagged: Resend needs a domain the captain controls, and none is on record.
+- **`exp://**` allowlist removal prepared, NOT applied (issue #69): `docs/auth-config-runbook.md`
+  § 2.** The exact PATCH (`uri_allow_list` keeping `paceanalysisai://oauth-callback,
+  paceanalysisai://**`), the matching `config.toml` edit, verification and rollback. Gate: the
+  captain confirms Google sign-in tap-through on the Android dev build first.
+- Docs: `docs/status.md` Known Issues #12 (residual closed, pending deploy), #15 (resolved), #32
+  (armed), #7 (allowlist step prepared); `docs/architecture.md`'s sign-up, orphan-purge and
+  Settings sections; `docs/blocked-on-apple.md` step 5; `docs/privacy-checklist-m7.md`.
+
 ## 2026-09-19 (issue #89: Free's one lifetime VIDEO analysis scores all four pillars)
 
 **Captain's decision 2026-09-19. Code-complete on `fm/v23-free-tier-four-pillars-89`; the
@@ -316,8 +380,8 @@ side until it does. Auth logic and the analyzing state machine are unchanged. No
 - **`app/(auth)/sign-in.tsx` — V23-06, rebuilt.** Eyebrow + Display title, two `TextField`s with
   field-level errors, and — sign-up mode only — a consent checkbox, "I am 16+ and agree to the
   Terms and Privacy Policy", that gates Create account alongside the captcha token. The Terms /
-  Privacy underlines are the page's styling, not links: neither document is published
-  (`Copy.settings.privacyPolicy.pending`). Sign-up is the default mode; the footer flips modes.
+  Privacy underlines are the page's styling, not links: neither document was published then (the
+  Privacy Policy is, since 2026-09-19 — see that entry). Sign-up is the default mode; the footer flips modes.
   Kept from the old screen for working reasons the page does not draw: the Turnstile widget and
   its no-key notice (sign-up), "Forgot password?" (sign-in), and the password rule as the field's
   `accessibilityHint`. Validation → HIBP → captcha → `signUpWithCaptcha` → `applySignupSession`,

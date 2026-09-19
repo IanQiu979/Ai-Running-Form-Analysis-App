@@ -48,6 +48,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -64,8 +65,9 @@ import { SquareCard } from '@/components/ui/square-card';
 import { SquareIconButton } from '@/components/ui/square-icon-button';
 import { TextField } from '@/components/ui/text-field';
 import { TopBar } from '@/components/ui/top-bar';
-import { BackIcon } from '@/components/ui/v23-icons';
+import { ArrowRightIcon, BackIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
+import { PRIVACY_POLICY_URL } from '@/constants/links';
 import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { hasConsented, UPLOAD_HEALTH_CONSENT, withdrawConsent } from '@/lib/consent';
 import {
@@ -523,6 +525,14 @@ export default function SettingsScreen() {
     }
   }
 
+  // --- The published privacy policy (issue #202) ---------------------------------------------
+
+  function openPrivacyPolicy() {
+    // A rejected `openURL` (no browser can take an https URL) is not worth a dialog: the
+    // certified disclosure at the top of the Privacy card is already on screen.
+    Linking.openURL(PRIVACY_POLICY_URL).catch(() => undefined);
+  }
+
   // --- Consent withdrawal (issue #68) ---------------------------------------------------------
 
   function confirmWithdrawConsent() {
@@ -834,15 +844,21 @@ export default function SettingsScreen() {
             </Row>
 
             <Rule />
-            {/* Not on the page, but a live disclosure. The policy is drafted but NOT published
-                (docs/privacy-policy.md's DO NOT PUBLISH guard: the data-controller identity is
-                unresolved). There is no URL to link to and inventing one is not an option, so this
-                renders as an honest pending state — not a dead link, and not the draft itself. The
-                certified disclosure is the paragraph at the top of this card. */}
-            <View style={styles.paragraphBlock}>
+            {/* Not on the page, but a live disclosure: a row that opens the published policy
+                (`PRIVACY_POLICY_URL`; issue #202, captain-certified 2026-09-19). The whole row is
+                the link target — the page's row grammar has no second string to spend on a
+                right-hand action, so the arrow is the affordance. `Linking.openURL` hands the
+                URL to the system browser; a rejection (no handler) is swallowed because the
+                certified disclosure at the top of this card already stands on its own. */}
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={Copy.settings.privacyPolicy.label}
+              onPress={openPrivacyPolicy}
+              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+              testID="settings-privacy-policy">
               <Text style={styles.rowLabel}>{Copy.settings.privacyPolicy.label}</Text>
-              <Text style={styles.paragraphInBlock}>{Copy.settings.privacyPolicy.pending}</Text>
-            </View>
+              <ArrowRightIcon color={Ink.ink2} />
+            </Pressable>
           </SquareCard>
         </View>
 
@@ -1005,17 +1021,6 @@ const styles = StyleSheet.create({
     ...Type.note,
     color: Ink.ink2,
     paddingVertical: Layout.cardPadding,
-  },
-  // The privacy-policy notice is not on the page (see the comment at its render site): a row
-  // label over the page's paragraph register, padded like the paragraphs above it, rather than a
-  // label/value row whose value would run to four lines.
-  paragraphBlock: {
-    paddingVertical: Layout.cardPadding,
-    gap: Space.xs,
-  },
-  paragraphInBlock: {
-    ...Type.note,
-    color: Ink.ink2,
   },
   deleteButton: {
     marginTop: 'auto',

@@ -11,9 +11,12 @@
 //
 // WHY THIS FUNCTION EXISTS: see `_shared/signup-with-captcha.ts`'s header for the full story —
 // short version, Supabase Auth's native `auth.captcha` is project-wide (verified live: it also
-// 400s sign-in), so this function puts the Turnstile check in front of a plain, unprivileged
-// `supabase.auth.signUp()` proxy instead, leaving `auth.captcha` disabled and sign-in completely
-// unaffected. No admin/service-role client anywhere in this path.
+// 400s sign-in), so this function puts the Turnstile check in front of account creation instead,
+// leaving `auth.captcha` disabled and sign-in completely unaffected. Since 2026-09-19 (issue #48
+// residual) it creates the account through `auth.admin.createUser` (secret key, one call) and then
+// signs it in with the publishable key, because the raw `/auth/v1/signup` route is closed by a
+// `before-user-created` hook for the `email` provider — this function is the only way to get an
+// email-and-password account, and the CAPTCHA below is therefore unconditional.
 //
 // UNAUTHENTICATED BY DESIGN: there is no user yet at signup, so unlike `purchase-tier`/
 // `quota-status`, this route takes no `Authorization` header and does no `auth.getUser()` check.

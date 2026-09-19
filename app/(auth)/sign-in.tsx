@@ -19,8 +19,10 @@
  *   - the password rule (issue #9), carried as the field's `accessibilityHint` rather than as
  *     visible text.
  * And what the page draws that is deliberately inert: the underlined "Terms" / "Privacy Policy"
- * in the consent line are the page's styling, not links — neither document is published yet
- * (see `Copy.settings.privacyPolicy.pending`), and a link to nothing is worse than an underline.
+ * in the consent line are the page's styling, not links — the Terms are unpublished, and the
+ * Privacy Policy (published 2026-09-19; the Settings screen opens it via `PRIVACY_POLICY_URL`)
+ * sits inside the checkbox's own tap target, so a link there would need its own control and
+ * certified copy. A link to nothing is worse than an underline.
  *
  * AUTH BEHAVIOUR IS UNCHANGED from the screen this replaced: validation → length pre-check →
  * HIBP breach check → captcha token → `signUpWithCaptcha` → `applySignupSession`; sign-in →
@@ -408,10 +410,11 @@ export default function SignInScreen() {
                     </Svg>
                   )}
                 </View>
-                {/* The underlines are the page's styling, not links: neither the Terms nor the
-                    Privacy Policy is published yet (`Copy.settings.privacyPolicy.pending`), and a
-                    tap that goes nowhere would be a dead end dressed as help. Wire them the day a
-                    URL exists. */}
+                {/* The underlines are the page's styling, not links: the Terms are unpublished,
+                    and the Privacy Policy — published, opened from Settings via
+                    `PRIVACY_POLICY_URL` — is nested inside this checkbox's tap target, so wiring
+                    it needs a control of its own (see the header). A tap that goes nowhere would
+                    be a dead end dressed as help. */}
                 {/* One line at the page's size; wraps rather than truncates at large Dynamic Type —
                     legal text must never end in an ellipsis. */}
                 <Text style={styles.consentText}>
