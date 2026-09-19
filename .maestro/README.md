@@ -6,6 +6,134 @@ This directory is the first scripted attempt at proving that sentence — the MV
 acceptance gate, previously written down only as prose in `docs/mvp-build-prompt.md` and
 `docs/status.md`.
 
+## UPDATE 2026-09-20 (issue #203) — run against the real EAS development build, real production Supabase
+
+Everything below this section (through the 2026-07-25 update) describes an EARLIER era: a
+`preview-local` build against a local Supabase stack, with `lib/analyze-form.ts` hard-bound to a
+dev mock. Both of those are gone now — `analyze-form` has called the real, deployed, **paid**
+edge function since issue #128 (2026-07-26), and this task ran the flows against the
+`development`-profile EAS build (`dbd22da6`) and the live production project. Read this section
+first; the rest of the file is kept for its still-accurate flow-by-flow history.
+
+### Fixture account, sign-in instead of sign-up
+
+`subflows/sign-up.yaml` cannot currently complete on this build: the enabled `auth-email-submit`
+("Create account") button is reachable in the accessibility tree but not painted in the viewport
+after Turnstile succeeds — a real app bug, **GitHub issue #230**, evidence in
+`docs/evidence/issue-203/signup-cta-unreachable.md`. Every flow that only needs an authenticated
+session (`happy-path.yaml`, `dead-end-offline.yaml`) now signs in via `subflows/sign-in.yaml`
+instead, using a pre-provisioned synthetic fixture account:
+
+- Email: `maestro.e2e.issue203@example.com` (`raw_user_meta_data.synthetic_fixture = true`,
+  `fixture_purpose = "maestro-issue-203"` — query `auth.users` on the live project to confirm it
+  still exists before assuming the password below is current).
+- Password: rotate it with the SQL below if it's ever lost — nothing recovers it otherwise, since
+  it's a bcrypt hash, not stored in this repo or anywhere else. Requires `pgcrypto` (already
+  enabled on this project):
+  ```sql
+  update auth.users
+  set encrypted_password = crypt('<new-password>', gen_salt('bf')),
+      email_confirmed_at = coalesce(email_confirmed_at, now())
+  where email = 'maestro.e2e.issue203@example.com'
+  returning id, email;
+  ```
+  Run it with `mcp__claude_ai_Supabase__execute_sql` (or the Supabase SQL editor) against project
+  `vputdomdlknvthnzritt` — never `supabase db query --linked`, which is read-only.
+- Pass both as `MAESTRO_E2E_EMAIL` / `MAESTRO_E2E_PASSWORD` (see "Run it" below). The wrapper
+  script requires them for `happy-path.yaml`/`dead-end-offline.yaml` and fails fast with a named
+  error if either is missing.
+- `subflows/grant-consent.yaml`'s phase 1 (the once-ever health/age checkboxes) is now
+  conditional (`runFlow: when:`), because that grant is a `public.consents` row keyed to the
+  ACCOUNT, not local app state — a reused fixture account skips straight to phase 2 on every run
+  after its first, even though the harness reinstalls the app fresh each time.
+- `subflows/sign-in.yaml` also dismisses iOS's own Keychain "Save Password?" sheet, which fires
+  on a real sign-in submit (distinct from the "Use Strong Password?" sheet that fires on sign-UP
+  and needs a Simulator Settings toggle instead — see the 2026-07-13 note further down).
+- **A reused account accumulates analyses, so `happy-path.yaml` cleans History first.** Its
+  History leg deletes one row and asserts "No analyses yet", which only holds with exactly one
+  persisted analysis — but `dead-end-offline.yaml` ends on the result readout without deleting
+  its own, and any run that fails between the analysis and the delete leaves a row too. Right
+  after sign-in, `happy-path.yaml` now runs `subflows/clear-history.yaml`, which deletes every
+  row through the app's own History delete path (a no-op with zero rows) and returns to Home, so
+  the leg is idempotent whatever a prior or interrupted run left behind. No service-role key or
+  direct SQL is involved — the cleanup is the same UI purge a user would perform.
+- **The same reuse means the Free-tier lifetime quota applies to the fixture, and History
+  cleanup does NOT release it.** `reserve_analysis` counts the account's `reserved`/`delivered`
+  rows regardless of `deleted_at` — deleting from History is a soft delete by design
+  (`20260712040000_analyses_quota_soft_delete.sql`, issue #2), precisely so a delete cannot
+  refund a free analysis. With the server-only `ALL_USERS_UNLIMITED_ACCESS` override unset on the
+  live project (it is, per `docs/change_log.md` 2026-09-19), a Free fixture therefore gets
+  exactly ONE live analysis ever; the second `happy-path`/`dead-end-offline` run routes Home's
+  CTA to the paywall instead of Analyzing. This is masked today by issue #232 (no run reaches
+  the analyze handoff). Before the first post-#232 repeat run, either grant the fixture an
+  Elite entitlement, set the override, or provision a fresh fixture per run — a live-project
+  decision, deliberately not made here.
+
+### Run it
+
+```bash
+npm install   # a fresh worktree has no node_modules; ./node_modules/.bin/expo must exist
+export PATH="$PATH:$HOME/.maestro/bin"
+export MAESTRO_IOS_SIMULATOR_UDID=<a private-simulator UDID; never Simulator.app>
+export MAESTRO_METRO_PORT=8093   # or your own; the script reuses a listener already on this port
+export MAESTRO_ALLOW_PAID_ANALYSIS=1   # required: happy-path/dead-end-offline reach the real, paid analyze-form
+export MAESTRO_E2E_EMAIL=maestro.e2e.issue203@example.com
+export MAESTRO_E2E_PASSWORD='<the fixture password>'
+npm run e2e:maestro:ios-dev -- happy-path dead-end-offline
+```
+
+The script (`scripts/run-maestro-ios-dev-build.sh`, tested by
+`scripts/test-run-maestro-ios-dev-build.sh` — `npm run test:e2e-harness`, a dependency-free
+bash behavior-check suite with every external tool stubbed, so it is chained into `npm test` and
+runs in the ordinary commit gate) downloads/caches the EAS build artifact, boots the
+named simulator, starts or reuses Metro, does a fresh install + privacy reset before EACH flow,
+runs Maestro with `--format junit`, and prints a `flow\tstatus` matrix — this is the CI-shaped,
+repeatable command; nothing about it depends on this task's specific sandbox. See its own
+`--help` (or the top of the script) for every environment variable, including the
+`MAESTRO_ALLOW_FIXTURE_FLOWS`/`MAESTRO_QUOTA_EXHAUSTED_*` pair `dead-end-quota-exhausted.yaml`
+needs and the hard block on `dead-end-analysis-failure.yaml` (still no fault-injection contract —
+see "What's runnable today" below, unchanged).
+
+`maestro test` only interpolates `${VAR}` for names passed via its own `-e/--env` flag — it does
+**not** read the process environment on its own, despite what an earlier draft of this script's
+usage text implied. Confirmed empirically 2026-09-19: an exported-but-not-`-e`'d var renders as
+the literal string `"null"` in the running flow. The wrapper now passes each flow's own required
+`-e` pair itself (`flow_env_args()`); you should never need `--env` yourself when going through
+`npm run e2e:maestro:ios-dev`.
+
+### Pass/fail matrix (2026-09-20, EAS build `dbd22da6`, iOS 26.5 Simulator)
+
+| Flow | Result | Blocked by |
+|---|---|---|
+| `happy-path.yaml` | **FAIL** | Real, reproducible app/SDK bug — GitHub **issue #232**: `expo-camera`'s `record()` throws `SimulatorNotSupported` on this Simulator/SDK combination, so the in-app Record path can never start a clip. Confirmed deterministic across separate fresh-install runs (same exact native error each time), not the iOS-accessibility-bridge flakiness documented below. Everything BEFORE that step — sign-in, Home, consent, the camera permission soft-ask and OS dialog — passed cleanly after the flow-drift fixes in this task. |
+| `dead-end-offline.yaml` | **FAIL** | Same root cause as above (issue #232) — this flow also uses the in-app Record path and fails at the identical step. |
+| `dead-end-quota-exhausted.yaml` | Not run | Needs its own seeded quota-exhausted fixture account (`MAESTRO_QUOTA_EXHAUSTED_EMAIL`/`_PASSWORD`, `MAESTRO_ALLOW_FIXTURE_FLOWS=1`), which was out of this task's scope to provision. Unaffected by issues #230/#232 (it never reaches capture). |
+| `dead-end-analysis-failure.yaml` | Hard-blocked | No deterministic failure-injection contract exists yet for the real `analyze-form` endpoint (unchanged from the 2026-07-13 analysis below); the wrapper script refuses to run it at all. |
+
+**Zero real `analyze-form` calls (and therefore $0 model spend) were made while producing this
+matrix** — every run stopped at the Record step, before the capture→analyze handoff. `analyze-form`
+IS the real, deployed, paid client today (see the top of this section), so once issue #232 is
+fixed, budget for exactly one live call per `happy-path`/`dead-end-offline` run — the wrapper
+script enforces and prints this budget (`Selected client endpoint submission budget:
+N ... cap: 2`) before it does anything else.
+
+### Other flow drift fixed in this pass (2026-09-19/20, issue #203)
+
+Beyond the sign-in retarget above: the camera permission soft-ask panel
+(`app/capture/record.tsx`'s `'undetermined'` state, title "Camera access required") only renders
+BEFORE permission is granted — the "Record your run" title only exists in the granted-permission
+branch. The flows used to assert "Record your run" first and tap the soft-ask CTA after, which
+never actually passed against a harness that resets Simulator privacy on every run (only ever
+worked if permission carried over from a prior run on the same install). Fixed order: soft-ask
+title → tap "Allow camera access" → tap the OS dialog's real button → THEN assert "Record your
+run". The OS dialog's button also reads **"Allow" / "Don't Allow"** on iOS 26.5 with this build,
+not "OK" — update this the next time you verify against a different iOS version. Maestro was also
+upgraded 1.39.0 → 2.10.0 on this host (`curl -Ls https://get.maestro.mobile.dev | bash`) while
+chasing the accessibility-bridge flakiness on `subflows/grant-consent.yaml`'s "Who is in this
+photo or video?" text assertion — the upgrade didn't fix that specific case (the fix was
+asserting the `consent-subject-option-me` testID instead of that text; see the file's own
+comment), but keep it current regardless.
+
 **UPDATE 2026-07-25 (issues #84, #86, #92) — executed for real, for the first time, against a
 real build.** A `preview-local` EAS simulator build (issue #84 — a standalone build, not
 `developmentClient`, so it needs no Metro connection and has no dev-menu overlay to fight; see
@@ -134,6 +262,8 @@ without colliding on "email already registered."
       sign-up.yaml                          # reusable: hero -> details -> fresh email/password
                                             # stranger (consent ticked) -> Home
       grant-consent.yaml                    # reusable: the Art. 9 consent gate, first-time-only
+      sign-in.yaml                          # reusable: hero -> details -> existing account -> Home
+      clear-history.yaml                    # reusable: Home -> History -> delete every row -> Home
 ```
 
 ## What's runnable today vs what's blocked, and by what

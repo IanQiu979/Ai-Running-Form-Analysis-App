@@ -1,0 +1,65 @@
+# Subflow — signs in an EXISTING account via email/password and lands on Home.
+#
+# Added for issue #203 after `sign-up.yaml` became unusable end to end: on the EAS development
+# build, the enabled `auth-email-submit` ("Create account") button is reachable in the
+# accessibility tree but not painted in the viewport after Turnstile succeeds (app bug, filed as
+# GitHub issue #230 — see docs/evidence/issue-203/signup-cta-unreachable.md). A fresh-install
+# harness run can no longer mint a new stranger through sign-up, so every flow that only needs an
+# authenticated session now signs in to a pre-provisioned fixture account instead.
+#
+# Requires ${MAESTRO_E2E_EMAIL} / ${MAESTRO_E2E_PASSWORD} — the synthetic fixture account
+# (maestro.e2e.issue203@example.com as of 2026-09-19; see ../../README.md's "Fixture account"
+# section for how it was provisioned and how to rotate its password). Any already-signed-up
+# account works here — this subflow does not depend on that specific fixture's identity.
+#
+# Not a standalone test (excluded from ../../config.yaml's `flows/*.yaml` glob) — same appId
+# requirement as sign-up.yaml, for the same Maestro-CLI-1.39.0 parser reason.
+appId: com.ian.paceanalysisai
+---
+# The V23 entry flow (2026-09-14): a cold signed-out launch lands on the hero (app/(auth)/welcome),
+# whose "Continue" cue only becomes tappable once the hero's 3.2 s timeline has held (~4 s) —
+# hence `enabled: true`, not a bare visibility wait, or the tap lands on a disabled control and
+# is swallowed. Then the details page and its own "Continue" to the sign-up/sign-in screen.
+- extendedWaitUntil:
+    visible:
+      id: "entry-hero-cue"
+      enabled: true
+    timeout: 45000
+- tapOn:
+    id: "entry-hero-cue"
+- tapOn:
+    id: "details-continue"
+
+# The screen opens in sign-up mode (V23-06's first artboard); the title is the same static
+# "Get started" copy regardless of mode (constants/copy.ts's Copy.auth.title has no signIn/signUp
+# split), so this assertion holds whether it fires before or after the mode toggle below.
+- assertVisible: "Get started"
+
+# Flip to sign-in mode. The footer link reads "Sign in" in sign-up mode (Copy.auth.signIn.switchLink)
+# and the submit button's testID is `auth-email-submit` in BOTH modes — only its label changes
+# ("Create account" vs "Sign in", app/(auth)/sign-in.tsx).
+- tapOn: "Sign in"
+
+# No testID on these two TextInputs today — matched by placeholder text, which doubles as their
+# accessibilityLabel (app/(auth)/sign-in.tsx).
+- tapOn: "Email"
+- inputText: "${MAESTRO_E2E_EMAIL}"
+- tapOn: "Password"
+- inputText: "${MAESTRO_E2E_PASSWORD}"
+
+# No consent checkbox and no Turnstile widget in sign-in mode (both are `isSignUp &&`-gated in
+# app/(auth)/sign-in.tsx) — submit is reachable immediately, unlike sign-up's blocked CTA.
+- tapOn: "Sign in"
+
+# iOS's own Keychain "Save Password?" system sheet appears after a real credential submission —
+# distinct from the "Use Strong Password?" sheet CLAUDE.md/README already document for sign-UP,
+# which fires on typing a new password and needs a Simulator Settings toggle to suppress.
+# "Save Password?" fires on SIGN-IN submit instead and just needs dismissing here; it otherwise
+# sits on top of Home and fails the next assertion (observed 2026-09-19 on iOS 26.5).
+- runFlow:
+    when:
+      visible: "Save Password?"
+    commands:
+      - tapOn: "Not Now"
+
+- assertVisible: "Start analysis"

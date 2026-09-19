@@ -9,30 +9,19 @@
 # tests touch (screens aren't unit-tested by convention, per CLAUDE.md's Testing section).
 #
 # UPDATED 2026-07-13, same day as the original — re-verified against current `main`, not just
-# copied forward. Part (1) below is FIXED (#135 landed) and this flow's steps have been updated
-# to use the real handoff. Part (2) is STILL BLOCKED, confirmed by reading
-# `lib/analyze-form.ts` directly just now — this is the one remaining, genuine reason this flow
-# cannot be made to pass:
+# copied forward. Part (1) below is FIXED (#135 landed) and this flow's steps use the real
+# handoff. Part (2) is STILL BLOCKED: the deployed service has no documented deterministic
+# failure-injection contract, which is the one remaining reason this flow cannot be made to pass:
 #   1. ~~app/capture/extracting.tsx's "Frames ready" screen never hands off to /analyzing~~ FIXED
 #      by #135: the ready-state CTA now reads "Start analysis" and calls
 #      `setPendingAnalyzeFormRequest()` + `router.replace('/analyzing')`. See
 #      ../flows/happy-path.yaml, which exercises this same handoff for the success case. So this
 #      flow's `tapOn: "Done"` below is now WRONG and has been updated to match.
-#   2. STILL TRUE: `lib/analyze-form.ts`'s `analyzeFormClient` binding —
-#      `export const analyzeFormClient: AnalyzeFormClient = createMockAnalyzeFormClient();` —
-#      is hardcoded to zero-argument defaults, `outcome: 'success'`, `delayMs: 4000`, with NO
-#      runtime switch (no env var, no dev menu, no query param — grepped for
-#      `MOCK_ANALYZE`/`EXPO_PUBLIC.*MOCK` across lib/, app/, constants/: zero hits). The mock CAN
-#      produce 'failed', 'timeout', or 'thrown' outcomes (see its `MockAnalyzeFormOutcome`
-#      union), but only via a source-code change to that one binding — exactly the kind of thing
-#      a black-box E2E script must not do, and outside this worktree's file lane regardless
-#      (`.maestro/` only — `lib/` belongs to other agents right now).
-#   3. Racing the mock's own 4s success against the screen's OWN 120s client-side timeout
-#      (`ANALYZING_TIMEOUT_MS`, lib/analyzing-machine.ts) does not help either — the mock always
-#      wins that race by ~116s, so no path exists today to observe `timedOut` without either the
-#      source change in (2) or an impractically long test.
-#   4. Once #44 (the real `analyze-form`) deploys, forcing a structural-validation failure or a
-#      timeout ON DEMAND from outside the app needs its own designed-in test hook — e.g. a
+#   2. The deployed `analyze-form` path has no runtime switch, dev menu, or query parameter to
+#      force a failed, timed-out, or structurally invalid response. A black-box E2E flow must not
+#      manufacture one by changing application source.
+#   3. Forcing a structural-validation failure or timeout ON DEMAND from outside the app needs its
+#      own designed-in test hook — e.g. a
 #      documented magic idempotencyKey prefix, or a staging-only fault-injection flag — that
 #      does not exist in docs/architecture.md's API contract today. This is a genuine new
 #      requirement, not just a missing testID; see HANDOFF in ../README.md.
@@ -50,9 +39,6 @@
 
 appId: com.ian.paceanalysisai
 ---
-- launchApp:
-    clearState: true
-
 # The V23 entry flow (2026-09-14): a cold signed-out launch lands on the hero (app/(auth)/welcome),
 # whose "Continue" cue only becomes tappable once the hero's 3.2 s timeline has held (~4 s) —
 # hence `enabled: true`, not a bare visibility wait, or the tap lands on a disabled control and
@@ -82,7 +68,7 @@ appId: com.ian.paceanalysisai
     id: "source-card-record"
 - runFlow: subflows/grant-consent.yaml
 - tapOn: "Allow camera access"
-- tapOn: "OK" # OS permission dialog — see happy-path.yaml's note on iOS-version wording
+- tapOn: "Allow" # OS permission dialog (confirmed "Allow"/"Don't Allow" 2026-09-19) — see happy-path.yaml
 - tapOn:
     id: "record-button"
 - waitForAnimationToEnd:
@@ -98,11 +84,9 @@ appId: com.ian.paceanalysisai
 
 - tapOn: "Start analysis" # upload.ready.cta — the real handoff, matches happy-path.yaml
 # TODO: some documented, deterministic way to force a failure/timeout outcome for THIS
-# analysis — e.g. `- inputText: "${MAESTRO_FORCE_ANALYZE_OUTCOME}"` into a to-be-designed
-# test-only field, or an env-configured build. Nothing in the current app takes such a signal —
-# without it, the two assertions below will FAIL (loudly, correctly) against the mock's
-# hardcoded 'success' outcome: "Analyzing" resolves straight to the result screen instead of
-# ever showing "Analysis failed".
+# analysis. Nothing in the current app takes such a signal — without it, the two assertions below
+# will fail loudly and correctly because a normal live request resolves to a result instead of
+# showing "Analysis failed".
 
 - assertVisible: "Analyzing" # analyzing.title
 - extendedWaitUntil:

@@ -1,0 +1,65 @@
+# Subflow — starts on Home (authenticated) and deletes EVERY persisted analysis the signed-in
+# account has, through the app's own History delete path, then returns to Home.
+#
+# Added for issue #203 (2026-09-20). Since happy-path.yaml signs in to a REUSED fixture account
+# instead of minting a fresh stranger (issue #230), its History leg — delete one row, assert
+# "No analyses yet" — only holds when the account has exactly one persisted analysis. Anything
+# leaves extra rows behind: dead-end-offline.yaml ends on the result readout without deleting
+# its analysis, and any run that fails between the analysis and the delete leaves one too. This
+# subflow makes the History leg idempotent regardless of that leftover state.
+#
+# Runs unconditionally and is safe with zero rows: the `repeat: while:` body simply never fires
+# and the empty-state wait passes straight away. The `times:` cap is a defensive upper bound on
+# row count so the loop cannot spin forever; the empty-state wait after it is what actually
+# decides pass/fail.
+#
+# Row delete controls are `history-delete-<uuid>` (components/history/history-row.tsx). The
+# UUID-shaped pattern below deliberately does NOT match the sibling testIDs that share the
+# prefix — `history-delete-confirm`, `history-delete-failed` — so an open dialog is never
+# mistaken for a fresh row to tap. An in-flight delete is detected through `enabled: true`: the
+# row sets `accessibilityState.disabled` while its delete is pending, which iOS exposes on the
+# Pressable itself. The busy ActivityIndicator inside that Pressable is NOT reachable — the
+# Pressable is an accessibility leaf, so XCUITest/Maestro never see its children — which is why
+# nothing here keys on `history-delete-busy-*`.
+#
+# Not a standalone test (excluded from ../../config.yaml's `flows/*.yaml` glob) — same appId
+# requirement as the other subflows.
+appId: com.ian.paceanalysisai
+---
+# Home's floating tab bar (app/(tabs)/_layout.tsx, testID "tab-bar") -> History.
+- tapOn:
+    id: "tab-bar-history"
+
+# History mounts in its loading state and only then resolves to ready (rows or empty). Wait for
+# that resolution before deciding whether there is anything to delete, or a still-loading list
+# reads as "no rows" and the cleanup silently skips.
+- extendedWaitUntil:
+    notVisible:
+      id: "history-loading"
+    timeout: 30000
+
+- repeat:
+    times: 25
+    while:
+      visible:
+        id: "history-delete-[0-9a-f-]{36}"
+        enabled: true
+    commands:
+      - tapOn:
+          id: "history-delete-[0-9a-f-]{36}"
+          enabled: true
+      - assertVisible:
+          id: "history-delete-confirm"
+      - tapOn: "Delete analysis" # history.delete.confirm.cta.primary
+
+# A row only leaves the list once the server confirms the purge (app/(tabs)/history.tsx's
+# handleDelete), so the last delete is still in flight when the loop exits — wait for the empty
+# state rather than asserting it immediately.
+- extendedWaitUntil:
+    visible: "No analyses yet" # history.empty.title
+    timeout: 30000
+
+# History's inline tab bar (testID "history-tab-bar") -> back to Home, where the caller resumes.
+- tapOn:
+    id: "history-tab-bar-home"
+- assertVisible: "Start analysis" # home.cta.analyze
