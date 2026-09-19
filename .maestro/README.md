@@ -49,6 +49,25 @@ instead, using a pre-provisioned synthetic fixture account:
 - `subflows/sign-in.yaml` also dismisses iOS's own Keychain "Save Password?" sheet, which fires
   on a real sign-in submit (distinct from the "Use Strong Password?" sheet that fires on sign-UP
   and needs a Simulator Settings toggle instead — see the 2026-07-13 note further down).
+- **A reused account accumulates analyses, so `happy-path.yaml` cleans History first.** Its
+  History leg deletes one row and asserts "No analyses yet", which only holds with exactly one
+  persisted analysis — but `dead-end-offline.yaml` ends on the result readout without deleting
+  its own, and any run that fails between the analysis and the delete leaves a row too. Right
+  after sign-in, `happy-path.yaml` now runs `subflows/clear-history.yaml`, which deletes every
+  row through the app's own History delete path (a no-op with zero rows) and returns to Home, so
+  the leg is idempotent whatever a prior or interrupted run left behind. No service-role key or
+  direct SQL is involved — the cleanup is the same UI purge a user would perform.
+- **The same reuse means the Free-tier lifetime quota applies to the fixture, and History
+  cleanup does NOT release it.** `reserve_analysis` counts the account's `reserved`/`delivered`
+  rows regardless of `deleted_at` — deleting from History is a soft delete by design
+  (`20260712040000_analyses_quota_soft_delete.sql`, issue #2), precisely so a delete cannot
+  refund a free analysis. With the server-only `ALL_USERS_UNLIMITED_ACCESS` override unset on the
+  live project (it is, per `docs/change_log.md` 2026-09-19), a Free fixture therefore gets
+  exactly ONE live analysis ever; the second `happy-path`/`dead-end-offline` run routes Home's
+  CTA to the paywall instead of Analyzing. This is masked today by issue #232 (no run reaches
+  the analyze handoff). Before the first post-#232 repeat run, either grant the fixture an
+  Elite entitlement, set the override, or provision a fresh fixture per run — a live-project
+  decision, deliberately not made here.
 
 ### Run it
 
@@ -64,7 +83,9 @@ npm run e2e:maestro:ios-dev -- happy-path dead-end-offline
 ```
 
 The script (`scripts/run-maestro-ios-dev-build.sh`, tested by
-`scripts/test-run-maestro-ios-dev-build.sh`) downloads/caches the EAS build artifact, boots the
+`scripts/test-run-maestro-ios-dev-build.sh` — `npm run test:e2e-harness`, a dependency-free
+bash behavior-check suite with every external tool stubbed, so it is chained into `npm test` and
+runs in the ordinary commit gate) downloads/caches the EAS build artifact, boots the
 named simulator, starts or reuses Metro, does a fresh install + privacy reset before EACH flow,
 runs Maestro with `--format junit`, and prints a `flow\tstatus` matrix — this is the CI-shaped,
 repeatable command; nothing about it depends on this task's specific sandbox. See its own
@@ -241,6 +262,8 @@ without colliding on "email already registered."
       sign-up.yaml                          # reusable: hero -> details -> fresh email/password
                                             # stranger (consent ticked) -> Home
       grant-consent.yaml                    # reusable: the Art. 9 consent gate, first-time-only
+      sign-in.yaml                          # reusable: hero -> details -> existing account -> Home
+      clear-history.yaml                    # reusable: Home -> History -> delete every row -> Home
 ```
 
 ## What's runnable today vs what's blocked, and by what

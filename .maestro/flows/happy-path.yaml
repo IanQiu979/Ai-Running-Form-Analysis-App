@@ -19,6 +19,13 @@ appId: com.ian.paceanalysisai
 # --- Sign-in (subflow leaves us on Home, authenticated as the fixture account) ------------------
 - runFlow: subflows/sign-in.yaml
 
+# --- Pre-cleanup: delete every analysis the reused fixture account already has ------------------
+# The History leg below deletes ONE row and asserts "No analyses yet", which only holds when the
+# account has exactly one persisted analysis. A reused account accumulates rows (dead-end-offline
+# never deletes its own; any run that fails between analysis and delete leaves one too), so this
+# runs unconditionally — it is a no-op with zero rows — and leaves us back on Home.
+- runFlow: subflows/clear-history.yaml
+
 # --- Home -> source picker ----------------------------------------------------------------------
 - tapOn: "Start analysis"
 - assertVisible: "Add footage"

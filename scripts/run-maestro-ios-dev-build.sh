@@ -359,7 +359,7 @@ flow_env_args() {
       env_args=(-e "MAESTRO_QUOTA_EXHAUSTED_EMAIL=${MAESTRO_QUOTA_EXHAUSTED_EMAIL:-}" -e "MAESTRO_QUOTA_EXHAUSTED_PASSWORD=${MAESTRO_QUOTA_EXHAUSTED_PASSWORD:-}")
       ;;
   esac
-  printf '%s\n' "${env_args[@]}"
+  printf '%s\n' "${env_args[@]+"${env_args[@]}"}"
 }
 
 run_flow() {
@@ -375,7 +375,7 @@ run_flow() {
   fresh_install || return 1
   xcrun simctl spawn "$UDID" defaults write "$APP_ID" EXDevMenuIsOnboardingFinished -bool YES || return 1
   xcrun simctl launch "$UDID" "$APP_ID" --initialUrl "http://localhost:$METRO_PORT" || return 1
-  maestro --udid "$UDID" test "${env_args[@]}" --format junit --output "$output_dir/junit.xml" --debug-output "$output_dir/debug" "$flow"
+  maestro --udid "$UDID" test "${env_args[@]+"${env_args[@]}"}" --format junit --output "$output_dir/junit.xml" --debug-output "$output_dir/debug" "$flow"
 }
 
 [[ $# -gt 0 ]] || {
