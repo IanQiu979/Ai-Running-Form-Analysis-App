@@ -243,6 +243,13 @@ export function bandForScore(score: number): ScoreBand {
  * we just dropped, so keeping it would show a headline number that does not match the bars under
  * it. `pace.ts` explicitly leaves this arithmetic "to whichever side produces the result" — on
  * the fallback path, that side is us.
+ *
+ * THE RULE, STATED ONCE (issue #89): `overall` is the rounded mean of the ASSESSED pillars only.
+ * A not-assessed pillar contributes nothing — it is neither a zero nor a divisor. A Free photo
+ * with Posture 80 and Arm swing 70 reads Overall 75, not 38; a Free 5-frame video with all four
+ * scored averages all four. `normalizeForEvidenceAndTier` (`analyze-form/flow.ts`) routes every
+ * result whose pillars it touched — every one-frame submission and every Free result — through
+ * this function, so the headline can never count a pillar the bars under it do not show.
  */
 export function deriveOverall(pillars: Record<PacePillarId, PacePillarResult>): PaceResult['overall'] {
   const scores = PACE_PILLARS.map((id) => pillars[id].score).filter(

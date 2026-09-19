@@ -219,14 +219,30 @@ describe('ExtractingScreen — video frame cap comes from the server (the paid-t
 
     // What the user actually gets.
     expect(extractedFrameCount()).toBe(cap);
-    // The bug, named: this number used to collapse to the free cap for every paying tier.
-    expect(extractedFrameCount()).not.toBe(PACE_FRAME_CAP.free);
+    // The bug, named: this number used to collapse to ONE frame (Free's cap at the time; Free is
+    // Pro's 5-frame burst since #89) for every paying tier.
+    expect(extractedFrameCount()).not.toBe(1);
     // ...and what the caption promises, which must be the same number. These were two independent
     // reads of one hardcoded constant before the fix; now they are one value used twice.
     expect(getByText(Copy.upload.step.extracting(0, cap))).toBeTruthy();
   });
 
-  it('leaves a free caller at one frame per video', async () => {
+  // Issue #89 (2026-09-19): Free video extracts Pro's 5-frame stride burst, so Cadence and
+  // Elasticity can be scored on the free trial. The screen still reads the number off the server.
+  it('extracts a free caller\'s full stride burst (5 frames), not a single frame', async () => {
+    mockQuotaFetch.mockResolvedValue(quotaResult('free', PACE_FRAME_CAP.free));
+
+    const { getByText } = await render(<ExtractingScreen />);
+
+    await waitFor(() => expect(mockExtractFrames).toHaveBeenCalledTimes(1), WAIT);
+
+    expect(extractedFrameCount()).toBe(5);
+    expect(extractedFrameCount()).toBe(PACE_FRAME_CAP.pro);
+    expect(getByText(Copy.upload.step.extracting(0, 5))).toBeTruthy();
+  });
+
+  it('still extracts exactly one frame from a PHOTO, on the free tier, with no dependence on the cap', async () => {
+    mockRouteParams = { ...PHOTO_PARAMS };
     mockQuotaFetch.mockResolvedValue(quotaResult('free', PACE_FRAME_CAP.free));
 
     const { getByText } = await render(<ExtractingScreen />);

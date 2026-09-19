@@ -533,10 +533,10 @@ export const Copy = {
         // frame of it reached the analysis, so neither `needsVideo` ("not a photo") nor `angle` is
         // a true sentence about their upload. Written only by `analyze-form/flow.ts`'s
         // normalization, via `PaceNotAssessedReason`'s server-authored `singleFrameFromVideo`.
-        // States WHAT happened and not WHY: the frame count is decided on the device, and
-        // `lib/extraction-frame-cap.ts` falls back to a single frame whenever it cannot read the
-        // caller's quota — so "your plan only allowed one" would be a guess, and a false one for a
-        // paying user whose lookup failed.
+        // States WHAT happened and not WHY: the frame count is decided on the device, and a
+        // single frame can still reach the server from a client build that predates the stride
+        // burst — so "your plan only allowed one" would be a guess, and since #89 (2026-09-19)
+        // a false one on every tier: Free video is a 5-frame burst too.
         singleFrameFromVideo: 'Not assessed. Only one frame of the video was analyzed.',
         // NEW key, not in the deck. `supabase/functions/_shared/pace.ts`'s own doc comment on
         // `PaceNotAssessedReason` says a model response is NOT structurally required to report
@@ -1061,10 +1061,13 @@ export const Copy = {
       // comparison — only certified flags/drills, and only "when supported" by the evidence.
       // Pro's 10 and Elite's 30 are display copies of the server-enforced per-period limits in
       // `public.reserve_analysis`; the client still never computes or enforces quota.
+      // Free's detail changed 2026-09-19 (issue #89): a Free VIDEO now runs the same stride-burst
+      // extraction as the paid tiers, so it no longer sells "a single frame". A photo is still one
+      // frame on every tier, and the result screen says which pillars that leaves unassessed.
       free: {
         name: 'Free',
         price: '$0',
-        detail: 'One analysis, from a single photo or frame. No injury-risk flags or drills.',
+        detail: 'One analysis, from a photo or a short video. No injury-risk flags or drills.',
       },
       pro: {
         name: 'Pro',

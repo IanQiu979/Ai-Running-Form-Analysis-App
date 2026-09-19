@@ -52,7 +52,7 @@ family, and a direct answer to Echo V1's "too many features" feedback.
 
 | Tier | Analyses | Frames analyzed | Depth |
 |------|----------|------|-------|
-| **Free** | 1 total (lifetime, to try) | 1 frame (photo, or one frame from video) | Certified PACE scores + feedback, no drills |
+| **Free** | 1 total (lifetime, to try) | 1 frame from a photo, or the same 5-frame stride burst as Pro from a video (decided 2026-09-19, issue #89 — was "one frame from video") | Certified PACE scores + feedback, no drills |
 | **Pro** | 10 / month | 5 frames from video | Full PACE analysis, injury-risk flags, suggested fix drills — **more detailed** feedback than Free |
 | **Elite** | 30 / month | 8 frames from video | Everything in Pro **plus** more frames analyzed per video, side-by-side progress comparison vs a past analysis, deeper drill programming — **slightly more detailed still** than Pro |
 

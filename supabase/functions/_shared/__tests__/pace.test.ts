@@ -337,9 +337,18 @@ describe('isPaceAnalysisOutcome', () => {
 
 describe('shared constants', () => {
   // Case 14: locked against docs/architecture.md "Current — media pipeline" — "Frame count per
-  // tier: Free 1 / Pro 5 / Elite 8".
-  it('PACE_FRAME_CAP matches Free 1 / Pro 5 / Elite 8', () => {
-    expect(PACE_FRAME_CAP).toEqual({ free: 1, pro: 5, elite: 8 });
+  // tier: Free 5 / Pro 5 / Elite 8". Free moved from 1 to Pro's burst on 2026-09-19 (issue #89):
+  // a Free VIDEO now scores all four pillars; a photo is still exactly one frame on every tier.
+  it('PACE_FRAME_CAP matches Free 5 / Pro 5 / Elite 8', () => {
+    expect(PACE_FRAME_CAP).toEqual({ free: 5, pro: 5, elite: 8 });
+  });
+
+  // Issue #89's decision as an invariant: Free's video burst IS Pro's, not a third number. A
+  // future edit that gives Free fewer frames than Pro must re-argue the 2-of-4 free trial in the
+  // migration, not just here.
+  it('PACE_FRAME_CAP.free is Pro\'s stride burst (#89)', () => {
+    expect(PACE_FRAME_CAP.free).toBe(PACE_FRAME_CAP.pro);
+    expect(PACE_FRAME_CAP.free).toBeGreaterThanOrEqual(2);
   });
 
   // Case 15: locked against the same doc — "total request body ≤5MB".

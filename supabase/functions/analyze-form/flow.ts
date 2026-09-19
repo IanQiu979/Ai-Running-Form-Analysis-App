@@ -76,14 +76,18 @@
  *    failure is the only signal `classifyReleaseReason` has for deliberate prompt-injection
  *    farming. If that smaller retry times out, it safely becomes `model_error`, not a strike.
  *    The MEDIUM RULES are picked from the frame count actually attached, not the client's
- *    declared `mediaType` — a video clipped to one frame by Free's cap is one instant, and must
- *    never be handed the cross-frame rules.
+ *    declared `mediaType` — a video that arrives as one frame (a not-yet-updated client, or a
+ *    device that could not read its cap) is one instant, and must never be handed the
+ *    cross-frame rules. Since #89 (2026-09-19) Free video extracts the same 5-frame stride burst
+ *    as Pro, so the tier alone no longer implies a single frame.
  *
  * 8.5. NORMALIZE (evidence + tier) — server-side, unconditional, never prompt-only trust. Cadence
  *    (a rate) and Elasticity (a bounce cycle) cannot be honestly assessed from a single frame,
- *    whatever the model claims: every one-frame submission (Free's only allowance, and any photo
- *    from any tier) has both pillars forced to `notAssessedReason: 'needsVideo'` here, and `overall`
- *    is recomputed from what is left. A stop-running SAFETY signal the model wrote into such a
+ *    whatever the model claims: every one-frame submission (any photo from any tier, and any
+ *    video that reached us as one frame) has both pillars forced to `notAssessedReason:
+ *    'needsVideo'` here, and `overall` is recomputed from what is left. Keyed on the FRAME COUNT,
+ *    never the tier: a Free video is a 5-frame burst since #89 and keeps all four pillars. A
+ *    stop-running SAFETY signal the model wrote into such a
  *    pillar survives the strip and leads the replacement feedback (SAFETY_RULES: undroppable at
  *    every tier). Free additionally never renders flags/drills (`pace.ts`'s `PacePillarResult` doc
  *    comment) — stripped here, not merely omitted from the prompt. See

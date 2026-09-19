@@ -49,7 +49,10 @@ describe('PaywallScreen plan promises', () => {
 
     await waitFor(() => expect(screen.getByText('Free analysis used')).toBeTruthy());
 
-    expect(screen.getByText(/^One analysis, from a single photo or frame/i)).toBeTruthy();
+    // Issue #89 (2026-09-19): Free video runs the same stride burst as Pro, so the free row no
+    // longer sells "a single photo or frame". Still one analysis, still no flags or drills.
+    expect(screen.getByText(/^One analysis, from a photo or a short video\. No injury-risk flags or drills\.$/)).toBeTruthy();
+    expect(screen.queryByText(/single photo or frame/i)).toBeNull();
     expect(
       screen.getByText(
         '10 analyses per period. Multi-frame evidence where footage supports it. Certified injury-risk flags and drills where supported.'

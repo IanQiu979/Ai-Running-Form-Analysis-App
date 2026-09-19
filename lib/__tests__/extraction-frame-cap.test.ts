@@ -76,23 +76,35 @@ describe('FALLBACK_VIDEO_FRAME_CAP', () => {
   // could drift from what reserve_analysis enforces for free.
   it('is exactly the free tier cap from @shared/pace', () => {
     expect(FALLBACK_VIDEO_FRAME_CAP).toBe(PACE_FRAME_CAP.free);
-    expect(FALLBACK_VIDEO_FRAME_CAP).toBe(1);
+    // 5 since issue #89 (2026-09-19): Free video runs Pro's stride burst. Still the SMALLEST cap
+    // of the three, which is the property the fallback direction depends on.
+    expect(FALLBACK_VIDEO_FRAME_CAP).toBe(5);
+    expect(FALLBACK_VIDEO_FRAME_CAP).toBe(Math.min(PACE_FRAME_CAP.free, PACE_FRAME_CAP.pro, PACE_FRAME_CAP.elite));
   });
 });
+
+/** What the shipped bug collapsed every tier to: the free cap AS IT WAS when the bug shipped
+ * (2026-07-26). Free's cap has since moved to Pro's burst (#89, 2026-09-19), so "not the free
+ * cap" is no longer a meaningful lock for Pro — "not one frame" is what the bug actually did. */
+const THE_SHIPPED_BUG_FRAME_COUNT = 1;
 
 describe('resolveVideoFrameCap — the paid-tier path (the shipped bug)', () => {
   // THE headline regression lock. Before the fix this was 1 for every tier.
   it.each([
     ['pro', PACE_FRAME_CAP.pro],
     ['elite', PACE_FRAME_CAP.elite],
-  ] as const)('gives a %s response its own frame count (%i), not the free cap', (tier, cap) => {
+  ] as const)('gives a %s response its own frame count (%i), not a single frame', (tier, cap) => {
     expect(resolveVideoFrameCap(okResult(tier, cap))).toBe(cap);
-    // Stated explicitly: the whole bug was this number collapsing to the free cap.
-    expect(resolveVideoFrameCap(okResult(tier, cap))).not.toBe(PACE_FRAME_CAP.free);
+    // Stated explicitly: the whole bug was this number collapsing to one frame.
+    expect(resolveVideoFrameCap(okResult(tier, cap))).not.toBe(THE_SHIPPED_BUG_FRAME_COUNT);
   });
 
-  it('leaves a free response at one frame per video, unchanged', () => {
-    expect(resolveVideoFrameCap(okResult('free', PACE_FRAME_CAP.free))).toBe(1);
+  // Issue #89 (2026-09-19): a Free video gets the same 5-frame stride burst as Pro. The number
+  // still comes from the SERVER's `frameCap`; this only pins that a free response resolves to the
+  // burst and no longer to a single frame.
+  it('gives a free response its stride burst (5), not a single frame', () => {
+    expect(resolveVideoFrameCap(okResult('free', PACE_FRAME_CAP.free))).toBe(5);
+    expect(resolveVideoFrameCap(okResult('free', PACE_FRAME_CAP.free))).toBe(PACE_FRAME_CAP.pro);
   });
 
   // THE "read frameCap, do not look up tier" lock. The server is the authority: if it sends a

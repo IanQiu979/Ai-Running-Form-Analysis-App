@@ -5,6 +5,55 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-19 (issue #89: Free's one lifetime VIDEO analysis scores all four pillars)
+
+**Captain's decision 2026-09-19. Code-complete on `fm/v23-free-tier-four-pillars-89`; the
+migration is NOT yet pushed to production (deploy step recorded in `docs/status.md` Known Issue
+#50).** #89 (audit, 2026-07-12) named the collision: `reserve_analysis` capped `free` at 1 frame,
+`knowledge/pace_framework.md`'s certified rule says a single frame cannot show cadence, vertical
+oscillation or ground-contact time, so every free trial — a perfect side-on clip included — came
+back "Partial read — 2 of 4 pillars". Verified still real against `main` (`2018e6a`) before any
+change: `20260910120000`'s `v_frame_cap` case still read `'free' then 1`.
+
+- **Free VIDEO now extracts the same stride burst as the paid tiers, at Pro's density: 5 frames in
+  one centred ~700ms window.** New migration
+  `supabase/migrations/20260919120000_free_video_stride_burst_frame_cap.sql` replaces
+  `reserve_analysis` (5-arg) and `pace_quota_status` body-for-body from `20260910120000` with the
+  single edit `v_frame_cap := case v_tier when 'free' then 5 ...`. Why 5 and not a new number: the
+  brief said "the burst size paid uses", Pro/5 is the smaller of the two paid bursts that ship
+  today and the one measured live (2026-09-07) to score all four pillars. The legacy 4-arg
+  overloads and the `ALL_USERS_UNLIMITED_ACCESS` family are deliberately untouched (migration
+  header). `PACE_FRAME_CAP.free` moved 1 → 5 in `_shared/pace.ts`.
+- **A PHOTO stays exactly one frame on every tier, and reads 2 of 4 honestly.** That is the
+  existing `invalid_frame_count_for_photo` medium rule plus `flow.ts`'s frame-count-keyed
+  normalization, both unchanged; the prompt's one-frame rule, the `needsVideo` copy and the
+  "Partial read" banner all remain for photos.
+- **No server, prompt or renderer branch needed a tier check** — every one of them already keyed
+  on the frame count (`assertFramesValid` uses `PACE_FRAME_CAP[tier]`; the medium rules pick
+  burst vs one-frame from `frames.length`; the banner gates on `countAssessedPillars`). The change
+  in those files is comments only, plus the `overall` rule now stated once on `deriveOverall`
+  (`analyze-form-validation.ts`): the rounded mean of ASSESSED pillars only, a withheld pillar is
+  neither a zero nor a divisor.
+- **Copy:** `paywall.tier.free.detail` → "One analysis, from a photo or a short video. No
+  injury-risk flags or drills." Prices, Pro 10 / Elite 30, and every other string untouched.
+- **Tests added/updated:** PGlite behavioural proof of the migration
+  (`_shared/__tests__/free-video-frame-cap-sql.deno.test.ts` — cap by tier and by medium, photo
+  refused at >1 frame on every tier, Pro/Elite unchanged, Free still `limit: 1`, override still
+  8, legacy overload still 1, hardened posture); `flow.deno.test.ts` (a Free 5-frame burst keeps
+  all four pillars, strips only flags/drills, recomputes `overall` from four, gets the burst
+  rules; a Free photo still reads 2 of 4 with `needsVideo`); the #42 eval — `freeTierCeiling(media)`
+  is per medium, `#89 EVIDENCE` became `#89 DECIDED` (Free video CAN emit Cadence/Elasticity, Free
+  photo never does), a sixth live case `stride-video-free`, and three offline `gradeCase` locks
+  (honest Free burst passes; a leaked drill on it still fails gate 4; a scored Cadence on a Free
+  photo still fails gate 3); renderer `app/result/__tests__/free-tier-paths.test.tsx` (Free video:
+  no banner, no not-assessed line; Free photo: banner "2 of 4 ... photo", "Requires video" twice);
+  and the `free: 1` locks in `frames.test.ts`, `pace.test.ts`, `extraction-frame-cap.test.ts` and
+  `extracting.test.tsx` re-pointed at 5. The two "shipped bug" locks that asserted "not the free
+  cap" for Pro now assert "not one frame", since Free and Pro share a cap.
+- **Not done here:** the production push (DB-first: migration, then `analyze-form`, then the app
+  build — Known Issue #50 has the exact sequence and the interim behaviour), a live run of the
+  extended eval, and an in-app check on a device.
+
 ## 2026-09-19 (production deploy: four migrations + `analyze-form` v18 + `quota-status` v16 — issues #200, #201)
 
 **Deploy record; docs-only in the repo (`docs/status.md` Known Issue #49 has the full account).**

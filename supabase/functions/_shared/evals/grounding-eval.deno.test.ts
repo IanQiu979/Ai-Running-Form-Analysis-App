@@ -63,7 +63,7 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
 }
 
-/** The four cases are built once — rendering the fixture PNGs is the slow part, and it is pure. */
+/** The cases are built once — rendering the fixture PNGs is the slow part, and it is pure. */
 const CASES: GroundingCase[] = await buildCases();
 
 function caseById(id: string): GroundingCase {
@@ -106,8 +106,9 @@ const NOT_ASSESSED: PacePillarResult = {
 };
 
 /** The honest photo result: Posture and Arm swing scored, Cadence and Elasticity truthfully null.
- * This is the shape the product returns for EVERY free submission (see the #89 test at the bottom),
- * so every grader must pass it cleanly. */
+ * This is the shape the product returns for every PHOTO submission on any tier (see the #89 test
+ * at the bottom — since 2026-09-19 a Free VIDEO is a stride burst and can score all four), so every
+ * grader must pass it cleanly. */
 function honestPhotoResult(): PaceResult {
   return {
     pillars: {
@@ -733,6 +734,55 @@ Deno.test('gradeCase passes an honest free-tier photo response end to end', () =
   assert(statuses(report.checks, 'tier-verbosity')[0] === 'pass', 'tier-verbosity should pass.');
 });
 
+/** The honest Free VIDEO result since #89: all four pillars scored from the stride burst, one line
+ * of feedback each, and NO flags or drills — paid-tier content stays paid. */
+function honestFreeBurstResult(): PaceResult {
+  return {
+    pillars: {
+      posture: pillar({ score: 74, band: 'good', feedback: 'The trunk stays tall through the landing.' }),
+      armSwing: pillar({ score: 62, band: 'mid', feedback: 'The hands cross the midline on the swing.' }),
+      cadence: pillar({ score: 58, band: 'mid', feedback: 'The foot lands ahead of the hips in frame 3.' }),
+      elasticity: pillar({ score: 60, band: 'mid', feedback: 'The torso rises visibly between frames 2 and 4.' }),
+    },
+    // mean(74, 62, 58, 60) = 63.5 -> 64.
+    overall: { score: 64, band: 'mid' },
+  };
+}
+
+Deno.test('#89: gradeCase passes an honest Free VIDEO response that scores all four pillars', () => {
+  const free = caseById('stride-video-free');
+  const report = gradeCase(free, readAttempt(response(honestFreeBurstResult())), 1234, 'claude-sonnet-5');
+
+  assert(report.parsed, "The Free burst result did not parse through production's readAttempt.");
+  assert(
+    report.passed,
+    'The honest Free burst result failed grading: ' +
+      report.checks.filter((c) => c.status === 'fail').map((c) => `${c.id}: ${c.detail}`).join(' | ')
+  );
+  assert(statuses(report.checks, 'no-unsupported-pillar')[0] === 'pass', 'nothing is out of reach on a burst.');
+  assert(statuses(report.checks, 'tier-verbosity')[0] === 'pass', 'Free depth with four scores is still Free.');
+});
+
+Deno.test('#89: a Free VIDEO that scores Cadence/Elasticity but leaks a drill is still caught by gate 4', () => {
+  const free = caseById('stride-video-free');
+  const leaked = honestFreeBurstResult();
+  leaked.pillars.cadence.drills = [{ name: 'Wall drill', instructions: 'Lean from the ankles.' }];
+  const report = gradeCase(free, readAttempt(response(leaked)), 1234, 'claude-sonnet-5');
+
+  assert(!report.passed, 'A drill on a Free result must fail grading even when the scores are honest.');
+  assert(statuses(report.checks, 'tier-verbosity').includes('fail'), 'the leak is a tier-verbosity failure.');
+});
+
+Deno.test('#89: a Free PHOTO that scores Cadence is still a fabrication (the photo half is unchanged)', () => {
+  const free = caseById('still-free');
+  const fabricated = honestPhotoResult();
+  fabricated.pillars.cadence = pillar({ score: 61, band: 'mid', feedback: 'Cadence looks a little low.' });
+  const report = gradeCase(free, readAttempt(response(fabricated)), 1234, 'claude-sonnet-5');
+
+  assert(!report.passed, 'Scoring Cadence from one still must still fail on the free tier.');
+  assert(statuses(report.checks, 'no-unsupported-pillar').includes('fail'), 'gate 3 must name the unsupported pillar.');
+});
+
 Deno.test('gradeCase FAILS a prose reply — the response that ignored the contract entirely', () => {
   const free = caseById('still-free');
   const prose: AnthropicMessageResponse = {
@@ -854,51 +904,74 @@ Deno.test('EVERY tier is exercised live — the merge condition cannot be met by
   );
 });
 
-Deno.test('#89 EVIDENCE: Free can never be scored on Cadence or Elasticity. By construction.', () => {
-  // This test PASSES on purpose. It is not a bug report in test form — it is the evidence #89's
-  // product decision has been waiting for, pinned so that it cannot rot, and so that the day
-  // someone changes the cap the change announces itself.
+Deno.test('#89 DECIDED (2026-09-19): Free VIDEO can reach Cadence and Elasticity; Free PHOTO never does', () => {
+  // This test used to PASS on purpose as the evidence #89's product decision was waiting for: with
+  // PACE_FRAME_CAP.free === 1, every free trial — clip or not — was a single still, and the
+  // certified rule ("a single frame cannot show cadence ... score those pillars as needs video")
+  // made 2-of-4 the free tier's structural ceiling. The captain decided on 2026-09-19: Free video
+  // runs the SAME stride burst as Pro (5 frames, one ~700ms window), so both motion pillars can be
+  // assessed on the free trial; a photo stays one frame with the honest "Requires video" copy.
   //
-  // The arithmetic, entirely from the repo's own constants:
-  //   PACE_FRAME_CAP.free === 1
-  //     => a Free submission is always exactly ONE frame — a single still, even from a video
-  //     => analyze-form-prompt.ts's MEDIUM_RULES.photo: "You CANNOT assess Cadence or Elasticity
-  //        from one frame. Both are motion over time" and REQUIRES score: null for both
-  //     => a Free user, even one who films a flawless side-on clip, is scored on AT MOST 2 of the
-  //        4 pillars in the product's own name. Every time.
+  // The arithmetic, entirely from the repo's own constants, now in BOTH directions:
+  //   PACE_FRAME_CAP.free === PACE_FRAME_CAP.pro (>= 2)
+  //     => a Free VIDEO is a real burst; the prompt's STRIDE_BURST_VIDEO_RULES apply, and no pillar
+  //        is out of reach — `stride-video-free` is the live fixture for it.
+  //   a photo is 1 frame on every tier
+  //     => a Free PHOTO is scored on at most 2 of 4 — `still-free` is the live fixture for it, and
+  //        analyze-form/flow.ts's normalization forces the two motion pillars null regardless.
   //
-  // #45 then renders that as `is_fallback: true` and the banner "Partial read — we could
-  // confidently score 2 of 4 pillars", which becomes the headline of the free trial: the one and
-  // only conversion moment in the product.
-  //
-  // CONFIRMED LIVE (5 runs): the `still-free` fixture returns Cadence and Elasticity as
-  // `needsVideo` EVERY time, while `stride-video-pro` (5 frames, same runner) scores all four. The
-  // cap is the only reason. This is CORRECT behaviour by an honest analyzer, and #42 must not "fix"
-  // it — it is a product decision (raise Free's cap to ~3 frames, or keep it and sell the
-  // limitation honestly) and it is Ian's to make.
-  const ceiling = freeTierCeiling();
+  // What Free still does NOT get is unchanged (gate 4): no flags, no drills, one line per pillar.
+  const video = freeTierCeiling('video');
+  const photo = freeTierCeiling('photo');
 
   assert(
-    PACE_FRAME_CAP.free === 1,
-    `PACE_FRAME_CAP.free is now ${PACE_FRAME_CAP.free}, not 1. If the cap moved to >= 2, issue #89 ` +
-      'has been DECIDED — Free can now be scored on all four pillars. Update this test, the ' +
-      '`still-free` fixture (which is built as a 1-frame photo), and #89 itself.'
+    PACE_FRAME_CAP.free >= 2,
+    `PACE_FRAME_CAP.free is ${PACE_FRAME_CAP.free}. #89 was decided in favour of a Free stride ` +
+      'burst; a cap under 2 re-opens the 2-of-4 free trial this test exists to keep closed.'
   );
   assert(
-    ceiling.unreachablePillars.join(',') === 'cadence,elasticity',
-    `Expected Cadence and Elasticity to be unreachable at the free cap; got [${ceiling.unreachablePillars}].`
+    PACE_FRAME_CAP.free === PACE_FRAME_CAP.pro,
+    `Free's video cap (${PACE_FRAME_CAP.free}) is not Pro's burst (${PACE_FRAME_CAP.pro}). The ` +
+      'decision was "the same burst paid uses", not a new number — if that changed, update the ' +
+      'migration, `docs/architecture.md` and this test together.'
   );
-  assert(ceiling.bestCase === '2 of 4', `Free's best case should be "2 of 4"; got "${ceiling.bestCase}".`);
+  assert(
+    video.unreachablePillars.length === 0 && video.bestCase === '4 of 4',
+    `Free VIDEO should be able to reach all four pillars; got [${video.unreachablePillars}] ` +
+      `unreachable, best case "${video.bestCase}".`
+  );
+  assert(
+    photo.frameCap === 1 && photo.unreachablePillars.join(',') === 'cadence,elasticity',
+    `Free PHOTO must stay one frame with Cadence and Elasticity unreachable; got frameCap ` +
+      `${photo.frameCap}, unreachable [${photo.unreachablePillars}].`
+  );
+  assert(photo.bestCase === '2 of 4', `Free photo's best case should be "2 of 4"; got "${photo.bestCase}".`);
 
-  // And the prompt really does instruct it — this is not merely our inference about the cap.
-  const prompt = promptTextForCase(caseById('still-free'));
+  // The prompt really does instruct both halves — this is not merely our inference about the cap.
+  const photoPrompt = promptTextForCase(caseById('still-free'));
   assert(
-    prompt.includes('You CANNOT assess Cadence or Elasticity from one frame'),
+    photoPrompt.includes('You CANNOT assess Cadence or Elasticity from one frame'),
     'The photo prompt no longer forbids inferring Cadence/Elasticity from one frame. If that rule ' +
-      'was relaxed, #89 was resolved by loosening the honesty contract — which is the wrong branch.'
+      'was relaxed, the photo half of #89 was resolved by loosening the honesty contract — the wrong branch.'
+  );
+  const freeVideo = caseById('stride-video-free');
+  assert(
+    freeVideo.tier === 'free' && freeVideo.media === 'video' && freeVideo.frames.length === PACE_FRAME_CAP.free,
+    `stride-video-free must be a Free video of exactly PACE_FRAME_CAP.free (${PACE_FRAME_CAP.free}) frames; ` +
+      `got ${freeVideo.tier}/${freeVideo.media}/${freeVideo.frames.length}.`
   );
   assert(
-    PACE_PILLARS.length === 4 && ceiling.frameCap === 1,
-    'The #89 arithmetic (4 pillars, 1 free frame) no longer holds.'
+    freeVideo.expect.unsupportedPillars.length === 0,
+    'stride-video-free must expect NO unsupported pillar — that expectation is the decision itself.'
+  );
+  const videoPrompt = promptTextForCase(freeVideo);
+  assert(
+    videoPrompt.includes('WHAT ONE STRIDE CYCLE CAN AND CANNOT SUPPORT') && videoPrompt.includes('TIER: FREE.'),
+    'The Free video prompt must carry the stride-burst rules AND the Free depth dial: the burst is ' +
+      'what unlocks the two motion pillars, the dial is what keeps flags/drills paid-tier content.'
+  );
+  assert(
+    !videoPrompt.includes('You CANNOT assess Cadence or Elasticity from one frame'),
+    'A 5-frame Free video must not be handed the one-frame photo rule.'
   );
 });

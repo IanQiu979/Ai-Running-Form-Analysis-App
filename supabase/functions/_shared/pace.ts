@@ -240,14 +240,24 @@ export type PaceTier = 'free' | 'pro' | 'elite';
 
 /**
  * Max frames sent to one vision call, per tier (`docs/architecture.md` "Current — media
- * pipeline" Caps: "Frame count per tier: Free 1 / Pro 5 / Elite 8"; a photo submission is always
+ * pipeline" Caps: "Frame count per tier: Free 5 / Pro 5 / Elite 8"; a photo submission is always
  * exactly 1 frame regardless of tier). Descriptive data only, not the enforcement point —
  * `reserve_analysis` (`SECURITY DEFINER`, service-role only) is the sole authority (CLAUDE.md:
  * "No business rules in the client"). The client imports this only to know how many frames to
  * extract; a client that sends more is still capped server-side.
+ *
+ * FREE IS 5, NOT 1, SINCE 2026-09-19 (issue #89, captain's decision). A VIDEO analysis on Free
+ * uses the SAME stride burst as the paid tiers (`lib/frames.ts`'s `sampleTimestamps`, one centred
+ * ~700ms window) at Pro's density, so Cadence and Elasticity — motion over time, unscoreable from
+ * one still by certified rule — can be assessed on the free trial. What Free still does NOT get is
+ * unchanged: one lifetime analysis, no flags, no drills. The number is Pro's burst rather than a
+ * new one because Pro/5 is the smaller paid burst measured live to score all four pillars
+ * (`docs/change_log.md` 2026-09-07). The SQL side of this table lives in
+ * `supabase/migrations/20260919120000_free_video_stride_burst_frame_cap.sql` and the two are
+ * locked together by `lib/__tests__/frames.test.ts`.
  */
 export const PACE_FRAME_CAP: Record<PaceTier, number> = {
-  free: 1,
+  free: 5,
   pro: 5,
   elite: 8,
 };

@@ -1870,6 +1870,52 @@ milestone "done" criteria.
     --linked` goes through the Management API, so read-only verification SQL needs no database
     password — only `migration repair`, `db push` and `migration list --linked` do.
 
+50. **Free's one lifetime VIDEO analysis scores all four pillars — code-complete 2026-09-19
+    (issue #89, captain's decision); MIGRATION NOT YET PUSHED TO PRODUCTION.** The collision #89
+    filed on 2026-07-12: `reserve_analysis`'s `v_frame_cap` was 1 for `free`, so every free trial
+    — a flawless side-on clip included — was a single still, and the certified framework's own
+    rule ("a single frame cannot show cadence ... score those pillars as needs video") made
+    "Partial read — 2 of 4" the headline of the product's one conversion moment. Decision: Free
+    VIDEO uses the SAME stride-burst extraction as the paid tiers, at Pro's density (5 frames in
+    one ~700ms window — the smaller paid burst, measured live on 2026-09-07 to score all four
+    pillars); a PHOTO stays exactly one frame on every tier with the honest `needsVideo` copy on
+    Cadence/Elasticity. Nothing else in the Free contract moved: one lifetime analysis, no
+    flags/drills (still stripped in `analyze-form/flow.ts`), same quota/anti-farm/cooldown rules,
+    same prices and Pro 10 / Elite 30 counts. Cost delta is ~1.6k input tokens per extra frame;
+    `gate_ai_call` already reserves per real frame count.
+    - **Migration `20260919120000_free_video_stride_burst_frame_cap.sql`** replaces
+      `reserve_analysis` (5-arg) and `pace_quota_status` verbatim from `20260910120000` with the
+      one edit `'free' then 5`; the legacy 4-arg overloads and the unlimited-override family are
+      deliberately untouched (header explains). Proven behaviourally in PGlite inside
+      `npm run test:edge` (`_shared/__tests__/free-video-frame-cap-sql.deno.test.ts`: cap by tier
+      AND by medium, photo refused at >1 frame on every tier, Free still `limit: 1`, hardened
+      posture kept).
+    - **`PACE_FRAME_CAP.free` is 5** (`_shared/pace.ts`), locked to the SQL by
+      `lib/__tests__/frames.test.ts` and `pace.test.ts`; the client still reads the number off
+      `quota-status`'s `frameCap`, and the failed-lookup fallback is still the (now 5-frame) free
+      floor. The prompt builder, the flow's normalization and the result screen all key on FRAME
+      COUNT, not tier, so a 5-frame Free burst flows through `STRIDE_BURST_VIDEO_RULES` and keeps
+      all four pillars with no code change there; `flow.deno.test.ts` and
+      `app/result/__tests__/free-tier-paths.test.tsx` lock both paths (Free burst: no banner, all
+      four scored, `overall` averaged over four; Free photo: banner "2 of 4 ... photo",
+      "Requires video" on the two motion pillars).
+    - **Eval (#42):** `freeTierCeiling(media)` is per medium, the `#89 EVIDENCE` deno test became
+      `#89 DECIDED` (Free video CAN reach Cadence/Elasticity, Free photo never does), and a sixth
+      live case `stride-video-free` (byte-identical frames to `stride-video-pro`, Free tier) was
+      added to `grounding-eval.ts` — one more billed call (~$0.08) per live run, not yet run live.
+    - **Copy:** `paywall.tier.free.detail` no longer sells "a single photo or frame"; it reads
+      "One analysis, from a photo or a short video. No injury-risk flags or drills." Prices and
+      counts untouched.
+    - **DEPLOY STEP (firstmate, not the PR):** DB-first, like every migration in this family —
+      `supabase db push --linked` (ledger goes 34 → 35), then
+      `supabase functions deploy analyze-form --project-ref vputdomdlknvthnzritt --use-api`
+      (its prompt builder asserts `frames.length <= PACE_FRAME_CAP[tier]`), then the app build.
+      Until the migration is live, a Free client that fell back to `PACE_FRAME_CAP.free` would be
+      refused with `frame_cap_exceeded` (a clean 400, nothing uploaded, nothing charged), and a
+      Free client reading the live `frame_cap: 1` still extracts one frame. Verify after the push
+      with `select public.pace_quota_status('<free user id>')` → `frame_cap: 5`. Not yet verified
+      in-app on a device.
+
 ## Next action
 
 **RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the

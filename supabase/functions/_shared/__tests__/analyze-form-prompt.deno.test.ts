@@ -1401,7 +1401,8 @@ Deno.test('the frame guard rejects requests that should never have been built', 
       'a photo with more than one frame',
       () => buildAnalyzeFormRequest({ tier: 'pro', media: 'photo', frames: [frame(0), frame(1)] }),
     ],
-    ['more frames than the tier cap', () => buildAnalyzeFormRequest(videoInput('free', 2))],
+    // Free's cap is Pro's 5-frame burst since #89 (2026-09-19), so "one over" is 6, not 2.
+    ['more frames than the tier cap', () => buildAnalyzeFormRequest(videoInput('free', PACE_FRAME_CAP.free + 1))],
     ['a frame over Elite\'s cap of 8', () => buildAnalyzeFormRequest(videoInput('elite', 9))],
     [
       'a data: URI instead of raw base64',

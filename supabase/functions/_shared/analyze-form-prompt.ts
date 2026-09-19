@@ -132,7 +132,8 @@ export interface AnalyzeFormPromptInput {
   /** Server-derived, from `reserve_analysis`'s return — NEVER taken from the client (#41). */
   tier: PaceTier;
   media: PaceMediaKind;
-  /** In capture order. Photo: exactly 1. Video: 1 (Free) up to `PACE_FRAME_CAP[tier]`. */
+  /** In capture order. Photo: exactly 1. Video: up to `PACE_FRAME_CAP[tier]` (Free 5 / Pro 5 /
+   * Elite 8 since #89); a single frame can still arrive from a not-yet-updated client. */
   frames: PaceFrame[];
 }
 
