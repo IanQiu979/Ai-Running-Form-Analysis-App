@@ -59,6 +59,17 @@ Expo Go on the **iOS App Store is pinned to the newest SDK (57 as of 2026-09-05)
 this project; Expo Go on the **Play Store tracks the newest SDK too, and will reject this project
 the moment Expo ships SDK 58** — Android needs a dev build.
 
+**Deploying to the live Supabase project (`vputdomdlknvthnzritt`) is CLI-only.** Migrations ship
+with `supabase db push --linked` (after `supabase link --project-ref …` in your worktree; it needs
+the database password via `SUPABASE_DB_PASSWORD`, which lives in no repo file), functions with
+`supabase functions deploy <name> --project-ref … --use-api` (no Docker here). **Never apply a repo
+migration with the Supabase MCP `apply_migration` tool** — it stamps `now()` as the version and
+strips comments, so the ledger drifts from the file names while the DDL is live (issue #201, repaired
+2026-09-19; `docs/status.md` Known Issue #49 has the sequence). `~/.local/bin/supabase` is a shim:
+`db push`/`functions deploy` fail with "Could not find the `supabase-go` binary" until
+`SUPABASE_GO_BINARY=~/.local/share/supabase/supabase-go` is exported. `supabase db query --linked`
+runs read-only verification SQL through the Management API with no password.
+
 ## Secrets & env — read this before touching any env file
 
 - `.env` (gitignored) holds ONLY `EXPO_PUBLIC_SUPABASE_URL`,
