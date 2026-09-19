@@ -50,9 +50,13 @@ change: `20260910120000`'s `v_frame_cap` case still read `'free' then 1`.
   and the `free: 1` locks in `frames.test.ts`, `pace.test.ts`, `extraction-frame-cap.test.ts` and
   `extracting.test.tsx` re-pointed at 5. The two "shipped bug" locks that asserted "not the free
   cap" for Pro now assert "not one frame", since Free and Pro share a cap.
-- **Not done here:** the production push (DB-first: migration, then `analyze-form`, then the app
-  build — Known Issue #50 has the exact sequence and the interim behaviour), a live run of the
-  extended eval, and an in-app check on a device.
+- **Not done here:** the production push (FUNCTION-FIRST: deploy `analyze-form`, then push the
+  migration, then the app build — old DB + new function is safe because the live
+  `pace_quota_status` still reports `frame_cap: 1` and the new bundle accepts one frame, while a
+  fallback-5 client is refused by the old `reserve_analysis` with a clean `frame_cap_exceeded` 400;
+  DB-first would have had the still-deployed cap-1 bundle throw in `assertFramesValid` on every
+  Free video — Known Issue #50 has the exact sequence), a live run of the extended eval, and an
+  in-app check on a device.
 
 ## 2026-09-19 (production deploy: four migrations + `analyze-form` v18 + `quota-status` v16 — issues #200, #201)
 

@@ -63,11 +63,19 @@
 --   * `settle_analysis`, `release_analysis`, the cooldown, the anti-farm count, the quota limits
 --     (`v_limit`: free 1 / pro 10 / elite 30) and every grant are byte-identical to 20260910120000.
 --
--- ROLLOUT ORDER (DB-first, like every migration in this family): push this migration, then deploy
--- `analyze-form` (whose prompt builder asserts `frames.length <= PACE_FRAME_CAP[tier]`), then ship
--- the app. Until the migration is live, a Free client that could not read `quota-status` and fell
--- back to `PACE_FRAME_CAP.free` would be refused with `frame_cap_exceeded` — a clean 400 that
--- uploads nothing and charges nothing (#88), not a silent degradation.
+-- ROLLOUT ORDER (FUNCTION-FIRST — not DB-first like the additive migrations in this family, because
+-- this one changes a value the deployed function asserts against):
+--   1. `supabase functions deploy analyze-form --project-ref vputdomdlknvthnzritt --use-api` — the
+--      bundle whose `PACE_FRAME_CAP.free` is 5.
+--   2. `supabase db push --linked` this migration (ledger 34 -> 35).
+--   3. Ship the app build.
+-- Old DB + new function is safe: the live `pace_quota_status` still reports `frame_cap: 1`, so every
+-- deployed client keeps extracting one frame and the new bundle accepts it (1 <= 5). A client that
+-- fell back to `PACE_FRAME_CAP.free` and sent 5 frames is refused by the OLD `reserve_analysis` with
+-- a clean `frame_cap_exceeded` 400 — nothing uploaded, nothing charged (#88). The reverse (DB-first)
+-- order would have `quota-status` report 5, the new `reserve_analysis` accept 5 frames, and the
+-- still-deployed `analyze-form` bundle (cap 1) throw in `assertFramesValid` — a 500 on every Free
+-- video until the function redeployed.
 
 -- Quota-enforcing overload. Ordering after the per-user lock is deliberate: request-key lookup,
 -- server-side tier/frame enforcement, active canonical lookup, then (only for a true miss) the

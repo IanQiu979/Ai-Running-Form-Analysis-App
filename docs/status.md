@@ -1906,14 +1906,19 @@ milestone "done" criteria.
     - **Copy:** `paywall.tier.free.detail` no longer sells "a single photo or frame"; it reads
       "One analysis, from a photo or a short video. No injury-risk flags or drills." Prices and
       counts untouched.
-    - **DEPLOY STEP (firstmate, not the PR):** DB-first, like every migration in this family —
-      `supabase db push --linked` (ledger goes 34 → 35), then
-      `supabase functions deploy analyze-form --project-ref vputdomdlknvthnzritt --use-api`
-      (its prompt builder asserts `frames.length <= PACE_FRAME_CAP[tier]`), then the app build.
-      Until the migration is live, a Free client that fell back to `PACE_FRAME_CAP.free` would be
-      refused with `frame_cap_exceeded` (a clean 400, nothing uploaded, nothing charged), and a
-      Free client reading the live `frame_cap: 1` still extracts one frame. Verify after the push
-      with `select public.pace_quota_status('<free user id>')` → `frame_cap: 5`. Not yet verified
+    - **DEPLOY STEP (firstmate, not the PR):** **FUNCTION-FIRST**, not DB-first like the additive
+      migrations in this family, because this one changes a value the deployed function asserts
+      against. 1) `supabase functions deploy analyze-form --project-ref vputdomdlknvthnzritt
+      --use-api` (the bundle whose `PACE_FRAME_CAP.free` is 5); 2) `supabase db push --linked`
+      the migration (ledger goes 34 → 35); 3) the app build. Old DB + new function is safe: the
+      live `pace_quota_status` still reports `frame_cap: 1`, so every deployed client keeps
+      extracting one frame and the new bundle accepts it. A client that fell back to
+      `PACE_FRAME_CAP.free` and sent 5 frames is refused by the OLD `reserve_analysis` with a clean
+      `frame_cap_exceeded` 400 — nothing uploaded, nothing charged (#88). The previously documented
+      DB-first order would have had `quota-status` report 5, the new `reserve_analysis` accept 5
+      frames, and the still-deployed `analyze-form` bundle (cap 1) throw in `assertFramesValid` — a
+      500 on every Free video until the function redeployed. Verify after the push with
+      `select public.pace_quota_status('<free user id>')` → `frame_cap: 5`. Not yet verified
       in-app on a device.
 
 ## Next action
