@@ -24,7 +24,10 @@ field it silently drops (`docs/change_log.md` 2026-07-11, `sign_in_sign_ups`).
 
 ---
 
-## 1. Close the raw sign-up route — `before-user-created` hook (issue #48 residual)
+## 1. Close the raw sign-up route — `before-user-created` hook (issue #48 residual) — APPLIED 2026-09-19
+
+**Live since 2026-09-19 16:12Z** (function v12, migration, PATCH, in that order; evidence in
+`docs/status.md` Known Issue #51). Kept as the runbook for a rollback or a re-apply.
 
 **What it does.** `public.pace_before_user_created` (`supabase/migrations/
 20260919140000_before_user_created_hook.sql`) rejects every `email` (and `phone`) account
@@ -62,7 +65,8 @@ auth_get | python3 -c 'import json,sys; d=json.load(sys.stdin); print({k: d[k] f
 
 ```sh
 export PUBLISHABLE_KEY="$(grep EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY .env | cut -d= -f2)"
-# Raw route: expect HTTP 403, {"code":403,"error_code":"hook_...","msg":"Accounts are created ..."}
+# Raw route: expect HTTP 403, {"code":403,"error_code":"unknown","msg":"Accounts are created ..."}
+# (GoTrue reports a hook rejection under error_code "unknown" — observed live 2026-09-19)
 curl -s -o /dev/null -w '%{http_code}\n' -X POST "https://$REF.supabase.co/auth/v1/signup" \
   -H "apikey: $PUBLISHABLE_KEY" -H "Content-Type: application/json" \
   -d '{"email":"hook-probe-'"$(date +%s)"'@example.com","password":"aRealStrongPassw0rd!9x"}'
