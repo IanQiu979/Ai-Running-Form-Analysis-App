@@ -1,0 +1,77 @@
+# Publishes `docs/privacy-policy.md` — and ONLY that file — to GitHub Pages (issue #202).
+#
+# Public URL: https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/
+#
+# Why a workflow and not the "deploy from a branch / `docs` folder" Pages source: the branch
+# source would render every Markdown file under `docs/` (planning notes, audits, status) as a
+# page of the public site. The 2026-07-12 hosting plan (`docs/status.md` Known Issue #15) called
+# for a separate public repo for exactly that reason, back when this repo was private; the repo
+# is public now, so the policy is served from its source-of-truth file here instead and can never
+# drift from it. This job stages the one file into a scratch directory, injects the Jekyll front
+# matter the source file deliberately does not carry (it is also read raw on GitHub), and builds
+# that directory alone. The Pages source for the repo is set to "GitHub Actions"
+# (`gh api -X POST repos/IanQiu979/Ai-Running-Form-Analysis-App/pages -f build_type=workflow`).
+#
+# Attaching the URL to the App Store Connect record is Apple-gated (`docs/blocked-on-apple.md`).
+
+name: Privacy policy (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/privacy-policy.md
+      - .github/workflows/privacy-policy-pages.yml
+  workflow_dispatch:
+
+# One deploy at a time; a superseded build must not overwrite a newer one.
+concurrency:
+  group: privacy-policy-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Stage the policy as the only page
+        run: |
+          set -euo pipefail
+          mkdir -p _pages_src
+          {
+            printf -- '---\nlayout: default\ntitle: Pace Analysis AI — Privacy Policy\npermalink: /privacy-policy/\n---\n\n'
+            cat docs/privacy-policy.md
+          } > _pages_src/privacy-policy.md
+          printf -- '---\nlayout: default\ntitle: Pace Analysis AI\npermalink: /\n---\n\n[Privacy Policy](./privacy-policy/)\n' > _pages_src/index.md
+          printf 'title: Pace Analysis AI\ndescription: Privacy policy for the Pace Analysis AI app\ntheme: jekyll-theme-primer\n' > _pages_src/_config.yml
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./_pages_src
+          destination: ./_site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./_site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}privacy-policy/
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

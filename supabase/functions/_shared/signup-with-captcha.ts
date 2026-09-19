@@ -14,14 +14,27 @@
  * sign-in at all (`supabase/config.toml`'s `[auth.captcha]` block stays commented out/disabled).
  *
  * DESIGN: this function verifies the Turnstile token itself (Cloudflare's siteverify API,
- * `captcha.ts`), and — ONLY if that passes — proxies a perfectly normal `supabase.auth.signUp()`
- * call using the PUBLISHABLE key (not the service-role key; no admin API involved). This is
- * deliberate: `signUp()` still goes through GoTrue's own `/auth/v1/signup` endpoint, so
- * `minimum_password_length` and `password_hibp_enabled` (`supabase/config.toml`) keep being
- * enforced exactly as they were before this function existed — nothing about the account-creation
- * invariants this app already relies on changes. The only new gate is the Turnstile check in
- * front of it. (An earlier design considered `auth.admin.createUser`, which would have bypassed
- * both of those checks and required reimplementing them here — rejected for exactly that reason.)
+ * `captcha.ts`), and — ONLY if that passes — creates the account through `auth.admin.createUser`
+ * and mints its session with a plain `auth.signInWithPassword` (`signup-client.ts`).
+ *
+ * WHY THE ADMIN API (issue #48 residual, 2026-09-19): until then this function proxied an
+ * unprivileged `supabase.auth.signUp()`, which is GoTrue's `/auth/v1/signup` — and that route was
+ * still open to anyone holding the publishable key, so the CAPTCHA gated only the app's own path.
+ * A `before-user-created` auth hook (`supabase/migrations/20260919140000_before_user_created_hook.
+ * sql`) now rejects every `email`-provider creation GoTrue routes through it — `/signup`, magic
+ * link sign-ups — while allow-listing Google and Apple; the admin API is the one path the hook does not
+ * see, which makes this function the only way to get an email-and-password account. That is a
+ * stronger version of the same gate, not a different one. `disable_signup` was rejected for the
+ * job because it also refuses first-time Google sign-ins (GoTrue checks it on the OAuth path).
+ *
+ * The admin API does NOT relax the password policy: GoTrue's `adminUserCreate` runs the same
+ * `checkPasswordStrength` (`minimum_password_length`, HIBP when enabled) as `/signup` and raises
+ * the same weak-password error, which `signup-client.ts` maps exactly as before. (This file's
+ * earlier header assumed the admin API skipped those checks; that described an older GoTrue and
+ * was verified wrong against the current source on 2026-09-19.) An already-registered address
+ * surfaces as GoTrue's `email_exists` on the admin call, mapped to the same `email_in_use` outcome
+ * and client copy as before, so the wire contract is unchanged (and no more enumerable than it
+ * was: with `mailer_autoconfirm` on, raw `/signup` already answered `user_already_exists`).
  *
  * This file is the portable (Deno + Jest) validation/shaping layer — see
  * `signup-with-captcha/index.ts` for the Deno-only HTTP/env glue, same split as
@@ -46,14 +59,13 @@ export interface UserPayload {
 
 export type SignUpOutcome =
   | { outcome: 'created'; session: SessionPayload; user: UserPayload }
-  // Email confirmations are disabled for this MVP (`supabase/config.toml`'s `auth.email` note),
-  // so a successful signUp should always carry a session — this branch is a fail-safe for the
-  // case where it somehow doesn't, ported from `app/(auth)/sign-in.tsx`'s existing handling
-  // rather than a case this function expects to hit in practice.
+  // The account was created but the follow-up `signInWithPassword` returned no session — a
+  // fail-safe (`signup-client.ts` creates with `email_confirm: true`, so it should not happen in
+  // practice), kept from the earlier `signUp()` design so the handler still has a named branch.
   | { outcome: 'created_no_session'; user: UserPayload }
-  // Supabase deliberately does not error on a signup to an already-registered email — it returns
-  // `{ error: null, session: null }` with an empty `identities` array, to avoid leaking which
-  // emails exist. Ported from the same detection `app/(auth)/sign-in.tsx` used to do client-side.
+  // GoTrue's admin API answers an already-registered address with `email_exists`; the earlier
+  // `signUp()` design detected the same case from `/signup`'s response. Same outcome, same client
+  // copy either way.
   | { outcome: 'email_in_use' }
   | { outcome: 'weak_password'; message: string; reasons: string[] }
   | { outcome: 'error'; message: string; code: string | null };
@@ -73,7 +85,7 @@ export type ParseResult =
   | { ok: false; error: string; code: 'invalid_body' };
 
 /** Deliberately minimal — this is a shape/presence check only. The real business rules (password
- * length, breach status, email format) are GoTrue's job on the proxied `signUp` call below; this
+ * length, breach status, email format) are GoTrue's job on the `createUser` call below; this
  * function must not duplicate or pre-empt them, or the two can silently drift (same reasoning as
  * `constants/auth.ts`'s `PASSWORD_MIN_LENGTH` header). */
 export function parseSignupRequest(rawBody: unknown): ParseResult {

@@ -44,8 +44,10 @@ first TestFlight submission**, never after (see #67 below).
    (#69) and is **not** Apple-blocked; the simulator dev build that unblocks it exists since
    2026-09-18 — what remains is the Google sign-in confirmation `docs/status.md` Known Issue #7
    sets as the condition.
-5. **Resolve the privacy-policy placeholders** (controller name/country + contact email), publish
-   it at a public URL, and attach it to the App Store Connect record.
+5. **Attach the privacy policy to the App Store Connect record.** The placeholders are resolved
+   and the policy is published (2026-09-19, issue #202):
+   `https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/`. Only the App
+   Store Connect data entry remains here.
 6. **Enter the App Store privacy labels** from `docs/app-store-privacy-labels.md` — the answers are
    already derived, so this is a lookup, not a re-derivation.
 7. **🚨 UNSET `PURCHASE_TIER_DUMMY_ENABLED` AND `PURCHASE_TIER_ALLOWED_USER_IDS` BEFORE THE
@@ -172,8 +174,9 @@ disclaimer on every result, blocked on M4). These pieces of it are Apple-blocked
 from it:
 
 - **Attach the privacy policy to the App Store Connect record.** External TestFlight will not run
-  without a policy at a public URL. The policy is **already written** (`docs/privacy-policy.md`) but
-  carries a `DO NOT PUBLISH` guard.
+  without a policy at a public URL. The policy is **written and published** (`docs/privacy-policy.md`
+  → `https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/`, 2026-09-19); only
+  the App Store Connect field is left.
 - **Enter the App Store privacy labels.** The answers are already derived and recorded in
   `docs/app-store-privacy-labels.md`, so this is data entry once the record exists.
 - **Resolve the data-controller legal identity** — the blocker on publishing the policy at all. It

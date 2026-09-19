@@ -192,6 +192,9 @@ max_indexes = 5
 #      below includes exp://** for Expo Go testing (npm run start:go). Split dev-only entries out
 #      of the production allowlist at M7/EAS build time — a wildcard scoped to Expo Go's own
 #      scheme isn't a production risk today, but a shipped build has no reason to carry it.
+#      PREPARED 2026-09-19, NOT APPLIED: the exact PATCH and the matching edit to this file are
+#      in `docs/auth-config-runbook.md`; the captain applies it (or has firstmate apply it) once
+#      Google sign-in tap-through is confirmed on the Android dev build.
 #      BLOCKED UNTIL THE FIRST DEV BUILD EXISTS, and this is a hard ordering constraint, not a
 #      preference: under Expo Go, lib/auth.ts's makeRedirectUri resolves to
 #      exp://<LAN-IP>:8081/--/oauth-callback, so removing exp://** breaks Google sign-in on a
@@ -244,6 +247,13 @@ enable_refresh_token_rotation = true
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
+#
+# STAYS TRUE ON PURPOSE (issue #48 residual, 2026-09-19). This is GoTrue's `disable_signup`, and
+# it is project-wide: GoTrue checks it on the OAuth account-creation path too, so `false` here
+# would refuse every first-time Google sign-in, not just the raw `/auth/v1/signup` call. The raw
+# route is closed instead by the `[auth.hook.before_user_created]` block below, which rejects the
+# `email` provider and allow-lists Google and Apple — see `supabase/migrations/20260919140000_before_user_
+# created_hook.sql` for the whole reasoning.
 enable_signup = true
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false
@@ -378,6 +388,12 @@ double_confirm_changes = true
 # exist yet. Applied live via the scoped Management API PATCH noted above, inverse-mapped to
 # `mailer_autoconfirm = true` (this key and that one are opposites: enable_confirmations = false
 # means autoconfirm = true).
+#
+# RE-ENABLING IS NOT JUST THIS KEY (2026-09-19): `signup-with-captcha` creates accounts through
+# the admin API with `email_confirm: true` (`supabase/functions/_shared/signup-client.ts`), which
+# this setting does not govern. Turning confirmations back on means changing that flag to `false`,
+# sending the confirmation through the admin path (`generateLink`/`resend`), and building the
+# pending-confirmation screen — otherwise every app-created account stays auto-verified.
 enable_confirmations = false
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
@@ -431,9 +447,19 @@ max_frequency = "5s"
 # inactivity_timeout = "8h"
 
 # This hook runs before a new user is created and allows developers to reject the request based on the incoming user object.
-# [auth.hook.before_user_created]
-# enabled = true
-# uri = "pg-functions://postgres/auth/before-user-created-hook"
+#
+# ENABLED (issue #48 residual, 2026-09-19): `public.pace_before_user_created` (`supabase/
+# migrations/20260919140000_before_user_created_hook.sql`) rejects the `email` and `phone`
+# providers with a 403 and allows only `google` and `apple`, so the only way to get an
+# email-and-password account is `supabase/functions/signup-with-captcha`, which creates it
+# through the admin API (not routed through this hook) after its Turnstile check. Google sign-in
+# is untouched. Applied live via the same scoped Management API PATCH as the rest of this block
+# (`hook_before_user_created_enabled` + `hook_before_user_created_uri`) — the command, and the
+# deploy ORDER it depends on (function first, then migration, then this hook), are in
+# `docs/auth-config-runbook.md`. Never via `supabase config push` (warning further down).
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/pace_before_user_created"
 
 # This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
 # [auth.hook.custom_access_token]

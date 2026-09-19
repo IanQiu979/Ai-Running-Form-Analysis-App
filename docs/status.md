@@ -272,6 +272,10 @@ milestone "done" criteria.
    emulator), and the Google sign-in tap-through that gates removing `exp://**` (#69) is still not
    done — the headless path above gets to the Welcome screen but the sign-in flow itself was not
    exercised. #84's scope items 3–5 stay open; only "produce both builds" is done.
+   **The #69 removal itself is prepared (2026-09-19), not applied:** the exact `uri_allow_list`
+   PATCH, the matching `config.toml` edit, verification and rollback are in
+   `docs/auth-config-runbook.md` § 2; it runs only after the captain's word on the Android
+   tap-through.
 8. **Echo V1's Supabase project** (`IanQiu979's Project`, ref `trgpnnyqonaxhnyhtmlz`) is
    **paused**, which is what freed the Free-plan slot for `v2.3Analysis`. 90-day restore
    window from 2026-07-10.
@@ -318,6 +322,22 @@ milestone "done" criteria.
     Turnstile solve. **That ceiling is gone: a real solve created a real account on 2026-08-12 —
     see Known Issue #38 below for the end-to-end evidence and for the two client-side bugs that
     had to be fixed first.**
+    **Residual closed in code 2026-09-19 (issue #48's last item, captain-approved), PENDING
+    DEPLOY.** The paragraph above gated only the app's path: raw `POST /auth/v1/signup` stayed
+    open to anyone with the publishable key. Now `signup-with-captcha` creates the account with
+    `auth.admin.createUser` (secret key) and signs it in with the publishable key, and a
+    `before-user-created` auth hook (`public.pace_before_user_created`,
+    `20260919140000_before_user_created_hook.sql`; `config.toml` `[auth.hook.before_user_created]`)
+    allow-lists `google`/`apple` and refuses every other provider GoTrue routes through it — the
+    admin API is the one path the hook does not see. `disable_signup` was rejected because GoTrue
+    also checks it on the OAuth path (first-time Google sign-ins would fail). The admin API runs
+    the same `checkPasswordStrength` as `/signup`, so nothing about `minimum_password_length`
+    relaxes (the "proxies a plain signUp so the checks stay enforced" reasoning above assumed the
+    admin API skipped them; verified wrong against the current GoTrue source). Live wiring is three
+    ordered steps — deploy the function, `db push` the migration, PATCH the hook on — in
+    `docs/auth-config-runbook.md` § 1, with the curl probes that prove the raw route answers 403
+    and sign-in is untouched. Until that runs, the live project still behaves as this entry's
+    earlier paragraphs describe.
 13. ~~**Session storage is plaintext AsyncStorage today**~~ **RESOLVED 2026-07-12 (GitHub issue #38).**
     `lib/supabase.ts` now passes `storage: secureSessionStorage` (`lib/secure-storage.ts`), the
     "LargeSecureStore" pattern: an AES-256 key lives in SecureStore (Keychain/Keystore-backed,
@@ -390,7 +410,18 @@ milestone "done" criteria.
       upload frames service-role to `{user_id}/{analysis_id}/frame-{NN}.jpg` → settle with
       whichever paths landed. Never upload before the reserve — a rejection must leave nothing
       in the bucket. A frame that fails to upload does not fail the request.
-15. **NEW — privacy policy is drafted but publication is ON HOLD (issue #68, 2026-07-12).**
+15. ~~**NEW — privacy policy is drafted but publication is ON HOLD (issue #68, 2026-07-12).**~~
+    **RESOLVED 2026-09-19 (issue #202).** Controller: **Ian Qiu, sole trader, Thailand** (the
+    captain's 2026-08-06 Individual-enrollment decision fixed the identity; the inputs landed
+    2026-09-19); contact **`i78979848@gmail.com`**; plus the McMillan-certified-coach line.
+    Published at `https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/` by
+    `.github/workflows/privacy-policy-pages.yml` (Pages Actions source, enabled on the repo; the
+    workflow publishes that one file, not `docs/`), live on the first push to `main` after merge.
+    The separate-public-repo hosting plan below is moot — the repo is public now. In-app deletion
+    (Guideline 5.1.1(v)) had already shipped (#58). Still open, elsewhere: the in-app link
+    (`settings.privacyPolicy.pending` and the sign-up consent underline need certified copy — a
+    small follow-up) and the App Store Connect attachment (`docs/blocked-on-apple.md`). Original
+    entry, for the record:
     `docs/privacy-policy.md` is written and reviewed, but it cannot go live until Ian resolves
     two things, and the file carries a `DO NOT PUBLISH` guard until he does:
     - **Data controller identity** — the policy needs a legal name, a country of establishment,
@@ -955,12 +986,18 @@ milestone "done" criteria.
     **Verified live, immediately:** `cron.job` shows the schedule (`jobid` 2, `active: true`); a
     manual `net.http_post` call using the same statement the schedule runs returned `200
     {"mode":"dry_run","candidateCount":0,"candidates":[],"durationMs":421}` — the credential,
-    endpoint, and Vault wiring all work end to end. Still gated on `dryRun: true` (the scheduled
-    body is `{}`, which defaults to dry-run) — no media has been deleted by this schedule.
-    Flipping to live deletion (`{"dryRun": false}`) is left as a deliberate follow-up decision once
-    dry-run output has been reviewed in the edge function logs; it was intentionally not made here
-    since it permanently deletes user media. See `docs/architecture.md`'s updated "Current —
-    orphan-purge action, scheduled daily" section.
+    endpoint, and Vault wiring all work end to end. Until 2026-09-19 it was gated on `dryRun:
+    true` (the scheduled body was `{}`, which defaults to dry-run) — no media was deleted by the
+    schedule. **Armed 2026-09-19 (captain's 2026-08-15 ruling: a launch gate; migration PENDING
+    `db push`):** `20260919150000_sweep_orphaned_media_live.sql` re-schedules the same job with
+    `{"dryRun": false}`, in place (`jobid` 2 survives). Reviewed first: the job has succeeded
+    every day since 2026-08-06 (`cron.job_run_details`); the 2026-09-18 dry run
+    (`net._http_response` id 46) listed three candidates, one object each, with no `analyses`
+    row (2026-07-26/27 and 08-02 test runs), and `list_orphaned_media_prefixes('15 minutes',
+    500)` returns the same three. The first live run after the push deletes exactly those three
+    objects — check `net._http_response` the next morning for `"mode":"live"` and
+    `deletedCount` 3. See `docs/architecture.md`'s updated "Current — orphan-purge action,
+    scheduled daily" section.
 33. **RESOLVED 2026-07-26 — these migrations ARE applied; this entry was stale.** Verified live
     against `vputdomdlknvthnzritt` on 2026-07-26 via `list_migrations` + a `pg_proc` query: **all 24
     migrations in `supabase/migrations/` are present**, and `pace_quota_status`, `pace_purchase_tier`,

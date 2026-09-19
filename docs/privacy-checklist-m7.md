@@ -103,17 +103,16 @@ real privacy regime, not just GDPR-by-analogy. Flag for counsel before public la
       expo-camera/expo-image-picker plugins in `app.json` (Ruling 10). **Done** (2026-07-12,
       commit `943d04b`): verified `app.json` — both plugins are present with purpose strings,
       and `microphonePermission: false` correctly matches the muted-recording ruling.
-- [ ] **Privacy policy at a public URL** (names Anthropic + Supabase + HIBP/Cloudflare,
-      retention, rights, contact) attached to the App Store Connect record — external
-      TestFlight requires it.
-      **Drafted, but publication is ON HOLD** (2026-07-12): `docs/privacy-policy.md` is
-      written, but the data controller's legal name/country and the contact email are still
-      placeholders — Ian has not resolved them, and publishing with placeholders fails App
-      Review and makes every rights promise unexercisable (see issue #68). Publication is
-      also gated on **in-app account deletion actually shipping and purging** (Guideline
-      5.1.1(v)) — the policy's rights section currently relies on an email fallback because
-      the Past Analyses / Settings screens it describes don't exist yet. Hosting plan (when
-      unblocked): a new public GitHub repo serving the policy via Pages — not created yet.
+- [x] **Privacy policy at a public URL** (names Anthropic + Supabase + HIBP/Cloudflare,
+      retention, rights, contact) — **published 2026-09-19** (issue #202) at
+      `https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/`, from
+      `docs/privacy-policy.md` via `.github/workflows/privacy-policy-pages.yml` (the repo is
+      public now, so the earlier "separate public repo" hosting plan was unnecessary; the
+      workflow publishes that one file, not `docs/`). Controller: Ian Qiu, sole trader,
+      Thailand; contact `i78979848@gmail.com`. In-app deletion (Guideline 5.1.1(v)) shipped
+      before this (issue #58), so the rights section names the History and Settings screens.
+- [ ] **That URL attached to the App Store Connect record** — Apple-gated,
+      `docs/blocked-on-apple.md`.
 - [ ] **In-app account deletion reachable and actually purging** (Guideline 5.1.1(v)) — and it
       must handle the **nested storage layout**: V1's `delete-user` does a flat
       `storage.list(user_id)` which worked for `{user_id}/{file}` but V2.3 stores
