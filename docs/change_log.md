@@ -5,6 +5,27 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-19 (production deploy: hygiene batch live — `signup-with-captcha` v12, `sweep-orphaned-media` v15, two migrations, auth hook on — issues #48, #137)
+
+**Deploy record; docs-only in the repo (`docs/status.md` Known Issue #51 has the full account).**
+Live project `vputdomdlknvthnzritt`, deployed from `main` at `f19b737` (PR #229) in the order
+`docs/auth-config-runbook.md` § 1 requires; per-step commands, outputs, the pre-change snapshot
+and the rollback handles are under `~/firstmate/data/v23-deploy-hygiene-live-changes/`.
+
+- **Raw `POST /auth/v1/signup` is closed.** `signup-with-captcha` v12 (admin-API account
+  creation) went live first, then `20260919140000_before_user_created_hook` was pushed, then
+  `hook_before_user_created_enabled`/`_uri` were set with a two-field Management API PATCH. The
+  raw route now answers `403 Accounts are created through the Pace Analysis AI app only.`
+  (`error_code: unknown` — the runbook's expected code was corrected); wrong-password sign-in is
+  still `400 invalid_credentials`; the admin-API path the function uses still creates and signs
+  in a user under the hook (throwaway created and deleted, accounts back to 4/4).
+- **The media sweeper deletes for real from its next run (2026-09-20 09:00Z).**
+  `20260919150000_sweep_orphaned_media_live` re-scheduled `sweep-orphaned-media-daily` in place
+  (`jobid` 2 kept) with `{"dryRun": false}`; `sweep-orphaned-media` v15 is the matching bundle.
+  Three orphan prefixes were on the list at deploy time.
+- **Untouched, on purpose:** `uri_allow_list` still carries `exp://**` (runbook § 2 stays
+  captain-gated), `analyze-form` stays at v20 (imports none of the changed modules), ledger 37/37.
+
 ## 2026-09-19 (hygiene batch — privacy policy published, raw sign-up route closed, sweeper armed, mailer and allowlist runbooks — issues #202, #48, #137, #139, #69)
 
 - **Privacy policy: placeholders filled and published (issue #202).** `docs/privacy-policy.md`

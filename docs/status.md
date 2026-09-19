@@ -322,8 +322,8 @@ milestone "done" criteria.
     Turnstile solve. **That ceiling is gone: a real solve created a real account on 2026-08-12 —
     see Known Issue #38 below for the end-to-end evidence and for the two client-side bugs that
     had to be fixed first.**
-    **Residual closed in code 2026-09-19 (issue #48's last item, captain-approved), PENDING
-    DEPLOY.** The paragraph above gated only the app's path: raw `POST /auth/v1/signup` stayed
+    **Residual closed in code 2026-09-19 (issue #48's last item, captain-approved) and LIVE
+    since 2026-09-19 16:13Z — see Known Issue #51 for the deploy record and evidence.** The paragraph above gated only the app's path: raw `POST /auth/v1/signup` stayed
     open to anyone with the publishable key. Now `signup-with-captcha` creates the account with
     `auth.admin.createUser` (secret key) and signs it in with the publishable key, and a
     `before-user-created` auth hook (`public.pace_before_user_created`,
@@ -336,8 +336,9 @@ milestone "done" criteria.
     admin API skipped them; verified wrong against the current GoTrue source). Live wiring is three
     ordered steps — deploy the function, `db push` the migration, PATCH the hook on — in
     `docs/auth-config-runbook.md` § 1, with the curl probes that prove the raw route answers 403
-    and sign-in is untouched. Until that runs, the live project still behaves as this entry's
-    earlier paragraphs describe.
+    and sign-in is untouched. All three steps ran on 2026-09-19 (function v12 at 12:47Z, migration
+    and hook PATCH at 16:0x–16:12Z); the raw route answers `403 Accounts are created through the
+    Pace Analysis AI app only.` and the admin-API path still creates and signs in a user.
 13. ~~**Session storage is plaintext AsyncStorage today**~~ **RESOLVED 2026-07-12 (GitHub issue #38).**
     `lib/supabase.ts` now passes `storage: secureSessionStorage` (`lib/secure-storage.ts`), the
     "LargeSecureStore" pattern: an AES-256 key lives in SecureStore (Keychain/Keystore-backed,
@@ -991,8 +992,9 @@ milestone "done" criteria.
     {"mode":"dry_run","candidateCount":0,"candidates":[],"durationMs":421}` — the credential,
     endpoint, and Vault wiring all work end to end. Until 2026-09-19 it was gated on `dryRun:
     true` (the scheduled body was `{}`, which defaults to dry-run) — no media was deleted by the
-    schedule. **Armed 2026-09-19 (captain's 2026-08-15 ruling: a launch gate; migration PENDING
-    `db push`):** `20260919150000_sweep_orphaned_media_live.sql` re-schedules the same job with
+    schedule. **Armed 2026-09-19 (captain's 2026-08-15 ruling: a launch gate; migration applied
+    live 2026-09-19 ~16:05Z, `cron.job` body reads `{"dryRun": false}`, `jobid` 2 — Known Issue
+    #51):** `20260919150000_sweep_orphaned_media_live.sql` re-schedules the same job with
     `{"dryRun": false}`, in place (`jobid` 2 survives). Reviewed first: the job has succeeded
     every day since 2026-08-06 (`cron.job_run_details`); the 2026-09-18 dry run
     (`net._http_response` id 46) listed three candidates, one object each, with no `analyses`
@@ -1960,6 +1962,63 @@ milestone "done" criteria.
       500 on every Free video until the function redeployed. Verify after the push with
       `select public.pace_quota_status('<free user id>')` → `frame_cap: 5`. Not yet verified
       in-app on a device.
+
+51. **RESOLVED — hygiene batch (PR #229, `main` `f19b737`) applied to production 2026-09-19
+    (issues #48 residual, #137 last step).** Live project `vputdomdlknvthnzritt`; per-step
+    commands, outputs, the pre-change snapshot and the rollback handles are under
+    `~/firstmate/data/v23-deploy-hygiene-live-changes/` (function deploys in the top level and
+    `snapshot/`, the DB push / auth PATCH / verification in `r2/`). Applied in the order
+    `docs/auth-config-runbook.md` § 1 requires — function first, then migrations, then the hook.
+
+    **What changed in production, in order.**
+    - **`signup-with-captcha` v12 (12:47Z) and `sweep-orphaned-media` v15 (12:48Z)** deployed with
+      `supabase functions deploy <name> --use-api`; the deployed source was downloaded back and
+      matched file-for-file against `f19b737`, and the live `signup-with-captcha` bundle contains
+      no `auth.signUp` call. `analyze-form` (v20, from the #89 deploy at 12:01Z) imports none of
+      the changed modules and was not redeployed; the other four functions are untouched.
+    - **Two migrations pushed** with `supabase db push --linked` after a dry run listing exactly
+      them: `20260919140000_before_user_created_hook` and
+      `20260919150000_sweep_orphaned_media_live`. Ledger 37 local / 37 remote, no mismatch.
+      Verified live: `public.pace_before_user_created(jsonb)` exists (`stable`,
+      `search_path=""`), EXECUTE `true` for `supabase_auth_admin` and `false` for `anon` and
+      `authenticated`, returns `{}` for provider `google` and the 403 error object for `email`
+      and for an event with no provider; `cron.job` `jobid` 2 (`sweep-orphaned-media-daily`,
+      `0 9 * * *`) now carries `body := '{"dryRun": false}'` and there is exactly one job of that
+      name — the schedule was updated in place, run history kept.
+    - **Auth hook enabled** with a scoped Management API PATCH of exactly two fields
+      (`hook_before_user_created_enabled: true`, `hook_before_user_created_uri:
+      pg-functions://postgres/public/pace_before_user_created`), read back with `auth_get`.
+      `uri_allow_list` is unchanged (`paceanalysisai://oauth-callback,paceanalysisai://**,exp://**`
+      — the `exp://**` removal, runbook § 2, stays captain-gated), as are `site_url`,
+      `disable_signup` (false), `external_google_enabled` (true) and every other field. One
+      field the PATCH did not name changed in the read-back: `custom_oauth_max_providers` went
+      from `32767` to `3`, stable on re-read. It is the plan cap on *custom* OAuth providers
+      (none are configured; Google is `external_google_*`), so it has no effect on this app —
+      recorded because the before/after diff was otherwise exactly the two hook fields.
+
+    **Verification (0 paid model calls, throwaway deleted).** Raw `POST /auth/v1/signup` with the
+    publishable key → **403** `{"code":403,"error_code":"unknown","msg":"Accounts are created
+    through the Pace Analysis AI app only."}` (GoTrue reports the hook's rejection under
+    `error_code: unknown`, not a `hook_…` code); wrong-password sign-in → **400
+    `invalid_credentials`**, never a hook error; `signup-with-captcha` with a bogus token → **400
+    `captcha_invalid`** (reachable, fails closed, no account created); `POST /auth/v1/admin/users`
+    with the secret key — the exact call the function makes — with the hook enabled → **200**,
+    provider `email`, then `signInWithPassword` → **200**, then deleted → **200**; `auth.users`
+    and `profiles` back to 4/4 with zero `hook-probe%` rows. **Not exercised:** a real Turnstile
+    solve through the deployed function (the live secret is real, so no headless caller can mint a
+    token — Known Issue #38 is the precedent for doing it from a dev build), and a Google
+    sign-in (config untouched; the hook returns `{}` for `google` — proven in SQL, not through
+    Google). The first live sweeper run is 2026-09-20 09:00Z: check `net._http_response` for
+    `"mode":"live"` and `deletedCount` 3 (`list_orphaned_media_prefixes('15 minutes', 500)`
+    returned exactly 3 prefixes at deploy time).
+
+    **Rollback handles (each independent).** Hook: `auth_patch
+    '{"hook_before_user_created_enabled": false}'` re-opens the raw route at once (the function
+    keeps working). Sweeper: re-run the `cron.schedule` in `20260919150000` with `body :=
+    '{}'::jsonb` (the pre-change job row is `r2/42-cron-job-before.json`). Functions: the exact
+    pre-deploy ESZIP bundles and unbundled source are in `snapshot/bundle-*.eszip` /
+    `snapshot/source-*`. Deleted media is not recoverable (no bucket versioning) — the only
+    irreversible step, and the reason the three candidates were reviewed before the flip.
 
 ## Next action
 
