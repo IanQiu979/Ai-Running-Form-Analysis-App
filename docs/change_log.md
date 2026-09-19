@@ -125,11 +125,22 @@ and the rollback handles are under `~/firstmate/data/v23-deploy-hygiene-live-cha
   (armed), #7 (allowlist step prepared); `docs/architecture.md`'s sign-up, orphan-purge and
   Settings sections; `docs/blocked-on-apple.md` step 5; `docs/privacy-checklist-m7.md`.
 
+## 2026-09-19 (production deploy of #89 — `analyze-form` redeployed, `20260919120000` pushed)
+
+- **Live as of 2026-09-19 12:02Z, function-first**, from `main` = `1eba3fc` (PR #228): `supabase
+  functions deploy analyze-form --use-api` (12:01Z; the only function whose bundle changed since
+  `c13c95b` — `quota-status` and the other five untouched), then `supabase db push --linked` of
+  `20260919120000_free_video_stride_burst_frame_cap` (ledger 34 → 35, no mismatch). Behaviour now
+  live: `pace_quota_status` reports `frame_cap: 5` for Free and `reserve_analysis` accepts a
+  5-frame Free video; photo stays one frame everywhere; Free's `limit: 1` and every grant unchanged
+  (live bodies diff from the pre-push snapshot by exactly the one `'free'` line each). Verified with
+  0 paid model calls — details, snapshot and rollback handles in `docs/status.md` Known Issue #50
+  and `~/firstmate/data/v23-deploy-four-pillars-migration/`. Not yet verified in-app on a device.
+
 ## 2026-09-19 (issue #89: Free's one lifetime VIDEO analysis scores all four pillars)
 
-**Captain's decision 2026-09-19. Code-complete on `fm/v23-free-tier-four-pillars-89`; the
-migration is NOT yet pushed to production (deploy step recorded in `docs/status.md` Known Issue
-#50).** #89 (audit, 2026-07-12) named the collision: `reserve_analysis` capped `free` at 1 frame,
+**Captain's decision 2026-09-19. Merged as PR #228 (`1eba3fc`); DEPLOYED the same day — see the
+entry above and `docs/status.md` Known Issue #50.** #89 (audit, 2026-07-12) named the collision: `reserve_analysis` capped `free` at 1 frame,
 `knowledge/pace_framework.md`'s certified rule says a single frame cannot show cadence, vertical
 oscillation or ground-contact time, so every free trial — a perfect side-on clip included — came
 back "Partial read — 2 of 4 pillars". Verified still real against `main` (`2018e6a`) before any

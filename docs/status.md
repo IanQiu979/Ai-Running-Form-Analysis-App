@@ -1851,7 +1851,8 @@ milestone "done" criteria.
     would make the master flag's state observable to anyone.
 
 49. **RESOLVED — production deployed from `main` 2026-09-19 (closes GitHub issues #200 and
-    #201).** The live project (`vputdomdlknvthnzritt`) now runs `analyze-form` **v18** and
+    #201).** The live project (`vputdomdlknvthnzritt`) now runs `analyze-form` **v18** (superseded
+    the same day, 12:01Z, by the #89 redeploy from `1eba3fc` — Known Issue #50) and
     `quota-status` **v16**, both deployed from commit `c13c95b` (= `main`, whose `supabase/` tree
     is byte-identical to `f5a94dd`, PR #225), and the migration ledger matches the repo
     one-to-one (34 local / 34 remote, `supabase migration list --linked` shows no mismatch). The
@@ -1921,7 +1922,8 @@ milestone "done" criteria.
     password — only `migration repair`, `db push` and `migration list --linked` do.
 
 50. **Free's one lifetime VIDEO analysis scores all four pillars — code-complete 2026-09-19
-    (issue #89, captain's decision); MIGRATION NOT YET PUSHED TO PRODUCTION.** The collision #89
+    (issue #89, captain's decision); DEPLOYED TO PRODUCTION 2026-09-19 12:02Z (see the "LIVE"
+    bullet at the end of this entry).** The collision #89
     filed on 2026-07-12: `reserve_analysis`'s `v_frame_cap` was 1 for `free`, so every free trial
     — a flawless side-on clip included — was a single still, and the certified framework's own
     rule ("a single frame cannot show cadence ... score those pillars as needs video") made
@@ -1970,6 +1972,32 @@ milestone "done" criteria.
       500 on every Free video until the function redeployed. Verify after the push with
       `select public.pace_quota_status('<free user id>')` → `frame_cap: 5`. Not yet verified
       in-app on a device.
+    - **LIVE 2026-09-19 (firstmate crewmate `v23-deploy-four-pillars-migration`, record in
+      `~/firstmate/data/v23-deploy-four-pillars-migration/`).** Executed function-first exactly as
+      above, from `main` = `1eba3fc` (PR #228): 1) `analyze-form` redeployed with `supabase
+      functions deploy --use-api` at 12:01Z — the deployed bundle carries `PACE_FRAME_CAP = { free:
+      5, pro: 5, elite: 8 }`; it is the ONLY function whose module graph changed since `c13c95b`
+      (`deno info` over all seven), so `quota-status` and the other five were not touched;
+      2) `supabase db push --linked` applied `20260919120000` at 12:02Z after a dry-run listed
+      exactly that one file — ledger **35 local / 35 remote**, no mismatch. Verified live with
+      read-only `supabase db query --linked`: `pace_quota_status` and the 5-arg `reserve_analysis`
+      differ from the pre-push snapshot by exactly the one `'free' then 1` → `'free' then 5` line
+      each; the legacy 4-arg overload and `reserve_analysis_unlimited` are byte-identical to before;
+      EXECUTE privileges unchanged; `pace_quota_status(id)` returns **`frame_cap: 5`** for every
+      Free profile. Through the edge functions with a throwaway confirmed user (created and deleted
+      via the admin API, profiles back to 3): `quota-status` **200** with `frameCap: 5`; no JWT
+      **401**; `analyze-form` `{}` **400 invalid_request**, 9 frames **400 too_many_frames**, and a
+      well-formed **5-frame Free video → 403 `consent_required`** (the bundle accepted the payload
+      and stopped at the consent step before any reserve or model call; the function log reads
+      `frameCount: 5, inputTokens: 0`). `ai_call_log` stayed at 5 — **0 paid model calls**. A note
+      for the next reader: the bundle's own runtime frame-count check is only the global
+      `PACE_FRAME_CAP.elite` ceiling; the per-tier cap is enforced by `reserve_analysis` alone, so
+      the DB-first "500 on every Free video" above overstated the hazard — function-first was
+      followed regardless because it is harmless in both halves. Rollback: redeploy `analyze-form`
+      from `c13c95b`; for the DB, re-create both bodies from the snapshot's verbatim `def` fields and
+      `supabase migration repair --linked --status reverted 20260919120000` (no platform backups /
+      PITR on this project). Still not verified in-app on a device; the docs-only PR for this record
+      was deferred at the captain's request (quota).
 
 51. **RESOLVED — hygiene batch (PR #229, `main` `f19b737`) applied to production 2026-09-19
     (issues #48 residual, #137 last step).** Live project `vputdomdlknvthnzritt`; per-step
