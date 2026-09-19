@@ -19,7 +19,8 @@ milestone "done" criteria.
 
 ## Done so far
 
-- **Canonical result pinning is code-complete 2026-09-09, not deployed.** The same accepted input
+- **Canonical result pinning is code-complete 2026-09-09 and DEPLOYED 2026-09-19** (Known
+  Issue #49). The same accepted input
   now resolves to one active stored verdict per user, server-derived tier, and analyzer revision,
   even when a re-run carries a fresh request key. The pre-fix N=5 identical-input run observed
   Cadence 42–58 (range 16); an executable N=5 flow component proof observes one model call, one
@@ -1094,7 +1095,7 @@ milestone "done" criteria.
     would mean new schema/RPC surface beyond this task's captain-approved scope (the free-tier
     behavior change, not new abuse-prevention infrastructure).
 
-    **SUPERSEDED 2026-09-06 (code-complete, not yet deployed) — see Known Issue #43.** The
+    **SUPERSEDED 2026-09-06 (code-complete; deployed 2026-09-19) — see Known Issue #43.** The
     `pace_current_tier` short-circuit this entry describes is retired: Free now runs through
     `reserve_analysis` like every other tier, so its hard lifetime cap of 1 (plus the 3-strike
     anti-farming counter) applies to Free again, and the no-rate-limit gap this entry flags no
@@ -1415,7 +1416,7 @@ milestone "done" criteria.
     device/simulator pass of the on-device extractor (the harness feeds ffmpeg-extracted frames at
     production's timestamps, not `expo-video`'s). The run-to-run variance it exposed (Cadence 74
     vs 58 on the same burst) is now addressed in code by Known Issue #46's canonical-result pin;
-    that fix is not deployed.
+    that fix is live since 2026-09-19 (Known Issue #49).
 
     **Effort eval (2026-09-06, run manually outside the pipeline — the pipeline cannot make paid,
     real Anthropic calls).** 4 real Anthropic Messages API calls, billed, made directly via the
@@ -1450,7 +1451,8 @@ milestone "done" criteria.
     $1.07-for-11-calls rate, i.e. a few tens of cents. `ANALYZE_FORM_EFFORT` stays `'low'` as
     implemented; this eval is the resolution of the merge prerequisite the intent named.
 43. **NEW — Free tier's fabricated zero-model-call sample (Known Issues #36/#37 above) is
-    RETIRED, replaced with a real, capped analysis — code-complete 2026-09-06, NOT YET DEPLOYED.**
+    RETIRED, replaced with a real, capped analysis — code-complete 2026-09-06; DEPLOYED
+    2026-09-19, see Known Issue #49.**
     The captain's ruling: Free now runs through the exact same `analyze-form` path as Pro/Elite —
     auth → consent → AI spend gate → `reserve_analysis` (the only place tier is now learned, via
     `reserve.tier`) → model call (+1 retry) → a new server-side normalization step → settle →
@@ -1630,12 +1632,13 @@ milestone "done" criteria.
     re-run. The remaining finding at the time was that identical evidence produced different
     judgements run to run (Cadence 74/no flag vs 58/Overstriding on the same eight frames). That
     is the audit's finding #3, not #2, and is not an extraction problem. **Known Issue #46 now
-    resolves it in code with canonical-result reuse; that change is not deployed.** Full numbers
+    resolves it in code with canonical-result reuse; live since 2026-09-19 (Known Issue #49).**
+    Full numbers
     and the burst-shape rationale: `docs/change_log.md` 2026-09-07 and `lib/frames.ts`
     `sampleTimestamps`.
 
 45. **NEW — a Free zero-pillar result is now rate-limited instead of charged. 2026-09-09,
-    `fm/v23-zero-pillar-cooldown-orphaned-work`, NOT YET DEPLOYED.**
+    `fm/v23-zero-pillar-cooldown-orphaned-work`; DEPLOYED 2026-09-19, see Known Issue #49.**
 
     **What was wrong.** `analyze-form` *settled* (charged) an all-null result on `free` while
     *releasing* it uncharged on `pro`/`elite`, and attributed that split to
@@ -1671,7 +1674,8 @@ milestone "done" criteria.
 
 
 46. **RESOLVED IN CODE — byte-identical evidence no longer gets a second verdict
-    (`fm/v23-pin-result-variance`, 2026-09-10); NOT DEPLOYED.** Captain ruling: run-to-run
+    (`fm/v23-pin-result-variance`, 2026-09-10); DEPLOYED 2026-09-19, see Known Issue #49.**
+    Captain ruling: run-to-run
     variance is a launch blocker. Before changing behavior, the existing
     `stride-burst-latency.live.ts` harness sent the exact same Arakawa Elite eight-frame request
     five times. Every response was valid on its first attempt (`end_turn`), with no retry or
@@ -1796,6 +1800,76 @@ milestone "done" criteria.
     that distinguishes "gate off" from "gate on" is an unauthenticated `GET` (405 vs 404), which
     would make the master flag's state observable to anyone.
 
+49. **RESOLVED — production deployed from `main` 2026-09-19 (closes GitHub issues #200 and
+    #201).** The live project (`vputdomdlknvthnzritt`) now runs `analyze-form` **v18** and
+    `quota-status` **v16**, both deployed from commit `c13c95b` (= `main`, whose `supabase/` tree
+    is byte-identical to `f5a94dd`, PR #225), and the migration ledger matches the repo
+    one-to-one (34 local / 34 remote, `supabase migration list --linked` shows no mismatch). The
+    scout report behind the sequence is `~/firstmate/data/v23-deploy-sequence-scout/report.md`;
+    the deploy record with every command, output and the pre-push snapshot is
+    `~/firstmate/data/v23-production-deploy-r1/`.
+
+    **What changed in production, in order.**
+    - **Ledger repair (rows only, no schema change).** The four rows the Supabase MCP
+      `apply_migration` tool had stamped with its own timestamps (`20260806075604`,
+      `20260908130644`, `20260908130701`, `20260908130803`) were reverted and the identical DDL
+      re-recorded under the repo file names (`20260806090000`, `20260819120000`,
+      `20260906120000`, `20260907120000`). That tool was the whole cause of issue #201: it stamps
+      `now()` as the version and stores the SQL comment-stripped, so the ledger never matched the
+      file names although every object was live. **Rule: never `apply_migration` a file that
+      exists in the repo — `supabase db push --linked` is the only writer of the ledger.**
+    - **`20260807090000_all_users_unlimited_access_override` is ledger-only on production
+      (captain's Q1 option (a), 2026-09-19).** It was marked applied via `supabase migration
+      repair` WITHOUT being run, so `db push` will never execute it: `pace_current_tier_unlimited`
+      and the four-argument `reserve_analysis_unlimited` do not exist live (verified in `pg_proc`),
+      and `ALL_USERS_UNLIMITED_ACCESS` is not set. The `_unlimited` overloads that DO exist
+      (`reserve_analysis_unlimited(…, jsonb)`, `pace_quota_status_unlimited`) are created by
+      `20260909120000`/`20260910120000`, not by the override file. A follow-up PR deleting the
+      override family (this migration, `access-override.ts`, the `_unlimited` branches and
+      overloads) is a separate task.
+    - **Four migrations pushed** with `supabase db push --linked --include-all`, one transaction
+      each, dry-run listing exactly these four first: `20260906130000_free_zero_pillar_cooldown`,
+      `20260906140000_quota_status_zero_pillar_cooldown`,
+      `20260909120000_canonical_analysis_idempotency`,
+      `20260910120000_zero_pillar_delivered_uncharged`. Verified live afterwards: both
+      `reserve_analysis` overloads (4 and 5 args), both `settle_analysis` overloads (5 and 6
+      args), `pace_zero_pillar_cooldown_remaining(uuid)`, `pace_zero_pillar_cooldown_seconds()`,
+      `resolve_analysis_request(text)` (EXECUTE to `authenticated`, not `anon`; the 5-arg
+      `reserve_analysis` stays `service_role`-only), tables `canonical_analysis_claims` and
+      `analysis_request_aliases`, column `analyses.zero_pillar_at`, and
+      `analyses_release_reason_known_values` now including `'zero_pillar_cooldown'`.
+    - **`analyze-form` v18 and `quota-status` v16** deployed with `supabase functions deploy
+      <name> --use-api` (no Docker on the build Mac), `verify_jwt` unchanged (true). The other
+      five functions were not redeployed; their bundles are unchanged since `5ae08cd`.
+      Behaviour now live, versus v16: a **zero-pillar result on ANY tier is delivered and NOT
+      charged** (the captain's 2026-09-16 ruling — v16 charged Free for it; the substance of issue
+      #200), plus the Free-only 15-minute resubmission cooldown after one (#45), canonical verdict
+      pinning (#46), the structural safety note with the echo stripped (#212/PR #225), and
+      `quota-status` naming `zero_pillar_cooldown` as a `blockedReason`.
+
+    **Verification (0 paid model calls).** `quota-status` returned 200 with the full new shape
+    for a throwaway confirmed user created and deleted through the admin API (profiles back to 3);
+    unauthenticated returned 401; `analyze-form` refused an empty body with 400
+    `invalid_request` before any model call; deployed bundles contain `stripEchoedSafetyNote`,
+    `p_zero_pillar`, `p_analysis_identity` and `analyze-form/2026-09-16-v1`; function logs since
+    the deploy carry no `zero_pillar_cooldown_unavailable` and no `PGRST202`. A real Free
+    zero-pillar submission was NOT exercised live (it costs a model call; the offline PGlite
+    proofs in `_shared/__tests__/zero-pillar-uncharged-sql.deno.test.ts` cover the SQL).
+
+    **Rollback handles.** Functions: redeploy from `5ae08cd` (works against the new schema).
+    Database: the project has **no platform backups and no PITR** (free plan, verified via the
+    Management API), so the only DB rollback is the hand-written inverse in the scout report's
+    section 6, driven from the pre-push snapshot in
+    `~/firstmate/data/v23-production-deploy-r1/snapshot/` (ledger, the old `pace_quota_status`
+    body — md5 `1545f4ea…` — the old RPC bodies and the old CHECK).
+
+    **Two tooling facts that bit during the deploy, for the next one.** The `supabase` binary on
+    `PATH` (`~/.local/bin/supabase`) is a shim; `db push` and `functions deploy` need
+    `SUPABASE_GO_BINARY=~/.local/share/supabase/supabase-go` exported (or that directory on
+    `PATH`), while `migration list`/`repair` happen to work without it. And `supabase db query
+    --linked` goes through the Management API, so read-only verification SQL needs no database
+    password — only `migration repair`, `db push` and `migration list --linked` do.
+
 ## Next action
 
 **RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the
@@ -1834,12 +1908,13 @@ still standing between here and a public/TestFlight release:
 - **Issue #212 (safety notes render structurally, 2026-09-16)** — landed on
   `fm/v23-safety-notes-rendering-orphan`: the client draws a pillar's certified stop-running
   note as its own labelled notice above the coaching on the result screen and in the detail modal,
-  and `analyze-form` stops composing it into `feedback`. **Not deployed**: the function must be
-  redeployed before or with the client, or a live result shows the note twice. See
-  `docs/change_log.md`'s 2026-09-16 entry.
+  and `analyze-form` stops composing it into `feedback`. **Deployed 2026-09-19** (Known Issue
+  #49), so a live result now carries the note once, structurally. See `docs/change_log.md`'s
+  2026-09-16 and 2026-09-19 entries.
 - **Known Issues #43 and #44** — the Free-tier real-analysis rewrite of `analyze-form`, and the
-  analysis-limit pre-flight on top of it, are code-complete with focused regression coverage but
-  **not deployed**. #44 also carries the `$defs` schema fix WITHOUT WHICH THE ENDPOINT IS DOWN:
+  analysis-limit pre-flight on top of it, are code-complete with focused regression coverage and
+  **DEPLOYED 2026-09-19 (Known Issue #49; the rest of this bullet is the pre-deploy record)**.
+  #44 also carries the `$defs` schema fix WITHOUT WHICH THE ENDPOINT IS DOWN:
   deploying #43's `safety` field without it returns HTTP 400 on every request at every tier. It now also carries an unapplied
   migration, `20260906120000_invalid_safety_release_reason.sql`, which adds `'invalid_safety'` to
   `analyses_release_reason_known_values` — it must be applied BEFORE the function is deployed, or

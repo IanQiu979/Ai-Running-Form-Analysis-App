@@ -5,6 +5,42 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-19 (production deploy: four migrations + `analyze-form` v18 + `quota-status` v16 — issues #200, #201)
+
+**Deploy record; docs-only in the repo (`docs/status.md` Known Issue #49 has the full account).**
+Live project `vputdomdlknvthnzritt`, deployed from `main` at `c13c95b` (its `supabase/` tree is
+byte-identical to `f5a94dd`, PR #225), following the scout sequence in
+`~/firstmate/data/v23-deploy-sequence-scout/report.md`; per-step commands, outputs and the
+pre-push snapshot are under `~/firstmate/data/v23-production-deploy-r1/`.
+
+- **The migration ledger now matches the repo one-to-one (34/34; issue #201).** The four rows the
+  Supabase MCP `apply_migration` tool had stamped with its own timestamps were reverted with
+  `supabase migration repair --status reverted` and re-recorded under the repo file names with
+  `--status applied` — ledger rows only, the DDL was already live and identical. Never
+  `apply_migration` a file that exists in the repo.
+- **`20260807090000_all_users_unlimited_access_override` is marked applied but was never run**
+  (captain's decision, option (a)). Its three wrappers do not exist live and
+  `ALL_USERS_UNLIMITED_ACCESS` is unset. Deleting the override family is a separate follow-up.
+- **Pushed, in order, each in its own transaction:** `20260906130000_free_zero_pillar_cooldown`,
+  `20260906140000_quota_status_zero_pillar_cooldown`,
+  `20260909120000_canonical_analysis_idempotency`,
+  `20260910120000_zero_pillar_delivered_uncharged`. The five-argument `reserve_analysis`,
+  six-argument `settle_analysis`, `pace_zero_pillar_cooldown_remaining(uuid)`,
+  `resolve_analysis_request(text)`, the two claim tables, `analyses.zero_pillar_at` and the
+  widened release-reason CHECK are all verified live.
+- **`analyze-form` v18 and `quota-status` v16 are live** (`--use-api`, `verify_jwt` true). Versus
+  the v16 function deployed 2026-09-08 from `5ae08cd`: a zero-pillar result on any tier is now
+  delivered and not charged (the 2026-09-16 ruling — this is the substance of issue #200), Free
+  gets the 15-minute resubmission cooldown after one, byte-identical evidence replays the pinned
+  verdict, the certified safety note is carried structurally with its echo stripped, and
+  `quota-status` can name `zero_pillar_cooldown`. The other five functions were not redeployed.
+- **Verified with zero paid model calls:** `quota-status` 200 with the new shape for a throwaway
+  user (created and deleted via the admin API), 401 unauthenticated, `analyze-form` 400
+  `invalid_request` on an empty body, bundle markers present, no `zero_pillar_cooldown_unavailable`
+  or `PGRST202` in the logs since the deploy.
+- The project has no platform backups and no PITR (free plan); the DB rollback is the scout
+  report's hand-written section-6 inverse against the captured snapshot.
+
 ## 2026-09-18 (EAS development builds on both platforms, the first Android one — issue #84)
 
 **On `fm/v23-eas-dev-build`.** Docs-only; the builds themselves needed zero repo changes.
