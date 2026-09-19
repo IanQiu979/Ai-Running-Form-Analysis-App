@@ -9,14 +9,18 @@
 # subflow makes the History leg idempotent regardless of that leftover state.
 #
 # Runs unconditionally and is safe with zero rows: the `repeat: while:` body simply never fires
-# and the empty-state assertion passes straight away. The `times:` cap only bounds a delete that
-# keeps failing (the `history-delete-failed` dialog) so the loop cannot spin forever; the
-# empty-state assertion after it is what actually decides pass/fail.
+# and the empty-state wait passes straight away. The `times:` cap is a defensive upper bound on
+# row count so the loop cannot spin forever; the empty-state wait after it is what actually
+# decides pass/fail.
 #
 # Row delete controls are `history-delete-<uuid>` (components/history/history-row.tsx). The
 # UUID-shaped pattern below deliberately does NOT match the sibling testIDs that share the
-# prefix — `history-delete-confirm`, `history-delete-failed`, `history-delete-busy-<uuid>` — so
-# an open dialog or an in-flight delete is never mistaken for a fresh row to tap.
+# prefix — `history-delete-confirm`, `history-delete-failed` — so an open dialog is never
+# mistaken for a fresh row to tap. An in-flight delete is detected through `enabled: true`: the
+# row sets `accessibilityState.disabled` while its delete is pending, which iOS exposes on the
+# Pressable itself. The busy ActivityIndicator inside that Pressable is NOT reachable — the
+# Pressable is an accessibility leaf, so XCUITest/Maestro never see its children — which is why
+# nothing here keys on `history-delete-busy-*`.
 #
 # Not a standalone test (excluded from ../../config.yaml's `flows/*.yaml` glob) — same appId
 # requirement as the other subflows.
@@ -39,21 +43,21 @@ appId: com.ian.paceanalysisai
     while:
       visible:
         id: "history-delete-[0-9a-f-]{36}"
+        enabled: true
     commands:
       - tapOn:
           id: "history-delete-[0-9a-f-]{36}"
+          enabled: true
       - assertVisible:
           id: "history-delete-confirm"
       - tapOn: "Delete analysis" # history.delete.confirm.cta.primary
-      # The row only leaves the list once the server confirms the purge (app/(tabs)/history.tsx's
-      # handleDelete) — its Delete control shows a busy indicator until then. Wait it out so the
-      # next iteration sees the post-delete list, not the same row mid-flight.
-      - extendedWaitUntil:
-          notVisible:
-            id: "history-delete-busy-[0-9a-f-]{36}"
-          timeout: 30000
 
-- assertVisible: "No analyses yet" # history.empty.title
+# A row only leaves the list once the server confirms the purge (app/(tabs)/history.tsx's
+# handleDelete), so the last delete is still in flight when the loop exits — wait for the empty
+# state rather than asserting it immediately.
+- extendedWaitUntil:
+    visible: "No analyses yet" # history.empty.title
+    timeout: 30000
 
 # History's inline tab bar (testID "history-tab-bar") -> back to Home, where the caller resumes.
 - tapOn:

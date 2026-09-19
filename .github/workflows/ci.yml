@@ -94,11 +94,13 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # `jest && npm run test:edge` — the app's Jest suite (jest-expo, passWithNoTests: true
-      # today) and the Deno suite under `supabase/functions/` (which also runs
-      # `verify:knowledge`, regenerating `supabase/functions/_shared/knowledge.generated.ts` from
-      # `knowledge/*.md` and failing on drift). Verified locally that both halves pass with no
-      # `.env`/`supabase/functions/.env` present — neither suite reads live secrets, only unit-
-      # level fixtures/mocks.
+      # `jest --runInBand && npm run test:edge && npm run test:e2e-harness` — the app's Jest
+      # suite (jest-expo, passWithNoTests: true today), the Deno suite under
+      # `supabase/functions/` (which also runs `verify:knowledge`, regenerating
+      # `supabase/functions/_shared/knowledge.generated.ts` from `knowledge/*.md` and failing on
+      # drift), and the Maestro harness behavior checks (`scripts/test-run-maestro-ios-dev-build.sh`,
+      # a bash suite that stubs every external tool — no simulator, device, EAS or network).
+      # Verified locally that all three pass with no `.env`/`supabase/functions/.env` present —
+      # none of them read live secrets, only unit-level fixtures/mocks.
       - name: Test
         run: npm test

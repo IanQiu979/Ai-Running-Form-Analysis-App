@@ -5,6 +5,41 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-20 (Maestro E2E against the EAS development build — issue #203)
+
+- **`happy-path.yaml` and `dead-end-offline.yaml` now sign in instead of signing up.** Sign-up is
+  blocked on the development build by a real app bug (issue #230: the "Create account" button is
+  reachable in the accessibility tree but not painted after Turnstile succeeds), so both flows
+  open with the new `subflows/sign-in.yaml`, authenticating a pre-provisioned synthetic fixture
+  (`maestro.e2e.issue203@example.com`; `.maestro/README.md` "Fixture account" has the rotation
+  SQL). `subflows/sign-up.yaml` is kept, unused, pointing at #230. Flow-drift fixes alongside:
+  `grant-consent.yaml`'s once-ever phase is conditional (the grant is a `public.consents` row
+  keyed to the account, not local state); the camera soft-ask is asserted before "Record your
+  run" (that title only renders once permission is granted); the OS dialog reads "Allow" on
+  iOS 26.5; the Keychain "Save Password?" sheet is dismissed after sign-in.
+- **New `subflows/clear-history.yaml`, run unconditionally by `happy-path.yaml` right after
+  sign-in.** A reused account accumulates analyses, so the History leg's delete-one-then-"No
+  analyses yet" assertion needs a clean slate: the subflow deletes every row through the app's
+  own History delete path (a no-op with zero rows), keyed on `enabled: true` since the row's
+  busy indicator is not reachable through the Pressable's accessibility leaf. The Free-tier
+  lifetime quota is NOT released by that soft delete — the README records the constraint.
+- **`scripts/run-maestro-ios-dev-build.sh` passes each flow's credential pair to Maestro via
+  `-e`** (`maestro test` does not read the process environment; an exported-only var rendered as
+  the literal `null`), gates `happy-path`/`dead-end-offline` on `MAESTRO_E2E_EMAIL`/
+  `MAESTRO_E2E_PASSWORD`, and expands its env-arg array bash-3.2-safely.
+- **`npm test` is now a three-part composite:** `jest --runInBand && npm run test:edge && npm run
+  test:e2e-harness`. The new `test:e2e-harness` runs
+  `scripts/test-run-maestro-ios-dev-build.sh`, the harness's dependency-free behavior checks
+  (every external tool stubbed; no simulator, device or network), which also now scrubs
+  `MAESTRO_E2E_*`/`MAESTRO_METRO_PORT` from its own environment so a developer who followed the
+  README's `export` block does not get a spurious failure. CLAUDE.md's Commands table and
+  `.github/workflows/ci.yml` describe the new composition.
+- **Pass/fail matrix (EAS build `dbd22da6`, iOS 26.5 Simulator):** both retargeted flows pass
+  through sign-in, Home, consent and the camera permission dance, then fail deterministically on
+  `expo-camera`'s `record()` throwing `SimulatorNotSupported` (issue #232, evidence in
+  `docs/evidence/issue-203/record-unsupported-on-simulator.md`) — an app/SDK bug, deliberately
+  not fixed here. Zero `analyze-form` calls (zero paid spend) were made.
+
 ## 2026-09-19 (production deploy: hygiene batch live — `signup-with-captcha` v12, `sweep-orphaned-media` v15, two migrations, auth hook on — issues #48, #137)
 
 **Deploy record; docs-only in the repo (`docs/status.md` Known Issue #51 has the full account).**

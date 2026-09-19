@@ -34,7 +34,8 @@ Route tree, `lib/` layout, the `analyze-form` flow, the API table
 | `npm run generate:routes` | Codegens the gitignored `.expo/types/router.d.ts` (typed routes) without booting Metro. Chained into `typecheck`, so you never call it directly — without it `tsc` silently stops checking route strings altogether (issue #118) |
 | `npm run typecheck:edge` | `deno check` over `supabase/functions/` only (issue #90) |
 | `npm run lint` | `expo lint` |
-| `npm test` | `jest && npm run test:edge` — the app + `supabase/functions/` |
+| `npm test` | `jest --runInBand && npm run test:edge && npm run test:e2e-harness` — the app, `supabase/functions/`, and the Maestro harness behavior checks (a bash suite with every external tool stubbed; no simulator, device or network) |
+| `npm run test:e2e-harness` | `bash scripts/test-run-maestro-ios-dev-build.sh` — behavior checks for `scripts/run-maestro-ios-dev-build.sh`'s preflight, with `java`/`xcrun`/`maestro`/`npx`/`curl`/`lsof`/`brew` stubbed so it can never boot a simulator, contact EAS, or run a flow |
 | `npm run test:edge` | `npm run verify:knowledge && deno test` over `supabase/functions/` only (issue #90) |
 | `npm run generate:knowledge` | Codegens `supabase/functions/_shared/knowledge.generated.ts` from `knowledge/*.md` — run after editing any of those files, then commit the regenerated output |
 | `npm run verify:knowledge` | Regenerates the knowledge bundle and fails (`git diff --exit-code`) if it drifted from a committed `knowledge/*.md` edit |
