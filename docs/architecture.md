@@ -3273,7 +3273,9 @@ counter), and a new, unconditional, server-side **normalization step** —
 `normalizeForEvidenceAndTier()` in `flow.ts` — that runs after the model call and before settle,
 and is never merely prompt-guided:
 
-- **Any one-frame submission** (Free's only allowance, and any photo from any tier) has Cadence and
+- **Any one-frame submission** (any photo from any tier, and any video that reached the server as
+  one frame — Free's only allowance until issue #89, 2026-09-19; a Free video is now the same
+  5-frame burst as Pro and keeps all four pillars) has Cadence and
   Elasticity forced to not-assessed, discarding EVERYTHING the model claimed about them — score,
   band, feedback prose, flags, drills — closing exactly the hallucinated-cadence failure mode the
   old sample shipped, this time for real model output too, not just the canned one. The reason

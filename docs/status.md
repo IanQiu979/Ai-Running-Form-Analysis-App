@@ -1464,9 +1464,9 @@ milestone "done" criteria.
     persisted — zero Free signup in five weeks ever produced a real `analyses` row.
 
     The new `normalizeForEvidenceAndTier()` step in `flow.ts` is what makes a REAL result honest
-    rather than merely genuine: for any one-frame submission (Free's only allowance, and any photo
-    from any tier), Cadence and Elasticity are forced to not-assessed regardless of what the model
-    claimed. A photo records `notAssessedReason: 'needsVideo'`; a video records
+    rather than merely genuine: for any one-frame submission (Free's only allowance at the time —
+    a Free video is a 5-frame burst since Known Issue #50 — and any photo from any tier), Cadence
+    and Elasticity are forced to not-assessed regardless of what the model claimed. A photo records `notAssessedReason: 'needsVideo'`; a video records
     `'singleFrameFromVideo'`, which means only that one frame of the video reached this analysis —
     it never guesses that the runner's plan caused it. Free additionally has flags/drills stripped
     from every pillar. `overall` is recomputed only on a path that normalizes pillars (one frame or

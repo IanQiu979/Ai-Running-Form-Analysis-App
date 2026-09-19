@@ -333,10 +333,10 @@ type ParseResult =
 
 /**
  * Structural validation of the request body. Note what the PER-TIER frame cap is NOT: the exact
- * tier limit (Free 1 / Pro 5 / Elite 8) and the photo-must-be-one-frame rule are business rules,
- * and `reserve_analysis` (`SECURITY DEFINER`, service-role) is their sole authority (CLAUDE.md:
- * "No business rules in the client" — and this function is not the authority either). Re-deriving
- * the exact per-tier limit here would create a second, drifting copy.
+ * tier limit (`PACE_FRAME_CAP` in `_shared/pace.ts`) and the photo-must-be-one-frame rule are
+ * business rules, and `reserve_analysis` (`SECURITY DEFINER`, service-role) is their sole
+ * authority (CLAUDE.md: "No business rules in the client" — and this function is not the authority
+ * either). Re-deriving the exact per-tier limit here would create a second, drifting copy.
  *
  * What IS enforced here is a single GLOBAL frame-count ceiling — `PACE_FRAME_CAP.elite`, the most
  * any tier could ever legitimately send. That is not a business rule, it is a DoS bound. Because
