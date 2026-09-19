@@ -72,6 +72,11 @@ appId: com.ian.paceanalysisai
 - extendedWaitUntil:
     visible: "Success!"
     timeout: 45000
+# The accessibility tree can report the expanded CTA as visible before it is painted in the
+# viewport. This background-only upward swipe forces the form to reveal its lower controls.
+- swipe:
+    start: 50%, 88%
+    end: 50%, 60%
 - scrollUntilVisible:
     element:
       id: "auth-email-submit"
@@ -82,7 +87,7 @@ appId: com.ian.paceanalysisai
       id: "auth-email-submit"
       enabled: true
     timeout: 45000
-- takeScreenshot: "auth-email-submit-ready"
+- takeScreenshot: "node_modules/.cache/maestro-ios-dev/auth-email-submit-ready"
 - tapOn:
     id: "auth-email-submit"
 
