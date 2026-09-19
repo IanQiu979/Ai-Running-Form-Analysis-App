@@ -10,7 +10,7 @@
  * calls in one test leave an act scope open and the NEXT test renders an empty tree.
  */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Linking, StyleSheet } from 'react-native';
 
 jest.mock('react-native-safe-area-context', () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -72,6 +72,8 @@ jest.mock('@/lib/delete-account', () => ({
 // Imported after the mocks above are registered.
 // eslint-disable-next-line import/first
 import SettingsScreen from '../settings';
+// eslint-disable-next-line import/first
+import { PRIVACY_POLICY_URL } from '@/constants/links';
 // eslint-disable-next-line import/first
 import { Ink } from '@/constants/v23-theme';
 
@@ -189,16 +191,25 @@ describe('SettingsScreen rows (V23-12)', () => {
     await waitFor(() => expect(screen.getByText('3 of 5 analyses remaining this period')).toBeTruthy());
   });
 
-  it('Privacy: the two paragraphs, the Consent row with its action, and the pending policy row', async () => {
+  it('Privacy: the two paragraphs, the Consent row with its action, and the policy link row', async () => {
     await renderSettled();
 
     expect(screen.getByText(/^Your original photo or video never leaves your device/)).toBeTruthy();
     expect(screen.getByText(/^Deleting an analysis removes its stored frames immediately/)).toBeTruthy();
     expect(screen.getByText('Consent')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
-    // Not on the page, but a live disclosure: kept as one more label → value row.
-    expect(screen.getByText('Full privacy policy')).toBeTruthy();
-    expect(screen.getByText(/^The full policy is not yet published/)).toBeTruthy();
+    // Not on the page, but a live disclosure: one more row, and the whole row is the link.
+    expect(screen.getByRole('link', { name: 'Full privacy policy' })).toBeTruthy();
+    expect(screen.queryByText(/not yet published/)).toBeNull();
+  });
+
+  it('Privacy: the policy row opens the published policy URL (issue #202)', async () => {
+    // React Native's jest mock of `Linking.openURL` returns undefined; the real one is a Promise.
+    jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    await renderSettled();
+
+    await press(screen.getByRole('link', { name: 'Full privacy policy' }));
+    expect(Linking.openURL).toHaveBeenCalledWith(PRIVACY_POLICY_URL);
   });
 
   it('Privacy: a withdrawn consent reads as a value, with no action', async () => {

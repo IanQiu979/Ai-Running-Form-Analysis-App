@@ -23,7 +23,7 @@ Important current limitations:
   [`docs/blocked-on-apple.md`](docs/blocked-on-apple.md).
 - The privacy policy is published at
   <https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/> (source:
-  `docs/privacy-policy.md`); the in-app link to it is not wired yet.
+  `docs/privacy-policy.md`) and opens from the Settings screen's "Full privacy policy" row.
 
 ## Stack
 

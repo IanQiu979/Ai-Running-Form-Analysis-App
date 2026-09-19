@@ -19,9 +19,14 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   through the Pages **Actions** source, enabled on the repo the same day — the branch/`docs`
   source would have rendered every planning doc. The 2026-07-12 plan for a separate public repo
   is moot: this repo is public. The page goes live on the first push to `main` after merge; the
-  build was smoke-tested locally with the same theme. **Not done:** the in-app link
-  (`settings.privacyPolicy.pending`, the sign-up consent underline) needs certified copy — a
-  small follow-up. Attaching the URL in App Store Connect stays Apple-gated.
+  build was smoke-tested locally with the same theme. **In-app link (captain-certified
+  2026-09-19, same batch):** the Settings screen's "Full privacy policy" row is now a `link`-role
+  row that opens the page with `Linking.openURL` (`PRIVACY_POLICY_URL` in the new
+  `constants/links.ts`); the "The full policy is not yet published." sentence
+  (`settings.privacyPolicy.pending`) is removed, every other string is unchanged, and
+  `app/__tests__/settings.test.tsx` locks the role and the URL. The sign-up consent underline is
+  left as is — "Privacy Policy" sits inside the consent checkbox's own tap target, so linking it
+  needs a control of its own. Attaching the URL in App Store Connect stays Apple-gated.
 - **Raw `/auth/v1/signup` closed; `signup-with-captcha` creates accounts through the admin API
   (issue #48 residual; code + migration + config, PENDING DEPLOY — `docs/auth-config-runbook.md`
   § 1 has the ordered commands).** `_shared/signup-client.ts` now calls `auth.admin.createUser`
@@ -375,8 +380,8 @@ side until it does. Auth logic and the analyzing state machine are unchanged. No
 - **`app/(auth)/sign-in.tsx` — V23-06, rebuilt.** Eyebrow + Display title, two `TextField`s with
   field-level errors, and — sign-up mode only — a consent checkbox, "I am 16+ and agree to the
   Terms and Privacy Policy", that gates Create account alongside the captcha token. The Terms /
-  Privacy underlines are the page's styling, not links: neither document is published
-  (`Copy.settings.privacyPolicy.pending`). Sign-up is the default mode; the footer flips modes.
+  Privacy underlines are the page's styling, not links: neither document was published then (the
+  Privacy Policy is, since 2026-09-19 — see that entry). Sign-up is the default mode; the footer flips modes.
   Kept from the old screen for working reasons the page does not draw: the Turnstile widget and
   its no-key notice (sign-up), "Forgot password?" (sign-in), and the password rule as the field's
   `accessibilityHint`. Validation → HIBP → captcha → `signUpWithCaptcha` → `applySignupSession`,

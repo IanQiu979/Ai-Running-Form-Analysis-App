@@ -1032,7 +1032,9 @@ above is still what those screens are built on and both font sets load at startu
   `SquareButton`s, and a footer that flips modes; **sign-up is the default mode**. In sign-up
   mode a 12 pt consent checkbox — "I am 16+ and agree to the Terms and Privacy Policy" — gates
   Create account **alongside** the captcha token. The Terms / Privacy underlines are the page's
-  styling, not links: neither document is published (`Copy.settings.privacyPolicy.pending`).
+  styling, not links: the Terms are unpublished, and the Privacy Policy — published, opened from
+  Settings via `PRIVACY_POLICY_URL` — sits inside the checkbox's own tap target, so linking it
+  there needs a control of its own (noted, not done, 2026-09-19).
   Kept although the page does not draw them: the Turnstile widget and its no-key notice
   (sign-up; Known Issue #12), "Forgot password?" (sign-in; issue #81), and the password rule as
   the field's `accessibilityHint` (issue #9). Validation → HIBP → captcha → `signUpWithCaptcha` →
@@ -3135,7 +3137,7 @@ of session. This screen hosts sign-out and account deletion; it must never be re
 | Sign out | `lib/sign-out.ts` | Real, and correct against all three real outcomes — see below. |
 | Delete account | `lib/delete-account.ts` | Real client, calls the `delete-account` edge function through the shared `invokeFunction()` wrapper (`lib/functions-client.ts`, issue #46, 2026-07-13) rather than `supabase.functions.invoke` directly. ⚠️ The edge function it calls (#58/#121) is built but not yet merged/deployed — see below. |
 | Privacy disclosure + consent withdrawal | `lib/consent.ts` | Real. Restates the pre-upload disclosure (#68) and calls `withdrawConsent`, which had been built and waiting for a caller since #68. |
-| Privacy policy link | — | **Deliberately not linked.** See below. |
+| Privacy policy link | `constants/links.ts` (`PRIVACY_POLICY_URL`) | Real since 2026-09-19 (issue #202): the "Full privacy policy" row is a `link` that `Linking.openURL`s the published page. See below. |
 
 **`lib/sign-out.ts` — the issue #27 fix, made once, in its final home.** The bug: `signOut()` was
 fire-and-forget, so a failed **global** token revoke left server-side refresh tokens alive while the
@@ -3188,7 +3190,7 @@ success (proven by test); and the exact contract may still drift, since this PR 
 `#121`'s real `DeleteAccountErrorCode` type (barred from touching `supabase/functions/`) and
 instead hand-maintains a mirror of it — see `lib/delete-account.ts`'s header.
 
-**The privacy policy is published; the in-app link is the next change.** `docs/privacy-policy.md`
+**The privacy policy is published and linked from Settings.** `docs/privacy-policy.md`
 lost its `DO NOT PUBLISH` guard on 2026-09-19 (issue #202): the controller is Ian Qiu, sole
 trader, Thailand; the contact is `i78979848@gmail.com`; and it carries the McMillan-certified-coach
 line. It is served at
@@ -3197,10 +3199,11 @@ line. It is served at
 source and deploys it through the Pages Actions source (enabled on the repo the same day) — the
 branch/`docs`-folder source would have rendered every planning doc as a page. The source file is
 the published text; the page rebuilds on every push to `main` that touches it. The Settings
-screen still shows the honest pending state (`settings.privacyPolicy.pending`) and the sign-up
-consent line still underlines "Privacy Policy" without linking: replacing both with the real URL
-needs new certified copy (the pending sentence becomes a link label) and is a small follow-up on
-the Settings/details screens, not part of the publication change.
+screen's "Full privacy policy" row (captain-certified 2026-09-19) is a `link`-role row that opens
+`PRIVACY_POLICY_URL` (`constants/links.ts`) with `Linking.openURL`; the former "not yet published"
+sentence is gone, and `app/__tests__/settings.test.tsx` locks both the role and the URL. The
+sign-up consent line still underlines "Privacy Policy" without linking: that word sits inside the
+consent checkbox's own tap target, so a link there needs a control of its own — left as is.
 
 **Not built, deliberately:** `settings.plan.cta` ("See plans") and `settings.restorePurchases.cta`.
 Both route to a Paywall (#52) and an IAP flow that do not exist; shipping them would build a dead

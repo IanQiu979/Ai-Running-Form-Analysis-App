@@ -38,8 +38,8 @@ milestone "done" criteria.
   pass, after the original mock binding turned out to have no owner ever assigned to swap it for a
   real one. Two caveats, both tracked as Known Issues below: the edge function it calls (#58/#121)
   is **built but not yet merged or deployed** (#22), and the screen ships **uncertified copy**
-  needing review (#24). The privacy policy is deliberately **not linked** — it was still
-  `DO NOT PUBLISH` then; published 2026-09-19 (Known Issue #15), the in-app link is a follow-up.
+  needing review (#24). The privacy policy was deliberately **not linked** then (it was still
+  `DO NOT PUBLISH`); published and linked from the Settings row 2026-09-19 (Known Issue #15).
 - Expo SDK 54 app scaffolded (expo-router template, TypeScript strict, `@/*` path alias ->
   `./*`; no `src/` in this project — code lives at the repo root in `app/`, `components/`,
   `constants/`, `hooks/`).
@@ -418,9 +418,10 @@ milestone "done" criteria.
     `.github/workflows/privacy-policy-pages.yml` (Pages Actions source, enabled on the repo; the
     workflow publishes that one file, not `docs/`), live on the first push to `main` after merge.
     The separate-public-repo hosting plan below is moot — the repo is public now. In-app deletion
-    (Guideline 5.1.1(v)) had already shipped (#58). Still open, elsewhere: the in-app link
-    (`settings.privacyPolicy.pending` and the sign-up consent underline need certified copy — a
-    small follow-up) and the App Store Connect attachment (`docs/blocked-on-apple.md`). Original
+    (Guideline 5.1.1(v)) had already shipped (#58). The Settings screen's "Full privacy policy"
+    row opens the URL (captain-certified 2026-09-19; `PRIVACY_POLICY_URL` in `constants/links.ts`);
+    the sign-up consent underline stays a non-link (it sits inside the checkbox's tap target).
+    Still open, elsewhere: the App Store Connect attachment (`docs/blocked-on-apple.md`). Original
     entry, for the record:
     `docs/privacy-policy.md` is written and reviewed, but it cannot go live until Ian resolves
     two things, and the file carries a `DO NOT PUBLISH` guard until he does:
@@ -770,8 +771,10 @@ milestone "done" criteria.
     issue #27 explicitly said had to be written — a security audit, finding F3, found there are
     genuinely two of them, not one — see Known Issue #23's sibling note in `lib/sign-out.ts`), the
     delete-account failure alert and its separate orphans-remaining success alert (finding F2), the
-    consent-withdrawal confirmation, the "policy not published yet" line, and two screen-reader-only
-    Retry labels. They were written to the deck's own rules (name the outcome, never claim a state
+    consent-withdrawal confirmation, and two screen-reader-only Retry labels (the "policy not
+    published yet" line was in this list until 2026-09-19, when the captain certified the
+    `settings.privacyPolicy.label` row as a link to the published policy and the line was removed —
+    issue #204 tracks the rest). They were written to the deck's own rules (name the outcome, never claim a state
     that isn't true, no jargon) but they are drafts. Review them, then mirror the approved wording
     into copy-deck.md § Screen 11 the way #36's and #56's NEW keys were.
 25. **RESOLVED 2026-07-26 — `analyze-form` IS deployed, and the client binding is real.** Both of
