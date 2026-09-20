@@ -72,6 +72,10 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   age-band-gate heal. The age-band gate's consent-step failure now shows its own message
   (`auth.ageGate.error.consent`: the band was saved, the consent was not) instead of the
   age-save error.
+- Review round 5 (same day): Settings' "Give consent" failure notice no longer claims "Nothing
+  has changed" — it writes two rows, so the first may have landed before the second failed; the
+  copy now says consent could not be fully saved and to tap Give consent again (append-only, so a
+  retry is always safe). Restore logic unchanged.
 
 ## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
 

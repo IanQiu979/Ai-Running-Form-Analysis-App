@@ -249,13 +249,17 @@ describe('SettingsScreen rows (V23-12)', () => {
     expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
   });
 
-  it('Give consent (failure): says nothing changed, and keeps the action', async () => {
+  it('Give consent (failure): never claims nothing changed — two inserts may half-land — and keeps the action', async () => {
     mockReadConsentState.mockResolvedValue('withdrawn');
-    mockGrantConsent.mockRejectedValue(new Error('offline'));
+    mockGrantConsent.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('offline'));
     await renderSettled();
 
     await press(screen.getByRole('button', { name: 'Give consent' }));
-    expect(screen.getByRole('header', { name: 'Consent could not be recorded' })).toBeTruthy();
+    expect(screen.getByRole('header', { name: 'Consent could not be fully saved' })).toBeTruthy();
+    expect(
+      screen.getByText('Consent could not be fully saved. Check your connection and tap Give consent again.')
+    ).toBeTruthy();
+    expect(screen.queryByText(/Nothing has changed/)).toBeNull();
     await press(screen.getByRole('button', { name: 'OK' }));
     expect(screen.getByRole('button', { name: 'Give consent' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
