@@ -1,5 +1,9 @@
 ## Summary
 
+> **Superseded 2026-09-20.** The observation below was real but its reading was wrong: this was a
+> test-harness artefact (iOS 26's "Use Strong Password?" panel over the CTA), not an app defect.
+> See "Confirmed cause" further down; the original record is kept as written.
+
 On the iOS EAS development build, email sign-up cannot proceed after Cloudflare Turnstile reports **Success!**. The `Create account` button is enabled in the native accessibility hierarchy but is not painted or reachable in the viewport. Maestro therefore taps the reported element without invoking account creation, and the screen remains on the sign-up form.
 
 This was reproduced repeatedly while repairing issue #203's E2E flows. It blocks the sign-up leg independently of the later analysis flow.

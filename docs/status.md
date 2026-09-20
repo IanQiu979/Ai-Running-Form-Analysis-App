@@ -1253,8 +1253,10 @@ milestone "done" criteria.
     Getting there required disabling iOS Settings → General → AutoFill & Passwords → **Suggest Strong
     Passwords** in the simulator: the "Use Strong Password?" sheet intercepts the password field after
     the first character and does not respond to synthetic taps. Worth knowing for any future
-    simulator-driven auth run. Note also that the Turnstile token is short-lived — solve the challenge
-    and submit within a few minutes, or the button silently does nothing because the token was cleared.
+    simulator-driven auth run (an XCTest tap on its close X does work —
+    `.maestro/flows/subflows/sign-up.yaml` dismisses it in-flow since 2026-09-20, issue #230). Note
+    also that the Turnstile token is short-lived — solve the challenge and submit within a few
+    minutes, or the button silently does nothing because the token was cleared.
 
     ~~**One open follow-up, not a regression in this change:** on the successful sign-up the app
     stayed on the sign-up form instead of entering the app, even though the server had issued a
