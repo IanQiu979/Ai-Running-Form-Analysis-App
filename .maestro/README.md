@@ -117,6 +117,21 @@ fixed, budget for exactly one live call per `happy-path`/`dead-end-offline` run 
 script enforces and prints this budget (`Selected client endpoint submission budget:
 N ... cap: 2`) before it does anything else.
 
+**UPDATE 2026-09-20 (issue #232 fix) — the two FAILs above are now a clean, deliberate SKIP, not
+a fix that makes recording work on a simulator.** There is still no camera on the iOS Simulator;
+that is a Simulator/SDK limitation, not something app code can work around. What changed is that
+both flows now detect they cannot produce a clip and stop cleanly at the capture chooser with an
+explicit `capture skipped: simulator` step (see each file's own header), instead of failing deep
+inside the native `SimulatorNotSupported` rejection at `record-button`. Concretely:
+`happy-path.yaml` now covers sign-in → Home → source picker → (skip) → Settings → sign out, and
+`dead-end-offline.yaml` stops at the source picker with its offline-gate assertions commented out
+as documentation (they need a real "Frames ready" clip, which needs a real device or a locally
+provided fixture). **This still needs one real run against an installed EAS build to confirm the
+`evalScript` skip step and the post-skip navigation (`happy-path.yaml`'s Back → History →
+Settings leg) actually work against the live app** — that run was not performed as part of the
+code change (no simulator available in this environment); do that before trusting this note over
+an actual `maestro test` result.
+
 ### Other flow drift fixed in this pass (2026-09-19/20, issue #203)
 
 Beyond the sign-in retarget above: the camera permission soft-ask panel
@@ -214,16 +229,24 @@ local iOS Simulator / Android emulator.)
    must never be pointed at a real backend with a real `ANTHROPIC_API_KEY` without a disposable
    test account and full awareness of real spend.
 
-3. **Simulator media, if you use the library-upload path instead of the in-app record path.**
-   `happy-path.yaml` deliberately uses in-app **Record** (an `expo-camera` `CameraView`, which
-   Xcode 15+ Simulators can drive with a synthetic test-pattern feed) rather than **Upload**
-   (which opens the native Photos picker — a system UI Maestro can only interact with by
-   guessing at thumbnail coordinates, and only if the Simulator's Photos library has a seeded
-   asset to show at all: `xcrun simctl addmedia <device> <path-to-a-short-clip>`). No fixture
-   media file is checked into this repo — uploaded media is sensitive by this project's own
-   rule (CLAUDE.md), and a running-form clip is exactly the kind of asset that shouldn't live in
-   a public tree even as a "test fixture." Provide your own locally if you want to script the
-   Upload path instead.
+3. **The iOS Simulator has NO camera and cannot record at all — GitHub issue #232 (2026-09-20).**
+   This prerequisite used to claim Xcode 15+ Simulators drive `CameraView` "with a synthetic
+   test-pattern feed"; that claim was never re-verified against a real build and is false for
+   this build's `expo-camera` version on iOS 26.5 — `recordAsync` rejects immediately with a
+   native `SimulatorNotSupported` error (evidence:
+   `docs/evidence/issue-203/record-unsupported-on-simulator.md`). `happy-path.yaml` and
+   `dead-end-offline.yaml` now detect this and stop cleanly at the capture chooser ("Add
+   footage") with an explicit "capture skipped: simulator" step, instead of failing deep inside
+   the native rejection at `record-button` — see each file's own 2026-09-20 header. The
+   **Upload** path (native Photos picker) is not scripted as a substitute either: it's a system
+   UI Maestro can only interact with by guessing at thumbnail coordinates, and only if the
+   Simulator's Photos library has a seeded asset to show at all
+   (`xcrun simctl addmedia <device> <path-to-a-short-clip>`). No fixture media file is checked
+   into this repo — uploaded media is sensitive by this project's own rule (CLAUDE.md), and a
+   running-form clip is exactly the kind of asset that shouldn't live in a public tree even as a
+   "test fixture." **The capture→analyze→History leg both flows used to cover is therefore
+   untested on a simulator** until a real device is used, or you provide your own,
+   locally-gitignored fixture clip and script the Upload path in its place.
 
 4. **A quota-exhausted / seeded test account for `dead-end-quota-exhausted.yaml`.** That flow
    needs a Free-tier user who already has one `'delivered'` (or `'reserved'`) row in `analyses`

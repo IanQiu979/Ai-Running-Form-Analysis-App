@@ -1247,6 +1247,23 @@ export const Copy = {
         },
       },
     },
+    // Issue #232: `CameraView.recordAsync` rejects with a native `SimulatorNotSupported` error on
+    // the iOS Simulator (no camera hardware), which used to surface as an uncaught LogBox toast.
+    // Both keys route through the same `<ConfirmDialog>`; `simulatorUnsupported` names the cause
+    // and points at the Upload path, `recordingFailed` is the honest fallback for every other
+    // native rejection.
+    recordingError: {
+      simulatorUnsupported: {
+        title: 'Recording is not available here',
+        body: 'The simulator has no camera. Use a physical phone to record, or choose Upload to analyse an existing clip.',
+        cta: 'Choose Upload',
+      },
+      recordingFailed: {
+        title: 'Recording is not available',
+        body: 'Recording could not start. Try again.',
+        cta: 'Choose Upload',
+      },
+    },
   },
   // Screen 5 ("Uploading / Extracting" in the deck). Renamed in comments only, not in the
   // key namespace (kept as `upload` to match the deck's own key prefix, e.g.
