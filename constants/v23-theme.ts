@@ -378,9 +378,16 @@ export const Motion = {
     page: 250,
     /** The hero's cue and the analyzing laser both fade over this. */
     fade: 300,
+    /** The entry flow's scroll-driven story (2026-09-20, captain's device test): each section's
+     *  items rise over this — deliberately slower than `rise`, so the flow reads as calm. Kept
+     *  under the ~1.2 s per item the captain set as the ceiling. */
+    storyRise: 1000,
+    /** The hero's "Scroll down" cue fades in over this — the story's slower register, not
+     *  `fade`, which the analyzing laser keeps. */
+    storyFade: 500,
   },
-  /** Sibling stagger, ms. */
-  stagger: { min: 40, item: 60, max: 80 },
+  /** Sibling stagger, ms. `story` is the entry flow's, twice `item` so the stagger is felt. */
+  stagger: { min: 40, item: 60, max: 80, story: 120 },
   /** The page transition's vertical shift. */
   pageShift: 12,
   /** Home's pillar ticker: one full loop of the strip every 18 s, linear, forever (V23-07). */

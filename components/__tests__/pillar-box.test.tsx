@@ -25,19 +25,11 @@ describe('closed', () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
-  it('starts its arrival at the first frame of v23rise when given a stagger delay', async () => {
-    await render(<PillarBox id="cadence" open={false} onToggle={() => {}} delayMs={120} testID="box" />);
-    // Opacity 0, 12 pt below rest — the tween never advances under Jest, so this IS the frame.
-    const style = StyleSheet.flatten(screen.getByTestId('box', { includeHiddenElements: true }).props.style);
-    expect(style.opacity).toBe(0);
-    expect(style.transform).toEqual([{ translateY: 12 }]);
-  });
-
-  it('mounts at rest with no delay, and with reduced motion regardless of delay', async () => {
-    await render(<PillarBox id="cadence" open={false} onToggle={() => {}} delayMs={120} reduceMotion testID="box" />);
+  it('mounts at rest — the section that holds it owns its arrival', async () => {
+    await render(<PillarBox id="cadence" open={false} onToggle={() => {}} testID="box" />);
     const style = StyleSheet.flatten(screen.getByTestId('box').props.style);
-    expect(style.opacity).toBe(1);
-    expect(style.transform).toEqual([{ translateY: 0 }]);
+    expect(style.opacity).toBeUndefined();
+    expect(style.transform).toBeUndefined();
   });
 });
 

@@ -39,19 +39,24 @@
 
 appId: com.ian.paceanalysisai
 ---
-# The V23 entry flow (2026-09-14): a cold signed-out launch lands on the hero (app/(auth)/welcome),
-# whose "Continue" cue only becomes tappable once the hero's 3.2 s timeline has held (~4 s) —
-# hence `enabled: true`, not a bare visibility wait, or the tap lands on a disabled control and
-# is swallowed. Then the details page and its own "Continue" to the sign-up/sign-in screen.
+# The V23 entry flow (2026-09-20): a cold signed-out launch lands on the hero (app/(auth)/welcome),
+# which is the first section of ONE paged scroll — hero, the pillars story (one pillar per
+# screen), then the sign-up entry at the end. Nothing is tapped until that entry. The "Scroll down"
+# cue is not mounted, and the scroll is locked, until the hero's 3.2 s timeline has held (~4 s) —
+# hence the wait on the cue's presence before scrolling, or the swipes land on a locked scroll and
+# do nothing. The entry is five paged swipes down; `scrollUntilVisible` pages until it is on
+# screen rather than counting them.
 - extendedWaitUntil:
     visible:
       id: "entry-hero-cue"
-      enabled: true
+    timeout: 45000
+- scrollUntilVisible:
+    element:
+      id: "entry-sign-up"
+    direction: DOWN
     timeout: 45000
 - tapOn:
-    id: "entry-hero-cue"
-- tapOn:
-    id: "details-continue"
+    id: "entry-sign-up"
 
 # The screen opens in sign-up mode; the footer link "Sign in" flips it to sign-in (its submit
 # button then also reads "Sign in" — unambiguous each time, since only one is on screen per mode).

@@ -5,6 +5,34 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
+
+- **The signed-out entry flow is one paged scroll** (`app/(auth)/welcome.tsx`): the V23-02 hero,
+  then the pillars story, then the sign-up entry — no tap until "Get started" at the end. The
+  hero's cue now reads "Scroll down" (`Copy.entry.hero.cue`) over the same pulsing chevron, is
+  mounted only once the hero's 3.2 s timeline has held (4 s), and is a hint, not a button; the
+  scroll is locked until that same moment so the story cannot be dragged over the drawing runner.
+  No "Continue" label remains in the entry flow. Captain's decision from his own device testing,
+  approved 2026-09-20.
+- **The V23-03 details page is replaced by `components/pillar-story.tsx`** — one screen-height
+  section per pillar in `PACE_PILLARS` order after an intro section, each showing that pillar's
+  box (`components/pillar-box.tsx`) large and centred with its one-line description, rising in
+  once the scroll brings half the section on screen (`lib/entry-story.ts`, unit-tested). "Tap a
+  pillar for details" sits above the first box; tapping still opens the box's own card in place,
+  one at a time. `app/(auth)/details.tsx` and its `Stack.Screen` are deleted; the "What it reads"
+  label came off (a section holds at most three type sizes). The pillar box's per-box `delayMs`
+  arrival is gone — the section owns the rise.
+- **Slower, calmer arrival.** New tokens `Motion.duration.storyRise` (1000 ms; the grid used
+  `rise` 600), `Motion.duration.storyFade` (500 ms for the cue; `fade` 300 stays for the analyzing
+  laser) and `Motion.stagger.story` (120 ms; the grid used `item` 60), same arrive curve. Reduced
+  motion is unchanged in behaviour: everything renders in place and the scroll is free at once.
+- **Maestro** (`.maestro/flows/subflows/sign-up.yaml`, `sign-in.yaml`, both `dead-end-*` flows
+  that walk the entry): wait for `entry-hero-cue` to exist, `scrollUntilVisible` the new
+  `entry-sign-up` testID, tap it. `details-continue` no longer exists. Verified live on the iOS 26.5
+  simulator dev build: hero → swipe → intro → four pillar sections (paging one at a time, the
+  reveal starting mid-snap) → "Get started" → the sign-up screen; the Arm swing card opens and
+  closes in place.
+
 ## 2026-09-20 (interior polish — five captain-directed fixes from his phone test)
 
 - **History empty state**: dropped the dashed 120 pt box card. The "No analyses yet" line is now

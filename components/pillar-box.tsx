@@ -1,6 +1,7 @@
 /**
  * V23-04 · Pillar box — one of the four P / A / C / E squares on the details page
- * (`app/(auth)/details.tsx`), in its two states, transcribed from the captain-approved page.
+ * (now one per section of `components/pillar-story.tsx`), in its two states, transcribed from
+ * the captain-approved page.
  *
  * CLOSED is a 1:1 `bgRaised` square with a 1 px `line` border: the pillar's single letter in
  * Display top-left, its name in Label bottom-left, nothing else. OPEN is the same surface at full
@@ -19,22 +20,16 @@
  * unclipped so nothing ever flashes empty. Closing runs the same tween in reverse and only then
  * tells the parent, so the square does not snap back while the card is still mid-collapse.
  *
- * THE ARRIVAL (`v23rise`) is the details page's item stagger — opacity 0 → 1 and a 12 pt rise over
- * 600 ms — applied here by the closed box when it is given a `delayMs`, so the grid's four boxes
- * arrive 60 ms apart in reading order without the page reaching into them.
+ * THE ARRIVAL is not this component's. Since the 2026-09-20 story (`components/pillar-story.tsx`)
+ * each box is revealed by the scroll that brings its section into view, and the section owns
+ * that rise; the closed box mounts at rest. (The 2026-09-13 grid's per-box `delayMs` stagger came
+ * off with the grid.)
  *
  * Reduced motion mounts either state directly, at rest.
  */
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import Animated, {
-  Easing,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { Copy } from '@/constants/copy';
 import { Font, Ink, Layout, Motion, Space, Type } from '@/constants/v23-theme';
@@ -62,48 +57,29 @@ type PillarBoxProps = {
   open: boolean;
   /** Fired by the square (to open) and by the "×" (to close, after its reverse tween). */
   onToggle: () => void;
-  /** Arrival stagger for the closed square, in ms. Omit for no arrival. */
-  delayMs?: number;
   reduceMotion?: boolean;
   testID?: string;
 };
 
-export function PillarBox({ id, open, onToggle, delayMs, reduceMotion = false, testID }: PillarBoxProps) {
+export function PillarBox({ id, open, onToggle, reduceMotion = false, testID }: PillarBoxProps) {
   return open ? (
     <OpenBox id={id} onClose={onToggle} reduceMotion={reduceMotion} testID={testID} />
   ) : (
-    <ClosedBox id={id} onOpen={onToggle} delayMs={delayMs} reduceMotion={reduceMotion} testID={testID} />
+    <ClosedBox id={id} onOpen={onToggle} testID={testID} />
   );
 }
 
 type ClosedBoxProps = {
   id: PacePillarId;
   onOpen: () => void;
-  delayMs?: number;
-  reduceMotion: boolean;
   testID?: string;
 };
 
-function ClosedBox({ id, onOpen, delayMs, reduceMotion, testID }: ClosedBoxProps) {
+function ClosedBox({ id, onOpen, testID }: ClosedBoxProps) {
   const copy = Copy.entry.details.pillar[id];
-  const rises = delayMs !== undefined && !reduceMotion;
-  const progress = useSharedValue(rises ? 0 : 1);
-
-  useEffect(() => {
-    if (!rises) return;
-    progress.value = withDelay(
-      delayMs,
-      withTiming(1, { duration: Motion.duration.rise, easing: Easing.bezier(...Motion.curve.arrive) })
-    );
-  }, [rises, delayMs, progress]);
-
-  const riseStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: [{ translateY: Motion.pageShift * (1 - progress.value) }],
-  }));
 
   return (
-    <Animated.View style={[styles.square, riseStyle]} testID={testID}>
+    <View style={styles.square} testID={testID}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={copy.name}
@@ -113,7 +89,7 @@ function ClosedBox({ id, onOpen, delayMs, reduceMotion, testID }: ClosedBoxProps
         <Text style={styles.letter}>{pillarLetter(id)}</Text>
         <Text style={styles.name}>{copy.name}</Text>
       </Pressable>
-    </Animated.View>
+    </View>
   );
 }
 
