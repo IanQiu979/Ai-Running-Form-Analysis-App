@@ -521,7 +521,7 @@ export const Copy = {
       cta: {
         // The deck says "Reuse shared.cta.retry" / "shared.cta.cancel" — no Copy.shared
         // namespace exists in this codebase yet. Every screen shipped so far (Home's
-        // `quota.error.retry`, ConsentGate's `cta.secondary`) has likewise duplicated the
+        // `quota.error.retry`, the since-deleted ConsentGate's `cta.secondary`) has likewise duplicated the
         // literal string under its own key rather than introducing one; following that
         // established precedent here instead of unilaterally adding an app-wide namespace
         // from this screen's issue (out of scope per issue #80: "do NOT reorganize
@@ -1209,7 +1209,7 @@ export const Copy = {
   // docs/design/copy-deck.md by key, same convention as every namespace above. A few keys
   // below are NEW — not in the deck — because the scenario they cover was never specced;
   // each is marked "NEW" at its definition and mirrored into copy-deck.md's Screen 3/4/5
-  // tables (with the same "NEW key" annotation the deck already uses for
+  // tables (with the same "NEW key" annotation the deck already used for the since-deleted
   // consent.upload.checkbox/error.record) rather than left undocumented.
   //
   // Also new to this file (not a reorganization of anything above): a handful of values below

@@ -94,6 +94,12 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   half-landed restore or withdrawal (one key granted, the other withdrawn) had capture refusing
   with "give consent again in Settings" while Settings showed "Withdraw consent" and no "Give
   consent". The two readers can no longer disagree.
+- Docs housekeeping (2026-09-21): `docs/privacy-policy.md`'s "what you agree to" paragraph now
+  describes the sign-up-time consent instead of the deleted per-upload screen ("Last updated"
+  unchanged — same revision date). `docs/privacy-checklist-m7.md` re-opens its "name Anthropic in
+  the consent copy itself" item: `consent.upload.body` named Anthropic, the replacement
+  `auth.consent.healthProcessing` says "AI". `docs/design/copy-deck.md`'s consent section is
+  reduced to a pointer at `constants/copy.ts` and `docs/architecture.md`.
 
 ## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
 

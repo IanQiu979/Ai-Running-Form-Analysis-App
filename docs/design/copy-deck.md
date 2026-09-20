@@ -476,45 +476,21 @@ deck's own rules (name the outcome, no jargon, don't blame the user) but **not**
 
 ---
 
-## Cross-cutting — Consent (shown once, before the first-ever upload)
+## Cross-cutting — Consent (SUPERSEDED 2026-09-20 — consent is collected once, at sign-up)
 
-**Art. 9-grade consent (Ian's decision, 2026-07-12):** this is a checkbox-gated modal, not a
-plain notice — the primary CTA stays disabled until the user actively ticks the checkbox,
-and the copy names both Anthropic and the health-data outcome explicitly. This replaces the
-earlier plain Continue/Cancel draft.
-
-| Key | String | Shows when |
-|---|---|---|
-| `consent.upload.title` | "Before you upload" | Shown exactly once, the first time any user (any tier) attempts to submit a photo or video — gates the Source Picker → Capture/Upload handoff. Never shown again after acknowledged. |
-| `consent.upload.body` | "Your frames are stored privately until you delete them. We send them to Anthropic, our AI provider, to analyse your form. The analysis produces health-related feedback about you, including injury-risk flags." | Corrected to the frames-only truth (the original video never leaves the device — see the Screen 11 fix note above) and names Anthropic and the health-data outcome explicitly, per the Art. 9-grade consent standard. |
-| `consent.upload.checkbox` | "I consent to my images being analysed to produce health-related feedback, and to Anthropic processing them to do so." | NEW key. The affirmative-action element itself — unticked by default, required before the primary CTA enables. This is what makes the consent explicit and unbundled rather than implied by tapping through. |
-| `consent.upload.link.privacy` | "Privacy details in Settings" | Points to `settings.privacy.summary` and the "Full privacy policy" link row beside it. Unchanged. |
-| `consent.upload.cta.primary` | "I consent — continue" | Proceeds into the upload/capture flow. **Disabled until `consent.upload.checkbox` is ticked.** |
-| `consent.upload.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel`; returns to the source picker without uploading anything. Unchanged. |
-| `consent.upload.error.record` | "We couldn't record your consent, so nothing has been uploaded. Check your connection and try again." | NEW key. The consent write to `public.consents` failed. States plainly that nothing was sent — matching `offline.blocked.body`'s "nothing has been sent yet" rule (brief §5: never claim a state that isn't true). The gate stays up and the primary CTA stays available for a retry; the user is never advanced into the upload flow on a failed consent write. |
-| `consent.upload.age.checkbox` | "I confirm I'm 16 or older." | NEW key (issue #94), CERTIFIED by Ian 2026-07-13. Shown on the same once-ever screen as `consent.upload.checkbox` above, its own checkbox, both required before the primary CTA enables. `docs/privacy-policy.md` already states a 16+ minimum; nothing had asked or recorded it anywhere in the app before this. |
-
-### Subject attestation (issue #94) — NEW, CERTIFIED by Ian 2026-07-13
-
-The gap the consent block above doesn't cover: `consent.upload.checkbox` is "I consent to **my**
-images" by construction, so it says nothing when the uploader is filming someone else — the most
-obvious real use of a running-form analyzer built by a running coach. This screen asks who is
-actually in the frame, on **every** upload (not once-ever like the block above — the answer is a
-property of the specific upload, not the account), and requires a fresh attestation whenever the
-answer is "someone else." This is legally load-bearing (the Art. 9 obligation, an explicit
-under-16 parent/guardian clause) and has **not** been reviewed by `ux-copywriter` or Ian — mirrored
-here verbatim from `constants/copy.ts`, a draft until certified.
-
-| Key | String | Shows when |
-|---|---|---|
-| `consent.upload.subject.title` | "Who's in this photo or video?" | Second, always-shown consent screen — every upload attempt, no once-ever shortcut. |
-| `consent.upload.subject.body` | "Let us know if you're submitting your own running form, or someone else's — like an athlete you coach or a friend." | |
-| `consent.upload.subject.option.me` | "This is me" | Records no new consent — self-processing is already covered by the once-ever health-consent block. |
-| `consent.upload.subject.option.other` | "Someone else" | Requires the third-party checkbox below before the primary CTA enables. |
-| `consent.upload.subject.thirdParty.checkbox` | "I confirm the person in this photo or video has agreed to this analysis — or, if they're under 16, their parent or guardian has agreed on their behalf — and I consent to Anthropic processing their images to produce this feedback." | Shown only when "Someone else" is selected. Recorded as its own, distinct `consent_key` every single time — never inherited from a prior attestation. |
-| `consent.upload.subject.cta.primary` | "I confirm — continue" (subject: other) / "Continue" (subject: me) | A templated function, not a plain string (same convention as `capture.recording.timer`). "This is me" reads as plain navigation since no new consent is given; "Someone else" is itself the affirmative attestation act, so the button names that. |
-| `consent.upload.subject.cta.secondary` | "Cancel" | Reuse `shared.cta.cancel` by value. |
-| `consent.upload.subject.error.record` | "We couldn't record your confirmation, so nothing has been uploaded. Check your connection and try again." | The consent write failed — same "nothing sent yet" honesty rule as `consent.upload.error.record` above. |
+> **The per-upload consent screen no longer exists.** `components/consent-gate.tsx` and the whole
+> `consent.upload.*` namespace (the Art. 9 health-consent block Ian decided on 2026-07-12, the
+> `consent.upload.age.checkbox` "16 or older" line and the `consent.upload.subject.*` attestation
+> from issue #94, both certified 2026-07-13) were deleted on 2026-09-20. Consent is now one tick on
+> the sign-up form (email) or the first-use age-band gate (Google): `auth.consent.healthProcessing`
+> + `auth.consent.futureUploads.checkbox` (one standing attestation covering every future upload),
+> `auth.error.futureUploadsConsentRequired`, and `auth.ageGate.consentReminder` — keyed and
+> commented in `constants/copy.ts` (the wording source of truth), not specced here. Age is the
+> age band only; there is no separate age line anywhere. Settings gained `settings.consent.status.none`
+> and `settings.consent.restore.*` ("Give consent"), and the source picker
+> `sourcePicker.error.consentWithdrawn.*`. See `docs/architecture.md`'s "Current — consent merged into
+> sign-up (2026-09-20)" for the flow and its one hard boundary (a withdrawn consent is never
+> silently re-granted).
 
 ## Cross-cutting — Offline
 

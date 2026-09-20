@@ -1492,9 +1492,9 @@ M4/M5 own where they get hosted, and the three #68 checkboxes stay unticked unti
   the disabled-until-ticked gate is a compliance control that must not be able to regress
   silently.
 - **Server-side enforcement does not exist yet.** `analyze-form` (M4) must refuse to run for a
-  user with no recorded consent — the `<ConsentGate />` above is UX only and can be bypassed by
-  anyone calling the function directly. See `docs/status.md` Known Issue #14 for the exact
-  required check.
+  user with no recorded consent — the client's consent tick (`<ConsentGate />` then, the sign-up
+  consent row since 2026-09-20) is UX only and can be bypassed by anyone calling the function
+  directly. See `docs/status.md` Known Issue #14 for the exact required check.
 
 **Correction to issue #68**: the issue claims the disclaimer content "is already in
 `knowledge/injury_flags.md`." That file's disclaimer is prompt content for the model and its
@@ -1696,8 +1696,9 @@ the original video (see "Media pipeline" below).
 1. **Auth** — verify the JWT, reject anon.
 2. **Consent** — refuse to run for a user with no recorded consent in `public.consents` (added
    2026-07-12, issue #68): a missing row, a `granted = false` row, or a query error all mean
-   refuse. The client's `<ConsentGate />` is UX only and does not enforce this — see
-   `docs/status.md` Known Issue #14 for the exact check.
+   refuse. The client's consent tick (`<ConsentGate />` originally; the sign-up consent row since
+   2026-09-20) is UX only and does not enforce this — see `docs/status.md` Known Issue #14 for the
+   exact check.
 
    **Open question for M4, unresolved — do not silently pick one**: this step runs before
    idempotency (step 4) on purpose, refuse-before-work, but that leaves undecided what happens
@@ -3136,7 +3137,8 @@ Three files, the same three-way split as `analysis/index.ts` (#57):
   `auth.users` — cannot defend anything, so the exception does not reach it. Making it usable would
   mean retaining a re-identifiable token (an email, or a keyed hash of one) of someone who asked to
   be forgotten, purely so we could find them again: more invasive than the risk it hedges. What
-  actually answers a "no valid consent" complaint is systemic and survives — `<ConsentGate />`,
+  actually answers a "no valid consent" complaint is systemic and survives — the sign-up consent
+  row (`components/upload-consent-checkbox.tsx`; `<ConsentGate />` before 2026-09-20),
   `lib/consent.ts`, the append-only `consents` schema and their tests demonstrate the *process*
   (Art. 7(1)) — and to an erasure complaint, "we hold nothing about you" is the complete answer.
   **Revisit if EU/UK users are admitted** (the TestFlight beta excludes them today) or the user
@@ -3851,16 +3853,21 @@ no per-upload interstitial any more (captain's decision from device testing, 202
   `upload.ageConfirmation.v1` ("16 or older") is gone — age is the age band, nowhere else.
 - **Server.** Unchanged: `analyze-form` checks `UPLOAD_HEALTH_CONSENT` only, fail-closed.
 - **Repair, and its one hard boundary.** The post-sign-up grants are fire-and-forget, so
-  `app/capture/index.tsx` reads `readConsentState(UPLOAD_HEALTH_CONSENT)` under its `busy` guard
-  before Upload/Record: `none` (no row ever — a legacy account or a dropped grant) is healed
-  silently; `granted` proceeds; **`withdrawn` is never repaired** — the user withdrew in Settings
-  on purpose, so the screen shows `sourcePicker.error.consentWithdrawn` with an "Open Settings"
-  action and does not navigate, and the server's `consent_required` stands. Settings' Consent
-  row (which reads `readConsentState` as well — `none` shows a neutral line and no action, never
-  withdrawal language) offers "Give consent" (`settings.consent.restore`, granting both keys) in
-  the withdrawn state; that is the only
-  place a withdrawn key is re-granted. `lib/consent.ts`'s `readConsentState` is the reader that
-  tells `none` from `withdrawn`; `hasConsented` collapses both to false and stays the gate's read.
+  `lib/consent.ts`'s `ensureConsentsGranted` is the one shared check-and-repair step: it reads
+  `readConsentState` for BOTH `SIGNUP_CONSENT_KEYS`, collapses them with
+  `aggregateSignupConsentState` (`withdrawn` if either key is withdrawn, else `granted` if either
+  is granted, else `none`), grants only the keys with no row at all, and returns `granted` /
+  `withdrawn` / `failed`. `app/capture/index.tsx` runs it under its `busy` guard before
+  Upload/Record, raced against a 3 s budget (a timeout proceeds — the server gate is the
+  enforcement); `components/age-band-gate.tsx` runs it on Continue and on the
+  `age_band_already_recorded` retry path. **`withdrawn` is never repaired** — the user withdrew in
+  Settings on purpose, so capture shows `sourcePicker.error.consentWithdrawn` with an "Open
+  Settings" action and does not navigate, and the server's `consent_required` stands. Settings'
+  Consent row reads the same aggregate via `readSignupConsentState` (`none` shows a neutral line
+  and no action, never withdrawal language) and offers "Give consent" (`settings.consent.restore`,
+  granting both keys) only in the withdrawn state — the one place a withdrawn key is re-granted;
+  "Withdraw consent" appends a withdrawal row for both keys. `hasConsented` collapses `none` and
+  `withdrawn` to false and stays the plain boolean read.
 
 ## Current — `app/paywall.tsx` (issue #52, 2026-07-13)
 
@@ -4038,7 +4045,8 @@ needs no port-forwarding or tunnel.
 ## `.maestro/` E2E flows (issue #86, 2026-07-13) — first real execution attempted 2026-07-25, still not a clean pass
 
 Four flows (`happy-path`, `dead-end-offline`, `dead-end-quota-exhausted`,
-`dead-end-analysis-failure`) plus shared subflows (`sign-up`, `grant-consent`), written against the
+`dead-end-analysis-failure`) plus shared subflows (`sign-up`, and `grant-consent` until its
+deletion on 2026-09-20 — see `.maestro/README.md`), written against the
 documented screen contracts for the M7 no-dead-end gate. Was blocked on issue #84 (no dev build);
 the `preview-local` EAS simulator build above unblocked it, and `happy-path.yaml` was actually
 run against it for the first time. That run found and fixed four real bugs in the checked-in flow
