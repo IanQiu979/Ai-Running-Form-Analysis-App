@@ -8,9 +8,10 @@
  */
 
 /*
- * Self-hosted webfonts (SIL Open Font License), vendored into `./fonts/` next to this file and
- * served from the Pages origin — the layout deliberately loads nothing from fonts.googleapis.com
- * or fonts.gstatic.com. Latin subsets only; the policy is published in English. Inter Tight is a
+ * Self-hosted webfonts (SIL Open Font License; the upstream notices sit beside the binaries as
+ * `./fonts/OFL-*.txt`, in-repo only), vendored into `./fonts/` next to this file and served from
+ * the Pages origin — the layout deliberately loads nothing from fonts.googleapis.com or
+ * fonts.gstatic.com. Latin subsets only; the policy is published in English. Inter Tight is a
  * single variable file covering the 400–600 range the page uses.
  */
 @font-face {
