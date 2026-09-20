@@ -45,12 +45,13 @@ jest.mock('@/lib/subscription', () => ({
   formatRenewalDate: jest.fn(() => 'Oct 12, 2026'),
 }));
 
-const mockHasConsented = jest.fn();
+const mockReadConsentState = jest.fn();
 const mockWithdrawConsent = jest.fn();
 const mockGrantConsent = jest.fn();
 jest.mock('@/lib/consent', () => ({
   UPLOAD_HEALTH_CONSENT: 'upload.health.v1',
-  hasConsented: (...args: unknown[]) => mockHasConsented(...args),
+  FUTURE_UPLOADS_ATTESTATION_CONSENT: 'upload.futureUploadsAttestation.v1',
+  readConsentState: (...args: unknown[]) => mockReadConsentState(...args),
   withdrawConsent: (...args: unknown[]) => mockWithdrawConsent(...args),
   grantConsent: (...args: unknown[]) => mockGrantConsent(...args),
 }));
@@ -120,7 +121,7 @@ const press = async (node: ReturnType<typeof screen.getByText>) => {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetQuotaStatus.mockResolvedValue({ ok: true, data: PRO_QUOTA });
-  mockHasConsented.mockResolvedValue(true);
+  mockReadConsentState.mockResolvedValue('granted');
   mockWithdrawConsent.mockResolvedValue(undefined);
   mockGrantConsent.mockReset();
   mockGrantConsent.mockResolvedValue(undefined);
@@ -217,7 +218,7 @@ describe('SettingsScreen rows (V23-12)', () => {
   });
 
   it('Privacy: a withdrawn consent reads as a value, with Give consent as its only action', async () => {
-    mockHasConsented.mockResolvedValue(false);
+    mockReadConsentState.mockResolvedValue('withdrawn');
     await renderSettled();
 
     expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
@@ -225,18 +226,31 @@ describe('SettingsScreen rows (V23-12)', () => {
     expect(screen.getByRole('button', { name: 'Give consent' })).toBeTruthy();
   });
 
-  it('Give consent: re-grants the health key and the row flips back to Withdraw consent', async () => {
-    mockHasConsented.mockResolvedValue(false);
+  it('Privacy: an account with no consent row at all is not told it withdrew, and gets no action', async () => {
+    mockReadConsentState.mockResolvedValue('none');
+    await renderSettled();
+
+    expect(screen.getByText('Consent is recorded when you first upload or record.')).toBeTruthy();
+    expect(screen.queryByText(/not consented/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Give consent' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
+    expect(mockGrantConsent).not.toHaveBeenCalled();
+  });
+
+  it('Give consent: re-grants BOTH sign-up keys and the row flips back to Withdraw consent', async () => {
+    mockReadConsentState.mockResolvedValue('withdrawn');
     await renderSettled();
 
     await press(screen.getByRole('button', { name: 'Give consent' }));
     expect(mockGrantConsent).toHaveBeenCalledWith('upload.health.v1');
+    expect(mockGrantConsent).toHaveBeenCalledWith('upload.futureUploadsAttestation.v1');
+    expect(mockGrantConsent).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('button', { name: 'Give consent' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
   });
 
   it('Give consent (failure): says nothing changed, and keeps the action', async () => {
-    mockHasConsented.mockResolvedValue(false);
+    mockReadConsentState.mockResolvedValue('withdrawn');
     mockGrantConsent.mockRejectedValue(new Error('offline'));
     await renderSettled();
 
@@ -248,12 +262,12 @@ describe('SettingsScreen rows (V23-12)', () => {
   });
 
   it('Privacy: a failed consent read offers its own Retry', async () => {
-    mockHasConsented.mockRejectedValueOnce(new Error('offline'));
+    mockReadConsentState.mockRejectedValueOnce(new Error('offline'));
     await renderSettled();
 
     expect(screen.getByText('Consent status could not be loaded.')).toBeTruthy();
     await press(screen.getByRole('button', { name: 'Retry loading consent status' }));
-    expect(mockHasConsented).toHaveBeenCalledTimes(2);
+    expect(mockReadConsentState).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy());
   });
 

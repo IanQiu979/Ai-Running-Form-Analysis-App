@@ -3856,7 +3856,9 @@ no per-upload interstitial any more (captain's decision from device testing, 202
   silently; `granted` proceeds; **`withdrawn` is never repaired** — the user withdrew in Settings
   on purpose, so the screen shows `sourcePicker.error.consentWithdrawn` with an "Open Settings"
   action and does not navigate, and the server's `consent_required` stands. Settings' Consent
-  row offers "Give consent" (`settings.consent.restore`) in the withdrawn state; that is the only
+  row (which reads `readConsentState` as well — `none` shows a neutral line and no action, never
+  withdrawal language) offers "Give consent" (`settings.consent.restore`, granting both keys) in
+  the withdrawn state; that is the only
   place a withdrawn key is re-granted. `lib/consent.ts`'s `readConsentState` is the reader that
   tells `none` from `withdrawn`; `hasConsented` collapses both to false and stays the gate's read.
 

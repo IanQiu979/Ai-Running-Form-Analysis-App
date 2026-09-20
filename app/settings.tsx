@@ -69,7 +69,14 @@ import { ArrowRightIcon, BackIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
 import { PRIVACY_POLICY_URL } from '@/constants/links';
 import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
-import { grantConsent, hasConsented, UPLOAD_HEALTH_CONSENT, withdrawConsent } from '@/lib/consent';
+import {
+  FUTURE_UPLOADS_ATTESTATION_CONSENT,
+  grantConsent,
+  readConsentState,
+  UPLOAD_HEALTH_CONSENT,
+  withdrawConsent,
+  type ConsentState as ConsentRecordState,
+} from '@/lib/consent';
 import {
   deleteAccountClient,
   getReauthProvider,
@@ -92,9 +99,12 @@ import { useAnnounce } from '@/lib/use-announce';
  *  caption and the renewal date, and all three come off this one object. */
 type PlanState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; quota: QuotaStatus };
 
-/** `hasConsented` THROWS on any query failure and deliberately does not guess (lib/consent.ts
- *  fails closed). So "we don't know" is a first-class state here, distinct from "withdrawn". */
-type ConsentState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; granted: boolean };
+/** `readConsentState` THROWS on any query failure and deliberately does not guess (lib/consent.ts
+ *  fails closed). So "we don't know" is a first-class state here, distinct from "withdrawn" — and
+ *  so is `none`: an account with no row at all (it predates the sign-up consent, or its grant was
+ *  dropped) is not one that withdrew, must not read as if it had, and is healed silently by
+ *  capture / the age-band gate rather than asked here. */
+type ConsentState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; state: ConsentRecordState };
 
 /**
  * Every dialog this screen can have up, one at a time. The confirms and the Google prompt carry no
@@ -215,9 +225,7 @@ export default function SettingsScreen() {
       : consent.status === 'error'
         ? Copy.settings.consent.status.error
         : consent.status === 'ready'
-          ? consent.granted
-            ? Copy.settings.consent.status.granted
-            : Copy.settings.consent.status.withdrawn
+          ? Copy.settings.consent.status[consent.state]
           : null
   );
   useAnnounce(isDeleting ? Copy.settings.deleteAccountState.pending : null);
@@ -249,9 +257,9 @@ export default function SettingsScreen() {
   const fetchConsent = useCallback(async () => {
     setConsent({ status: 'loading' });
     try {
-      const granted = await hasConsented(UPLOAD_HEALTH_CONSENT);
+      const state = await readConsentState(UPLOAD_HEALTH_CONSENT);
       if (!isMountedRef.current) return;
-      setConsent({ status: 'ready', granted });
+      setConsent({ status: 'ready', state });
     } catch {
       // Fail closed and SAY SO. Rendering "withdrawn" here would be indistinguishable from a user
       // who genuinely never consented, which hides the outage — the exact bug class lib/consent.ts
@@ -546,7 +554,7 @@ export default function SettingsScreen() {
     try {
       await withdrawConsent(UPLOAD_HEALTH_CONSENT);
       if (!isMountedRef.current) return;
-      setConsent({ status: 'ready', granted: false });
+      setConsent({ status: 'ready', state: 'withdrawn' });
     } catch {
       if (!isMountedRef.current) return;
       // Nothing was recorded, so nothing changed — and we say exactly that rather than optimistically
@@ -565,9 +573,12 @@ export default function SettingsScreen() {
     setIsRestoringConsent(true);
 
     try {
-      await grantConsent(UPLOAD_HEALTH_CONSENT);
+      await Promise.all([
+        grantConsent(UPLOAD_HEALTH_CONSENT),
+        grantConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
+      ]);
       if (!isMountedRef.current) return;
-      setConsent({ status: 'ready', granted: true });
+      setConsent({ status: 'ready', state: 'granted' });
     } catch {
       if (!isMountedRef.current) return;
       showNotice(Copy.settings.consent.restore.error.title, Copy.settings.consent.restore.error.body);
@@ -846,7 +857,7 @@ export default function SettingsScreen() {
 
               {/* Only offered when there is a live consent to withdraw. Art. 7(3) requires
                   withdrawal to be as easy as giving it — one tap, right here, no support email. */}
-              {consent.status === 'ready' && consent.granted && (
+              {consent.status === 'ready' && consent.state === 'granted' && (
                 <RowAction
                   label={Copy.settings.consent.withdraw.cta}
                   disabled={isBusy}
@@ -855,7 +866,10 @@ export default function SettingsScreen() {
                   onPress={confirmWithdrawConsent}
                 />
               )}
-              {consent.status === 'ready' && !consent.granted && (
+              {consent.status === 'ready' && consent.state === 'none' && (
+                <RowValue live>{Copy.settings.consent.status.none}</RowValue>
+              )}
+              {consent.status === 'ready' && consent.state === 'withdrawn' && (
                 <View style={styles.rowValueStack}>
                   <RowValue live>{Copy.settings.consent.status.withdrawn}</RowValue>
                   <RowAction

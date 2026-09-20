@@ -208,7 +208,8 @@ describe('AgeBandGate: recording the choice', () => {
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
 
-    await waitFor(() => expect(view.getByText(Copy.auth.ageGate.error.save)).toBeTruthy());
+    await waitFor(() => expect(view.getByText(Copy.auth.ageGate.error.consent)).toBeTruthy());
+    expect(view.queryByText(Copy.auth.ageGate.error.save)).toBeNull();
     expect(view.getByTestId('age-band-gate')).toBeTruthy();
     expect(view.queryByTestId('tabs-stand-in')).toBeNull();
   });
@@ -273,7 +274,7 @@ describe('AgeBandGate: recording the choice', () => {
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
 
-    await waitFor(() => expect(view.getByText(Copy.auth.ageGate.error.save)).toBeTruthy());
+    await waitFor(() => expect(view.getByText(Copy.auth.ageGate.error.consent)).toBeTruthy());
     expect(view.getByTestId('age-band-gate')).toBeTruthy();
     expect(view.queryByTestId('tabs-stand-in')).toBeNull();
     expect(await AsyncStorage.getItem('age-band.recorded.u1')).not.toBe('1');

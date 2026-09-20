@@ -29,7 +29,8 @@
  * profile for it — the server has just said the band exists — but it does not lift on that alone
  * either: the earlier attempt may have written the band and then failed the consent grant, so it
  * runs the same `ensureConsentGranted` step as the success path, and only once that settles does
- * it leave the local note and lift. A failed grant keeps the gate up with the save error.
+ * it leave the local note and lift. A failed grant keeps the gate up with the consent error
+ * (`Copy.auth.ageGate.error.consent`, which says the band was saved), never the age-save one.
  *
  * CONSENT. This is also where a Google account's `UPLOAD_HEALTH_CONSENT` and
  * `FUTURE_UPLOADS_ATTESTATION_CONSENT` rows are written (2026-09-20). The wording was shown and
@@ -159,7 +160,7 @@ export function AgeBandGate({ children }: Props) {
       if (unmountedRef.current) return;
       if (consent === 'failed') {
         setPending(false);
-        setError(Copy.auth.ageGate.error.save);
+        setError(Copy.auth.ageGate.error.consent);
         return;
       }
       await markAgeBandRecordedLocally(userId);
@@ -177,7 +178,7 @@ export function AgeBandGate({ children }: Props) {
       if (unmountedRef.current) return;
       setPending(false);
       if (consent === 'failed') {
-        setError(Copy.auth.ageGate.error.save);
+        setError(Copy.auth.ageGate.error.consent);
         return;
       }
       await markAgeBandRecordedLocally(userId);

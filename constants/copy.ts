@@ -181,6 +181,8 @@ export const Copy = {
         retry: 'Retry',
         // Distinct from `auth.error.generic`: nothing about the account failed, one write did.
         save: 'Your age choice could not be saved. Check your connection and try again.',
+        // The band IS on file when this shows; it is the consent rows that did not land.
+        consent: 'Your age choice was saved, but your consent could not be recorded. Check your connection and try again.',
       },
       // A Google account ticked the Terms and the photo or video statement on the sign-in screen
       // before the browser round trip; the consent rows are written when this screen's Continue
@@ -936,6 +938,10 @@ export const Copy = {
       status: {
         granted: 'You have consented to health-related analysis of your uploaded frames.',
         withdrawn: 'You have not consented to health-related analysis. Nothing will be analyzed until you give consent here.',
+        // An account with no consent row at all — it predates the sign-up consent, or its grant
+        // was dropped. Not a withdrawal, so no withdrawal language and no action: the first
+        // upload or recording records it (`app/capture/index.tsx`'s self-heal).
+        none: 'Consent is recorded when you first upload or record.',
         loading: 'Checking consent…',
         // hasConsented() THROWS on any query failure and must not be guessed either way (see
         // lib/consent.ts — it fails closed on purpose). So we say we don't know, rather than

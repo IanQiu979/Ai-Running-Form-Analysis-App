@@ -64,6 +64,14 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   withdrawn on another device between this device mounting the gate and tapping Continue is left
   withdrawn (the band is answered, so the gate lifts; capture's Settings panel is where the user
   is told). Its header no longer claims the write-once answer re-reads the profile.
+- Review round 4 (same day): Settings' Consent row now reads `readConsentState` too. "Give
+  consent" grants BOTH sign-up keys (health + future-uploads attestation), so a restored account
+  is not left without the attestation row the capture self-heal would otherwise never backfill;
+  and an account with NO row at all (`none`) is no longer told it withdrew — it reads "Consent is
+  recorded when you first upload or record." with no action, leaving it to the silent capture /
+  age-band-gate heal. The age-band gate's consent-step failure now shows its own message
+  (`auth.ageGate.error.consent`: the band was saved, the consent was not) instead of the
+  age-save error.
 
 ## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
 
