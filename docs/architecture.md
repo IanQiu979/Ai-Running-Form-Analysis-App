@@ -1210,7 +1210,7 @@ theme") — visual only, no change to data flow, the fresh Elite re-check, or co
 lane 2's screens: `Ink.bg` painted directly, live insets via `Math.max(insets.top/bottom,
 Layout.canvas.safeTop/safeBottom)`, `<TopBar align="leading">` + `<SquareIconButton>`/`<BackIcon>`
 for the header, `<SquareButton>` for every action, the same `Layout.consentCheckbox` square idiom
-`components/age-band-choice.tsx` and `components/consent-gate.tsx` draw for the picker's checkbox.
+`components/age-band-choice.tsx` draws for the picker's checkbox.
 It is not a tab screen, so it draws no `<V23TabBar>`. Each stacked readout is `<PaceReadout>`
 rendered directly (already fully V23-native, no wrapping card, matching `app/result/[id].tsx`'s
 own usage) under a plain date label.
