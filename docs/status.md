@@ -976,6 +976,12 @@ milestone "done" criteria.
     `SimulatorNotSupported` on the Simulator (issue #232), which stops both runnable flows before
     the capture→analyze handoff. Still not a passing gate. `.maestro/README.md`'s 2026-09-20
     section owns the fixture account, run command and pass/fail matrix.
+    **UPDATE 2026-09-20 (issue #232 closed):** the app now catches that rejection and shows a
+    `<ConfirmDialog>` pointing at Upload (`Copy.capture.recordingError.*`), and both flows stop
+    cleanly at the capture chooser with a `capture skipped: simulator` step instead of failing —
+    but the Simulator still has no camera and no fixture clip is checked in, so the
+    capture→analyze→History leg is untested on a simulator and this is still not a passing gate.
+    Not re-run live as part of the fix (no simulator in that environment).
 32. **RESOLVED 2026-08-06 — the per-user orphan-purge ACTION is now scheduled (issue #7's action
     half, 2026-07-13; decision `orphan-sweep-scheduling-mechanism`).**
     `supabase/functions/_shared/storage-sweep.ts`'s `sweepOrphanedMediaPrefixes()` is pure,
@@ -2109,7 +2115,9 @@ still standing between here and a public/TestFlight release:
   local Postgres integration proof for it could not be run this session (Docker was stopped) —
   report that proof as **unproven**, never as passing.
 - **Known Issue #31** — `.maestro/` E2E flows have a repeatable dev-build command (2026-09-20) but
-  are not yet a clean pass: blocked by app bugs #230 (sign-up CTA) and #232 (Simulator `record()`).
+  are not yet a clean pass: blocked by app bug #230 (sign-up CTA), and the capture→analyze leg is
+  skipped on a simulator (#232 is fixed in-app, but the Simulator has no camera and no fixture
+  clip is checked in).
 - **Known Issue #24/#34** — several blocks of uncertified copy across Settings, consent, paywall,
   history, and password-reset screens still need `ux-copywriter`/Ian review.
 - [`docs/blocked-on-apple.md`](blocked-on-apple.md) — everything gated on the Apple Developer

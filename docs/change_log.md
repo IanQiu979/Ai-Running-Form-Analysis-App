@@ -39,6 +39,31 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   `expo-camera`'s `record()` throwing `SimulatorNotSupported` (issue #232, evidence in
   `docs/evidence/issue-203/record-unsupported-on-simulator.md`) — an app/SDK bug, deliberately
   not fixed here. Zero `analyze-form` calls (zero paid spend) were made.
+- **Issue #232 fixed: `record()`'s `SimulatorNotSupported` rejection no longer reaches the user
+  as an uncaught LogBox toast.** `app/capture/record.tsx`'s `handleRecordPress` now catches every
+  `recordAsync` rejection; a new `lib/simulator-recording-error.ts` matches the native
+  `SimulatorNotSupported` message (there is no `expo-device` dependency and `expo-constants`
+  exposes no pre-call simulator flag, so detection is by message match, not a pre-call check) to
+  pick between two new `Copy.capture.recordingError` strings, both routed through the existing
+  `<ConfirmDialog>` — never a native `Alert`. The simulator case points the user at Upload
+  ("Recording is not available here" / "The simulator has no camera..."); any other native
+  rejection gets a generic "Recording could not start. Try again." The simulator dialog's single
+  action ("Choose Upload") clears the error and pops back to the capture chooser that pushed the
+  recorder (`router.back()`, falling back to `router.replace('/capture')` when there is no history),
+  where Upload lives; the generic dialog's primary ("Try again") only clears the error and keeps the
+  user on the recorder, with "Choose Upload" as its secondary. On a real device, behavior is
+  unchanged (recording works and the dialog is never shown).
+  **Maestro**: `happy-path.yaml` and `dead-end-offline.yaml` (both simulator-only per
+  `scripts/run-maestro-ios-dev-build.sh`) no longer tap into `source-card-record` at all — no
+  fixture clip is checked into the repo to drive Upload instead (uploaded media is sensitive per
+  CLAUDE.md) — and instead stop cleanly at the capture chooser with an explicit
+  `capture skipped: simulator` `evalScript` step. `happy-path.yaml` still exercises Home →
+  Settings → sign out past that point; `dead-end-offline.yaml`'s offline-gate assertions (which
+  need a real "Frames ready" clip) are commented out as documentation for a real-device or
+  locally-fixtured re-enable. `.maestro/README.md`'s prerequisite #3, which wrongly claimed
+  Simulators drive `CameraView` with a synthetic test-pattern feed, is corrected. This was not
+  re-run against a live simulator as part of this change (none available in this environment) —
+  see the README's own 2026-09-20 update note.
 
 ## 2026-09-19 (production deploy: hygiene batch live — `signup-with-captcha` v12, `sweep-orphaned-media` v15, two migrations, auth hook on — issues #48, #137)
 

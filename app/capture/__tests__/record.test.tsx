@@ -44,8 +44,16 @@ jest.mock('react-native-safe-area-context', () =>
 );
 
 const mockPush = jest.fn();
+const mockReplace = jest.fn();
+const mockBack = jest.fn();
+let mockCanGoBack = true;
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, back: jest.fn() }),
+  useRouter: () => ({
+    push: mockPush,
+    replace: mockReplace,
+    back: mockBack,
+    canGoBack: () => mockCanGoBack,
+  }),
 }));
 
 jest.mock('expo-linking', () => ({ openSettings: jest.fn() }));
@@ -53,6 +61,9 @@ jest.mock('expo-linking', () => ({ openSettings: jest.fn() }));
 /** Resolves the in-flight `recordAsync` promise — the test's stand-in for the native recorder
  *  finishing its file write, which is what really settles that promise. */
 let mockFinishRecording: ((video: { uri: string } | undefined) => void) | null = null;
+/** Issue #232: the test's stand-in for a native `recordAsync` rejection (the `SimulatorNotSupported`
+ *  case and any other native failure). */
+let mockFailRecording: ((error: unknown) => void) | null = null;
 /** Set when the screen calls `stopRecording()`, so a test can assert the screen asked to stop
  *  before the promise settled (the whole point of the two separate stamps). */
 let mockStopRecordingCalledAt: number | null = null;
@@ -67,8 +78,9 @@ jest.mock('expo-camera', () => {
     (props: { onCameraReady?: () => void }, ref: unknown) => {
       react.useImperativeHandle(ref, () => ({
         recordAsync: () =>
-          new Promise((resolve) => {
+          new Promise((resolve, reject) => {
             mockFinishRecording = resolve;
+            mockFailRecording = reject;
           }),
         stopRecording: () => {
           mockStopRecordingCalledAt = Date.now();
@@ -98,6 +110,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   nowMs = 1_700_000_000_000;
   mockFinishRecording = null;
+  mockFailRecording = null;
+  mockCanGoBack = true;
   mockStopRecordingCalledAt = null;
   dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => nowMs);
 });
@@ -138,6 +152,16 @@ async function startRecording() {
 async function finishRecording(video: { uri: string } | undefined) {
   await act(async () => {
     mockFinishRecording?.(video);
+    await Promise.resolve();
+  });
+}
+
+/** Issue #232: rejects the in-flight `recordAsync` promise, the same way it settles for a real
+ *  native failure — the screen's own `try`/`catch` is what keeps this from ever reaching an
+ *  uncaught-promise LogBox toast. See `finishRecording` above for why this needs its own `act`. */
+async function failRecording(error: unknown) {
+  await act(async () => {
+    mockFailRecording?.(error);
     await Promise.resolve();
   });
 }
@@ -259,5 +283,104 @@ describe('RecordScreen — the V23-10 overlay', () => {
     await pressRecord();
     await finishRecording({ uri: 'file:///tmp/clip.mov' });
     await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1), WAIT);
+  });
+});
+
+// Issue #232: `recordAsync` rejects with a native `SimulatorNotSupported` error on the iOS
+// Simulator, which used to reach the user as an uncaught LogBox toast. Both cases below prove the
+// rejection is always caught and always surfaced through the same `<ConfirmDialog>` — never left
+// uncaught — and that the recording state is fully reset rather than left stuck mid-clip.
+describe('RecordScreen — recordAsync rejection (issue #232)', () => {
+  const SIMULATOR_ERROR = new Error(
+    "FunctionCallException: Calling the 'record' function has failed (at ExpoModulesCore/AsyncFunctionDefinition.swift:123)\n" +
+      '→ Caused by: SimulatorNotSupported: This operation is not supported on the simulator (at ExpoCamera/CameraViewModule.swift:290)'
+  );
+
+  it('shows the simulator-unsupported dialog and returns to the capture chooser on primary', async () => {
+    await startRecording();
+
+    await failRecording(SIMULATOR_ERROR);
+
+    await waitFor(
+      () => expect(screen.getByText(Copy.capture.recordingError.simulatorUnsupported.title)).toBeTruthy(),
+      WAIT
+    );
+    expect(screen.getByText(Copy.capture.recordingError.simulatorUnsupported.body)).toBeTruthy();
+    // The recording state is fully reset — no clip stuck in flight — and nothing navigated.
+    expect(screen.getByRole('button', { name: 'Start recording' })).toBeTruthy();
+    expect(mockPush).not.toHaveBeenCalled();
+    // There is no camera to retry with, so the notice offers only the way to Upload.
+    expect(screen.queryByTestId('recording-error-dialog-secondary')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(
+        screen.getByRole('button', { name: Copy.capture.recordingError.simulatorUnsupported.cta })
+      );
+    });
+    // Pops back to the chooser that pushed this screen rather than stacking a second one.
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(screen.queryByText(Copy.capture.recordingError.simulatorUnsupported.title)).toBeNull();
+  });
+
+  it('falls back to replacing the route with the chooser when there is nothing to go back to', async () => {
+    mockCanGoBack = false;
+    await startRecording();
+
+    await failRecording(SIMULATOR_ERROR);
+
+    await waitFor(
+      () => expect(screen.getByText(Copy.capture.recordingError.simulatorUnsupported.title)).toBeTruthy(),
+      WAIT
+    );
+    await act(async () => {
+      fireEvent.press(
+        screen.getByRole('button', { name: Copy.capture.recordingError.simulatorUnsupported.cta })
+      );
+    });
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(mockReplace).toHaveBeenCalledWith('/capture');
+  });
+
+  it('shows the generic recording-failed dialog for any other native rejection and stays put on Try again', async () => {
+    await startRecording();
+
+    await failRecording(new Error('Disk full'));
+
+    await waitFor(
+      () => expect(screen.getByText(Copy.capture.recordingError.recordingFailed.title)).toBeTruthy(),
+      WAIT
+    );
+    expect(screen.getByText(Copy.capture.recordingError.recordingFailed.body)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Start recording' })).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: Copy.capture.recordingError.recordingFailed.cta }));
+    });
+    // "Try again" honours its label: the dialog closes, nothing navigates, the recorder is still here.
+    expect(screen.queryByText(Copy.capture.recordingError.recordingFailed.title)).toBeNull();
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(screen.getByTestId('record-button')).toBeTruthy();
+  });
+
+  it('offers Choose Upload as the generic dialog secondary, which leaves for the chooser', async () => {
+    await startRecording();
+
+    await failRecording(new Error('Disk full'));
+
+    await waitFor(
+      () => expect(screen.getByText(Copy.capture.recordingError.recordingFailed.title)).toBeTruthy(),
+      WAIT
+    );
+    await act(async () => {
+      fireEvent.press(
+        screen.getByRole('button', { name: Copy.capture.recordingError.recordingFailed.secondary })
+      );
+    });
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(screen.queryByText(Copy.capture.recordingError.recordingFailed.title)).toBeNull();
   });
 });

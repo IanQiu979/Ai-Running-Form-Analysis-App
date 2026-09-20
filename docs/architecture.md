@@ -1465,7 +1465,12 @@ app/capture/
                 # guarantee. The head-end (camera start-up) error is NOT closed — no expo-camera
                 # SDK 54 API reports when recording actually began, and no installed module can
                 # read a duration off the finished file; see that file's header before "improving"
-                # it with a guessed constant.
+                # it with a guessed constant. Every recordAsync REJECTION is caught (issue #232):
+                # lib/simulator-recording-error.ts matches the native `SimulatorNotSupported`
+                # message (no expo-device dependency; no pre-call simulator flag) and the screen
+                # shows Copy.capture.recordingError.* through <ConfirmDialog> — the simulator
+                # case's single action pops back to the chooser where Upload lives; any other
+                # rejection offers Try again / Choose Upload. Nothing reaches the LogBox.
   extracting.tsx # Extracting (screen 5, "Uploading / Extracting" in the deck): runs
                 # lib/frames.ts's extractFrames with real onProgress-driven counts
                 # (upload.step.extracting) against whatever the other two screens handed off via
@@ -3905,9 +3910,12 @@ and the live production project through `npm run e2e:maestro:ios-dev`
 `scripts/test-run-maestro-ios-dev-build.sh` inside `npm test`). `happy-path` and
 `dead-end-offline` sign in with a fixture account via the new `subflows/sign-in.yaml` (sign-up is
 blocked by app bug #230), `happy-path` clears History first via `subflows/clear-history.yaml`, and
-both reach the Record step before failing on `expo-camera`'s `SimulatorNotSupported` (app/SDK bug
-#232). `.maestro/README.md`'s 2026-09-20 section owns the fixture account, the run command, its
-environment variables and the per-flow pass/fail matrix — do not copy them here.
+both stop cleanly at the capture chooser with an explicit `capture skipped: simulator` step
+(issue #232, closed 2026-09-20: the iOS Simulator has no camera, `recordAsync` rejects with
+`SimulatorNotSupported`, and no fixture clip is checked in to drive Upload instead — so the
+capture→analyze→History leg is untested on a simulator). `.maestro/README.md`'s 2026-09-20
+section owns the fixture account, the run command, its environment variables and the per-flow
+pass/fail matrix — do not copy them here.
 
 ## Current — local Supabase stack (issue #92, 2026-07-25)
 

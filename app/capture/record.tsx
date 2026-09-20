@@ -36,6 +36,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { FramingGuide } from '@/components/framing-guide';
 import { SquareButton } from '@/components/ui/square-button';
 import { SquareCard } from '@/components/ui/square-card';
@@ -47,7 +48,10 @@ import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { MAX_CLIP_DURATION_MS } from '@/lib/media-caps';
 import { classifyPermission, permissionRecoveryAction } from '@/lib/permission-state';
 import { measureRecordedClipDurationMs } from '@/lib/recorded-clip-duration';
+import { isSimulatorNotSupportedError } from '@/lib/simulator-recording-error';
 import { useAnnounce } from '@/lib/use-announce';
+
+type RecordingErrorKind = 'simulatorUnsupported' | 'recordingFailed';
 
 /** The page puts the timer at `top:120px` — 59 (safe top) + 44 (the top row) + this. */
 const TIMER_GAP = 17;
@@ -68,6 +72,7 @@ export default function RecordScreen() {
   const [recording, setRecording] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [recordingError, setRecordingError] = useState<RecordingErrorKind | null>(null);
   const recordingStartRef = useRef<number | null>(null);
   // Stamped where `stopRecording()` is called, and read back after `recordAsync` resolves — the
   // two happen in different invocations of `handleRecordPress`, which is why this is a ref and not
@@ -108,6 +113,12 @@ export default function RecordScreen() {
     }
   }
 
+  function leaveForUpload() {
+    setRecordingError(null);
+    if (router.canGoBack()) router.back();
+    else router.replace('/capture');
+  }
+
   async function handleRecordPress() {
     const camera = cameraRef.current;
     if (!camera || !cameraReady || busy) return;
@@ -137,6 +148,12 @@ export default function RecordScreen() {
           params: { mediaType: 'video', uri: video.uri, durationMs: String(durationMs) },
         });
       }
+    } catch (error) {
+      // Issue #232: `recordAsync` rejects with a native `SimulatorNotSupported` error on the iOS
+      // Simulator (no camera hardware) — this used to reach the LogBox as an uncaught promise.
+      // Every rejection is caught and shown through the same dialog; nothing here is ever left
+      // uncaught.
+      setRecordingError(isSimulatorNotSupportedError(error) ? 'simulatorUnsupported' : 'recordingFailed');
     } finally {
       setRecording(false);
       recordingStartRef.current = null;
@@ -261,6 +278,34 @@ export default function RecordScreen() {
           <View style={[styles.recordMark, recording ? styles.recordMarkStop : styles.recordMarkIdle]} />
         </Pressable>
       </View>
+
+      <ConfirmDialog
+        testID="recording-error-dialog"
+        visible={recordingError !== null}
+        title={
+          recordingError === 'simulatorUnsupported'
+            ? Copy.capture.recordingError.simulatorUnsupported.title
+            : Copy.capture.recordingError.recordingFailed.title
+        }
+        body={
+          recordingError === 'simulatorUnsupported'
+            ? Copy.capture.recordingError.simulatorUnsupported.body
+            : Copy.capture.recordingError.recordingFailed.body
+        }
+        primary={
+          recordingError === 'simulatorUnsupported'
+            ? { label: Copy.capture.recordingError.simulatorUnsupported.cta, onPress: leaveForUpload }
+            : {
+                label: Copy.capture.recordingError.recordingFailed.cta,
+                onPress: () => setRecordingError(null),
+              }
+        }
+        secondary={
+          recordingError === 'recordingFailed'
+            ? { label: Copy.capture.recordingError.recordingFailed.secondary, onPress: leaveForUpload }
+            : undefined
+        }
+      />
     </View>
   );
 }
