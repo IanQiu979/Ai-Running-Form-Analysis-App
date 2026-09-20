@@ -66,6 +66,14 @@ class FakeAuth implements SignUpAuthSurface {
       error: this.signInResult.error,
     });
   }
+
+  deleteUserResult: { error: AuthErrorLike | null } = { error: null };
+  deletedUserIds: string[] = [];
+  deleteUser(userId: string) {
+    this.calls.push('deleteUser');
+    this.deletedUserIds.push(userId);
+    return Promise.resolve(this.deleteUserResult);
+  }
 }
 
 Deno.test('signup-client: creates through the admin API, confirmed, then signs in for a session', async () => {
@@ -171,4 +179,29 @@ Deno.test('signup-client: created but sign-in returned no session and no error i
   const auth = new FakeAuth({ user: USER, error: null }, { session: null, error: null });
   const outcome = await createSignUpClient(auth).signUp(EMAIL, PASSWORD);
   assertEquals(outcome, { outcome: 'created_no_session', user: USER });
+});
+
+Deno.test('signup-client: deleteUser (the age-band rollback) calls the admin API and treats user_not_found as done', async () => {
+  const auth = new FakeAuth({ user: USER, error: null });
+  await createSignUpClient(auth).deleteUser(USER.id);
+  assertEquals(auth.deletedUserIds, [USER.id]);
+
+  auth.deleteUserResult = { error: { message: 'User not found', code: 'user_not_found', status: 404 } };
+  await createSignUpClient(auth).deleteUser(USER.id); // resolves: nothing left to roll back
+
+  auth.deleteUserResult = { error: { message: 'Database error', code: 'unexpected_failure', status: 500 } };
+  let threw = false;
+  try {
+    await createSignUpClient(auth).deleteUser(USER.id);
+  } catch (err) {
+    threw = (err as Error).message.includes('Database error');
+  }
+  assertEquals(threw, true, 'any other admin error propagates so the handler can log it');
+});
+
+Deno.test('signup-client: a successful create that returns no user id is refused before sign-in, never carried as an empty id', async () => {
+  const auth = new FakeAuth({ user: null, error: null });
+  const outcome = await createSignUpClient(auth).signUp(EMAIL, PASSWORD);
+  assertEquals(outcome, { outcome: 'error', message: 'Account creation returned no user id.', code: 'no_user_id' });
+  assertEquals(auth.calls, ['createUser']);
 });

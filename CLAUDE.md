@@ -15,9 +15,11 @@ and the linked brainstorm / product / engineering docs it indexes.
 
 Client: Expo SDK 57, expo-router, TypeScript strict. Backend: Supabase (Postgres + Auth +
 Storage + Edge Functions). AI: Claude (`claude-sonnet-5`), called only from the `analyze-form`
-edge function, never from the client. The app, its migrations, and all seven edge functions exist
-and are live on the Supabase project — the sign-up → analysis → result path ran end to end against
+edge function, never from the client. The app, its migrations, and eight edge functions exist;
+seven are live on the Supabase project — the sign-up → analysis → result path ran end to end against
 it on 2026-07-26 (issue #128), and `signup-with-captcha` (Known Issue #12) followed on 2026-08-03.
+The eighth, `record-age-band`, ships with the 2026-09-20 age-band migration and is not deployed
+yet (`docs/status.md` Known Issue #52; deploy order in `docs/auth-config-runbook.md` § 3).
 Route tree, `lib/` layout, the `analyze-form` flow, the API table
 (which owns per-endpoint deployment status), and the DB schema all live in
 [`docs/architecture.md`](docs/architecture.md); current milestone and live-state detail is in

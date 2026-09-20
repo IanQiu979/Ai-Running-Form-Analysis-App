@@ -2080,6 +2080,55 @@ milestone "done" criteria.
     `snapshot/source-*`. Deleted media is not recoverable (no bucket versioning) — the only
     irreversible step, and the reason the three candidates were reviewed before the flip.
 
+52. **13–17 with parent-or-guardian consent at sign-up — code-complete 2026-09-20, NOT DEPLOYED;
+    two follow-ups open.** Captain's plan (approved 2026-09-20; cross-app decision
+    IanQiu979/Ai-Customized-Running-Plan-App#95, mirroring that repo's #123): the sign-up form's
+    "I am 16+ and agree…" line became an age choice ("18 or older" / "13–17 — my parent or guardian
+    agrees", under 13 not offered) plus an age-free Terms + Privacy agreement; `signup-with-captcha`
+    requires `ageBand` and, for 13–17, `guardianConsent: true`, and persists them through the
+    write-once, service-role-only `pace_record_age_band()` RPC into `profiles.age_band` and the new
+    `public.guardian_consent` table (`policy_version` = the policy's "Last updated",
+    `20260920120000_guardian_consent.sql`). A Google-created account gets the same question once,
+    on first use, via the new `record-age-band` function and `components/age-band-gate.tsx`.
+    Details: `docs/change_log.md` 2026-09-20 and `docs/architecture.md` "Current — auth flow".
+
+    **What ships when.** The migration and the two functions are in the PR and NOT applied to
+    `vputdomdlknvthnzritt`; `docs/auth-config-runbook.md` § 3 has the order (migration first — the
+    redeployed `signup-with-captcha` rolls back every sign-up with `age_band_record_failed` until
+    the RPC exists — then the functions, then the app build). `lib/database.types.ts` is
+    hand-patched for the new column/table/RPC and should be regenerated after the push.
+
+    **Deliberate non-changes.** Existing email accounts (created under the "16+" line) keep a NULL
+    `age_band`: no backfill, no gate, nothing asked. Existing GOOGLE accounts — the captain's own
+    included — see the one-time age screen on their next launch: nothing was ever recorded for them
+    (the old tick was client-side only), and the gate is keyed on provider + NULL band, not on
+    account age. Counsel review of the attestation wording stays a public-launch item.
+
+    **Open follow-up 1 — the upload ConsentGate's own age line contradicts the new floor.**
+    `components/consent-gate.tsx` still requires "I confirm I am 16 or older."
+    (`consent.upload.age.checkbox`, issue #94, recorded as `upload.ageConfirmation.v1` in
+    `consents`) before the first upload. It was outside this task's scope and was left as is, but a
+    13–17 runner admitted with guardian consent cannot honestly tick it and so cannot analyse
+    anything. Needs a product call: drop the checkbox now that the band is recorded at account
+    creation (and the server can read `profiles.age_band`), or reword it to the 13 floor. Either
+    way the recorded consent key changes (`v2`), per `lib/consent.ts`'s versioned-key rule.
+
+    **Open follow-up 2 — the OAuth age gate is client-side only (security audit, MEDIUM).** For an
+    email account the band is enforced by the server (no band, no account). For a Google account
+    the question is the `<AgeBandGate>` overlay, and nothing server-side refuses work for a
+    bandless OAuth account: a deep link to `paceanalysisai://capture` (a sibling route, outside the
+    tabs the overlay covers) or a scripted client can reach `analyze-form`, which checks
+    `consents` but not `profiles.age_band`. No cross-user exposure and the email path is closed,
+    hence MEDIUM. Exact remaining scope: in `analyze-form`'s consent step, refuse
+    (`age_band_required`) when `profiles.age_band is null` for a non-`email` provider (or any
+    account created after the deploy), and when the band is `13_17` with no `guardian_consent`
+    row; the app's gate then becomes UX over a real control, the same relationship the upload
+    `ConsentGate` has to its server check. Hot-list change (`analyze-form`), deliberately not
+    folded into this PR.
+
+    **Open follow-up 3 — the Terms are still unpublished.** Unchanged by this work; the agreement
+    line's "Terms" is still the page's underline, not a link (`app/(auth)/sign-in.tsx` header).
+
 ## Next action
 
 **RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the

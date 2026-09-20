@@ -2,12 +2,21 @@
 // in front of account creation. The app's client (`app/(auth)/sign-in.tsx`) calls this instead of
 // `supabase.auth.signUp()` directly in sign-up mode; sign-in is untouched.
 //
-//     { email, password, captchaToken }
+//     { email, password, captchaToken, ageBand: "18_plus" | "13_17", guardianConsent?: boolean }
 //       -> 200 { session: {...} | null, user: {...} }
-//       -> 400 { error, code: "invalid_body" | "captcha_invalid" | "email_in_use"
+//       -> 400 { error, code: "invalid_body" | "age_band_required" | "guardian_consent_required"
+//                        | "captcha_invalid" | "email_in_use"
 //                        | "weak_password_length" | "weak_password_pwned" | "signup_failed" }
 //       -> 405 { error, code: "method_not_allowed" }
-//       -> 500 { error, code: "signup_unavailable" | "signup_failed" | "no_session" }
+//       -> 500 { error, code: "signup_unavailable" | "signup_failed" | "no_session"
+//                        | "age_band_record_failed" }
+//
+// THE AGE CHOICE (2026-09-20, `_shared/age-band.ts`): every sign-up names its band, and a 13–17
+// band must carry the parent/guardian attestation. Both are refused by name before the CAPTCHA
+// token is spent; on success the band — and, for 13–17, a `guardian_consent` row stamped with
+// `_shared/legal.ts`'s policy version — is written through the service-role-only
+// `pace_record_age_band` RPC before the session is returned, and the account is rolled back if
+// that write fails (`_shared/signup-with-captcha.ts`).
 //
 // WHY THIS FUNCTION EXISTS: see `_shared/signup-with-captcha.ts`'s header for the full story —
 // short version, Supabase Auth's native `auth.captcha` is project-wide (verified live: it also
@@ -26,9 +35,11 @@
 // all live in `_shared/signup-with-captcha.ts` + `_shared/captcha.ts` (Deno/Jest-portable, unit
 // tested — `_shared/__tests__/signup-with-captcha.deno.test.ts`), same split `purchase-tier/
 // index.ts` uses for `_shared/purchase-tier.ts`. This is just the HTTP/env glue.
+import { createAgeBandRpc } from '../_shared/age-band-recorder-client.ts';
+import { createAgeBandRecorder } from '../_shared/age-band-recorder.ts';
 import { createSignUpClient } from '../_shared/signup-client.ts';
 import { TurnstileVerifier } from '../_shared/captcha.ts';
-import { errorClassOf, logEvent, newRequestId } from '../_shared/log.ts';
+import { errorClassOf, hashUserId, logEvent, newRequestId } from '../_shared/log.ts';
 import { handleSignupWithCaptcha } from '../_shared/signup-with-captcha.ts';
 
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
@@ -54,7 +65,7 @@ Deno.serve(async (req) => {
     rawBody = await req.json();
   } catch {
     return jsonResponse(400, {
-      error: 'Request body must be { email, password, captchaToken }.',
+      error: 'Request body must be { email, password, captchaToken, ageBand, guardianConsent? }.',
       code: 'invalid_body',
     });
   }
@@ -82,7 +93,25 @@ Deno.serve(async (req) => {
 
   try {
     const result = await handleSignupWithCaptcha(
-      { captchaVerifier: new TurnstileVerifier(secretKey), signUpClient: createSignUpClient() },
+      {
+        captchaVerifier: new TurnstileVerifier(secretKey),
+        signUpClient: createSignUpClient(),
+        ageBandRecorder: createAgeBandRecorder(createAgeBandRpc()),
+        // The one failure that leaves state behind: a created account whose band could not be
+        // written. `rolledBack: false` is the line an operator acts on (delete the account by
+        // hand); the id is hashed like every other user id in these logs.
+        onAgeBandWriteFailed: async ({ userId, reason, rolledBack }) => {
+          const hashed = await hashUserId(userId);
+          logEvent({
+            level: 'error',
+            fn: 'signup-with-captcha',
+            event: rolledBack ? 'age_band_write_failed_rolled_back' : 'age_band_write_failed_account_stranded',
+            requestId,
+            userId: hashed,
+            code: reason,
+          });
+        },
+      },
       rawBody,
       remoteIp,
     );

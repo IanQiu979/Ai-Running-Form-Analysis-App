@@ -146,6 +146,13 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════════
  * THE CONSENT TRAIL: purge — explicitly, in code, NOT by inheriting the FK cascade.
  * ═══════════════════════════════════════════════════════════════════════════════════════════════
+ * (2026-09-20: `public.guardian_consent` — a 13–17 account's parent/guardian consent record,
+ * `20260920120000_guardian_consent.sql` — is purged by the SAME reasoning, but by the cascade
+ * from `auth.users` rather than by a step here: its FK points at `auth.users`, so it goes with
+ * `deleteUser()` below, the last step, and `guardian-consent-sql.deno.test.ts` proves that
+ * against real Postgres. It is not added to `AccountRows` because, unlike `consents`, its FK
+ * target is the auth row itself — there is no earlier step that could leave it behind.)
+ *
  * `consents.user_id references profiles(id) on delete cascade`, so deleting the account would
  * erase the Art. 9 consent record as a side effect nobody chose. `20260712020729_consents.sql`'s
  * own comment refuses to let that stand as the answer: "Whoever builds #57/#58 must make a

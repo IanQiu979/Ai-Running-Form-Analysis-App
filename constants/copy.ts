@@ -108,11 +108,58 @@ export const Copy = {
     // (published; opened from Settings via `PRIVACY_POLICY_URL`) sits inside the checkbox's own
     // tap target; the screen says so in its own comment.
     consent: {
-      prefix: 'I am 16+ and agree to the ',
+      // 2026-09-20: the age claim moved OUT of this line and into `ageBand` below (an explicit
+      // choice, recorded server-side), so this is now the Terms + Privacy agreement alone and is
+      // required for every age band.
+      prefix: 'I agree to the ',
       terms: 'Terms',
       and: ' and ',
       privacy: 'Privacy Policy',
-      a11yLabel: 'I am 16 or older and agree to the Terms and Privacy Policy',
+      a11yLabel: 'I agree to the Terms and Privacy Policy',
+    },
+    // The age choice (captain's plan, approved 2026-09-20; mirrors V2.2's guardian-consent block,
+    // IanQiu979/Ai-Customized-Running-Plan-App#123). Two options — under 13 is not offered, and
+    // `eligibility` says so instead. Choosing 13–17 reveals `guardian.checkbox`, the parent or
+    // guardian attestation, whose wording follows V2.2's `legal.ts` sentence as closely as this
+    // file's register allows ("Privacy Policy" capitalised as the rest of this screen names it);
+    // it is the one new key `constants/__tests__/copy-tone.test.ts` exempts, because its meaning
+    // — WHO agreed, to WHAT — is what the server records against a policy version, and rewording
+    // it is a legal change, not a copy edit. Counsel review of the attestation is a public-launch
+    // item. Drawn by components/age-band-choice.tsx on the sign-up form and on the one-time
+    // screen an OAuth-created account gets (components/age-band-gate.tsx).
+    ageBand: {
+      legend: 'Your age',
+      eligibility: 'Pace Analysis AI is for ages 13 and up.',
+      option: {
+        adult: '18 or older',
+        minor: '13–17 — my parent or guardian agrees',
+      },
+      a11y: {
+        adult: 'I am 18 or older',
+        minor: 'I am 13 to 17 and my parent or guardian agrees',
+      },
+      guardian: {
+        checkbox:
+          'I am 13–17, and a parent or guardian has read the Privacy Policy and agrees to it on my behalf.',
+      },
+    },
+    // The one-time age screen for an account that Google (or, later, Apple) created: no request
+    // body of ours travels through an OAuth exchange, so the band is asked for on first use and
+    // recorded by `record-age-band`. The Terms + Privacy agreement was already ticked before the
+    // OAuth sheet opened (`handleGoogleSignIn`), so this screen asks only the age question.
+    ageGate: {
+      eyebrow: 'One more step',
+      title: 'Confirm your age',
+      body: 'Select your age range to continue. This is recorded once, with your account.',
+      submit: 'Continue',
+      signOut: 'Sign out',
+      loading: 'Checking your account…',
+      error: {
+        load: 'Your account details could not be loaded. Check your connection and try again.',
+        retry: 'Retry',
+        // Distinct from `auth.error.generic`: nothing about the account failed, one write did.
+        save: 'Your age choice could not be saved. Check your connection and try again.',
+      },
     },
     signIn: {
       submit: 'Sign in',
@@ -164,7 +211,13 @@ export const Copy = {
       // V23-06 (2026-09-14): the consent checkbox gates account creation in the submit handler
       // itself, not only on the button — the keyboard's return key reaches the handler with the
       // button still disabled. Local, no server contacted, like the three keys above.
-      consentRequired: 'Confirm you are 16 or older and agree to the Terms and Privacy Policy.',
+      consentRequired: 'Agree to the Terms and Privacy Policy to continue.',
+      // 2026-09-20: the two age gates, local first (the submit handler refuses before any network
+      // call, like `consentRequired`) and echoed by the server's `age_band_required` /
+      // `guardian_consent_required` codes should a client ever reach it without them.
+      ageBandRequired: 'Select your age range to continue.',
+      guardianConsentRequired:
+        'Confirm that a parent or guardian has read the Privacy Policy and agrees to it on your behalf.',
       // The "or reset your password" clause is back (issue #18's closing condition): the route it
       // points at now exists — app/(auth)/reset-password.tsx, reached from the "Forgot password?"
       // link on sign-in (issue #81). Before that, this clause pointed at nothing and was a dead
@@ -379,10 +432,13 @@ export const Copy = {
       body: 'Your frames are stored privately until you delete them. We send them to Anthropic, our AI provider, to analyze your form. The analysis produces health-related feedback about you, including injury-risk flags.',
       checkbox:
         'I consent to my images being analyzed to produce health-related feedback, and to Anthropic processing them to do so.',
-      // NEW key (issue #94). `docs/privacy-policy.md`'s "Age and other people in your media"
-      // section already states a 16+ minimum; nothing asked or recorded it anywhere in the app.
-      // Shown alongside `checkbox` above, on the same once-ever first-upload screen — both must
-      // be ticked before the primary CTA enables (see components/consent-gate.tsx).
+      // NEW key (issue #94). `docs/privacy-policy.md`'s age section stated a 16+ minimum when
+      // this was written; nothing asked or recorded it anywhere in the app. Shown alongside
+      // `checkbox` above, on the same once-ever first-upload screen — both must be ticked before
+      // the primary CTA enables (see components/consent-gate.tsx). OPEN (2026-09-20, docs/status.md
+      // Known Issue #52): account creation now records a 13-and-up age band (`auth.ageBand`), and
+      // this line still says 16 — a 13–17 account cannot honestly tick it. Left as is pending a
+      // product call; changing the wording mints a new consent key (lib/consent.ts).
       age: {
         checkbox: 'I confirm I am 16 or older.',
       },

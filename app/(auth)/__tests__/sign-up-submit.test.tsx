@@ -99,9 +99,9 @@ beforeEach(() => {
   mockBreachCheck.mockResolvedValue({ status: 'safe' });
 });
 
-/** Gets the screen's default sign-up mode to a filled form with the consent box ticked and a
- *  Turnstile token in hand — the exact state the real "Create account" button becomes pressable
- *  from. */
+/** Gets the screen's default sign-up mode to a filled form with "18 or older" picked, the consent
+ *  box ticked and a Turnstile token in hand — the exact state the real "Create account" button
+ *  becomes pressable from. */
 async function fillSignUpForm() {
   // The queries below run against the object THIS render returns, never the module-level `screen`
   // helper. `screen` tracks the most recent render globally, and a full submit leaves its own
@@ -116,6 +116,7 @@ async function fillSignUpForm() {
   await fireEvent.changeText(getByPlaceholderText(Copy.auth.email.placeholder), 'runner@example.com');
   await fireEvent.changeText(getByPlaceholderText(Copy.auth.password.placeholder), 'aRealStrongPassw0rd!9x');
   // RNTL 14's `fireEvent.*` is async; each event is awaited so none overlaps the last one's act().
+  await fireEvent.press(getByTestId('signup-age-18-plus'));
   await fireEvent.press(getByRole('checkbox'));
   await fireEvent.press(getByTestId('mock-turnstile-token'));
 
@@ -137,6 +138,11 @@ describe('sign-in screen: a successful sign-up enters the app', () => {
     // exactly what the client returned; re-deriving the fields here would let this test agree with
     // a wrong shape the same way the old client test agreed with itself.
     await waitFor(() => expect(mockApply).toHaveBeenCalledWith(session));
+    // And the band the user picked travelled with the request (2026-09-20).
+    expect(mockSignUp).toHaveBeenCalledWith('runner@example.com', 'aRealStrongPassw0rd!9x', 'a-token', {
+      ageBand: '18_plus',
+      guardianConsent: false,
+    });
 
     // Nothing failed, so nothing may be reported as having failed. This assertion is the captain's
     // actual symptom, inverted: he saw this exact string on a sign-up that had already succeeded.

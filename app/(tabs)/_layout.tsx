@@ -29,6 +29,7 @@ import { Tabs } from 'expo-router';
 import React from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AgeBandGate } from '@/components/age-band-gate';
 import { V23TabBar, type V23Tab } from '@/components/v23-tab-bar';
 import { Copy } from '@/constants/copy';
 import { Layout } from '@/constants/v23-theme';
@@ -68,13 +69,19 @@ export function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
 
 export default function TabLayout() {
   return (
-    <Tabs
-      tabBar={(props) => <FloatingTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-      }}>
-      <Tabs.Screen name="index" options={{ title: Copy.home.title }} />
-      <Tabs.Screen name="history" options={{ title: Copy.history.title }} />
-    </Tabs>
+    // The one-time age question for an OAuth-created account (2026-09-20) — an overlay above
+    // the navigator, not a route, so the tabs keep their state and become usable the moment the
+    // answer is recorded. Draws no overlay for an email account or once a band is on file; see
+    // components/age-band-gate.tsx's header.
+    <AgeBandGate>
+      <Tabs
+        tabBar={(props) => <FloatingTabBar {...props} />}
+        screenOptions={{
+          headerShown: false,
+        }}>
+        <Tabs.Screen name="index" options={{ title: Copy.home.title }} />
+        <Tabs.Screen name="history" options={{ title: Copy.history.title }} />
+      </Tabs>
+    </AgeBandGate>
   );
 }

@@ -105,10 +105,14 @@ appId: com.ian.paceanalysisai
 # keyboard window and put "Create account" back on screen.
 - tapOn: "Get started"
 
-# The 16+ / Terms consent checkbox always gates account creation. Cloudflare can either present
-# its visible challenge or auto-resolve, so tap the challenge only when it is actually present.
-# The widget is a fixed 70 pt box in both states (components/turnstile-widget.tsx) — "Success!"
-# does not grow the form.
+# The age choice (2026-09-20) and the Terms consent checkbox both gate account creation. The
+# stranger is an adult: "18 or older" needs no attestation (the 13–17 option would reveal the
+# guardian checkbox, `signup-age-guardian-consent`, which a minor path would also have to tick).
+# Cloudflare can either present its visible challenge or auto-resolve, so tap the challenge only
+# when it is actually present. The widget is a fixed 70 pt box in both states
+# (components/turnstile-widget.tsx) — "Success!" does not grow the form.
+- tapOn:
+    id: "signup-age-18-plus"
 - tapOn:
     id: "signup-consent"
 - runFlow:
@@ -119,10 +123,11 @@ appId: com.ian.paceanalysisai
 - extendedWaitUntil:
     visible: "Success!"
     timeout: 45000
-# The whole form (header, two fields, consent, widget, two buttons, footer) fits an iPhone 17
-# with the keyboard down and is vertically centred; on a shorter viewport the ScrollView scrolls
-# and this reaches the CTA. There is deliberately no blind background swipe here any more: the
-# old `swipe` from 88% landed on the keyboard window whenever one was up, and did nothing.
+# The form (header, two fields, the age choice, consent, widget, two buttons, footer) is taller
+# than it was before the age choice landed and may no longer fit an iPhone 17 with the keyboard
+# down; the ScrollView scrolls and this reaches the CTA either way. There is deliberately no
+# blind background swipe here any more: the old `swipe` from 88% landed on the keyboard window
+# whenever one was up, and did nothing.
 - scrollUntilVisible:
     element:
       id: "auth-email-submit"

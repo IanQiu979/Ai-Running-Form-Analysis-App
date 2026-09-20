@@ -190,8 +190,15 @@ export function mapSignupWithCaptchaError(code: SignupWithCaptchaErrorCode): str
       return Copy.auth.error.passwordTooShort;
     case 'weak_password_pwned':
       return Copy.auth.error.passwordBreached;
+    case 'age_band_required':
+      return Copy.auth.error.ageBandRequired;
+    case 'guardian_consent_required':
+      return Copy.auth.error.guardianConsentRequired;
     case 'weak_password':
     case 'invalid_body':
+    // The account was created and rolled back again because its age band could not be written —
+    // nothing the user did; a retry is the right answer, which is what the generic copy says.
+    case 'age_band_record_failed':
     case 'signup_failed':
     case 'signup_unavailable':
     case 'no_session':

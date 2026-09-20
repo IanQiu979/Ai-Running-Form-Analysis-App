@@ -10,7 +10,7 @@ and Elasticity. It is an analysis tool only — not a training-plan builder, run
 The repository contains the M1–M7 app flow: email/Google authentication, photo-library and camera
 capture, analysis, result display, Past Analyses, per-analysis deletion, account settings and
 account deletion, tier/quota UI, and the Elite comparison screen. The backend is Supabase
-(Postgres, Auth, private Storage, and seven Edge Functions); deployment history and remaining
+(Postgres, Auth, private Storage, and eight Edge Functions); deployment history and remaining
 release work are tracked in [`docs/status.md`](docs/status.md).
 
 Important current limitations:

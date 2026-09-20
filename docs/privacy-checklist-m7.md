@@ -167,9 +167,10 @@ real privacy regime, not just GDPR-by-analogy. Flag for counsel before public la
       Anthropic. "Until the user deletes" = indefinite = Art. 5(1)(e) gap.
 - [ ] **Third-party/minor subjects**: consent line says "your photo/video" and doesn't cover
       filming a friend, coached athlete, or minor. The privacy policy's minimum-age term
-      (16+) is now drafted (`docs/privacy-policy.md`, "Age and other people in your media")
-      — still needs an App Store age rating decision and an uploader-attests-consent clause
-      (parental for minors; COPPA/under-16 GDPR).
+      is now drafted (`docs/privacy-policy.md`, "Age" — 13-and-up with guardian consent for
+      13–17 since 2026-09-20; the upload checkbox still says 16+, `docs/status.md` Known Issue
+      #52 follow-up 1) — still needs an App Store age rating decision and an
+      uploader-attests-consent clause (parental for minors; COPPA/under-16 GDPR).
 - [ ] Make storage cleanup **blocking** (or reconcile orphans) — V1's best-effort pattern can
       delete the auth user while a failed remove leaves frames un-ownable and un-deletable.
 - [ ] Confirm `result` JSONB (health data at rest) is cascade-deleted in both delete paths, with

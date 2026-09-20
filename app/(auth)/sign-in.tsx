@@ -6,7 +6,13 @@
  *
  * The page draws: eyebrow + Display title, two 56 pt fields, a 12 pt consent checkbox with a
  * line of fine print, a white primary button, a bordered secondary "Continue with Google", and a
- * one-line footer that switches mode. Its third artboard is the error state — a `danger` border
+ * one-line footer that switches mode. Since 2026-09-20 the sign-up artboard also carries the AGE
+ * CHOICE above that consent line (`components/age-band-choice.tsx`: "18 or older" / "13–17 — my
+ * parent or guardian agrees", the latter revealing the guardian attestation) — the page's single
+ * "I am 16+ and agree…" line became two facts recorded separately: the band, sent to
+ * `signup-with-captcha` and persisted server-side, and the Terms + Privacy agreement, required
+ * for every band. Captain's plan, approved 2026-09-20, mirroring V2.2 (IanQiu979/
+ * Ai-Customized-Running-Plan-App#123). Its third artboard is the error state — a `danger` border
  * on the offending field with the message beneath it, the one place the sheet's chromatic value
  * is allowed. Nothing else is decorated; the only motion is the page transition's 12 pt rise.
  *
@@ -50,6 +56,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import Svg, { Polyline } from 'react-native-svg';
 
+import { AgeBandChoiceGroup, selectionOf } from '@/components/age-band-choice';
 import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/turnstile-widget';
 import { SquareButton } from '@/components/ui/square-button';
 import { TextField } from '@/components/ui/text-field';
@@ -66,6 +73,7 @@ import { applySignupSession, signUpWithCaptcha } from '@/lib/signup-with-captcha
 import { supabase } from '@/lib/supabase';
 import { resolveTurnstileConfig } from '@/lib/turnstile-config';
 import { useAnnounce } from '@/lib/use-announce';
+import type { AgeBand } from '@shared/age-band';
 
 // The site key is Cloudflare's own public identifier for this Turnstile widget — safe to inline
 // into the client bundle by design (only the SECRET key, used server-side in
@@ -114,13 +122,24 @@ export default function SignInScreen() {
   // advances email -> password instead of dead-ending the keyboard.
   const passwordInputRef = useRef<TextInput>(null);
 
-  // V23-06's age/terms consent. A second gate on "Create account" alongside the captcha token
-  // below: a box the user can leave unticked and still submit would be decoration. The row is
-  // drawn in sign-up mode; in sign-in mode it stays off the artboard until "Continue with
+  // V23-06's Terms + Privacy consent. A second gate on "Create account" alongside the captcha
+  // token below: a box the user can leave unticked and still submit would be decoration. The row
+  // is drawn in sign-up mode; in sign-in mode it stays off the artboard until "Continue with
   // Google" needs it (see `handleGoogleSignIn`), and once revealed it stays. The tick itself is
   // shared across modes, so it survives the footer toggle.
   const [consentChecked, setConsentChecked] = useState(false);
   const [consentRevealed, setConsentRevealed] = useState(false);
+
+  // The age choice (2026-09-20) — drawn in sign-up mode only. `ageBand` starts unpicked and the
+  // guardian attestation starts unticked; like the consent tick above, both survive a footer
+  // toggle (the widget's token is the only thing a round trip drops, see `toggleMode`).
+  // `ageSelection` is the one rule shared with the submit gate: null until the choice is complete
+  // (a band, plus the attestation when the band is 13–17). Google is NOT gated on it here: an OAuth account is
+  // minted inside the browser exchange, where no body of ours travels, so it is asked once on
+  // first use instead (`components/age-band-gate.tsx`).
+  const [ageBand, setAgeBand] = useState<AgeBand | null>(null);
+  const [guardianConsent, setGuardianConsent] = useState(false);
+  const ageSelection = selectionOf(ageBand, guardianConsent);
 
   // Issue #12/Known Issue #12 — sign-up only, never rendered in signIn mode. Holds a Turnstile
   // token good for exactly one `signUpWithCaptcha` attempt: the token is single-use (see
@@ -217,6 +236,16 @@ export default function SignInScreen() {
       setErrorMessage(Copy.auth.error.consentRequired);
       return;
     }
+    // Same shape of gate for the age choice, in the same place, for the same return-key reason.
+    // Two messages, not one: "pick a band" and "tick the attestation" are different actions, and
+    // the server's own refusals (`age_band_required` / `guardian_consent_required`) are split the
+    // same way, so a client that somehow skipped this block would read the same two sentences.
+    if (mode === 'signUp' && ageSelection === null) {
+      setErrorMessage(
+        ageBand === null ? Copy.auth.error.ageBandRequired : Copy.auth.error.guardianConsentRequired
+      );
+      return;
+    }
 
     clearErrors();
     setPendingAction('email');
@@ -270,7 +299,13 @@ export default function SignInScreen() {
         // `auth.captcha` is project-wide and would gate sign-in too). The token is single-use
         // regardless of outcome, so it's cleared and the widget reset unconditionally right
         // after this call, success or failure.
-        const signupResult = await signUpWithCaptcha(trimmedEmail, password, captchaToken);
+        // `ageSelection` is non-null here: the local gate above returned early otherwise. The
+        // check is repeated for the type system, not for the user.
+        if (ageSelection === null) {
+          setErrorMessage(Copy.auth.error.ageBandRequired);
+          return;
+        }
+        const signupResult = await signUpWithCaptcha(trimmedEmail, password, captchaToken, ageSelection);
         setCaptchaToken(null);
         turnstileRef.current?.reset();
 
@@ -389,6 +424,26 @@ export default function SignInScreen() {
               )}
             </View>
 
+            {/* The age choice (2026-09-20), sign-up mode only — above the Terms line so the
+                form reads top-down as "who you are, what you agree to". The sign-in artboard
+                never draws it: a returning Google user is asked on first use by the gate, an
+                email user already answered at sign-up (or pre-dates the question). */}
+            {isSignUp && (
+              <AgeBandChoiceGroup
+                value={ageBand}
+                onChange={(band) => {
+                  setAgeBand(band);
+                  // Switching bands drops the attestation: it belongs to the 13–17 answer only.
+                  if (band !== '13_17') setGuardianConsent(false);
+                  clearErrors();
+                }}
+                guardianConsent={guardianConsent}
+                onToggleGuardianConsent={() => setGuardianConsent((checked) => !checked)}
+                disabled={isBusy}
+                testIDPrefix="signup-age"
+              />
+            )}
+
             {(isSignUp || consentRevealed) && (
               <Pressable
                 accessibilityRole="checkbox"
@@ -475,7 +530,7 @@ export default function SignInScreen() {
                 label={isSignUp ? Copy.auth.signUp.submit : Copy.auth.signIn.submit}
                 onPress={handleEmailSubmit}
                 testID="auth-email-submit"
-                disabled={isBusy || (isSignUp && (!captchaToken || !consentChecked))}
+                disabled={isBusy || (isSignUp && (!captchaToken || !consentChecked || ageSelection === null))}
                 // Only when the button can NEVER become enabled. A missing token with a key
                 // present is the ordinary "solve the challenge" wait, which the visible widget
                 // already explains — hinting there would nag on every render.

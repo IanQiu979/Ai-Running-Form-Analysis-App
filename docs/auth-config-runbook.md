@@ -129,3 +129,56 @@ lands on Home; a `npm run start:go` Expo Go session on a phone now fails Google 
 Supabase's `redirect_to` rejection — expected, and the reason this waits for the dev build.
 
 **Roll back.** `auth_patch '{"uri_allow_list": "paceanalysisai://oauth-callback,paceanalysisai://**,exp://**"}'`.
+
+---
+
+## 3. Age band + guardian consent (2026-09-20) — PREPARED, NOT APPLIED
+
+Not an auth-config PATCH — a DB push plus two function deploys — but it lives here because the
+order is load-bearing in the same way § 1's was, and because `signup-with-captcha` is the function
+§ 1 already governs. Source: the PR for `fm/v22-v23-under18-guardian-consent` (`docs/change_log.md`
+2026-09-20, `docs/status.md` Known Issue #52).
+
+**Order: migration → functions → app build.** The redeployed `signup-with-captcha` calls
+`pace_record_age_band()` right after `createUser` and ROLLS THE ACCOUNT BACK when that call fails
+— on a database without the migration every sign-up would create-and-delete an account and answer
+`500 age_band_record_failed`. Old function + new database is safe (the new column is nullable and
+nothing reads it), which is why the database goes first. The app build goes last: an old app
+against the new function gets `400 age_band_required` (it sends no band), which the old client
+folds to the generic error copy — sign-up unavailable, not broken data.
+
+```sh
+export SUPABASE_GO_BINARY=~/.local/share/supabase/supabase-go
+# 0. Ledger repair (CLAUDE.md / docs/status.md Known Issue #49): production still holds a row for
+#    20260807090000, whose file the 2026-09-20 override deletion removed; db push refuses to run
+#    against a ledger row with no local file until it is marked reverted.
+supabase migration repair --linked --status reverted 20260807090000
+supabase migration list --linked   # expected: 20260807090000 gone from the Remote column
+# 1. Database (needs SUPABASE_DB_PASSWORD in the environment; dry-run first)
+supabase db push --linked --dry-run
+# expected: exactly one pending file, 20260920120000_guardian_consent.sql, and no ledger error
+supabase db push --linked          # 20260920120000_guardian_consent
+supabase db query --linked "select column_name from information_schema.columns where table_name = 'profiles' and column_name = 'age_band'"
+supabase db query --linked "select has_function_privilege('service_role', 'public.pace_record_age_band(uuid, text, boolean, text)', 'execute') as service_exec, has_function_privilege('authenticated', 'public.pace_record_age_band(uuid, text, boolean, text)', 'execute') as auth_exec, has_table_privilege('authenticated', 'public.guardian_consent', 'insert') as auth_insert"
+# expected: service_exec true, auth_exec false, auth_insert false
+# 2. Functions
+supabase functions deploy signup-with-captcha --project-ref $REF --use-api
+supabase functions deploy record-age-band     --project-ref $REF --use-api
+# 3. Verify the refusals live (no account is created by either)
+curl -s -X POST "https://$REF.supabase.co/functions/v1/signup-with-captcha" -H 'Content-Type: application/json' \
+  -d '{"email":"probe@example.com","password":"probe-Passw0rd!","captchaToken":"x"}'
+# expected: 400 {"code":"age_band_required"}
+curl -s -X POST "https://$REF.supabase.co/functions/v1/signup-with-captcha" -H 'Content-Type: application/json' \
+  -d '{"email":"probe@example.com","password":"probe-Passw0rd!","captchaToken":"x","ageBand":"13_17"}'
+# expected: 400 {"code":"guardian_consent_required"}
+curl -s -X POST "https://$REF.supabase.co/functions/v1/record-age-band" -H 'Content-Type: application/json' -d '{"ageBand":"18_plus"}'
+# expected: 401 {"code":"unauthorized"}
+# 4. Then the app build (EAS) — the old build's sign-up is refused by the new function until then.
+```
+
+**Rollback.** Functions: redeploy the previous bundles (the pre-deploy source is what `main` held
+before the PR merged). Database: the migration is additive; leave it in place — an old function
+ignores the column and the table. Do not drop `guardian_consent` while any 13–17 account exists.
+
+**After the push:** regenerate `lib/database.types.ts` (`supabase gen types typescript --linked`)
+and commit it — the PR hand-patched the three new entries in the generator's shape.
