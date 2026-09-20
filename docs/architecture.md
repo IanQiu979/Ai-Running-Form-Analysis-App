@@ -27,11 +27,14 @@ app/
                           # at 4 s. See "Current — V23 entry flow" below.
   (auth)/details.tsx      # V23-03 details (2026-09-13): what the app reads, four pillar boxes
   (auth)/sign-in.tsx      # combined sign-in/sign-up (email + Google; no Apple yet, gate #7),
-                          # rebuilt to V23-06 on 2026-09-13 with a sign-up consent checkbox
+                          # rebuilt to V23-06 on 2026-09-13; sign-up mode carries the age choice
+                          # (components/age-band-choice.tsx, 2026-09-20) plus a Terms + Privacy
+                          # checkbox. See "Current — auth flow" below.
   (tabs)/_layout.tsx      # protected tabs (Home, History); mounts components/v23-tab-bar.tsx
                           # through the navigator's `tabBar` slot — floating on Home, absent on
                           # History (which lays the same bar out inline). See "Current — V23
-                          # lane 2" below.
+                          # lane 2" below. Also hosts the one-time components/age-band-gate.tsx
+                          # overlay for an OAuth-created account with no age band (2026-09-20).
   (tabs)/index.tsx        # Home — V23-07 since 2026-09-14 (recent analysis card, quota card, CTA,
                           # ticker); quota is display-only, from `quota-status`
 components/              # consent-gate.tsx and result-disclaimer.tsx (2026-07-12, issue #68) —
@@ -1049,11 +1052,13 @@ above is still what those screens are built on and both font sets load at startu
 - **`app/(auth)/sign-in.tsx` — V23-06, rebuilt on the same auth logic.** Eyebrow + Display title,
   two `TextField`s with field-level errors (the `danger` artboard), primary / secondary
   `SquareButton`s, and a footer that flips modes; **sign-up is the default mode**. In sign-up
-  mode a 12 pt consent checkbox — "I am 16+ and agree to the Terms and Privacy Policy" — gates
-  Create account **alongside** the captcha token. The Terms / Privacy underlines are the page's
-  styling, not links: the Terms are unpublished, and the Privacy Policy — published, opened from
-  Settings via `PRIVACY_POLICY_URL` — sits inside the checkbox's own tap target, so linking it
-  there needs a control of its own (noted, not done, 2026-09-19).
+  mode the age choice (`components/age-band-choice.tsx`) and a 12 pt Terms + Privacy checkbox
+  gate Create account **alongside** the captcha token — what each records and how the server
+  enforces it is the "Age band at account creation" item under "Current — auth flow" (until
+  2026-09-20 this was a single "I am 16+ and agree…" line). The Terms / Privacy underlines are
+  the page's styling, not links: the Terms are unpublished, and the Privacy Policy — published,
+  opened from Settings via `PRIVACY_POLICY_URL` — sits inside the checkbox's own tap target, so
+  linking it there needs a control of its own (noted, not done, 2026-09-19).
   Kept although the page does not draw them: the Turnstile widget and its no-key notice
   (sign-up; Known Issue #12), "Forgot password?" (sign-in; issue #81), and the password rule as
   the field's `accessibilityHint` (issue #9). Validation → HIBP → captcha → `signUpWithCaptcha` →
@@ -1076,8 +1081,9 @@ above is still what those screens are built on and both font sets load at startu
   `docs/design/copy-deck.md`; `Copy.auth.eyebrow` / `title` / `consent.*` / `*.switchPrompt` /
   `*.switchLink`, `Copy.analyzing.step.uploading` / `.finding` and `Copy.analyzing.done` are new.
   Deliberate deviations from the pages, flagged for the captain: "I am 16+" not "I'm 16+" (the
-  tone rule); the consent line is `ink3` per the page, ≈3:1 and under AA; "Uploading your frames"
-  for a video submission.
+  tone rule; that line itself was replaced by `Copy.auth.ageBand.*` + an age-free agreement on
+  2026-09-20); the consent line is `ink3` per the page, ≈3:1 and under AA; "Uploading your
+  frames" for a video submission.
 - **Verified live on an iOS 26.5 simulator dev build, 2026-09-14** — hero timeline against the
   page's t=1.0 / 2.0 / end artboards, details at rest / mid-stagger / box open, the sign-up /
   sign-in / error artboards, analyzing stopwatch + laser + Done → result, and a throwaway email account created
@@ -1857,7 +1863,7 @@ RLS.
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `409 in_progress` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). `409 in_progress` (2026-09-06, not yet deployed) refuses a row still `'reserved'` with a model call in flight — deleting it then would refund spend; `lib/history.ts` surfaces that code and its retry-after-it-finishes message. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Redeployed 2026-07-26 from the current repo code, so issue #132's second-purge/`orphans_remaining` behavior is now live** — that deploy also carried the shared-key parse fix (`docs/status.md` Known Issue #35). |
 | `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26, verified live** (issue #58, 2026-07-13; response contract fixed post-review, same date; deployed with #128 — see `docs/status.md` Known Issue #35). The client (`lib/delete-account.ts`) has called the real function since PR #122 (2026-07-13, `docs/status.md` Known Issue #23), so the Settings flow reaches it end to end. See "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
 | `POST /functions/v1/record-age-band` | JWT | `{ ageBand: '18_plus' \| '13_17', guardianConsent?: boolean }` | `200 { ageBand, guardianConsentRecorded }` or `400 { error, code }` for `invalid_body` / `age_band_required` / `guardian_consent_required`, `401 unauthorized`, `409 age_band_already_recorded`, `500 age_band_unavailable` | **Built and Deno-tested 2026-09-20, NOT YET DEPLOYED** (ships with `20260920120000_guardian_consent.sql`; `docs/auth-config-runbook.md` § 3). The one-time age choice for an OAuth-created account, called by `components/age-band-gate.tsx` via `lib/age-band.ts`; records for the JWT caller only, through the same service-role `pace_record_age_band` RPC `signup-with-captcha` uses, with the policy version stamped server-side. Write-once: a second call is a `409` and the app closes the gate by re-reading `profiles.age_band`. |
-| `POST /functions/v1/signup-with-captcha` | none (pre-auth) | `{ email, password, captchaToken }` | `200 { session, user }` or `400 { error, code }` for `invalid_body` / `captcha_invalid` / `email_in_use` / `weak_password_length` / `weak_password_pwned` / `signup_failed`, or `500` for `signup_unavailable` / `no_session` | **Built, Deno-tested, and DEPLOYED to the live project 2026-08-03** (issue #12/Known Issue #12 — see `docs/status.md`). Verifies a Cloudflare Turnstile token server-side, then — only if valid — creates the account. Until 2026-09-19 the deployed version proxied a plain `supabase.auth.signUp()` (publishable key). **Deployed 2026-09-19 as v12, hook enabled the same day (issue #48 residual; `docs/status.md` Known Issue #51):** `auth.admin.createUser` on the secret key + `signInWithPassword` on the publishable key, paired with the `before-user-created` hook that closes raw `/auth/v1/signup` — same wire contract; ordered deploy in `docs/auth-config-runbook.md` § 1. Either way GoTrue's own `minimum_password_length` is enforced unchanged — the admin API runs the same `checkPasswordStrength` (`password_hibp_enabled` is off since 2026-09-12, see "Current — Supabase config" below — `weak_password_pwned` would fire again if it's ever re-enabled). Replaces native `auth.captcha`, which was tried live and reverted the same day for gating sign-in too (project-wide, not per-endpoint). `app/(auth)/sign-in.tsx` calls this in sign-up mode only; sign-in calls `signInWithPassword` directly, untouched. |
+| `POST /functions/v1/signup-with-captcha` | none (pre-auth) | `{ email, password, captchaToken, ageBand: '18_plus' \| '13_17', guardianConsent?: boolean }` | `200 { session, user }` or `400 { error, code }` for `invalid_body` / `age_band_required` / `guardian_consent_required` / `captcha_invalid` / `email_in_use` / `weak_password_length` / `weak_password_pwned` / `signup_failed`, or `500` for `signup_unavailable` / `no_session` / `age_band_record_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-08-03; the 2026-09-20 age-band revision (`ageBand`/`guardianConsent`, the three new codes) is NOT YET DEPLOYED — see "Current — `POST /functions/v1/signup-with-captcha`" below and `docs/auth-config-runbook.md` § 3** (issue #12/Known Issue #12 — see `docs/status.md`). Verifies a Cloudflare Turnstile token server-side, then — only if valid — creates the account. Until 2026-09-19 the deployed version proxied a plain `supabase.auth.signUp()` (publishable key). **Deployed 2026-09-19 as v12, hook enabled the same day (issue #48 residual; `docs/status.md` Known Issue #51):** `auth.admin.createUser` on the secret key + `signInWithPassword` on the publishable key, paired with the `before-user-created` hook that closes raw `/auth/v1/signup` — same wire contract; ordered deploy in `docs/auth-config-runbook.md` § 1. Either way GoTrue's own `minimum_password_length` is enforced unchanged — the admin API runs the same `checkPasswordStrength` (`password_hibp_enabled` is off since 2026-09-12, see "Current — Supabase config" below — `weak_password_pwned` would fire again if it's ever re-enabled). Replaces native `auth.captcha`, which was tried live and reverted the same day for gating sign-in too (project-wide, not per-endpoint). `app/(auth)/sign-in.tsx` calls this in sign-up mode only; sign-in calls `signInWithPassword` directly, untouched. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
 `supabase.functions.invoke()` wraps non-2xx responses in a generic `FunctionsHttpError` whose
