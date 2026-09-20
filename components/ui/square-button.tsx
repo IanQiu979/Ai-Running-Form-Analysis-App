@@ -3,7 +3,7 @@
  *
  *   primary    56 pt · `accent` fill · `onAccent` label      "Create account", "Sign in"
  *   secondary  56 pt · 1 px `line` border · `ink` label       "Continue with Google"
- *   link       56 pt · no fill, no border · `ink` label       the details page's "Continue"
+ *   link       56 pt · no fill, no border · `ink` label       the entry story's "Get started"
  *
  * All three carry the Label style (13/16, uppercase, +6 %) and are square-cornered
  * (`Layout.radius`, which is 0). The sheet draws no hover/pressed state and nothing bounces, so a

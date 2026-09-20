@@ -21,11 +21,13 @@ app/
                           # 2026-09-13 it also loads the V23-01 families (Barlow Condensed /
                           # Inter Tight) and fades every root transition over 250 ms; the
                           # once-per-install FirstRunIntro overlay it used to mount is deleted.
-  (auth)/_layout.tsx      # unprotected stack — the V23 entry flow (2026-09-13) in walk order,
-                          # welcome → details → sign-in, plus the two password-reset screens
-  (auth)/welcome.tsx        # V23-02 hero (2026-09-13): the line-drawn runner and a "Continue" cue
-                          # at 4 s. See "Current — V23 entry flow" below.
-  (auth)/details.tsx      # V23-03 details (2026-09-13): what the app reads, four pillar boxes
+  (auth)/_layout.tsx      # unprotected stack — the V23 entry flow in walk order, welcome →
+                          # sign-in, plus the two password-reset screens (the 2026-09-13 details
+                          # route is gone since 2026-09-20; its content is the story below)
+  (auth)/welcome.tsx        # the entry flow (2026-09-20): one paged scroll — the V23-02 hero
+                          # (line-drawn runner, "Scroll down" cue at 4 s), then the pillars story
+                          # (components/pillar-story.tsx), then the sign-up entry. See "Current —
+                          # V23 entry flow" below.
   (auth)/sign-in.tsx      # combined sign-in/sign-up (email + Google; no Apple yet, gate #7),
                           # rebuilt to V23-06 on 2026-09-13; sign-up mode carries the age choice
                           # (components/age-band-choice.tsx, 2026-09-20) plus a Terms + Privacy
@@ -76,8 +78,11 @@ components/              # consent-gate.tsx and result-disclaimer.tsx (2026-07-1
                           # PACE callouts, evaluated once per frame on the UI thread from the pure
                           # geometry/timeline in lib/stride-hero.ts. Replaces the deleted
                           # stride-wireframe-hero.tsx (below).
-  pillar-box.tsx          # V23-04 (2026-09-13): one P/A/C/E square on the details page, closed
-                          # or open, with the 320 ms height-clip expand.
+  pillar-story.tsx        # the entry flow's story (2026-09-20): an intro then one screen-height
+                          # section per pillar, each revealed once by the scroll; the tap hint;
+                          # the sign-up entry at the end. Replaces the V23-03 details grid.
+  pillar-box.tsx          # V23-04 (2026-09-13): one P/A/C/E square, closed or open, with the
+                          # 320 ms height-clip expand — one per story section since 2026-09-20.
   laser-sweep.tsx         # V23-05 (2026-09-13): the Analyzing screen's glowing 2 pt line
                           # sweeping top to bottom every 3.2 s.
   kinetic-text.tsx        # per-word reveal. Splits a sentence into one Text per word but keeps
@@ -125,6 +130,8 @@ hooks/                    # use-color-scheme, use-theme-color
 lib/
   stride-hero.ts          # V23-02 (2026-09-13): the hero runner's geometry and timeline as pure
                           # worklets, unit-tested at fixed instants; see "Current — V23 entry flow"
+  entry-story.ts          # 2026-09-20: how many entry-flow sections a scroll offset has revealed
+                          # (half a section on screen counts), pure and unit-tested
   supabase.ts             # the Supabase client — see "Current — auth flow" below
   auth.ts
   session-provider.tsx
@@ -215,12 +222,12 @@ itself.
 
 ```
 app/
-  (auth)/welcome           # current (V23-02, 2026-09-13) — the signed-out group's initial route:
-                          # the hero. A cold signed-out launch and every sign-out land here; its
-                          # "Continue" cue (tappable from 4 s) pushes details. See "Current — V23
-                          # entry flow" below.
-  (auth)/details           # current (V23-03/04, 2026-09-13) — what the app reads, the 2×2 pillar
-                          # grid; Continue pushes sign-in
+  (auth)/welcome           # current (2026-09-20) — the signed-out group's initial route and the
+                          # whole entry flow: the V23-02 hero, the pillars story and the sign-up
+                          # entry in one paged scroll. A cold signed-out launch and every sign-out
+                          # land here; "Scroll down" appears at 4 s and the only tap is "Get
+                          # started" at the end, which pushes sign-in. See "Current — V23 entry
+                          # flow" below. (The 2026-09-13 `(auth)/details` route is deleted.)
   (auth)/sign-in           # current — sign-up folds into the same screen, no separate route;
                           # rebuilt to V23-06 on 2026-09-13 (sign-up is the default mode, and a
                           # consent checkbox gates Create account alongside the captcha token)
@@ -1017,37 +1024,58 @@ above is still what those screens are built on and both font sets load at startu
 - **Two primitives on those tokens:** `components/ui/square-button.tsx` (primary / secondary /
   link, 56 pt, square, `busy` spinner at the same height) and `components/ui/text-field.tsx`
   (56 pt input; `error` turns the border `danger` and draws the message beneath it).
-- **The signed-out group walks hero → details → sign-in.** `app/(auth)/_layout.tsx` declares
-  `welcome` / `details` / `sign-in` (plus the two password-reset screens; `welcome` is the
-  initial route — never `index`, see `docs/change_log.md` 2026-09-13) with a 250 ms fade and
+- **The signed-out group walks hero → story → sign-in, and since 2026-09-20 the first two are one
+  scroll.** `app/(auth)/_layout.tsx` declares `welcome` / `sign-in` (plus the two password-reset
+  screens; `welcome` is the initial route — never `index`, see `docs/change_log.md` 2026-09-13;
+  the 2026-09-13 `details` route is deleted) with a 250 ms fade and
   paints its own card `Ink.bg`; `app/_layout.tsx` applies the same fade to the root Stack, so the
   old Android-only reduce-motion `'fade'` branch is gone rather than duplicated. The
   once-per-install `FirstRunIntro` overlay (`components/first-run-intro.tsx`, `lib/first-run.ts`)
   is deleted — it would have drawn over the hero — as are the 2026-09-04
   `<StrideWireframeHero>` (`components/stride-wireframe-hero.tsx`, `lib/stride-wireframe.ts`),
   sign-in's "about" scroll content and `Copy.auth.wordmark` / `valueProp` / `about` /
-  `cta.email`. A returning signed-out user passes all three screens: two taps, the first
-  available after 4 s.
-- **`app/(auth)/welcome.tsx` — the hero.** `components/stride-hero.tsx` draws a line runner from
+  `cta.email`. A returning signed-out user scrolls the whole flow: no tap until "Get started" at
+  its end, and no scroll until the hero has held (4 s).
+- **`app/(auth)/welcome.tsx` — the entry flow: hero, story, sign-up entry in one paged scroll
+  (2026-09-20, the captain's device-test decision).** A plain `ScrollView` with `pagingEnabled`;
+  every section is exactly the viewport tall (the scroll view's own measured height, the window's
+  until it reports), so a swipe lands on one section at a time. The scroll is `scrollEnabled`
+  only once the hero has held, and the "Scroll down" cue (label over the pulsing chevron, at the
+  live bottom inset) is mounted only then, fading in over `Motion.duration.storyFade` — the cue is
+  a hint, not a control. The scroll offset is read on the JS thread (`scrollEventThrottle` 16)
+  and folded through `lib/entry-story.ts`'s `revealedSectionCount` — a section counts as reached
+  once half of it is on screen, so its arrival starts while the snap is still carrying it up —
+  into a count that only grows; the story reveals each section's items once from it. Reduced
+  motion frees the scroll from the first frame and renders the story in place.
+- **The hero** (`components/stride-hero.tsx`) is unchanged: it draws a line runner from
   `lib/stride-hero.ts` — the page's `hero(t)` as pure worklets, unit-tested at fixed instants in
   `lib/__tests__/stride-hero.test.ts`. One shared clock advances `t` on the UI thread and one
   derived value evaluates the frame; every SVG element reads its slice. Timeline: the figure draws
   on over 1 s and keeps running at 176 spm; the four PACE callouts arrive from 1.2 s at 0.35 s
-  intervals with count-ups; leaders dim at 2.6–3.2 s; the "Continue" cue fades in at 4 s. The cue
-  is inert until then and is fired by the hero's own clock (`onHold`), not by a screen timer — and
+  intervals with count-ups; leaders dim at 2.6–3.2 s; the cue fades in at 4 s. The scroll is
+  locked until then, and the unlock is fired by the hero's own clock (`onHold`), not by a screen timer — and
   that clock captures its own origin once, because `useFrameCallback` re-registers on every render
   and `timeSinceFirstFrame` would rewind the hero the moment the cue state flipped (found live
   2026-09-14). Reduced motion pins `t` at the end frame with the cue visible at once. The hero is
   one accessible image carrying one label (`Copy.entry.hero.a11yLabel`).
-- **`app/(auth)/details.tsx` — what the app does.** Title, lede, "What it reads", a 2×2 grid of
-  `components/pillar-box.tsx`, 40 pt of deliberate air where the removed "what a photo can and
-  cannot tell you" block sat, and a link-variant Continue that pushes sign-in. Items rise 12 pt
-  over 600 ms staggered 0 / 60 / 120+60·i ms, once, on first mount. A pillar box is a closed
-  `bgRaised` square (letter + name) or an open full-width card (name, description, metric with
-  its healthy range) with a 320 ms height-clip expand — React Native has no `clip-path`, so an
-  `overflow: 'hidden'` box runs from 55 % to 100 % of the measured content height. One box open
-  at a time, and **the open card renders first at full width** so its text never lands under the
-  fold when the fourth box is the one tapped. The pillar copy's metric ranges are the pages'
+- **`components/pillar-story.tsx` — the story (2026-09-20; replaces the V23-03 details page and
+  its 2×2 grid).** An intro section (the page's Display title, H2 sentence and its one paragraph
+  — the "What it reads" label came off so a section holds at most three type sizes), then one
+  screen-height section per pillar in `PACE_PILLARS` order: the pillar's `components/pillar-box.tsx`
+  large and centred (side = 42 % of the section height, capped by the 345 pt column) with its
+  one-line description beneath; "Tap a pillar for details" (`Copy.entry.details.hint`, `ink2`)
+  above the first box only; the link-variant "Get started" (`Copy.entry.details.cue`) pinned to
+  the end of the last section, pushing sign-in. Items mount at the first frame of `v23rise`
+  (opacity 0, 12 pt low) and rise once their section is reached, over `Motion.duration.storyRise`
+  (1000 ms) staggered `Motion.stagger.story` (120 ms) in reading order on the arrive curve —
+  slower and further apart than the grid's 600 / 60 ms. An item mounting into an already-revealed
+  section (the description line returning after its card closes) lands in place. A pillar box is
+  a closed `bgRaised` square (letter + name) or an open full-width card (name, description,
+  metric with its healthy range) with a 320 ms height-clip expand — React Native has no
+  `clip-path`, so an `overflow: 'hidden'` box runs from 55 % to 100 % of the measured content
+  height. One box open at a time; the section's description line steps aside while its card is
+  open, since the card carries the same sentence. The box's own 2026-09-13 `delayMs` arrival
+  is gone — the section owns the rise. The pillar copy's metric ranges are the pages'
   starting numbers, pending Ian's confirmation.
 - **`app/(auth)/sign-in.tsx` — V23-06, rebuilt on the same auth logic.** Eyebrow + Display title,
   two `TextField`s with field-level errors (the `danger` artboard), primary / secondary
@@ -1088,9 +1116,10 @@ above is still what those screens are built on and both font sets load at startu
   page's t=1.0 / 2.0 / end artboards, details at rest / mid-stagger / box open, the sign-up /
   sign-in / error artboards, analyzing stopwatch + laser + Done → result, and a throwaway email account created
   through the new gate and deleted afterwards. Screen-level locks:
-  `app/(auth)/__tests__/entry-hero.test.tsx`, `details.test.tsx`, the updated `sign-in*.test.tsx`
-  and `app/__tests__/analyzing.test.tsx`; component tests for `stride-hero`, `pillar-box` and
-  `laser-sweep`.
+  `app/(auth)/__tests__/entry-hero.test.tsx` (rewritten for the 2026-09-20 scroll; the deleted
+  `details.test.tsx` is succeeded by `components/__tests__/pillar-story.test.tsx`), the updated
+  `sign-in*.test.tsx` and `app/__tests__/analyzing.test.tsx`; component tests for `stride-hero`,
+  `pillar-box`, `pillar-story` and `laser-sweep`.
 
 ## Current — V23 lane 2: Home, Result, History, Capture, Paywall, Settings (2026-09-14)
 

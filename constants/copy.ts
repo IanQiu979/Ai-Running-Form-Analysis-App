@@ -24,12 +24,14 @@ export const Copy = {
   // ---------------------------------------------------------------------------------------
   // THE ENTRY FLOW (2026-09-13, the V23 redesign — pages V23-02 Hero and V23-03 Details, with
   // V23-04's pillar boxes). NOT in docs/design/copy-deck.md; the wording is the captain-approved
-  // Claude Design pages', lifted verbatim. Route: `app/(auth)/welcome.tsx` (hero) →
-  // `app/(auth)/details.tsx` → `app/(auth)/sign-in.tsx`.
+  // Claude Design pages', lifted verbatim. Since 2026-09-20 the hero and the story are ONE
+  // scroll (`app/(auth)/welcome.tsx`, with `components/pillar-story.tsx`) that ends at
+  // `app/(auth)/sign-in.tsx`; the two cues below are that decision's — "Scroll down" on the
+  // hero, and the sign-up entry at the story's end. No "Continue" remains in the entry flow.
   // ---------------------------------------------------------------------------------------
   entry: {
     hero: {
-      cue: 'Continue',
+      cue: 'Scroll down',
       // The hero is one drawn figure with four measured callouts. Sighted users read the callouts
       // off the drawing; this is the same content as one sentence for a screen reader.
       a11yLabel:
@@ -44,10 +46,14 @@ export const Copy = {
     details: {
       title: 'What your run is telling you',
       lede: 'One photo of your stride, read against the science of running form.',
-      reads: {
-        label: 'What it reads',
-        body: 'Four things a coach looks at first: how you stand over your feet, what your arms do, how often you land, and how much the ground gives back.',
-      },
+      // The story's intro section carries this as its one paragraph; the page's "What it reads"
+      // label above it came off with the 2026-09-20 story (one section holds at most three type
+      // sizes: Display, H2, Body).
+      reads:
+        'Four things a coach looks at first: how you stand over your feet, what your arms do, how often you land, and how much the ground gives back.',
+      // Sits above the first pillar box, in `ink2`: the boxes are buttons, and nothing else on
+      // the section says so.
+      hint: 'Tap a pillar for details',
       // V23-04: the closed box shows `name`; the open box adds the description and the metric
       // with its healthy range. Values are the pages' starting numbers (Ian to confirm ranges).
       pillar: {
@@ -77,13 +83,15 @@ export const Copy = {
         },
       },
       close: 'Close',
-      cue: 'Continue',
+      // The sign-up entry at the end of the last pillar section; it pushes the sign-up screen,
+      // whose title is the same words.
+      cue: 'Get started',
     },
   },
   auth: {
     // V23-06 (2026-09-13): the page's eyebrow and Display title. The old wordmark / value-prop /
-    // "about" scroll content came off this screen with the redesign — the hero and details pages
-    // (`Copy.entry`) carry what the app does now.
+    // "about" scroll content came off this screen with the redesign — the hero and the pillars
+    // story (`Copy.entry`) carry what the app does now.
     eyebrow: 'Run better tomorrow',
     title: 'Get started',
     cta: {

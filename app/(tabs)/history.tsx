@@ -79,7 +79,7 @@ export default function HistoryScreen() {
 
 function HistoryScreenContent({ userId }: { userId: string | undefined }) {
   // The page's 59 / 34 are the design's minimum breathing room; a device with a larger inset
-  // gets its own (the entry flow's pattern, `app/(auth)/details.tsx`).
+  // gets its own (the entry flow's pattern, `components/pillar-story.tsx`).
   const insets = useSafeAreaInsets();
   const safeTop = Math.max(insets.top, Layout.canvas.safeTop);
   const safeBottom = Math.max(insets.bottom, Layout.canvas.safeBottom);
