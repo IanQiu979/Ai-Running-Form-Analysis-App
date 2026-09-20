@@ -304,7 +304,7 @@ a draft until certified (`docs/status.md` Known Issue #34).
 | `result.pillar.notAssessed.needsVideo` | "Not assessed — needs video, not a photo." | Pillar needs motion (Cadence/Elasticity) but only a photo was submitted — preserves `pace_framework.md`'s own phrase, "needs video." |
 | `result.pillar.notAssessed.singleFrameFromVideo` | "Not assessed — only one frame of your video could be analysed." | NEW key (2026-09-06), not yet certified — mirrored here verbatim from `constants/copy.ts`. The runner DID send a video and exactly one frame of it reached the analysis, so neither `needsVideo` ("not a photo") nor `angle` is a true sentence about their upload. Written only by `analyze-form/flow.ts`'s normalization. States WHAT happened, never WHY: the frame count is decided on the device, so naming the plan would be a guess. |
 | `result.pillar.a11yLabel` | "{pillar}, {score} out of 100, {band}." | VoiceOver announcement per pillar row, per brief §7. |
-| `result.hero.altText` | "Running frame from your clip." | VoiceOver alt text for the hero frame. Reworded 2026-09-20 when the drawn annotation overlay was removed — the label now describes only the frame, not marks that no longer draw. |
+| `result.hero.altText` | "Running frame from your submission." | VoiceOver alt text for the hero frame. Reworded 2026-09-20 when the drawn annotation overlay was removed — the label now describes only the frame, not marks that no longer draw. |
 
 ### Partial result
 

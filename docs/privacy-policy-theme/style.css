@@ -119,9 +119,10 @@ body {
   font-weight: 600;
 }
 
-/* The "Last updated" line (tagged with a kramdown IAL in `docs/privacy-policy.md`) reads at the
-   secondary tone; every other paragraph, bold or not, stays full ink. */
-.policy .policy-updated {
+/* The "Last updated" line — structurally the one paragraph directly after the page's H1 in
+   `docs/privacy-policy.md` — reads at the secondary tone; every other paragraph, bold or not,
+   stays full ink. The source file carries no markup hook so it renders clean on GitHub too. */
+.policy h1 + p {
   color: var(--ink-2);
 }
 

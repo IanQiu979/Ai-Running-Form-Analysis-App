@@ -628,7 +628,7 @@ export const Copy = {
     hero: {
       // Reworded 2026-09-20 when the drawn annotation overlay was removed: the label describes
       // only the frame itself, not marks that no longer draw.
-      altText: 'Running frame from your clip.',
+      altText: 'Running frame from your submission.',
     },
     partial: {
       banner: {
