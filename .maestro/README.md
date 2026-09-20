@@ -64,9 +64,10 @@ instead, using a pre-provisioned synthetic fixture account:
   refund a free analysis. With the server-only `ALL_USERS_UNLIMITED_ACCESS` override unset on the
   live project (it is, per `docs/change_log.md` 2026-09-19), a Free fixture therefore gets
   exactly ONE live analysis ever; the second `happy-path`/`dead-end-offline` run routes Home's
-  CTA to the paywall instead of Analyzing. This is masked today by issue #232 (no run reaches
-  the analyze handoff). Before the first post-#232 repeat run, either grant the fixture an
-  Elite entitlement, set the override, or provision a fresh fixture per run — a live-project
+  CTA to the paywall instead of Analyzing. This is masked today because no simulator run reaches
+  the analyze handoff (capture is skipped — prerequisite #3, issue #232). Before the first run
+  that does reach it (a real device, or a locally-fixtured Upload path), either grant the fixture
+  an Elite entitlement, set the override, or provision a fresh fixture per run — a live-project
   decision, deliberately not made here.
 
 ### Run it
@@ -76,7 +77,7 @@ npm install   # a fresh worktree has no node_modules; ./node_modules/.bin/expo m
 export PATH="$PATH:$HOME/.maestro/bin"
 export MAESTRO_IOS_SIMULATOR_UDID=<a private-simulator UDID; never Simulator.app>
 export MAESTRO_METRO_PORT=8093   # or your own; the script reuses a listener already on this port
-export MAESTRO_ALLOW_PAID_ANALYSIS=1   # required: happy-path/dead-end-offline reach the real, paid analyze-form
+export MAESTRO_ALLOW_PAID_ANALYSIS=1   # the wrapper still gates happy-path/dead-end-offline on it; on a simulator neither reaches analyze-form today (capture skipped, issue #232)
 export MAESTRO_E2E_EMAIL=maestro.e2e.issue203@example.com
 export MAESTRO_E2E_PASSWORD='<the fixture password>'
 npm run e2e:maestro:ios-dev -- happy-path dead-end-offline
@@ -112,8 +113,9 @@ the literal string `"null"` in the running flow. The wrapper now passes each flo
 
 **Zero real `analyze-form` calls (and therefore $0 model spend) were made while producing this
 matrix** — every run stopped at the Record step, before the capture→analyze handoff. `analyze-form`
-IS the real, deployed, paid client today (see the top of this section), so once issue #232 is
-fixed, budget for exactly one live call per `happy-path`/`dead-end-offline` run — the wrapper
+IS the real, deployed, paid client today (see the top of this section), so once a run can
+produce a clip (a real device, or a locally-fixtured Upload path — see the update below), budget
+for exactly one live call per `happy-path`/`dead-end-offline` run — the wrapper
 script enforces and prints this budget (`Selected client endpoint submission budget:
 N ... cap: 2`) before it does anything else.
 
