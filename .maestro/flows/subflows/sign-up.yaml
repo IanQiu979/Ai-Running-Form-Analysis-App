@@ -1,12 +1,17 @@
 # Subflow — signs up a brand-new "stranger" via email/password and lands on Home.
 #
-# CURRENTLY BLOCKED on the EAS development build — GitHub issue #230 (2026-09-19): the enabled
-# `auth-email-submit` ("Create account") button is reachable in the accessibility tree but not
-# painted in the viewport after Turnstile succeeds, so this subflow cannot reach Home there. No
-# caller in this directory uses it right now (see subflows/sign-in.yaml, used instead by
-# happy-path.yaml/dead-end-offline.yaml) — kept as-is, not deleted, since it documents real,
-# previously-verified flow-drift fixes (the stable-ID scroll in particular) and is correct again
-# the moment #230 is fixed. Evidence: docs/evidence/issue-203/signup-cta-unreachable.md.
+# REPAIRED 2026-09-20 — GitHub issue #230 was a test-harness artefact, not an app defect. The
+# "unpainted" Create account button was sitting under iOS 26's "Use Strong Password?" panel
+# (415 pt, the keyboard window), which XCTest screenshots — the ones Maestro takes — do not
+# render, while Maestro judges visibility by window bounds and so never scrolled. The same panel
+# swallows every typed character after the first. Both are handled below, at the password
+# field; nothing in app/(auth)/sign-in.tsx changed. Evidence and the full diagnosis:
+# docs/evidence/issue-203/signup-cta-unreachable.md. Verified live on the EAS development build
+# (dbd22da6, iPhone 17 / iOS 26.5 simulator) on 2026-09-20: a fresh stranger reaches Home.
+#
+# happy-path.yaml / dead-end-offline.yaml still sign in to the fixture account via
+# subflows/sign-in.yaml by choice (one account, History cleaned per run, no auth.users growth) —
+# this subflow is the stranger path, for a sign-up leg of its own.
 #
 # Not a standalone test (excluded from ../../config.yaml's `flows/*.yaml` glob). The caller is
 # expected to have been freshly installed and launched by the iOS dev-build wrapper — a real
@@ -65,11 +70,45 @@ appId: com.ian.paceanalysisai
 - tapOn: "Email"
 - inputText: "${output.e2eEmail}"
 - tapOn: "Password"
+
+# Focusing the EMPTY `newPassword` field makes iOS 26 present its "Use Strong Password?" panel in
+# place of the keyboard: 415 pt tall against the keyboard's 308 pt, opaque to the accessibility
+# tree (no labels, so no selector can name it), invisible in Maestro's XCTest screenshots, and it
+# swallows every typed character after the first — `inputText` leaves the field holding one
+# bullet and a later submit fails "Password must be at least 8 characters". Its close X does
+# accept an XCTest tap (unlike the synthetic clicks docs/status.md Known Issue #38 tried), so
+# dismiss it BEFORE typing. Detection is by proxy: the keyboard's own return key (`Go`, from the
+# field's returnKeyType) is in the tree only when the real keyboard is up. The X's location is
+# iPhone 17 geometry (the panel occupies y 459–874 of 874, its X centred near x 363, y 508 pt) —
+# a different simulator model needs this point re-measured with `maestro hierarchy`. Guarded so a
+# simulator with "Suggest Strong Passwords" already off never taps into the form.
+- waitForAnimationToEnd:
+    timeout: 3000
+- runFlow:
+    when:
+      notVisible:
+        id: "Go"
+    commands:
+      - tapOn:
+          point: "90%,58%"
+      - extendedWaitUntil:
+          visible:
+            id: "Go"
+          timeout: 10000
 - inputText: "${output.e2ePassword}"
+
+# Drop the keyboard before touching anything else. With `keyboardShouldPersistTaps="handled"` the
+# consent checkbox and the widget leave it up, and a keyboard-shrunk viewport is exactly what put
+# the CTA out of reach under the panel. A tap on the title — plain Text, not a responder — hands
+# the touch to the ScrollView, which blurs the field; the form then re-centres with every control
+# visible on an iPhone 17. Reproduced 2026-09-20: the same tap on a gap in the form cleared the
+# keyboard window and put "Create account" back on screen.
+- tapOn: "Get started"
 
 # The 16+ / Terms consent checkbox always gates account creation. Cloudflare can either present
 # its visible challenge or auto-resolve, so tap the challenge only when it is actually present.
-# Its success state expands the form and can push the submit button below the viewport.
+# The widget is a fixed 70 pt box in both states (components/turnstile-widget.tsx) — "Success!"
+# does not grow the form.
 - tapOn:
     id: "signup-consent"
 - runFlow:
@@ -80,11 +119,10 @@ appId: com.ian.paceanalysisai
 - extendedWaitUntil:
     visible: "Success!"
     timeout: 45000
-# The accessibility tree can report the expanded CTA as visible before it is painted in the
-# viewport. This background-only upward swipe forces the form to reveal its lower controls.
-- swipe:
-    start: 50%, 88%
-    end: 50%, 60%
+# The whole form (header, two fields, consent, widget, two buttons, footer) fits an iPhone 17
+# with the keyboard down and is vertically centred; on a shorter viewport the ScrollView scrolls
+# and this reaches the CTA. There is deliberately no blind background swipe here any more: the
+# old `swipe` from 88% landed on the keyboard window whenever one was up, and did nothing.
 - scrollUntilVisible:
     element:
       id: "auth-email-submit"
@@ -98,6 +136,14 @@ appId: com.ian.paceanalysisai
 - takeScreenshot: "node_modules/.cache/maestro-ios-dev/auth-email-submit-ready"
 - tapOn:
     id: "auth-email-submit"
+
+# iOS's Keychain "Save Password?" sheet can follow a real credential submission (it does on
+# sign-in — see subflows/sign-in.yaml); dismiss it if it appears so it cannot sit over Home.
+- runFlow:
+    when:
+      visible: "Save Password?"
+    commands:
+      - tapOn: "Not Now"
 
 # Supabase email confirmation is disabled for this MVP (supabase/config.toml) — the session
 # should exist immediately, and app/_layout.tsx's Stack.Protected should swap straight from

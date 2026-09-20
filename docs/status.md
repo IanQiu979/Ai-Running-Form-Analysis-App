@@ -970,12 +970,14 @@ milestone "done" criteria.
     `.maestro/README.md`'s 2026-07-25 update for the full diagnosis and how to get a clean run.
     **UPDATE 2026-09-20 (issue #203):** a repeatable command now exists (`npm run
     e2e:maestro:ios-dev`, against the EAS development build and the live project) and the
-    accessibility-bridge flakiness is no longer what blocks the pass — two real app bugs are:
-    sign-up's "Create account" button is not painted after Turnstile succeeds (issue #230; the
-    flows sign in with a fixture account instead), and `expo-camera`'s `record()` throws
-    `SimulatorNotSupported` on the Simulator (issue #232), which stops both runnable flows before
-    the capture→analyze handoff. Still not a passing gate. `.maestro/README.md`'s 2026-09-20
-    section owns the fixture account, run command and pass/fail matrix.
+    accessibility-bridge flakiness is no longer what blocks the pass — one real app bug is:
+    `expo-camera`'s `record()` throws `SimulatorNotSupported` on the Simulator (issue #232), which
+    stops both runnable flows before the capture→analyze handoff. Sign-up's "Create account"
+    button looking unpainted after Turnstile (issue #230) was a harness artefact — iOS 26's "Use
+    Strong Password?" panel over the CTA, invisible in Maestro's XCTest screenshots — and
+    `subflows/sign-up.yaml` was repaired and verified live on 2026-09-20 (the flows still sign in
+    with a fixture account, by choice). Still not a passing gate. `.maestro/README.md`'s
+    2026-09-20 section owns the fixture account, run command and pass/fail matrix.
     **UPDATE 2026-09-20 (issue #232 closed):** the app now catches that rejection and shows a
     `<ConfirmDialog>` pointing at Upload (`Copy.capture.recordingError.*`), and both flows stop
     cleanly at the capture chooser with a `capture skipped: simulator` step instead of failing —
@@ -1251,8 +1253,10 @@ milestone "done" criteria.
     Getting there required disabling iOS Settings → General → AutoFill & Passwords → **Suggest Strong
     Passwords** in the simulator: the "Use Strong Password?" sheet intercepts the password field after
     the first character and does not respond to synthetic taps. Worth knowing for any future
-    simulator-driven auth run. Note also that the Turnstile token is short-lived — solve the challenge
-    and submit within a few minutes, or the button silently does nothing because the token was cleared.
+    simulator-driven auth run (an XCTest tap on its close X does work —
+    `.maestro/flows/subflows/sign-up.yaml` dismisses it in-flow since 2026-09-20, issue #230). Note
+    also that the Turnstile token is short-lived — solve the challenge and submit within a few
+    minutes, or the button silently does nothing because the token was cleared.
 
     ~~**One open follow-up, not a regression in this change:** on the successful sign-up the app
     stayed on the sign-up form instead of entering the app, even though the server had issued a
@@ -2115,9 +2119,9 @@ still standing between here and a public/TestFlight release:
   local Postgres integration proof for it could not be run this session (Docker was stopped) —
   report that proof as **unproven**, never as passing.
 - **Known Issue #31** — `.maestro/` E2E flows have a repeatable dev-build command (2026-09-20) but
-  are not yet a clean pass: blocked by app bug #230 (sign-up CTA), and the capture→analyze leg is
-  skipped on a simulator (#232 is fixed in-app, but the Simulator has no camera and no fixture
-  clip is checked in).
+  are not yet a clean pass: #230 (sign-up CTA) was a harness artefact, fixed in the flow
+  2026-09-20, and the capture→analyze leg is skipped on a simulator (#232 is fixed in-app, but
+  the Simulator has no camera and no fixture clip is checked in).
 - **Known Issue #24/#34** — several blocks of uncertified copy across Settings, consent, paywall,
   history, and password-reset screens still need `ux-copywriter`/Ian review.
 - [`docs/blocked-on-apple.md`](blocked-on-apple.md) — everything gated on the Apple Developer

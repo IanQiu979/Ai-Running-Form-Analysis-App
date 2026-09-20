@@ -17,12 +17,19 @@ first; the rest of the file is kept for its still-accurate flow-by-flow history.
 
 ### Fixture account, sign-in instead of sign-up
 
-`subflows/sign-up.yaml` cannot currently complete on this build: the enabled `auth-email-submit`
-("Create account") button is reachable in the accessibility tree but not painted in the viewport
-after Turnstile succeeds — a real app bug, **GitHub issue #230**, evidence in
-`docs/evidence/issue-203/signup-cta-unreachable.md`. Every flow that only needs an authenticated
-session (`happy-path.yaml`, `dead-end-offline.yaml`) now signs in via `subflows/sign-in.yaml`
-instead, using a pre-provisioned synthetic fixture account:
+`subflows/sign-up.yaml` stopped completing on this build on 2026-09-19: the enabled
+`auth-email-submit` ("Create account") button was reachable in the accessibility tree but not
+painted in the viewport after Turnstile succeeded — filed as **GitHub issue #230** and, on
+2026-09-20, confirmed to be a **test-harness artefact, not an app defect**: iOS 26's "Use Strong
+Password?" panel (415 pt, the keyboard window, which Maestro's XCTest screenshots do not render)
+sat over the CTA, Maestro judged the CTA "visible" by window bounds and never scrolled, and the
+same panel swallowed all but the first typed password character. `sign-up.yaml` now closes the
+panel before typing and drops the keyboard before the consent tap, and reached Home live on this
+build; the diagnosis and every screenshot are in
+`docs/evidence/issue-203/signup-cta-unreachable.md` (PNGs under `docs/evidence/issue-230/`).
+Every flow that only needs an authenticated session (`happy-path.yaml`, `dead-end-offline.yaml`)
+still signs in via `subflows/sign-in.yaml` — by choice now, not necessity — using a
+pre-provisioned synthetic fixture account:
 
 - Email: `maestro.e2e.issue203@example.com` (`raw_user_meta_data.synthetic_fixture = true`,
   `fixture_purpose = "maestro-issue-203"` — query `auth.users` on the live project to confirm it
@@ -47,8 +54,10 @@ instead, using a pre-provisioned synthetic fixture account:
   ACCOUNT, not local app state — a reused fixture account skips straight to phase 2 on every run
   after its first, even though the harness reinstalls the app fresh each time.
 - `subflows/sign-in.yaml` also dismisses iOS's own Keychain "Save Password?" sheet, which fires
-  on a real sign-in submit (distinct from the "Use Strong Password?" sheet that fires on sign-UP
-  and needs a Simulator Settings toggle instead — see the 2026-07-13 note further down).
+  on a real sign-in submit (distinct from the "Use Strong Password?" panel that fires on focusing
+  sign-UP's empty password field — `sign-up.yaml` closes that one in-flow since 2026-09-20; the
+  Settings → General → AutoFill & Passwords → Suggest Strong Passwords toggle `docs/status.md`
+  Known Issue #38 describes is no longer required).
 - **A reused account accumulates analyses, so `happy-path.yaml` cleans History first.** Its
   History leg deletes one row and asserts "No analyses yet", which only holds with exactly one
   persisted analysis — but `dead-end-offline.yaml` ends on the result readout without deleting
@@ -108,7 +117,7 @@ the literal string `"null"` in the running flow. The wrapper now passes each flo
 |---|---|---|
 | `happy-path.yaml` | **FAIL** | Real, reproducible app/SDK bug — GitHub **issue #232**: `expo-camera`'s `record()` throws `SimulatorNotSupported` on this Simulator/SDK combination, so the in-app Record path can never start a clip. Confirmed deterministic across separate fresh-install runs (same exact native error each time), not the iOS-accessibility-bridge flakiness documented below. Everything BEFORE that step — sign-in, Home, consent, the camera permission soft-ask and OS dialog — passed cleanly after the flow-drift fixes in this task. |
 | `dead-end-offline.yaml` | **FAIL** | Same root cause as above (issue #232) — this flow also uses the in-app Record path and fails at the identical step. |
-| `dead-end-quota-exhausted.yaml` | Not run | Needs its own seeded quota-exhausted fixture account (`MAESTRO_QUOTA_EXHAUSTED_EMAIL`/`_PASSWORD`, `MAESTRO_ALLOW_FIXTURE_FLOWS=1`), which was out of this task's scope to provision. Unaffected by issues #230/#232 (it never reaches capture). |
+| `dead-end-quota-exhausted.yaml` | Not run | Needs its own seeded quota-exhausted fixture account (`MAESTRO_QUOTA_EXHAUSTED_EMAIL`/`_PASSWORD`, `MAESTRO_ALLOW_FIXTURE_FLOWS=1`), which was out of this task's scope to provision. Unaffected by issue #232 (it never reaches capture). |
 | `dead-end-analysis-failure.yaml` | Hard-blocked | No deterministic failure-injection contract exists yet for the real `analyze-form` endpoint (unchanged from the 2026-07-13 analysis below); the wrapper script refuses to run it at all. |
 
 **Zero real `analyze-form` calls (and therefore $0 model spend) were made while producing this

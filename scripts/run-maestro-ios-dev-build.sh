@@ -39,8 +39,8 @@ Environment:
   MAESTRO_OUTPUT_DIR                  Run-scoped JUnit and debug-artifact directory
   MAESTRO_ALLOW_PAID_ANALYSIS=1       Required for each live analysis flow
   MAESTRO_ALLOW_FIXTURE_FLOWS=1       Required for the quota fixture flow
-  MAESTRO_E2E_EMAIL/PASSWORD          Required for happy-path/dead-end-offline (sign-up is
-                                      blocked by issue #230 on this build; see README)
+  MAESTRO_E2E_EMAIL/PASSWORD          Required for happy-path/dead-end-offline (both sign in to
+                                      the fixture account by design; see README)
 
 The caller's MAESTRO_* credential variables are preserved for Maestro interpolation.
 EOF
@@ -172,7 +172,7 @@ validate_flow_policy() {
       ;;
     happy-path.yaml|dead-end-offline.yaml)
       [[ "${MAESTRO_ALLOW_PAID_ANALYSIS:-}" == "1" ]] || fail "$flow_name submits a live analysis and requires MAESTRO_ALLOW_PAID_ANALYSIS=1."
-      [[ -n "${MAESTRO_E2E_EMAIL:-}" && -n "${MAESTRO_E2E_PASSWORD:-}" ]] || fail "$flow_name signs in to a pre-provisioned fixture account (issue #230 blocks sign-up on this build) and requires MAESTRO_E2E_EMAIL and MAESTRO_E2E_PASSWORD."
+      [[ -n "${MAESTRO_E2E_EMAIL:-}" && -n "${MAESTRO_E2E_PASSWORD:-}" ]] || fail "$flow_name signs in to a pre-provisioned fixture account (see .maestro/README.md) and requires MAESTRO_E2E_EMAIL and MAESTRO_E2E_PASSWORD."
       ;;
   esac
 }

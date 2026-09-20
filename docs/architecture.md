@@ -3908,14 +3908,15 @@ diagnosis.
 and the live production project through `npm run e2e:maestro:ios-dev`
 (`scripts/run-maestro-ios-dev-build.sh`, whose preflight is behavior-checked by
 `scripts/test-run-maestro-ios-dev-build.sh` inside `npm test`). `happy-path` and
-`dead-end-offline` sign in with a fixture account via the new `subflows/sign-in.yaml` (sign-up is
-blocked by app bug #230), `happy-path` clears History first via `subflows/clear-history.yaml`, and
-both stop cleanly at the capture chooser with an explicit `capture skipped: simulator` step
-(issue #232, closed 2026-09-20: the iOS Simulator has no camera, `recordAsync` rejects with
-`SimulatorNotSupported`, and no fixture clip is checked in to drive Upload instead — so the
-capture→analyze→History leg is untested on a simulator). `.maestro/README.md`'s 2026-09-20
-section owns the fixture account, the run command, its environment variables and the per-flow
-pass/fail matrix — do not copy them here.
+`dead-end-offline` sign in with a fixture account via the new `subflows/sign-in.yaml` (by choice —
+issue #230, which first forced it, was a harness artefact around iOS 26's "Use Strong Password?"
+panel and `subflows/sign-up.yaml` reaches Home again since 2026-09-20), `happy-path` clears
+History first via `subflows/clear-history.yaml`, and both stop cleanly at the capture chooser
+with an explicit `capture skipped: simulator` step (issue #232, closed 2026-09-20: the iOS
+Simulator has no camera, `recordAsync` rejects with `SimulatorNotSupported`, and no fixture clip
+is checked in to drive Upload instead — so the capture→analyze→History leg is untested on a
+simulator). `.maestro/README.md`'s 2026-09-20 section owns the fixture account, the run command,
+its environment variables and the per-flow pass/fail matrix — do not copy them here.
 
 ## Current — local Supabase stack (issue #92, 2026-07-25)
 

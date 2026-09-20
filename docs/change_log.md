@@ -5,6 +5,33 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-20 (issue #230 — the "unreachable" sign-up CTA was a harness artefact)
+
+- **`subflows/sign-up.yaml` reaches Home again on the EAS development build; no app code
+  changed.** Issue #230 ("Create account" enabled in the accessibility tree but not painted after
+  Turnstile succeeds) was reproduced on a fresh iPhone 17 / iOS 26.5 simulator and traced, not to
+  the sign-up screen's layout, but to iOS 26's "Use Strong Password?" panel: focusing the empty
+  `newPassword` field presents it in the keyboard window, 415 pt tall against the keyboard's
+  308 pt; `KeyboardAvoidingView` pads for it correctly, the `ScrollView` scrolls correctly, and the
+  CTA sits under the panel. Maestro's XCTest screenshots do not render the keyboard window (so it
+  looked like blank canvas), Maestro judges visibility by window bounds (so `scrollUntilVisible`
+  never scrolled), and the flow's blind background swipe and tap both landed on the panel. The same
+  panel swallows every typed character after the first, a second blocker that only surfaces once
+  the CTA is reached. The subflow now closes the panel before typing (guarded on the keyboard's
+  return key being absent from the tree), drops the keyboard with a tap on the title so the form
+  re-centres, and no longer swipes the background. Verified live: a fresh stranger reached Home
+  and `maestro.e2e+1789873122029@example.com` landed in the live project. The overflow-centring
+  theory (`flexGrow: 1` + `justifyContent: 'center'` clipping both ends) was checked and refuted:
+  the whole form fits and centres on an iPhone 17 with the keyboard down, and scrolls when a
+  keyboard shrinks the viewport. `docs/evidence/issue-203/signup-cta-unreachable.md` carries the
+  confirmed cause (its original "Likely cause" is kept, marked superseded) and
+  `docs/evidence/issue-230/` the screenshots, including the `simctl` capture that shows the panel.
+- **Every "#230 blocks sign-up" note corrected** in `.maestro/README.md`, `happy-path.yaml`,
+  `dead-end-offline.yaml`, `subflows/sign-in.yaml`, `scripts/run-maestro-ios-dev-build.sh` (its
+  usage text and credential-gate message; the harness behaviour test's expectation updated with
+  it) and `docs/status.md` Known Issue #31. Those two flows keep signing in to the fixture account
+  by choice — one account instead of an `auth.users` row per run — not because sign-up is blocked.
+
 ## 2026-09-20 (Maestro E2E against the EAS development build — issue #203)
 
 - **`happy-path.yaml` and `dead-end-offline.yaml` now sign in instead of signing up.** Sign-up is
