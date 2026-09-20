@@ -193,7 +193,9 @@ describe('SettingsScreen rows (V23-12)', () => {
   it('Privacy: the one summary line, the Consent row with its action, and the policy link row', async () => {
     await renderSettled();
 
-    expect(screen.getByText('Your frames are stored privately and removed when you delete them.')).toBeTruthy();
+    expect(screen.getByText(
+        'Frames are processed by Anthropic to produce your feedback, the original video never leaves your device, and frames are stored privately until you delete them.',
+      )).toBeTruthy();
     expect(screen.getByText('Consent')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
     // Not on the page, but a live disclosure: one more row, and the whole row is the link.

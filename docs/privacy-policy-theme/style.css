@@ -7,6 +7,36 @@
  * `Ink`/`Type` edit that could visibly drift the two.
  */
 
+/*
+ * Self-hosted webfonts (SIL Open Font License), vendored into `./fonts/` next to this file and
+ * served from the Pages origin — the layout deliberately loads nothing from fonts.googleapis.com
+ * or fonts.gstatic.com. Latin subsets only; the policy is published in English. Inter Tight is a
+ * single variable file covering the 400–600 range the page uses.
+ */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/barlow-condensed-700-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('./fonts/barlow-condensed-800-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('./fonts/inter-tight-variable-latin.woff2') format('woff2');
+}
+
 :root {
   --ink-bg: #0a0a0a;
   --ink-bg-raised: #141414;

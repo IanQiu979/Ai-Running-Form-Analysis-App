@@ -11,15 +11,20 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   the single centred focus (bumped to `Type.h1`), with its one secondary line beneath and the tab
   bar unchanged at the foot.
 - **Settings**: the Privacy card's two long inline paragraphs (`Copy.settings.privacy.body` /
-  `deleteNote`) are gone, replaced by one short summary line
-  (`Copy.settings.privacy.summary`) — the full disclosure lives behind the existing "Full privacy
-  policy" link row instead of being repeated inline. The card already held to three type sizes
+  `deleteNote`) are gone, replaced by one summary sentence (`Copy.settings.privacy.summary`)
+  that still names the four consent facts the gate's "Privacy details in Settings" link sends the
+  user here for — Anthropic processing, video never leaving the device, private storage, removal
+  on delete — while the full disclosure lives behind the existing "Full privacy policy" link row
+  instead of being repeated inline. The card already held to three type sizes
   (section label, row title/value, secondary note); this pass keeps it there while cutting the
   prose.
 - **Published privacy policy**: the GitHub Pages build (`.github/workflows/privacy-policy-pages.yml`)
   now stages a custom dark, square-cornered layout and stylesheet
   (`docs/privacy-policy-theme/default.html` + `style.css`, hand-transcribed from
-  `constants/v23-theme.ts`'s `Ink`/`Type`/`Font`) instead of the generic `jekyll-theme-primer`. The
+  `constants/v23-theme.ts`'s `Ink`/`Type`/`Font`) instead of the generic `jekyll-theme-primer`.
+  Barlow Condensed and Inter Tight are self-hosted (`docs/privacy-policy-theme/fonts/`, OFL, latin
+  subsets) and staged with the stylesheet, so the published page makes zero third-party requests —
+  a privacy policy must not itself ping Google Fonts. The
   app itself has no in-app policy route — Settings opens `PRIVACY_POLICY_URL` in the system
   browser — so the published page is the surface this item covers.
 - **Result page**: the drawn annotation overlay (`components/annotation-lines.tsx` — the ground

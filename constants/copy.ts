@@ -852,9 +852,13 @@ export const Copy = {
     },
     privacy: {
       // Captain's 2026-09-20 polish pass: the two long paragraphs this card used to carry are
-      // gone — one short orientation line stays here, and the full disclosure lives behind the
-      // `privacyPolicy` link row below, not repeated inline.
-      summary: 'Your frames are stored privately and removed when you delete them.',
+      // gone — one sentence stays here, and the full disclosure lives behind the `privacyPolicy`
+      // link row below, not repeated inline. That one sentence still has to name the facts the
+      // consent gate's "Privacy details in Settings" link (`consent.upload.link.privacy`) sends
+      // the user here for: Anthropic processing, video never leaving the device, private
+      // storage, removal on delete.
+      summary:
+        'Frames are processed by Anthropic to produce your feedback, the original video never leaves your device, and frames are stored privately until you delete them.',
     },
 
     // ----------------------------------------------------------------------------------------

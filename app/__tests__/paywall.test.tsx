@@ -117,7 +117,7 @@ describe('PaywallScreen artboards', () => {
 // the tier itself rather than to the render position.
 describe('PaywallScreen tier ordering (current plan first)', () => {
   function orderedTierIds() {
-    return screen.getAllByTestId(/^paywall-tier-/).map((node) => node.props.testID);
+    return screen.getAllByTestId(/^paywall-tier-(free|pro|elite)$/).map((node) => node.props.testID);
   }
 
   it('Free is current: free, pro, elite — the plain ladder order', async () => {
