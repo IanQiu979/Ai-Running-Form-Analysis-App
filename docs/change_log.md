@@ -47,9 +47,12 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   pick between two new `Copy.capture.recordingError` strings, both routed through the existing
   `<ConfirmDialog>` — never a native `Alert`. The simulator case points the user at Upload
   ("Recording is not available here" / "The simulator has no camera..."); any other native
-  rejection gets a generic "Recording could not start. Try again." Either dialog's primary action
-  clears the error and `router.replace('/capture')`s back to the capture chooser, where Upload
-  lives. On a real device, behavior is unchanged (recording works and the dialog is never shown).
+  rejection gets a generic "Recording could not start. Try again." The simulator dialog's single
+  action ("Choose Upload") clears the error and pops back to the capture chooser that pushed the
+  recorder (`router.back()`, falling back to `router.replace('/capture')` when there is no history),
+  where Upload lives; the generic dialog's primary ("Try again") only clears the error and keeps the
+  user on the recorder, with "Choose Upload" as its secondary. On a real device, behavior is
+  unchanged (recording works and the dialog is never shown).
   **Maestro**: `happy-path.yaml` and `dead-end-offline.yaml` (both simulator-only per
   `scripts/run-maestro-ios-dev-build.sh`) no longer tap into `source-card-record` at all — no
   fixture clip is checked into the repo to drive Upload instead (uploaded media is sensitive per

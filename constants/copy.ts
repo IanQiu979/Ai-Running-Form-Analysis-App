@@ -1255,13 +1255,14 @@ export const Copy = {
     recordingError: {
       simulatorUnsupported: {
         title: 'Recording is not available here',
-        body: 'The simulator has no camera. Use a physical phone to record, or choose Upload to analyse an existing clip.',
+        body: 'The simulator has no camera. Use a physical phone to record, or choose Upload to analyze an existing clip.',
         cta: 'Choose Upload',
       },
       recordingFailed: {
         title: 'Recording is not available',
         body: 'Recording could not start. Try again.',
-        cta: 'Choose Upload',
+        cta: 'Try again',
+        secondary: 'Choose Upload', // same string as simulatorUnsupported.cta — shared on purpose.
       },
     },
   },

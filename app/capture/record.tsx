@@ -113,6 +113,12 @@ export default function RecordScreen() {
     }
   }
 
+  function leaveForUpload() {
+    setRecordingError(null);
+    if (router.canGoBack()) router.back();
+    else router.replace('/capture');
+  }
+
   async function handleRecordPress() {
     const camera = cameraRef.current;
     if (!camera || !cameraReady || busy) return;
@@ -286,16 +292,19 @@ export default function RecordScreen() {
             ? Copy.capture.recordingError.simulatorUnsupported.body
             : Copy.capture.recordingError.recordingFailed.body
         }
-        primary={{
-          label:
-            recordingError === 'simulatorUnsupported'
-              ? Copy.capture.recordingError.simulatorUnsupported.cta
-              : Copy.capture.recordingError.recordingFailed.cta,
-          onPress: () => {
-            setRecordingError(null);
-            router.replace('/capture');
-          },
-        }}
+        primary={
+          recordingError === 'simulatorUnsupported'
+            ? { label: Copy.capture.recordingError.simulatorUnsupported.cta, onPress: leaveForUpload }
+            : {
+                label: Copy.capture.recordingError.recordingFailed.cta,
+                onPress: () => setRecordingError(null),
+              }
+        }
+        secondary={
+          recordingError === 'recordingFailed'
+            ? { label: Copy.capture.recordingError.recordingFailed.secondary, onPress: leaveForUpload }
+            : undefined
+        }
       />
     </View>
   );
