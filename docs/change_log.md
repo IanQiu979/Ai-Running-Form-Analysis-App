@@ -5,6 +5,37 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-20 (interior polish — five captain-directed fixes from his phone test)
+
+- **History empty state**: dropped the dashed 120 pt box card. The "No analyses yet" line is now
+  the single centred focus (bumped to `Type.h1`), with its one secondary line beneath and the tab
+  bar unchanged at the foot.
+- **Settings**: the Privacy card's two long inline paragraphs (`Copy.settings.privacy.body` /
+  `deleteNote`) are gone, replaced by one summary sentence (`Copy.settings.privacy.summary`)
+  that still names the four consent facts the gate's "Privacy details in Settings" link sends the
+  user here for — Anthropic processing, video never leaving the device, private storage, removal
+  on delete — while the full disclosure lives behind the existing "Full privacy policy" link row
+  instead of being repeated inline. The card already held to three type sizes
+  (section label, row title/value, secondary note); this pass keeps it there while cutting the
+  prose.
+- **Published privacy policy**: the GitHub Pages build (`.github/workflows/privacy-policy-pages.yml`)
+  now stages a custom dark, square-cornered layout and stylesheet
+  (`docs/privacy-policy-theme/default.html` + `style.css`, hand-transcribed from
+  `constants/v23-theme.ts`'s `Ink`/`Type`/`Font`) instead of the generic `jekyll-theme-primer`.
+  Barlow Condensed and Inter Tight are self-hosted (`docs/privacy-policy-theme/fonts/`, OFL, latin
+  subsets) and staged with the stylesheet, so the published page makes zero third-party requests —
+  a privacy policy must not itself ping Google Fonts. The
+  app itself has no in-app policy route — Settings opens `PRIVACY_POLICY_URL` in the system
+  browser — so the published page is the surface this item covers.
+- **Result page**: the drawn annotation overlay (`components/annotation-lines.tsx` — the ground
+  rule, dashed posture line, landing marker) is completely removed, component and tests included.
+  `app/result/[id].tsx`'s hero still draws the duotone frame and the vignette; nothing else on the
+  page changed.
+- **Paywall**: the tier ladder now renders the confirmed current-tier card FIRST (`orderedTierKeys`
+  in `app/paywall.tsx`), the other two following in their usual order; the mark count (1/2/3 rules)
+  stays pinned to the tier itself, not the render position, and every upgrade/suppression rule
+  (no "Upgrade to Pro" from Elite, etc.) is unchanged.
+
 ## 2026-09-20 (13–17 with parent-or-guardian consent at sign-up — cross-app decision IanQiu979/Ai-Customized-Running-Plan-App#95, mirroring that repo's #123)
 
 - **The sign-up form's "I am 16+ and agree to the Terms and Privacy Policy" line is now two

@@ -108,7 +108,7 @@ real privacy regime, not just GDPR-by-analogy. Flag for counsel before public la
       `https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/`, from
       `docs/privacy-policy.md` via `.github/workflows/privacy-policy-pages.yml` (the repo is
       public now, so the earlier "separate public repo" hosting plan was unnecessary; the
-      workflow publishes that one file, not `docs/`). Controller: Ian Qiu, sole trader,
+      workflow publishes that file and its `docs/privacy-policy-theme/`, not `docs/`). Controller: Ian Qiu, sole trader,
       Thailand; contact `i78979848@gmail.com`. In-app deletion (Guideline 5.1.1(v)) shipped
       before this (issue #58), so the rights section names the History and Settings screens.
 - [ ] **That URL attached to the App Store Connect record** — Apple-gated,

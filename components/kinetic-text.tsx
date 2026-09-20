@@ -19,7 +19,7 @@
  *    word to fit its line rather than breaking or clipping it.
  *  - Movement is `translateY` + `opacity` only: transforms and opacity are the two properties
  *    Reanimated drives on the UI thread without a layout pass, the same discipline
- *    `components/pace-reveal.tsx` and `components/annotation-lines.tsx` already document.
+ *    `components/pace-reveal.tsx` already documents.
  *  - Trailing spaces are preserved by rendering the separator as part of each word rather than as a
  *    gap, so wrapped lines break exactly where the text would have broken unanimated.
  *
@@ -35,7 +35,7 @@
  * sequencing off it is never left hanging.
  *
  * `play={false}` renders every word already at rest with no animation scheduled at all — the
- * re-open/static case, same contract as `<AnnotationLines>`.
+ * re-open/static case, same contract as `components/pace-reveal.tsx`.
  */
 import { useEffect, useMemo } from 'react';
 import { StyleSheet, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';

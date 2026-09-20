@@ -17,10 +17,10 @@
  * frame is drawn through SVG here. `GRADE_OPACITY` is the wash's one lever, kept low so the
  * subject stays legible.
  *
- * The three annotation marks (`components/annotation-lines.tsx`) and the vignette are drawn by
- * the result screen as siblings over this frame, not by this component: the page draws them
- * over the placeholder gradient too, when there is no image at all, so they belong to the hero
- * box rather than to the image.
+ * The vignette is drawn by the result screen as a sibling over this frame, not by this component:
+ * the page draws it over the placeholder gradient too, when there is no image at all, so it
+ * belongs to the hero box rather than to the image. (The drawn annotation marks that used to sit
+ * here were removed 2026-09-20 — captain's phone test.)
  */
 import { StyleSheet, View } from 'react-native';
 import Svg, { Defs, FeColorMatrix, Filter, Image as SvgImage } from 'react-native-svg';

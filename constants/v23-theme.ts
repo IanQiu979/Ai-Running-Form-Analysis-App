@@ -27,6 +27,10 @@
  * and stays under 3:1, and `danger` clears 4.5:1 as text on both surfaces.
  *
  * Naming is by role, never by appearance, so a value can move without a call site changing.
+ *
+ * ONE HAND-SYNCED COPY EXISTS OUTSIDE THE APP: `docs/privacy-policy-theme/style.css` transcribes
+ * `Ink`/`Type`/`Font` for the published privacy-policy page (no shared build step reaches a
+ * static Jekyll page). An edit here that could visibly drift the two is re-checked there.
  */
 import { Platform, type TextStyle } from 'react-native';
 

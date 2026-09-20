@@ -1,0 +1,26 @@
+<!--
+  Custom Jekyll layout for the published privacy policy (issue #202; captain's 2026-09-20 polish
+  pass, item 3: "wherever the policy renders in-app ... gets the app's dark palette, type and
+  square style"). The app has no in-app route for the policy — Settings opens
+  `PRIVACY_POLICY_URL` in the system browser (see `app/settings.tsx`'s `openPrivacyPolicy`) — so
+  this IS that item: the published GitHub Pages page, themed to match `constants/v23-theme.ts`
+  instead of the generic `jekyll-theme-primer` it used before. Staged into `_pages_src/_layouts/`
+  by `.github/workflows/privacy-policy-pages.yml`, alongside `style.css` and the vendored
+  `fonts/` from this same directory. The webfonts are self-hosted so the published page makes no
+  third-party request — a privacy policy that pinged Google Fonts on every visit would disclose
+  nothing about it and contradict itself.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title }}</title>
+  <link rel="stylesheet" href="{{ '/assets/style.css' | relative_url }}">
+</head>
+<body>
+  <main class="policy">
+    {{ content }}
+  </main>
+</body>
+</html>

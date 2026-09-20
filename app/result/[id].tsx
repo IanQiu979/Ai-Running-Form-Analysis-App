@@ -22,13 +22,12 @@
  *
  * THE HERO (V23-08): the stored frame is the first thing on the screen — full-bleed, edge to
  * edge, reaching the very top of the device with no safe-area inset above it, at the page's 3:4
- * box — graded through `<DuotoneFrame>`, with the page's three fixed annotation marks
- * (`<AnnotationLines>`: ground rule, dashed posture line, landing marker) and an inset vignette
- * drawn over it. The marks are art, not measurement: `@shared/pace` carries no coordinate data,
- * and drawing invented per-joint geometry would be exactly the kind of fabrication this screen
- * refuses. When there is no image the page's placeholder gradient takes the frame's place and
- * the marks and vignette still draw over it; while a signed URL is in flight the same box holds a
- * quiet spinner, so the readout below never jumps when the image lands.
+ * box — graded through `<DuotoneFrame>`, with an inset vignette drawn over it. The drawn
+ * annotation marks (`components/annotation-lines.tsx`) were removed 2026-09-20 (captain's phone
+ * test: "completely removed") — the component and its tests are gone, not just unmounted. When
+ * there is no image the page's placeholder gradient takes the frame's place and the vignette
+ * still draws over it; while a signed URL is in flight the same box holds a quiet spinner, so the
+ * readout below never jumps when the image lands.
  *
  * MOTION (issue #61): `justAnalyzed` is read straight off the route params and forwarded to
  * `<PaceReadout>` as `firstReveal` — nothing else on this screen branches on it. Both writers of
@@ -52,7 +51,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedRef } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
 
-import { AnnotationLines } from '@/components/annotation-lines';
 import { DuotoneFrame } from '@/components/duotone-frame';
 import { PartialResultBanner } from '@/components/partial-result-banner';
 import { PaceReadout } from '@/components/pace-readout';
@@ -341,11 +339,11 @@ export default function ResultScreen() {
   return (
     <View style={styles.screen}>
       <Animated.ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
-        {/* THE HERO — the page's 3:4 box, first on the screen and edge to edge. Three layers in
+        {/* THE HERO — the page's 3:4 box, first on the screen and edge to edge. Two layers in
             the page's order: the frame (or, with no image, the placeholder gradient; or, while
-            the signed URL is in flight, a spinner in the same box), the fixed annotation marks,
-            and the vignette. One box for all three cases, so the readout below is laid out once
-            and never shoved down when the image lands. */}
+            the signed URL is in flight, a spinner in the same box) and the vignette. One box for
+            all three cases, so the readout below is laid out once and never shoved down when the
+            image lands. */}
         <View style={styles.hero}>
           {heroUri ? (
             <DuotoneFrame testID="result-hero-image" uri={heroUri} accessibilityLabel={Copy.result.hero.altText} />
@@ -377,7 +375,6 @@ export default function ResultScreen() {
           )}
           {heroPending ? null : (
             <>
-              <AnnotationLines testID="result-hero-annotations" />
               <Svg
                 testID="result-hero-vignette"
                 style={StyleSheet.absoluteFill}

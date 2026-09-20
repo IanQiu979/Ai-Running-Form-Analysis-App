@@ -418,7 +418,8 @@ milestone "done" criteria.
     2026-09-19); contact **`i78979848@gmail.com`**; plus the McMillan-certified-coach line.
     Published at `https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/` by
     `.github/workflows/privacy-policy-pages.yml` (Pages Actions source, enabled on the repo; the
-    workflow publishes that one file, not `docs/`), live on the first push to `main` after merge.
+    workflow publishes that file and its `docs/privacy-policy-theme/`, not `docs/` — see
+    `docs/architecture.md`), live on the first push to `main` after merge.
     The separate-public-repo hosting plan below is moot — the repo is public now. In-app deletion
     (Guideline 5.1.1(v)) had already shipped (#58). The Settings screen's "Full privacy policy"
     row opens the URL (captain-certified 2026-09-19; `PRIVACY_POLICY_URL` in `constants/links.ts`);

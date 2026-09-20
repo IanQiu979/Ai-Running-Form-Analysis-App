@@ -54,10 +54,6 @@ import {
 import { useSession } from '@/lib/session-provider';
 import { useAnnounce } from '@/lib/use-announce';
 
-/** The empty state's box (page: `width:120px;height:120px;border:1px dashed #2A2A2A`) — an
- *  outline of where a row would go, not a card with nothing in it. */
-const EMPTY_BOX_SIZE = 120;
-
 type ScreenState =
   | { status: 'loading' }
   | { status: 'error' }
@@ -296,14 +292,8 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
       {state.status === 'ready' && state.items.length === 0 && (
         <>
           <View style={styles.centerBlock}>
-            {/* The page's dashed, unfilled 120 pt box: an outline of where a row would go.
-                Decorative — the copy below carries the whole meaning. */}
-            <View
-              style={styles.emptyBox}
-              testID="history-empty-box"
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            />
+            {/* Captain's 2026-09-20 polish pass: no boxed card — the title is the screen's single
+                centred focus, with its one secondary line beneath. */}
             <Text style={styles.emptyTitle}>{Copy.history.empty.title}</Text>
             <Text style={styles.emptyBody}>{Copy.history.empty.body}</Text>
             {/* `secondary` (the 1 px `line` border), as the page draws it — `accent` is the one
@@ -407,19 +397,10 @@ const styles = StyleSheet.create({
     color: Ink.ink,
     textAlign: 'center',
   },
-  emptyBox: {
-    width: EMPTY_BOX_SIZE,
-    height: EMPTY_BOX_SIZE,
-    borderWidth: Layout.hairline,
-    borderColor: Ink.line,
-    borderStyle: 'dashed',
-    borderRadius: Layout.radius,
-  },
   emptyTitle: {
-    ...Type.h2,
+    ...Type.h1,
     color: Ink.ink,
     textAlign: 'center',
-    marginTop: Space.sm,
   },
   emptyBody: {
     ...Type.body,

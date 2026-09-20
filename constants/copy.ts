@@ -626,7 +626,9 @@ export const Copy = {
       // --- pillar-detail-modal NEW keys end ---
     },
     hero: {
-      altText: 'Running frame with posture and ground lines marked.',
+      // Reworded 2026-09-20 when the drawn annotation overlay was removed: the label describes
+      // only the frame itself, not marks that no longer draw.
+      altText: 'Running frame from your submission.',
     },
     partial: {
       banner: {
@@ -851,9 +853,14 @@ export const Copy = {
       },
     },
     privacy: {
-      body: 'Your original photo or video never leaves your device. A small number of still frames are extracted on your phone, and only those frames are uploaded. They are stored in a private location only you can access, until you delete the analysis or your account. To generate results, the stored frames are sent to Anthropic, our AI provider, to analyze your form.',
-      deleteNote:
-        'Deleting an analysis removes its stored frames immediately. Deleting your account removes everything.',
+      // Captain's 2026-09-20 polish pass: the two long paragraphs this card used to carry are
+      // gone — one sentence stays here, and the full disclosure lives behind the `privacyPolicy`
+      // link row below, not repeated inline. That one sentence still has to name the facts the
+      // consent gate's "Privacy details in Settings" link (`consent.upload.link.privacy`) sends
+      // the user here for: Anthropic processing, video never leaving the device, private
+      // storage, removal on delete.
+      summary:
+        'Frames are processed by Anthropic to produce your feedback, the original video never leaves your device, and frames are stored privately until you delete them.',
     },
 
     // ----------------------------------------------------------------------------------------

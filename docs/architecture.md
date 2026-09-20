@@ -1117,7 +1117,9 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   positioned — `components/__tests__/v23-tab-bar.test.tsx` asserts it on the rendered node's
   flattened style, and `app/(tabs)/__tests__/tab-layout.test.tsx` locks the renderer's bottom
   inset and tab-press contract) and `null` on History, where `app/(tabs)/history.tsx` renders the same
-  `<V23TabBar mode="inline">` as the list footer or pinned under the empty/loading/error column.
+  `<V23TabBar mode="inline">` as the list footer or pinned under the empty/loading/error column
+  (the empty state is the centred `Type.h1` "No analyses yet" line plus one secondary line — the
+  boxed dashed card went 2026-09-20).
   Home pads its ticker `Layout.tabBar.height + 30` above the inset so nothing sits under the bar.
 - **Home** (`app/(tabs)/index.tsx`, `components/home/recent-analysis.tsx`, `components/marquee.tsx`)
   and **History** (`app/(tabs)/history.tsx`, `components/history/history-row.tsx`) lead with the
@@ -1127,13 +1129,14 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   word space and dot inside it (one long `Text` ellipsizes to the clip) and loops a fixed
   `Motion.marqueeLoop`.
 - **Result** (`app/result/[id].tsx`, `components/pace-readout.tsx`, `pillar-detail-modal.tsx`,
-  `partial-result-banner.tsx`, `result-disclaimer.tsx`, `duotone-frame.tsx`,
-  `annotation-lines.tsx`). The hero box is 3:4 at full width and reaches the top of the device;
-  `<DuotoneFrame>` draws the signed frame through `react-native-svg`'s `Image` with an
-  `FeColorMatrix type="saturate" values="0"` filter (the page's "duotone grade" — greyscale,
-  shadows washed toward `Ink.bg`), `<AnnotationLines>` is the page's SVG verbatim (fixed
-  geometry, `viewBox 0 0 393 524`, `preserveAspectRatio="none"`) and a radial vignette sits over
-  both. The readout is the Overall block plus four nested `SquareCard` pillar rows with a 2 px
+  `partial-result-banner.tsx`, `result-disclaimer.tsx`, `duotone-frame.tsx`). The hero box is 3:4
+  at full width and reaches the top of the device; `<DuotoneFrame>` draws the signed frame through
+  `react-native-svg`'s `Image` with an `FeColorMatrix type="saturate" values="0"` filter (the
+  page's "duotone grade" — greyscale, shadows washed toward `Ink.bg`) and a radial vignette sits
+  over it. The drawn annotation overlay (`components/annotation-lines.tsx` — a fixed ground rule,
+  dashed posture line and landing marker) was removed 2026-09-20 (captain's phone test: "completely
+  removed"); the component and its tests are deleted, not just unmounted. The readout is the
+  Overall block plus four nested `SquareCard` pillar rows with a 2 px
   score bar; **flags and drills render only in the detail modal**. On a fresh analysis the bars
   fill with `Motion.curve.move` over `Motion.duration.rise`, staggered `Motion.stagger.item`;
   everything else is static. `components/aperture.tsx` and `pace-reveal.tsx` are deleted. The
@@ -1146,9 +1149,14 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   still on `constants/theme.ts` — the one Cold Read screen a user now crosses between two V23
   screens.
 - **Paywall** (`app/paywall.tsx`, `components/paywall/tier-card.tsx`) and **Settings**
-  (`app/settings.tsx`). Settings now holds the full `QuotaStatus` so the Plan card shows the quota
-  caption and, for a period plan, a "Renews" row; every alert on both screens is a
-  `<ConfirmDialog>` driven by a local `dialog` state union. Kept although the pages do not draw
+  (`app/settings.tsx`). Since 2026-09-20 the paywall renders a confirmed current tier's card first
+  (`orderedTierKeys`, labelled "Current plan"), the other tiers following in ladder order; the
+  per-tier mark count and every upgrade/suppression rule stay pinned to the tier, not its
+  position (`app/__tests__/paywall.test.tsx`). Settings' Privacy card is one summary sentence
+  (`Copy.settings.privacy.summary`) over the "Full privacy policy" link row — the full disclosure
+  is the published page, never repeated inline. Settings holds the full `QuotaStatus` so the Plan
+  card shows the quota caption and, for a period plan, a "Renews" row; every alert on both screens
+  is a `<ConfirmDialog>` driven by a local `dialog` state union. Kept although the pages do not draw
   them: History's Compare entry point, Settings' privacy-policy-pending notice, and every loading
   / error / permission panel (quiet `ActivityIndicator` + `SquareCard` in the same tokens).
 - **Verified live on the iOS 26.5 simulator dev build, 2026-09-14** against every artboard a Free
@@ -3255,10 +3263,15 @@ lost its `DO NOT PUBLISH` guard on 2026-09-19 (issue #202): the controller is Ia
 trader, Thailand; the contact is `i78979848@gmail.com`; and it carries the McMillan-certified-coach
 line. It is served at
 `https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/` by
-`.github/workflows/privacy-policy-pages.yml`, which stages that ONE file into a scratch Jekyll
-source and deploys it through the Pages Actions source (enabled on the repo the same day) — the
-branch/`docs`-folder source would have rendered every planning doc as a page. The source file is
-the published text; the page rebuilds on every push to `main` that touches it. The Settings
+`.github/workflows/privacy-policy-pages.yml`, which stages that file — plus, since 2026-09-20,
+the custom layout, stylesheet and self-hosted OFL webfonts in `docs/privacy-policy-theme/`, a
+hand-transcribed web copy of `constants/v23-theme.ts`'s `Ink`/`Type`/`Font` that replaced the
+generic `jekyll-theme-primer` (the page makes no third-party request; the workflow header and
+`style.css`'s header own the details) — into a scratch Jekyll source and deploys it through the
+Pages Actions source (enabled on the repo the same day) — the branch/`docs`-folder source would
+have rendered every planning doc as a page. Nothing else under `docs/` is ever published. The
+source file is the published text; the page rebuilds on every push to `main` that touches it or
+the theme. The Settings
 screen's "Full privacy policy" row (captain-certified 2026-09-19) is a `link`-role row that opens
 `PRIVACY_POLICY_URL` (`constants/links.ts`) with `Linking.openURL`; the former "not yet published"
 sentence is gone, and `app/__tests__/settings.test.tsx` locks both the role and the URL. The

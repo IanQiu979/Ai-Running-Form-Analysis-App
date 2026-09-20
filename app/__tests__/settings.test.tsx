@@ -190,11 +190,12 @@ describe('SettingsScreen rows (V23-12)', () => {
     await waitFor(() => expect(screen.getByText('3 of 5 analyses remaining this period')).toBeTruthy());
   });
 
-  it('Privacy: the two paragraphs, the Consent row with its action, and the policy link row', async () => {
+  it('Privacy: the one summary line, the Consent row with its action, and the policy link row', async () => {
     await renderSettled();
 
-    expect(screen.getByText(/^Your original photo or video never leaves your device/)).toBeTruthy();
-    expect(screen.getByText(/^Deleting an analysis removes its stored frames immediately/)).toBeTruthy();
+    expect(screen.getByText(
+        'Frames are processed by Anthropic to produce your feedback, the original video never leaves your device, and frames are stored privately until you delete them.',
+      )).toBeTruthy();
     expect(screen.getByText('Consent')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
     // Not on the page, but a live disclosure: one more row, and the whole row is the link.
