@@ -129,9 +129,10 @@ milestone "done" criteria.
   against PGlite inside `npm run test:edge`) but **is NOT yet applied to the live project** —
   `supabase db push` plus a `lib/database.types.ts` regeneration are still outstanding.
   **DEPLOY THE MIGRATION FIRST, THEN `analyze-form`** — same deploy-gated ordering
-  `pace_quota_status` / `pace_purchase_tier` needed. `ALL_USERS_UNLIMITED_ACCESS` is set on the
-  live project, so the edge function will select the new `gate_ai_call_unlimited`, which does not
-  exist until the push lands. `_shared/ai-guard.ts` stays AVAILABLE if the order is reversed (it
+  `pace_quota_status` / `pace_purchase_tier` needed. `ALL_USERS_UNLIMITED_ACCESS` was set on the
+  live project at the time, so the edge function would select the new `gate_ai_call_unlimited`,
+  which did not exist until the push landed (the override family has since been deleted — Known
+  Issue #49, 2026-09-20 — so `gate_ai_call` is the only gate `analyze-form` calls now). `_shared/ai-guard.ts` stays AVAILABLE if the order is reversed (it
   detects the missing function, logs loudly, and falls back once to `gate_ai_call`) — but in an
   unmigrated database `gate_ai_call` is still the old global-cap-only definition, so that window
   enforces the platform-wide $10/day ceiling ALONE with **no per-user cap in force**: today's
@@ -1517,8 +1518,9 @@ milestone "done" criteria.
     auth → consent → AI spend gate → `reserve_analysis` (the only place tier is now learned, via
     `reserve.tier`) → model call (+1 retry) → a new server-side normalization step → settle →
     upload → attach. `pace_current_tier`/`pace_current_tier_unlimited` are no longer called by
-    `analyze-form` at all (the `ALL_USERS_UNLIMITED_ACCESS` override still works, now via
-    `reserve_analysis_unlimited` alone). This closes the launch-blocking defect #36/#37 described:
+    `analyze-form` at all (at the time the `ALL_USERS_UNLIMITED_ACCESS` override still worked via
+    `reserve_analysis_unlimited` alone; that override family was deleted 2026-09-20 — Known Issue
+    #49). This closes the launch-blocking defect #36/#37 described:
     the fabricated sample promised a cadence figure, a left/right ground-contact comparison, and
     flags/drills that no certified knowledge file supports, and — because it was never
     persisted — zero Free signup in five weeks ever produced a real `analyses` row.
