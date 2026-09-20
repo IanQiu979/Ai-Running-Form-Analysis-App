@@ -339,11 +339,11 @@ export default function ResultScreen() {
   return (
     <View style={styles.screen}>
       <Animated.ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
-        {/* THE HERO — the page's 3:4 box, first on the screen and edge to edge. Three layers in
+        {/* THE HERO — the page's 3:4 box, first on the screen and edge to edge. Two layers in
             the page's order: the frame (or, with no image, the placeholder gradient; or, while
-            the signed URL is in flight, a spinner in the same box), the fixed annotation marks,
-            and the vignette. One box for all three cases, so the readout below is laid out once
-            and never shoved down when the image lands. */}
+            the signed URL is in flight, a spinner in the same box) and the vignette. One box for
+            all three cases, so the readout below is laid out once and never shoved down when the
+            image lands. */}
         <View style={styles.hero}>
           {heroUri ? (
             <DuotoneFrame testID="result-hero-image" uri={heroUri} accessibilityLabel={Copy.result.hero.altText} />

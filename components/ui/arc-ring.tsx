@@ -21,11 +21,12 @@
  * no layout pass — the SVG geometry (`r`, `cx`, `cy`, the dash array) is computed once at mount
  * and never re-serialised. `animate=false` (the overwhelmingly common case: every re-open from
  * Past Analyses) renders the arc at its final offset with nothing scheduled at all, exactly as
- * `<AnnotationLines play={false}>` does. Reduced motion is the caller's call, not this file's —
+ * `components/pace-reveal.tsx`'s static path does. Reduced motion is the caller's call, not this file's —
  * `components/pace-readout.tsx` owns that branch for the readout, because the reduced-motion
  * variant is a single crossfade over the WHOLE block, not a per-ring behaviour.
  *
- * WHY SVG HERE, when `components/annotation-lines.tsx` deliberately stays on plain Views: a line
+ * WHY SVG HERE, when the former `components/annotation-lines.tsx` (removed 2026-09-20) deliberately
+ * stayed on plain Views: a line
  * has no internal geometry, so a `View` + `scaleX` draws it exactly. An arc does — its sweep is a
  * property of the path itself, and there is no transform on a `View` that produces a partial
  * circle. This is precisely the case the captain's 2026-08-02 ruling lifted the SVG ban for.

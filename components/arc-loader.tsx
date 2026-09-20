@@ -18,7 +18,7 @@
  *
  * `transform: rotate` only — nothing here animates a path, a dimension, or a colour, so every
  * frame stays on the UI thread and no layout pass is ever triggered. Same discipline as
- * `components/pace-reveal.tsx` and `components/annotation-lines.tsx`.
+ * `components/pace-reveal.tsx`.
  */
 import { useEffect } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
