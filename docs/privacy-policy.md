@@ -15,6 +15,7 @@
 # Pace Analysis AI — Privacy Policy
 
 **Last updated: 2026-09-20**
+{: .policy-updated }
 
 Pace Analysis AI ("the app," "we," "us") is operated by **Ian Qiu**, a sole trader
 established in **Thailand**, who is the data controller for everything described below. This

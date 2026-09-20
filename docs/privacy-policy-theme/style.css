@@ -119,8 +119,9 @@ body {
   font-weight: 600;
 }
 
-/* The "Last updated" line and similarly quiet asides read at the secondary tone. */
-.policy p:has(> strong:only-child) {
+/* The "Last updated" line (tagged with a kramdown IAL in `docs/privacy-policy.md`) reads at the
+   secondary tone; every other paragraph, bold or not, stays full ink. */
+.policy .policy-updated {
   color: var(--ink-2);
 }
 
