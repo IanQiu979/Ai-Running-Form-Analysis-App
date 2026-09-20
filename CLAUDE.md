@@ -192,7 +192,7 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
   `<ConfirmDialog>` (every confirm/notice on those screens — never a native `Alert`), the traced
   glyphs in `components/ui/v23-icons.tsx` and `<V23TabBar>` (floating over Home, inline at the end
   of History). `constants/theme.ts` remains only for the screens no page covers yet
-  (`app/capture/extracting.tsx`, `app/compare.tsx`, the password-reset screens, the offline
+  (`app/capture/extracting.tsx`, the password-reset screens, the offline
   banner, the Turnstile widget) and for `ScoreBandLabel`, which is copy. The sheet's contrast
   contract is proven in `constants/__tests__/v23-theme-contrast.test.ts` — read it before putting
   text on `ink3`, which is deliberately under AA and is for placeholders, disabled controls and

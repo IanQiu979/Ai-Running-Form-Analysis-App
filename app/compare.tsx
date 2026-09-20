@@ -56,6 +56,7 @@ import { SquareIconButton } from '@/components/ui/square-icon-button';
 import { TopBar } from '@/components/ui/top-bar';
 import { BackIcon, CheckIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
+import { ScoreBandLabel } from '@/constants/theme';
 import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { orderByCreatedAt } from '@/lib/compare';
 import { fetchHistoryList, formatHistoryDate, formatHistoryItemA11yLabel, type HistoryListItem } from '@/lib/history';
@@ -293,8 +294,11 @@ function PickerRow({
 
       <View style={styles.rowInfo}>
         <Text style={styles.dateText}>{dateLabel}</Text>
-        {overall.score !== null ? (
-          <Text style={styles.scoreText}>{overall.score}</Text>
+        {overall.score !== null && overall.band !== null ? (
+          <View style={styles.scoreRow}>
+            <Text style={styles.scoreText}>{overall.score}</Text>
+            <Text style={styles.bandWord}>{ScoreBandLabel[overall.band]}</Text>
+          </View>
         ) : (
           <Text style={styles.notAssessedText}>{Copy.result.pillar.notAssessed.generic}</Text>
         )}
@@ -425,8 +429,17 @@ const styles = StyleSheet.create({
     ...Type.bodySmMedium,
     color: Ink.ink,
   },
+  scoreRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: Space.sm,
+  },
   scoreText: {
     ...Type.mono,
+    color: Ink.ink,
+  },
+  bandWord: {
+    ...Type.label,
     color: Ink.ink,
   },
   notAssessedText: {

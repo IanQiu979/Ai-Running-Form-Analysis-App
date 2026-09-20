@@ -2,7 +2,7 @@
  * The per-pillar delta panel — the compare screen's third element, after the two readouts.
  * Re-cut to V23 (2026-09-21, change-list item 5): one `<SquareCard>` holding a row per pillar —
  * the letter in the same `Type.displayFigure` register `<PaceReadout>` uses for its own pillar
- * letter, the pillar name, and the certified delta sentence. The old "Cadence Arcs" `<DeltaRing>`
+ * letter, and the certified delta sentence (which already names the pillar). The old "Cadence Arcs" `<DeltaRing>`
  * pair is retired with it — V23 replaced rings with the readout's own 2 px score bar
  * (`components/pace-readout.tsx`'s header: "a ring or a chart would encode the same number a
  * second way"), and there is no ring language left on the sheet to carry this panel's geometry
@@ -57,10 +57,7 @@ export function PaceDeltaPanel({ from, to, testID }: PaceDeltaPanelProps) {
               accessible
               accessibilityLabel={pillarDeltaA11yLabel(label, delta)}>
               <Text style={[Type.displayFigure, styles.ink, styles.letter]}>{pillarLetter(id)}</Text>
-              <View style={styles.rowText}>
-                <Text style={[Type.body, styles.ink]}>{label}</Text>
-                <Text style={[Type.bodySm, styles.ink2]}>{formatPillarDelta(label, delta)}</Text>
-              </View>
+              <Text style={[Type.body, styles.ink, styles.rowText]}>{formatPillarDelta(label, delta)}</Text>
             </View>
           );
         })}
@@ -73,15 +70,12 @@ const styles = StyleSheet.create({
   ink: {
     color: Ink.ink,
   },
-  ink2: {
-    color: Ink.ink2,
-  },
   content: {
     gap: Space.lg,
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: Space.md,
   },
   letter: {
@@ -89,6 +83,5 @@ const styles = StyleSheet.create({
   },
   rowText: {
     flex: 1,
-    gap: Space.xs,
   },
 });

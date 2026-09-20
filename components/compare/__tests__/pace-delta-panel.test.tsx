@@ -58,13 +58,14 @@ describe('a pillar not assessed on one side is never a zero', () => {
 });
 
 describe('the panel', () => {
-  it('renders every pillar as its own row, letter and name included', async () => {
+  it('renders every pillar as its own row, naming the pillar once through the delta sentence', async () => {
     await renderPanel();
 
     for (const id of PACE_PILLARS) {
       expect(screen.getByTestId(`compare-delta-row-${id}`)).toBeTruthy();
     }
-    expect(screen.getByText('Posture')).toBeTruthy();
-    expect(screen.getByText('Cadence')).toBeTruthy();
+    expect(screen.queryByText('Posture')).toBeNull();
+    expect(screen.queryByText('Cadence')).toBeNull();
+    expect(screen.getByText('+4 Posture')).toBeTruthy();
   });
 });

@@ -16,6 +16,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { Copy } from '@/constants/copy';
+import { ScoreBandLabel } from '@/constants/theme';
 import type { HistoryListItem } from '@/lib/history';
 import type { QuotaStatus } from '@/lib/subscription';
 
@@ -162,6 +163,8 @@ describe('compare screen states', () => {
     await waitFor(() => expect(screen.getByTestId('compare-picker-row-a')).toBeTruthy());
 
     expect(screen.getByText(Copy.result.pillar.notAssessed.generic)).toBeTruthy();
+    expect(screen.getByText('80')).toBeTruthy();
+    expect(screen.getByText(ScoreBandLabel.strong)).toBeTruthy();
     expect(screen.getByTestId('compare-picker-cta').props.accessibilityState.disabled).toBe(true);
   });
 
