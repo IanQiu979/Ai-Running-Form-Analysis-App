@@ -24,11 +24,13 @@
  * data layer regardless of what the UI does.
  */
 import {
+  aggregateSignupConsentState,
   ensureConsentsGranted,
   FUTURE_UPLOADS_ATTESTATION_CONSENT,
   grantConsent,
   hasConsented,
   readConsentState,
+  readSignupConsentState,
   THIRD_PARTY_ATTESTATION_CONSENT,
   UPLOAD_HEALTH_CONSENT,
   withdrawConsent,
@@ -404,5 +406,86 @@ describe('ensureConsentsGranted', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('aggregateSignupConsentState', () => {
+  // The single rule every reader shares. Settings offers "Give consent" and capture refuses to
+  // proceed on the SAME aggregate, so a partial write can never leave capture blocking with a
+  // Settings screen that offers no way back.
+  it.each([
+    [['granted', 'granted'], 'granted'],
+    [['none', 'none'], 'none'],
+    [['granted', 'none'], 'granted'],
+    [['none', 'granted'], 'granted'],
+    [['withdrawn', 'withdrawn'], 'withdrawn'],
+    [['granted', 'withdrawn'], 'withdrawn'],
+    [['withdrawn', 'granted'], 'withdrawn'],
+    [['none', 'withdrawn'], 'withdrawn'],
+    [['withdrawn', 'none'], 'withdrawn'],
+  ] as const)('%j → %s', (states, expected) => {
+    expect(aggregateSignupConsentState(states)).toBe(expected);
+  });
+});
+
+describe('readSignupConsentState', () => {
+  it("reads both sign-up keys and reports 'withdrawn' when only the future-uploads key was withdrawn (the partial-restore state)", async () => {
+    mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'withdrawn',
+    });
+
+    await expect(readSignupConsentState()).resolves.toBe('withdrawn');
+  });
+
+  it("reports 'withdrawn' when only the health key was withdrawn (the partial-withdraw state)", async () => {
+    mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'withdrawn',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'granted',
+    });
+
+    await expect(readSignupConsentState()).resolves.toBe('withdrawn');
+  });
+
+  it("reports 'granted' for a partial sign-up write (one key landed, the other has no row)", async () => {
+    mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'none',
+    });
+
+    await expect(readSignupConsentState()).resolves.toBe('granted');
+  });
+
+  it("reports 'none' only when neither key has a row", async () => {
+    mockConsentTable({});
+
+    await expect(readSignupConsentState()).resolves.toBe('none');
+  });
+
+  it('agrees with ensureConsentsGranted on every mixed state: Settings offers Give consent exactly where capture refuses', async () => {
+    const mixes: [KeyState, KeyState][] = [
+      ['granted', 'withdrawn'],
+      ['withdrawn', 'granted'],
+      ['none', 'withdrawn'],
+      ['withdrawn', 'none'],
+      ['granted', 'none'],
+      ['none', 'granted'],
+    ];
+    for (const [health, future] of mixes) {
+      mockConsentTable({ [UPLOAD_HEALTH_CONSENT]: health, [FUTURE_UPLOADS_ATTESTATION_CONSENT]: future });
+      const settingsView = await readSignupConsentState();
+      mockConsentTable({ [UPLOAD_HEALTH_CONSENT]: health, [FUTURE_UPLOADS_ATTESTATION_CONSENT]: future });
+      const captureView = await ensureConsentsGranted();
+      expect(captureView === 'withdrawn').toBe(settingsView === 'withdrawn');
+    }
+  });
+
+  it('throws when either key\'s read fails, rather than reporting any state', async () => {
+    mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'error',
+    });
+
+    await expect(readSignupConsentState()).rejects.toThrow('read failed');
   });
 });

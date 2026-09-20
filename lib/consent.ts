@@ -137,6 +137,31 @@ export const SIGNUP_CONSENT_KEYS = [UPLOAD_HEALTH_CONSENT, FUTURE_UPLOADS_ATTEST
 export type EnsureConsentsResult = 'granted' | 'withdrawn' | 'failed';
 
 /**
+ * The one rule that collapses the two sign-up keys into a single account-level state, shared by
+ * every reader so Settings and the self-heal can never disagree: any withdrawal on either key is
+ * `withdrawn` (an explicit act, never reversed silently — Settings must offer the way back), else
+ * any grant is `granted` (a partial sign-up write is a consented account with a repairable gap),
+ * else `none` (no row anywhere: a legacy account, left to the silent heal).
+ */
+export function aggregateSignupConsentState(states: readonly ConsentState[]): ConsentState {
+  if (states.includes('withdrawn')) return 'withdrawn';
+  if (states.includes('granted')) return 'granted';
+  return 'none';
+}
+
+/**
+ * Reads BOTH sign-up keys and applies `aggregateSignupConsentState`. Same fail-closed throw as
+ * `readConsentState`: a failed read on either key throws rather than reporting a state.
+ */
+export async function readSignupConsentState(): Promise<ConsentState> {
+  return aggregateSignupConsentState(await readSignupConsentStates());
+}
+
+async function readSignupConsentStates(): Promise<ConsentState[]> {
+  return Promise.all(SIGNUP_CONSENT_KEYS.map((key) => readConsentState(key)));
+}
+
+/**
  * Check-and-repair for the sign-up consents. Reads BOTH keys' states and grants only the ones with
  * NO row at all. A `withdrawn` state on either key is the user's own explicit act in Settings and
  * is never reversed here — nothing is written and `withdrawn` is returned so the caller can point
@@ -150,8 +175,8 @@ export async function ensureConsentsGranted(
 ): Promise<EnsureConsentsResult> {
   const work = (async (): Promise<EnsureConsentsResult> => {
     try {
-      const states = await Promise.all(SIGNUP_CONSENT_KEYS.map((key) => readConsentState(key)));
-      if (states.includes('withdrawn')) return 'withdrawn';
+      const states = await readSignupConsentStates();
+      if (aggregateSignupConsentState(states) === 'withdrawn') return 'withdrawn';
       const missing = SIGNUP_CONSENT_KEYS.filter((_, i) => states[i] === 'none');
       await Promise.all(missing.map((key) => grantConsent(key)));
       return 'granted';

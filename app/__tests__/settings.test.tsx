@@ -45,13 +45,13 @@ jest.mock('@/lib/subscription', () => ({
   formatRenewalDate: jest.fn(() => 'Oct 12, 2026'),
 }));
 
-const mockReadConsentState = jest.fn();
+const mockReadSignupConsentState = jest.fn();
 const mockWithdrawConsent = jest.fn();
 const mockGrantConsent = jest.fn();
 jest.mock('@/lib/consent', () => ({
   UPLOAD_HEALTH_CONSENT: 'upload.health.v1',
   FUTURE_UPLOADS_ATTESTATION_CONSENT: 'upload.futureUploadsAttestation.v1',
-  readConsentState: (...args: unknown[]) => mockReadConsentState(...args),
+  readSignupConsentState: (...args: unknown[]) => mockReadSignupConsentState(...args),
   withdrawConsent: (...args: unknown[]) => mockWithdrawConsent(...args),
   grantConsent: (...args: unknown[]) => mockGrantConsent(...args),
 }));
@@ -121,7 +121,7 @@ const press = async (node: ReturnType<typeof screen.getByText>) => {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetQuotaStatus.mockResolvedValue({ ok: true, data: PRO_QUOTA });
-  mockReadConsentState.mockResolvedValue('granted');
+  mockReadSignupConsentState.mockResolvedValue('granted');
   mockWithdrawConsent.mockResolvedValue(undefined);
   mockGrantConsent.mockReset();
   mockGrantConsent.mockResolvedValue(undefined);
@@ -218,7 +218,7 @@ describe('SettingsScreen rows (V23-12)', () => {
   });
 
   it('Privacy: a withdrawn consent reads as a value, with Give consent as its only action', async () => {
-    mockReadConsentState.mockResolvedValue('withdrawn');
+    mockReadSignupConsentState.mockResolvedValue('withdrawn');
     await renderSettled();
 
     expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
@@ -227,7 +227,7 @@ describe('SettingsScreen rows (V23-12)', () => {
   });
 
   it('Privacy: an account with no consent row at all is not told it withdrew, and gets no action', async () => {
-    mockReadConsentState.mockResolvedValue('none');
+    mockReadSignupConsentState.mockResolvedValue('none');
     await renderSettled();
 
     expect(screen.getByText('Consent is recorded when you first upload or record.')).toBeTruthy();
@@ -238,7 +238,7 @@ describe('SettingsScreen rows (V23-12)', () => {
   });
 
   it('Give consent: re-grants BOTH sign-up keys and the row flips back to Withdraw consent', async () => {
-    mockReadConsentState.mockResolvedValue('withdrawn');
+    mockReadSignupConsentState.mockResolvedValue('withdrawn');
     await renderSettled();
 
     await press(screen.getByRole('button', { name: 'Give consent' }));
@@ -250,7 +250,7 @@ describe('SettingsScreen rows (V23-12)', () => {
   });
 
   it('Give consent (failure): never claims nothing changed — two inserts may half-land — and keeps the action', async () => {
-    mockReadConsentState.mockResolvedValue('withdrawn');
+    mockReadSignupConsentState.mockResolvedValue('withdrawn');
     mockGrantConsent.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('offline'));
     await renderSettled();
 
@@ -266,12 +266,12 @@ describe('SettingsScreen rows (V23-12)', () => {
   });
 
   it('Privacy: a failed consent read offers its own Retry', async () => {
-    mockReadConsentState.mockRejectedValueOnce(new Error('offline'));
+    mockReadSignupConsentState.mockRejectedValueOnce(new Error('offline'));
     await renderSettled();
 
     expect(screen.getByText('Consent status could not be loaded.')).toBeTruthy();
     await press(screen.getByRole('button', { name: 'Retry loading consent status' }));
-    expect(mockReadConsentState).toHaveBeenCalledTimes(2);
+    expect(mockReadSignupConsentState).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy());
   });
 

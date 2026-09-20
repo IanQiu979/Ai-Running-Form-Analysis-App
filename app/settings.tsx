@@ -72,7 +72,7 @@ import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import {
   FUTURE_UPLOADS_ATTESTATION_CONSENT,
   grantConsent,
-  readConsentState,
+  readSignupConsentState,
   UPLOAD_HEALTH_CONSENT,
   withdrawConsent,
   type ConsentState as ConsentRecordState,
@@ -99,11 +99,13 @@ import { useAnnounce } from '@/lib/use-announce';
  *  caption and the renewal date, and all three come off this one object. */
 type PlanState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; quota: QuotaStatus };
 
-/** `readConsentState` THROWS on any query failure and deliberately does not guess (lib/consent.ts
- *  fails closed). So "we don't know" is a first-class state here, distinct from "withdrawn" — and
- *  so is `none`: an account with no row at all (it predates the sign-up consent, or its grant was
- *  dropped) is not one that withdrew, must not read as if it had, and is healed silently by
- *  capture / the age-band gate rather than asked here. */
+/** `readSignupConsentState` reads BOTH sign-up keys with the same any-withdrawn rule the capture /
+ *  age-band-gate self-heal applies, so "Give consent" is offered in exactly the states capture
+ *  refuses to proceed in. It THROWS on any query failure and deliberately does not guess
+ *  (lib/consent.ts fails closed). So "we don't know" is a first-class state here, distinct from
+ *  "withdrawn" — and so is `none`: an account with no row at all (it predates the sign-up consent,
+ *  or its grant was dropped) is not one that withdrew, must not read as if it had, and is healed
+ *  silently by capture / the age-band gate rather than asked here. */
 type ConsentState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; state: ConsentRecordState };
 
 /**
@@ -257,7 +259,7 @@ export default function SettingsScreen() {
   const fetchConsent = useCallback(async () => {
     setConsent({ status: 'loading' });
     try {
-      const state = await readConsentState(UPLOAD_HEALTH_CONSENT);
+      const state = await readSignupConsentState();
       if (!isMountedRef.current) return;
       setConsent({ status: 'ready', state });
     } catch {

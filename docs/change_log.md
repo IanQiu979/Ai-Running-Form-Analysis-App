@@ -87,6 +87,13 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   Upload/Record cards (the server gate remains the enforcement). Settings' "Withdraw consent"
   now appends a withdrawal row for BOTH keys, symmetric with the grant and restore, and its
   failure notice no longer claims "Nothing has changed" (two writes; retry is append-only safe).
+- Review round 7 (2026-09-21): Settings' Consent row now reads `lib/consent.ts`'s new
+  `readSignupConsentState` — both sign-up keys collapsed by the one `aggregateSignupConsentState`
+  rule (`withdrawn` if either key is withdrawn, else `granted` if either is granted, else `none`)
+  that `ensureConsentsGranted` also applies. Before, Settings read the health key alone, so a
+  half-landed restore or withdrawal (one key granted, the other withdrawn) had capture refusing
+  with "give consent again in Settings" while Settings showed "Withdraw consent" and no "Give
+  consent". The two readers can no longer disagree.
 
 ## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
 

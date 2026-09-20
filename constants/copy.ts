@@ -979,9 +979,9 @@ export const Copy = {
       // disclosure this grants against, and the full policy is one row down.
       restore: {
         cta: 'Give consent',
-        // Two rows are written (health + future-uploads attestation), so unlike `withdraw.error`
-        // a failure here is NOT provably "nothing changed" — the first insert may have landed.
-        // Grants are append-only, so tapping again is always safe.
+        // Two rows are written (health + future-uploads attestation), so — exactly like
+        // `withdraw.error` above — a failure here is NOT provably "nothing changed": the first
+        // insert may have landed. Grants are append-only, so tapping again is always safe.
         error: {
           title: 'Consent could not be fully saved',
           body: 'Consent could not be fully saved. Check your connection and tap Give consent again.',
