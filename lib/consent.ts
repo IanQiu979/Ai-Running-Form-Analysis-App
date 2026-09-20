@@ -34,9 +34,11 @@ import { supabase } from './supabase';
 export const UPLOAD_HEALTH_CONSENT = 'upload.health.v1';
 
 /**
- * Confirmation that the account holder is 16 or older, per `docs/privacy-policy.md`'s "Age and
- * other people in your media" section — stated there but, before issue #94, never asked or
- * recorded anywhere in the app. Granted once, ever, alongside `UPLOAD_HEALTH_CONSENT` on the same
+ * Confirmation that the account holder is 16 or older, per what was `docs/privacy-policy.md`'s
+ * "Age and other people in your media" section (split on 2026-09-20 into "Age", which now sets a
+ * 13-and-up floor with guardian consent, and "Other people in your media" — see
+ * `docs/status.md` Known Issue #52 follow-up 1 for the resulting contradiction) — stated there
+ * but, before issue #94, never asked or recorded anywhere in the app. Granted once, ever, alongside `UPLOAD_HEALTH_CONSENT` on the same
  * first-upload screen (age only moves in one direction, so there is nothing to re-ask).
  */
 export const AGE_CONFIRMATION_CONSENT = 'upload.ageConfirmation.v1';

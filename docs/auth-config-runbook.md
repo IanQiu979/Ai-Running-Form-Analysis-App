@@ -149,8 +149,14 @@ folds to the generic error copy — sign-up unavailable, not broken data.
 
 ```sh
 export SUPABASE_GO_BINARY=~/.local/share/supabase/supabase-go
-# 1. Database (needs SUPABASE_DB_PASSWORD in the environment; dry-run first, expect exactly one file)
+# 0. Ledger repair (CLAUDE.md / docs/status.md Known Issue #49): production still holds a row for
+#    20260807090000, whose file the 2026-09-20 override deletion removed; db push refuses to run
+#    against a ledger row with no local file until it is marked reverted.
+supabase migration repair --linked --status reverted 20260807090000
+supabase migration list --linked   # expected: 20260807090000 gone from the Remote column
+# 1. Database (needs SUPABASE_DB_PASSWORD in the environment; dry-run first)
 supabase db push --linked --dry-run
+# expected: exactly one pending file, 20260920120000_guardian_consent.sql, and no ledger error
 supabase db push --linked          # 20260920120000_guardian_consent
 supabase db query --linked "select column_name from information_schema.columns where table_name = 'profiles' and column_name = 'age_band'"
 supabase db query --linked "select has_function_privilege('service_role', 'public.pace_record_age_band(uuid, text, boolean, text)', 'execute') as service_exec, has_function_privilege('authenticated', 'public.pace_record_age_band(uuid, text, boolean, text)', 'execute') as auth_exec, has_table_privilege('authenticated', 'public.guardian_consent', 'insert') as auth_insert"
