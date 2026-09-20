@@ -39,8 +39,10 @@ app/
                           # overlay for an OAuth-created account with no age band (2026-09-20).
   (tabs)/index.tsx        # Home — V23-07 since 2026-09-14 (recent analysis card, quota card, CTA,
                           # ticker); quota is display-only, from `quota-status`
-components/              # consent-gate.tsx and result-disclaimer.tsx (2026-07-12, issue #68) —
-                          # real, tested components; see "Current — consent record & disclaimer".
+components/              # result-disclaimer.tsx (2026-07-12, issue #68) and, since 2026-09-20,
+                          # upload-consent-checkbox.tsx (the sign-up consent row) — consent-gate.tsx
+                          # was deleted that day; see "Current — consent record & disclaimer" and
+                          # "Consent merged into sign-up (2026-09-20)" below.
                           # The unreferenced create-expo-app template UI (external-link,
                           # hello-wave, parallax-scroll-view, themed-text, themed-view,
                           # ui/collapsible) and hooks/use-theme-color.ts were deleted 2026-07-12
@@ -865,7 +867,7 @@ override fixes `useSafeAreaInsets()` consumers and nothing else.
   moved until it clears 3:1 against every surface in both schemes (3.06–3.64:1) — a genuinely new
   role, not a re-tune of the decorative `hairline` rule, which is unchanged and still deliberately
   below 3:1 (rules/ticks/annotations, not a control boundary). Applied to
-  `components/consent-gate.tsx`'s checkbox border and `app/(auth)/sign-in.tsx`'s secondary/email
+  the (since-deleted) `components/consent-gate.tsx`'s checkbox border and `app/(auth)/sign-in.tsx`'s secondary/email
   buttons and text input. `theme-contrast.test.ts` gained a regression guard, not just new
   assertions: it asserts `hairline` itself stays below 3:1 (computed from the live export) and
   that `control.border !== hairline` per scheme, so the token can never silently collapse back
@@ -1176,10 +1178,10 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   everything else is static. `components/aperture.tsx` and `pace-reveal.tsx` are deleted. The
   "Current — capture screens" and "Current — Past Analyses" sections above describe behaviour
   that still holds; their visual descriptions (rings, kinetic text, glass) are superseded here.
-- **Capture** (`app/capture/index.tsx`, `components/consent-gate.tsx`, `app/capture/record.tsx`,
-  `components/framing-guide.tsx`). The consent gate is the whole screen, self-padded by the live
-  insets; `SquareButton disabledTone="fill"` is its solid `ink3` disabled primary. The framing
-  guide is the page's dashed box + ground line. `app/capture/extracting.tsx` has no page and is
+- **Capture** (`app/capture/index.tsx`, `app/capture/record.tsx`, `components/framing-guide.tsx`).
+  Since 2026-09-20 there is no consent gate at capture — Upload and Record go straight to the
+  picker/camera (see "Consent merged into sign-up" below). The framing guide is the page's dashed
+  box + ground line. `app/capture/extracting.tsx` has no page and is
   still on `constants/theme.ts` — the one Cold Read screen a user now crosses between two V23
   screens.
 - **Paywall** (`app/paywall.tsx`, `components/paywall/tier-card.tsx`) and **Settings**
@@ -1476,15 +1478,15 @@ M4/M5 own where they get hosted, and the three #68 checkboxes stay unticked unti
   closed**: `hasConsented` throws on any query error (offline, RLS misconfigured, network flake)
   rather than defaulting either way — a silent `false` would be indistinguishable from a real
   non-consent, and a silent `true` would process Art. 9 health data with no legal basis. 10 tests.
-- **`components/consent-gate.tsx`** — the Art. 9 modal content: checkbox unticked by default, the
-  primary CTA disabled until it's ticked (the affirmative, unbundled act that separates real
-  consent from a "by continuing" notice), and a fail-closed error state if the write to
-  `public.consents` fails (the gate stays up, nothing is uploaded). 6 tests.
+- **`components/consent-gate.tsx`** — DELETED 2026-09-20 (consent moved to sign-up; see
+  "Consent merged into sign-up" below). It was the Art. 9 modal content: checkbox unticked by
+  default, the primary CTA disabled until it was ticked, and a fail-closed error state if the
+  write to `public.consents` failed. Its affirmative-act rule survives in
+  `components/upload-consent-checkbox.tsx` and the sign-up submit gate.
 - **`components/result-disclaimer.tsx`** — the "not medical advice" footer, rendering
   `result.disclaimer.footer` from the copy deck. 2 tests.
-- **`constants/copy.ts`** gained the `consent.upload.*` keys plus one genuinely new one,
-  `consent.upload.error.record` (the consent-write-failed message); `docs/design/copy-deck.md`
-  documents both.
+- **`constants/copy.ts`** gained the `consent.upload.*` keys (removed again 2026-09-20 with the
+  gate; the sign-up wording now lives under `auth.consent.*`).
 - **`@testing-library/react-native`** added as a devDependency — a deliberate, narrow exception
   to `CLAUDE.md`'s "screens are not unit-tested for now": these are components, not screens, and
   the disabled-until-ticked gate is a compliance control that must not be able to regress
@@ -1514,11 +1516,11 @@ app/capture/
                 # sibling to (tabs) rather than nested under it (it's a full-screen record/pick
                 # flow, not a tab) — the only route-tree edit this issue made.
   index.tsx     # Source picker (screen 3): Upload/Record cards, the photo-library permission
-                # dance (soft-ask -> OS prompt -> denied, sourcePicker.permission.library.*), and
-                # the Art. 9 consent gate (components/consent-gate.tsx, issue #68) — the copy
-                # deck names this screen as where it "gates the Source Picker -> Capture/Upload
-                # handoff", and this is the first host that ticks that box (M4/M5 were the other
-                # two named candidates; still open there).
+                # dance (soft-ask -> OS prompt -> denied, sourcePicker.permission.library.*). The
+                # Art. 9 consent gate it used to host (components/consent-gate.tsx, issue #68) was
+                # removed 2026-09-20 — consent is granted once at sign-up; this screen only runs a
+                # best-effort self-heal for an account with NO consent row and refuses to repair a
+                # WITHDRAWN one (sourcePicker.error.consentWithdrawn points at Settings).
   # extracting.tsx PRE-FLIGHTS THE ANALYSIS before any thumbnail work: one bounded
   # `quota-status` read (lib/analysis-preflight.ts) answers BOTH "may this runner start"
   # and "how many frames does their video get". A cooldown renders the honest paused panel
@@ -3806,9 +3808,11 @@ unchanged. `_shared/__tests__/hygiene-batch-sql.deno.test.ts` applies both migra
 and proves the second updates the first's row rather than adding a job. Roll back with the same
 statement and `body := '{}'`. See `docs/status.md` Known Issues #32 and #35.
 
-## Current — the two-phase consent gate (issues #68 restatement + #94, 2026-07-13)
+## Superseded — the two-phase consent gate (issues #68 restatement + #94, 2026-07-13; removed 2026-09-20)
 
-`components/consent-gate.tsx` now gates three distinct things, with two different lifecycles:
+**Replaced by "Consent merged into sign-up (2026-09-20)" below; kept for the history of the
+`consents` rows it wrote.** `components/consent-gate.tsx` gated three distinct things, with two
+different lifecycles:
 
 1. **Health-processing consent** (#68, unchanged) — once-ever.
 2. **Age confirmation** (#94, new) — "I confirm I'm 16 or older," also once-ever (age only moves
@@ -3823,10 +3827,38 @@ statement and `body := '{}'`. See `docs/status.md` Known Issues #32 and #35.
    including an explicit under-16 parent/guardian clause — and records its own, distinct
    `consent_key` on every occurrence.
 
-`app/capture/index.tsx` now always mounts the gate. **New, UNCERTIFIED copy**:
-`consent.upload.age.checkbox` and the whole `consent.upload.subject.*` namespace — legally
-load-bearing (the Art. 9 obligation, the under-16 clause) and not yet reviewed by `ux-copywriter`
-or Ian. See `docs/design/copy-deck.md`'s new-copy section.
+`app/capture/index.tsx` always mounted the gate. The `consent.upload.*` copy namespace was
+deleted with the component.
+
+## Current — consent merged into sign-up (2026-09-20)
+
+Consent is collected ONCE, at account creation, on the same page as the account terms; there is
+no per-upload interstitial any more (captain's decision from device testing, 2026-09-20).
+
+- **Where.** Email: `app/(auth)/sign-in.tsx` in sign-up mode — the Terms + Privacy checkbox, the
+  `components/upload-consent-checkbox.tsx` row, and the age choice all gate Create account
+  alongside the captcha; the two consent rows are written right after `applySignupSession`.
+  Google: the same two checkboxes gate "Continue with Google" BEFORE the browser round trip, and
+  the rows are written on `components/age-band-gate.tsx`'s Continue (the first moment the account
+  exists); that screen carries `auth.ageGate.consentReminder`, a non-interactive line restating
+  what Continue records.
+- **What the tick says.** `auth.consent.healthProcessing` — one sentence naming uploads as
+  health-related data processed by AI, which keeps `UPLOAD_HEALTH_CONSENT` (`upload.health.v1`)
+  meaning what it did when minted — followed by `auth.consent.futureUploads.checkbox`, the standing
+  attestation that every upload, now or later, shows only the account holder or someone who agreed.
+  One tick, two rows: `UPLOAD_HEALTH_CONSENT` and `FUTURE_UPLOADS_ATTESTATION_CONSENT`.
+  `THIRD_PARTY_ATTESTATION_CONSENT` is retired (historical rows only); the old
+  `upload.ageConfirmation.v1` ("16 or older") is gone — age is the age band, nowhere else.
+- **Server.** Unchanged: `analyze-form` checks `UPLOAD_HEALTH_CONSENT` only, fail-closed.
+- **Repair, and its one hard boundary.** The post-sign-up grants are fire-and-forget, so
+  `app/capture/index.tsx` reads `readConsentState(UPLOAD_HEALTH_CONSENT)` under its `busy` guard
+  before Upload/Record: `none` (no row ever — a legacy account or a dropped grant) is healed
+  silently; `granted` proceeds; **`withdrawn` is never repaired** — the user withdrew in Settings
+  on purpose, so the screen shows `sourcePicker.error.consentWithdrawn` with an "Open Settings"
+  action and does not navigate, and the server's `consent_required` stands. Settings' Consent
+  row offers "Give consent" (`settings.consent.restore`) in the withdrawn state; that is the only
+  place a withdrawn key is re-granted. `lib/consent.ts`'s `readConsentState` is the reader that
+  tells `none` from `withdrawn`; `hasConsented` collapses both to false and stays the gate's read.
 
 ## Current — `app/paywall.tsx` (issue #52, 2026-07-13)
 

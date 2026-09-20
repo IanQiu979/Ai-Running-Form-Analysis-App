@@ -2105,14 +2105,12 @@ milestone "done" criteria.
     (the old tick was client-side only), and the gate is keyed on provider + NULL band, not on
     account age. Counsel review of the attestation wording stays a public-launch item.
 
-    **Open follow-up 1 — the upload ConsentGate's own age line contradicts the new floor.**
-    `components/consent-gate.tsx` still requires "I confirm I am 16 or older."
-    (`consent.upload.age.checkbox`, issue #94, recorded as `upload.ageConfirmation.v1` in
-    `consents`) before the first upload. It was outside this task's scope and was left as is, but a
-    13–17 runner admitted with guardian consent cannot honestly tick it and so cannot analyse
-    anything. Needs a product call: drop the checkbox now that the band is recorded at account
-    creation (and the server can read `profiles.age_band`), or reword it to the 13 floor. Either
-    way the recorded consent key changes (`v2`), per `lib/consent.ts`'s versioned-key rule.
+    **Follow-up 1 — RESOLVED 2026-09-20.** The upload ConsentGate's "I confirm I am 16 or older."
+    line contradicted the 13 floor. The product call was made the same day: `components/consent-gate.tsx`
+    and the whole per-upload consent flow were deleted, consent is collected once at sign-up (email)
+    or first Google use (`components/age-band-gate.tsx`), and age is the age band only — no separate
+    age line anywhere. `upload.ageConfirmation.v1` is no longer written (historical rows remain).
+    See `docs/architecture.md`'s "Current — consent merged into sign-up (2026-09-20)".
 
     **Open follow-up 2 — the OAuth age gate is client-side only (security audit, MEDIUM).** For an
     email account the band is enforced by the server (no band, no account). For a Google account
@@ -2123,8 +2121,8 @@ milestone "done" criteria.
     hence MEDIUM. Exact remaining scope: in `analyze-form`'s consent step, refuse
     (`age_band_required`) when `profiles.age_band is null` for a non-`email` provider (or any
     account created after the deploy), and when the band is `13_17` with no `guardian_consent`
-    row; the app's gate then becomes UX over a real control, the same relationship the upload
-    `ConsentGate` has to its server check. Hot-list change (`analyze-form`), deliberately not
+    row; the app's gate then becomes UX over a real control, the same relationship the sign-up
+    consent tick has to `analyze-form`'s consent check. Hot-list change (`analyze-form`), deliberately not
     folded into this PR.
 
     **Open follow-up 3 — the Terms are still unpublished.** Unchanged by this work; the agreement

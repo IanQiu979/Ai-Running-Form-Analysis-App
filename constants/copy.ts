@@ -133,6 +133,11 @@ export const Copy = {
         checkbox:
           'I confirm that any photo or video I upload or record now or later shows only myself, or someone who has agreed to this analysis.',
       },
+      // The one sentence that keeps `UPLOAD_HEALTH_CONSENT` (`upload.health.v1`) meaning what it
+      // did when the key was minted: uploads are health-related data and AI processes them.
+      // Drawn as the first sentence of the same checkbox row, so the one tick covers both.
+      healthProcessing:
+        'Photos and videos you upload are health-related data, processed by AI to analyze your running form.',
     },
     // The age choice (captain's plan, approved 2026-09-20; mirrors V2.2's guardian-consent block,
     // IanQiu979/Ai-Customized-Running-Plan-App#123). Two options — under 13 is not offered, and
@@ -177,6 +182,11 @@ export const Copy = {
         // Distinct from `auth.error.generic`: nothing about the account failed, one write did.
         save: 'Your age choice could not be saved. Check your connection and try again.',
       },
+      // A Google account ticked the Terms and the photo or video statement on the sign-in screen
+      // before the browser round trip; the consent rows are written when this screen's Continue
+      // is confirmed, so the line above the button restates what that confirm records.
+      consentReminder:
+        'Continuing records your acceptance of the Terms and Privacy Policy, your confirmation that any photo or video you upload shows only yourself or someone who has agreed to this analysis, and your consent to AI processing of your uploads as health-related data.',
     },
     signIn: {
       submit: 'Sign in',
@@ -815,10 +825,9 @@ export const Copy = {
     privacy: {
       // Captain's 2026-09-20 polish pass: the two long paragraphs this card used to carry are
       // gone — one sentence stays here, and the full disclosure lives behind the `privacyPolicy`
-      // link row below, not repeated inline. That one sentence still has to name the facts the
-      // consent gate's "Privacy details in Settings" link (`consent.upload.link.privacy`) sends
-      // the user here for: Anthropic processing, video never leaving the device, private
-      // storage, removal on delete.
+      // link row below, not repeated inline. That one sentence still has to name the facts a
+      // user giving consent again from the row below (`consent.restore`) is consenting to:
+      // Anthropic processing, video never leaving the device, private storage, removal on delete.
       summary:
         'Frames are processed by Anthropic to produce your feedback, the original video never leaves your device, and frames are stored privately until you delete them.',
     },
@@ -926,7 +935,7 @@ export const Copy = {
       label: 'Consent',
       status: {
         granted: 'You have consented to health-related analysis of your uploaded frames.',
-        withdrawn: 'You have not consented to health-related analysis. You will be asked again before your next upload.',
+        withdrawn: 'You have not consented to health-related analysis. Nothing will be analyzed until you give consent here.',
         loading: 'Checking consent…',
         // hasConsented() THROWS on any query failure and must not be guessed either way (see
         // lib/consent.ts — it fails closed on purpose). So we say we don't know, rather than
@@ -944,7 +953,7 @@ export const Copy = {
           // erasure. Art. 7(3) withdrawal stops future processing; it does not retroactively
           // delete what is already stored. Saying so plainly — and pointing at the control that
           // DOES erase — is the difference between an honest control and a false comfort.
-          body: 'You will be asked for consent again before your next upload, and nothing will be analyzed until you give it. This does not delete frames or analyses already stored. Use Delete account for that.',
+          body: 'Nothing will be analyzed until you give consent again here. This does not delete frames or analyses already stored. Use Delete account for that.',
           cta: {
             primary: 'Withdraw consent',
             secondary: 'Cancel',
@@ -957,6 +966,16 @@ export const Copy = {
           // didn't. The consent row is append-only — a failed write means no row, means the
           // previous grant still stands, so "nothing has changed" is literally true here.
           body: 'Nothing has changed. Your consent remains on record. Check your connection and try again.',
+        },
+      },
+      // Giving consent again after a withdrawal (Art. 7(3) in reverse: as easy as withdrawing).
+      // Sits beside the withdrawn status; the card's own summary above the row restates the
+      // disclosure this grants against, and the full policy is one row down.
+      restore: {
+        cta: 'Give consent',
+        error: {
+          title: 'Consent could not be recorded',
+          body: 'Nothing has changed. Check your connection and try again.',
         },
       },
     },
@@ -1235,6 +1254,14 @@ export const Copy = {
       fileTooLarge: {
         title: 'File too large to analyze',
         body: 'Select a smaller photo or video, or record a new clip in the app.',
+      },
+      // Consent was withdrawn in Settings. Nothing here re-asks or re-grants it — that would
+      // reverse an explicit withdrawal without the user acting — so the panel points at the one
+      // place a consent can be given again.
+      consentWithdrawn: {
+        title: 'Consent withdrawn',
+        body: 'You withdrew consent to health-related analysis. Give consent again in Settings before uploading or recording.',
+        cta: 'Open Settings',
       },
     },
   },

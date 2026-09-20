@@ -47,10 +47,12 @@ jest.mock('@/lib/subscription', () => ({
 
 const mockHasConsented = jest.fn();
 const mockWithdrawConsent = jest.fn();
+const mockGrantConsent = jest.fn();
 jest.mock('@/lib/consent', () => ({
   UPLOAD_HEALTH_CONSENT: 'upload.health.v1',
   hasConsented: (...args: unknown[]) => mockHasConsented(...args),
   withdrawConsent: (...args: unknown[]) => mockWithdrawConsent(...args),
+  grantConsent: (...args: unknown[]) => mockGrantConsent(...args),
 }));
 
 const mockSignOut = jest.fn();
@@ -120,6 +122,8 @@ beforeEach(() => {
   mockGetQuotaStatus.mockResolvedValue({ ok: true, data: PRO_QUOTA });
   mockHasConsented.mockResolvedValue(true);
   mockWithdrawConsent.mockResolvedValue(undefined);
+  mockGrantConsent.mockReset();
+  mockGrantConsent.mockResolvedValue(undefined);
   mockSignOut.mockResolvedValue({ ok: true });
   mockSubmitDelete.mockResolvedValue({ ok: false, error: { error: 'x', code: 'unknown' } });
   mockGetReauthProvider.mockReturnValue('password');
@@ -212,12 +216,35 @@ describe('SettingsScreen rows (V23-12)', () => {
     expect(Linking.openURL).toHaveBeenCalledWith(PRIVACY_POLICY_URL);
   });
 
-  it('Privacy: a withdrawn consent reads as a value, with no action', async () => {
+  it('Privacy: a withdrawn consent reads as a value, with Give consent as its only action', async () => {
     mockHasConsented.mockResolvedValue(false);
     await renderSettled();
 
     expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
     expect(screen.getByText(/^You have not consented to health-related analysis/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Give consent' })).toBeTruthy();
+  });
+
+  it('Give consent: re-grants the health key and the row flips back to Withdraw consent', async () => {
+    mockHasConsented.mockResolvedValue(false);
+    await renderSettled();
+
+    await press(screen.getByRole('button', { name: 'Give consent' }));
+    expect(mockGrantConsent).toHaveBeenCalledWith('upload.health.v1');
+    expect(screen.queryByRole('button', { name: 'Give consent' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
+  });
+
+  it('Give consent (failure): says nothing changed, and keeps the action', async () => {
+    mockHasConsented.mockResolvedValue(false);
+    mockGrantConsent.mockRejectedValue(new Error('offline'));
+    await renderSettled();
+
+    await press(screen.getByRole('button', { name: 'Give consent' }));
+    expect(screen.getByRole('header', { name: 'Consent could not be recorded' })).toBeTruthy();
+    await press(screen.getByRole('button', { name: 'OK' }));
+    expect(screen.getByRole('button', { name: 'Give consent' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
   });
 
   it('Privacy: a failed consent read offers its own Retry', async () => {

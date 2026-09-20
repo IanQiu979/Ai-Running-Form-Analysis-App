@@ -127,6 +127,11 @@ describe('AgeBandGate: who is gated', () => {
     await waitFor(() => expect(view.getByText(Copy.auth.ageGate.title)).toBeTruthy());
     expect(view.getByTestId('age-gate-18-plus')).toBeTruthy();
     expect(view.getByTestId('age-gate-13-17')).toBeTruthy();
+    // Continue also writes the two consent rows (ticked on sign-in before the OAuth round trip),
+    // so the screen says what confirming records — as a plain line, not another control.
+    expect(view.getByText(Copy.auth.ageGate.consentReminder)).toBeTruthy();
+    expect(view.getByTestId('age-gate-consent-reminder').props.accessibilityRole).toBeUndefined();
+    expect(view.getByTestId('age-gate-consent-reminder').props.onPress).toBeUndefined();
   });
 
   it('fails closed on a read error, with Retry and Sign out', async () => {
@@ -135,6 +140,7 @@ describe('AgeBandGate: who is gated', () => {
 
     await waitFor(() => expect(view.getByText(Copy.auth.ageGate.error.load)).toBeTruthy());
     expect(view.queryByTestId('age-gate-18-plus')).toBeNull();
+    expect(view.queryByTestId('age-gate-consent-reminder')).toBeNull();
     expect(view.getByTestId('age-gate-sign-out')).toBeTruthy();
 
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-retry')); });

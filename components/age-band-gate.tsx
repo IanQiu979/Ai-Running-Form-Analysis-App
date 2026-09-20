@@ -27,6 +27,14 @@
  * Write-once on the server: a `age_band_already_recorded` answer means a band is on file (a retry
  * after a dropped response, or a second device racing this one); the gate re-reads the profile,
  * which records the local note and lifts it.
+ *
+ * CONSENT. This is also where a Google account's `UPLOAD_HEALTH_CONSENT` and
+ * `FUTURE_UPLOADS_ATTESTATION_CONSENT` rows are written (2026-09-20). The wording was shown and
+ * ticked on `app/(auth)/sign-in.tsx` BEFORE the browser round trip — "Continue with Google" is
+ * disabled until both the Terms and the photo/video statement are ticked — and the rows are
+ * recorded here, on this screen's Continue, because this is the first moment the account exists
+ * and can own a row. The tick is therefore not blind: `Copy.auth.ageGate.consentReminder`, a
+ * non-interactive line above Continue, restates what confirming records.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -91,7 +99,7 @@ export function AgeBandGate({ children }: Props) {
   const [error, setError] = useState<string | null>(null);
   const selection = selectionOf(ageBand, guardianConsent);
 
-  // Unmount guard, same shape as consent-gate.tsx: a late resolve must not touch state.
+  // Unmount guard, same shape as app/settings.tsx's: a late resolve must not touch state.
   const unmountedRef = useRef(false);
   useEffect(() => () => { unmountedRef.current = true; }, []);
 
@@ -260,6 +268,12 @@ export function AgeBandGate({ children }: Props) {
             </Text>
           )}
 
+          {phase === 'ask' && (
+            <Text style={styles.consentReminder} testID="age-gate-consent-reminder">
+              {Copy.auth.ageGate.consentReminder}
+            </Text>
+          )}
+
           <View style={styles.actions}>
             {phase === 'loadError' ? (
               <SquareButton
@@ -335,6 +349,10 @@ const styles = StyleSheet.create({
   error: {
     ...Type.small,
     color: Ink.danger,
+  },
+  consentReminder: {
+    ...Type.small,
+    color: Ink.ink2,
   },
   actions: {
     gap: Space.lg,

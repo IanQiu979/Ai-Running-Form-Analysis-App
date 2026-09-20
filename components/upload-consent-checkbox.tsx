@@ -1,6 +1,7 @@
 /**
  * The future-uploads attestation checkbox (sign-up, 2026-09-20) — a single controlled row: the
- * page's drawn checkbox square plus one sentence, with "Privacy Policy" inside it as a real,
+ * page's drawn checkbox square plus two sentences — the health-processing statement that keeps
+ * `UPLOAD_HEALTH_CONSENT`'s meaning, then the future-uploads attestation — with "Privacy Policy" inside it as a real,
  * live link rather than the sign-up screen's existing Terms/Privacy line, whose underlines are
  * deliberately inert (see `app/(auth)/sign-in.tsx`'s header: that link sits inside the
  * checkbox's own tap target, so it needs a control of its own). This component gives it one, by
@@ -48,7 +49,7 @@ export function UploadConsentCheckbox({ checked, onToggle, disabled = false, tes
         disabled={disabled}
         accessibilityRole="checkbox"
         accessibilityState={{ checked, disabled }}
-        accessibilityLabel={Copy.auth.consent.futureUploads.checkbox}
+        accessibilityLabel={`${Copy.auth.consent.healthProcessing} ${Copy.auth.consent.futureUploads.checkbox}`}
         style={styles.checkboxTarget}
         hitSlop={Space.sm}>
         <View style={[styles.box, checked ? styles.boxChecked : styles.boxUnchecked]}>
@@ -57,7 +58,7 @@ export function UploadConsentCheckbox({ checked, onToggle, disabled = false, tes
       </Pressable>
       {/* Legal text wraps; it must never end in an ellipsis. */}
       <Text style={styles.label}>
-        {Copy.auth.consent.futureUploads.checkbox}{' '}
+        {Copy.auth.consent.healthProcessing} {Copy.auth.consent.futureUploads.checkbox}{' '}
         <Text
           style={styles.link}
           accessibilityRole="link"

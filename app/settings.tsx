@@ -69,7 +69,7 @@ import { ArrowRightIcon, BackIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
 import { PRIVACY_POLICY_URL } from '@/constants/links';
 import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
-import { hasConsented, UPLOAD_HEALTH_CONSENT, withdrawConsent } from '@/lib/consent';
+import { grantConsent, hasConsented, UPLOAD_HEALTH_CONSENT, withdrawConsent } from '@/lib/consent';
 import {
   deleteAccountClient,
   getReauthProvider,
@@ -185,6 +185,7 @@ export default function SettingsScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [isRestoringConsent, setIsRestoringConsent] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   // Issue #124's step-up reauthentication flow. `passwordReauthVisible` gates the password modal
   // (email/password accounts only — Google's reauth is a dialog + browser flow, no modal needed).
@@ -225,7 +226,7 @@ export default function SettingsScreen() {
   // This screen unmounts the instant `session` flips to null (the route guard), which happens
   // mid-flight for sign-out and for a successful delete. Any `setState` after that point is a
   // no-op at best and a warning at worst, so every async handler checks this first — the same
-  // guard `components/consent-gate.tsx` uses, for the same reason.
+  // guard `components/age-band-gate.tsx` uses, for the same reason.
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
@@ -268,7 +269,7 @@ export default function SettingsScreen() {
     void fetchConsent();
   }, [fetchConsent]);
 
-  const isBusy = isSigningOut || isDeleting || isWithdrawing;
+  const isBusy = isSigningOut || isDeleting || isWithdrawing || isRestoringConsent;
 
   function closeDialog() {
     setDialog(null);
@@ -556,6 +557,25 @@ export default function SettingsScreen() {
     }
   }
 
+  // Giving consent again after a withdrawal. The only place a withdrawn key is ever re-granted:
+  // capture deliberately refuses to repair a `withdrawn` state (app/capture/index.tsx) and sends
+  // the user here, where the card's summary restates the disclosure being consented to.
+  async function handleRestoreConsent() {
+    if (isBusy) return;
+    setIsRestoringConsent(true);
+
+    try {
+      await grantConsent(UPLOAD_HEALTH_CONSENT);
+      if (!isMountedRef.current) return;
+      setConsent({ status: 'ready', granted: true });
+    } catch {
+      if (!isMountedRef.current) return;
+      showNotice(Copy.settings.consent.restore.error.title, Copy.settings.consent.restore.error.body);
+    } finally {
+      if (isMountedRef.current) setIsRestoringConsent(false);
+    }
+  }
+
   // --- The one dialog --------------------------------------------------------------------------
 
   /** Every `dialog` kind resolved to the one `<ConfirmDialog>`'s props. Each primary closes the
@@ -836,7 +856,18 @@ export default function SettingsScreen() {
                 />
               )}
               {consent.status === 'ready' && !consent.granted && (
-                <RowValue live>{Copy.settings.consent.status.withdrawn}</RowValue>
+                <View style={styles.rowValueStack}>
+                  <RowValue live>{Copy.settings.consent.status.withdrawn}</RowValue>
+                  <RowAction
+                    label={Copy.settings.consent.restore.cta}
+                    disabled={isBusy}
+                    busy={isRestoringConsent}
+                    busyTestID="settings-restore-consent-busy"
+                    onPress={() => {
+                      void handleRestoreConsent();
+                    }}
+                  />
+                </View>
               )}
             </Row>
 

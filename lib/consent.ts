@@ -21,10 +21,12 @@ import { supabase } from './supabase';
 
 /**
  * Consent to the upload → Anthropic → health-feedback processing chain. Collected by the
- * account-level sign-up/first-use flow, not a health-specific checkbox of its own: the health
- * processing acceptance rides on the generic sign-up Terms/Privacy checkbox, while the adjacent
- * `Copy.auth.consent.futureUploads.checkbox` wording (see `FUTURE_UPLOADS_ATTESTATION_CONSENT`
- * below) covers the future-uploads statement. Self-consent — this is the uploader consenting to
+ * account-level sign-up/first-use flow, not a health-specific checkbox of its own: the tick on
+ * `components/upload-consent-checkbox.tsx` covers BOTH `Copy.auth.consent.healthProcessing`
+ * (the one sentence naming uploads as health-related data processed by AI, which is what keeps
+ * this key's meaning) and the adjacent `Copy.auth.consent.futureUploads.checkbox` wording (see
+ * `FUTURE_UPLOADS_ATTESTATION_CONSENT` below); a Google account reads the same statement on
+ * `components/age-band-gate.tsx` before its confirm. Self-consent — this is the uploader consenting to
  * processing of THEIR OWN images. See `THIRD_PARTY_ATTESTATION_CONSENT` for the distinct grant
  * recorded when the uploader says someone else is in the frame.
  *
@@ -62,19 +64,28 @@ export type ConsentKey =
   | typeof FUTURE_UPLOADS_ATTESTATION_CONSENT;
 
 /**
- * True if the newest consent event for this key is a grant.
- *
- * Withdrawal needs no special case: it is simply a newer row with granted = false, so reading
- * the latest row returns it. The ordering is done by Postgres, not here.
+ * The three states a key can be in, read from the newest row alone. `none` is an account that has
+ * never recorded anything for the key (a legacy account from before that key existed, or a grant
+ * that was never written); `withdrawn` is an account whose newest row is a `granted = false` —
+ * an explicit act the user took, which no client code may silently reverse (Art. 7(3)); `granted`
+ * is a live consent. Callers that repair a missing grant MUST branch on `none`, never on
+ * "not granted", or they would re-grant over a withdrawal.
+ */
+export type ConsentState = 'none' | 'granted' | 'withdrawn';
+
+/**
+ * Reads the newest consent event for this key. Withdrawal needs no special case: it is simply a
+ * newer row with granted = false, so reading the latest row returns it. The ordering is done by
+ * Postgres, not here.
  *
  * THROWS on any query failure — offline, RLS misconfigured, network flake. It deliberately does
- * NOT return `false` dressed up as "probably fine", and it does NOT return `true` to avoid
- * inconveniencing the user. Returning true would process Art. 9 health data with no legal basis.
- * Returning false silently would be indistinguishable from a user who genuinely never consented,
- * which hides the outage — that is exactly the bug open at #74, where lib/hibp.ts fails open and
- * nothing says so. The caller must treat a throw as "cannot upload" and surface it.
+ * NOT return `none` dressed up as "probably fine", and it does NOT return `granted` to avoid
+ * inconveniencing the user. Returning `granted` would process Art. 9 health data with no legal
+ * basis. Returning `none` silently would be indistinguishable from a user who genuinely never
+ * consented, which hides the outage — that is exactly the bug open at #74, where lib/hibp.ts
+ * fails open and nothing says so. The caller must treat a throw as "cannot upload" and surface it.
  */
-export async function hasConsented(key: ConsentKey): Promise<boolean> {
+export async function readConsentState(key: ConsentKey): Promise<ConsentState> {
   // No user_id filter: RLS scopes SELECT to the owner, so this can only ever see our own rows.
   const { data, error } = await supabase
     .from('consents')
@@ -88,7 +99,17 @@ export async function hasConsented(key: ConsentKey): Promise<boolean> {
     throw new Error(`Could not read consent "${key}": ${error.message}`);
   }
 
-  return data?.granted ?? false;
+  if (!data) return 'none';
+  return data.granted ? 'granted' : 'withdrawn';
+}
+
+/**
+ * True if the newest consent event for this key is a grant. Same read and the same fail-closed
+ * throw as `readConsentState`; `none` and `withdrawn` both read as false here, so a caller that
+ * needs to tell them apart (a repair path) must use `readConsentState` instead.
+ */
+export async function hasConsented(key: ConsentKey): Promise<boolean> {
+  return (await readConsentState(key)) === 'granted';
 }
 
 /** Record an explicit grant. Appends a row; never updates one. */
@@ -100,9 +121,8 @@ export async function grantConsent(key: ConsentKey): Promise<void> {
  * Record a withdrawal (Art. 7(3): withdrawing consent must be as easy as giving it). Appends a
  * row with granted = false, which supersedes the earlier grant by being newer.
  *
- * Unused until the Settings screen exists (#53). The record supports withdrawal before there is
- * any UI to trigger it because the table shape is the expensive thing to change later, not the
- * button.
+ * Triggered from the Settings screen's Consent row, which is also where a withdrawn consent is
+ * given again (`grantConsent`) — nothing at capture time re-asks or re-grants a withdrawn key.
  */
 export async function withdrawConsent(key: ConsentKey): Promise<void> {
   await recordConsent(key, false);

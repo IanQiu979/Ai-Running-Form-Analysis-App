@@ -42,10 +42,23 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   have the gate close over it silently with no consent row on file and no way back in
   (`analyze-form` 403s forever). That path now checks `hasConsented`/`grantConsent` before
   closing, same as the main success path, via a shared `ensureConsentGranted` helper.
-- Added a best-effort self-heal in `app/capture/index.tsx`: before Upload/Record, if
-  `hasConsented(UPLOAD_HEALTH_CONSENT)` is false the screen retries both grants once, since the
+- Added a best-effort self-heal in `app/capture/index.tsx`: before Upload/Record, if the account
+  has NO consent row for `UPLOAD_HEALTH_CONSENT` the screen retries both grants once, since the
   post-signup grants in `app/(auth)/sign-in.tsx` are fire-and-forget and had no retry path at all.
   Not a hard gate — a failed repair still proceeds, and `analyze-form` remains the real enforcement.
+- Review round 2 (same day): the self-heal no longer re-grants a WITHDRAWN consent. It used
+  `hasConsented`, which reads a Settings withdrawal (newest row `granted = false`) the same as
+  "never consented", so a user who withdrew and then tapped Upload had both keys silently
+  re-granted with no action of theirs. `lib/consent.ts` gained `readConsentState` (`none` /
+  `granted` / `withdrawn`); capture heals only `none`, and on `withdrawn` shows
+  `sourcePicker.error.consentWithdrawn` with an "Open Settings" action instead of navigating.
+  Settings' Consent row gained "Give consent" for the withdrawn state (the only place a withdrawn
+  key is re-granted), and its withdrawn/withdraw-confirm copy no longer promises a re-ask at the
+  next upload. The consent check now runs under the screen's `busy` guard (a double tap during the
+  round trip pushed Record twice). The sign-up consent row gained one sentence
+  (`auth.consent.healthProcessing`) naming uploads as health-related data processed by AI, so
+  `upload.health.v1` keeps the meaning it was minted with; `components/age-band-gate.tsx` shows a
+  non-interactive line above Continue stating what confirming records for a Google account.
 
 ## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
 

@@ -1,14 +1,23 @@
 /**
  * `app/capture/index.tsx`'s consent self-heal (2026-09-20). There is deliberately no consent gate
- * at capture — Upload/Record are never blocked on it — but the post-signup grants in
- * `app/(auth)/sign-in.tsx` are fire-and-forget, and this screen is the one place with no retry
- * mechanism at all until this change. What has to be true: `hasConsented` is checked before either
- * action fires, a missing grant is repaired before proceeding, and an already-granted account pays
- * no extra round trip.
+ * at capture — Upload/Record are never blocked on a consented account — but the post-signup
+ * grants in `app/(auth)/sign-in.tsx` are fire-and-forget, and this screen is the one place with no
+ * retry mechanism at all until this change. What has to be true: the consent state is read before
+ * either action fires, an account with NO row is repaired before proceeding, an already-granted
+ * account pays no extra round trip, and an account that WITHDREW consent in Settings is never
+ * silently re-granted — it is shown the way back to Settings instead, and the server's refusal
+ * stands. The round trip also runs under the screen's `busy` guard so a double tap cannot fire
+ * the navigation twice.
  */
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
-import { FUTURE_UPLOADS_ATTESTATION_CONSENT, grantConsent, hasConsented, UPLOAD_HEALTH_CONSENT } from '@/lib/consent';
+import { Copy } from '@/constants/copy';
+import {
+  FUTURE_UPLOADS_ATTESTATION_CONSENT,
+  grantConsent,
+  readConsentState,
+  UPLOAD_HEALTH_CONSENT,
+} from '@/lib/consent';
 
 import SourcePickerScreen from '../index';
 
@@ -42,22 +51,22 @@ jest.mock('@/lib/use-announce', () => ({ useAnnounce: jest.fn() }));
 jest.mock('@/lib/supabase', () => ({ supabase: { from: jest.fn() } }));
 jest.mock('@/lib/consent', () => {
   const actual = jest.requireActual('@/lib/consent');
-  return { ...actual, hasConsented: jest.fn(), grantConsent: jest.fn() };
+  return { ...actual, readConsentState: jest.fn(), grantConsent: jest.fn() };
 });
 
-const mockHasConsented = hasConsented as jest.Mock;
+const mockReadConsentState = readConsentState as jest.Mock;
 const mockGrantConsent = grantConsent as jest.Mock;
 
 beforeEach(() => {
   mockPush.mockReset();
-  mockHasConsented.mockReset();
+  mockReadConsentState.mockReset();
   mockGrantConsent.mockReset();
   mockGrantConsent.mockResolvedValue(undefined);
 });
 
 describe('SourcePickerScreen: consent self-heal', () => {
-  it('repairs a missing consent grant before navigating to Record', async () => {
-    mockHasConsented.mockResolvedValue(false);
+  it('repairs a legacy account with no consent row before navigating to Record', async () => {
+    mockReadConsentState.mockResolvedValue('none');
     const view = await render(<SourcePickerScreen />);
 
     await act(async () => {
@@ -71,7 +80,7 @@ describe('SourcePickerScreen: consent self-heal', () => {
   });
 
   it('makes no extra grant call when consent is already on file', async () => {
-    mockHasConsented.mockResolvedValue(true);
+    mockReadConsentState.mockResolvedValue('granted');
     const view = await render(<SourcePickerScreen />);
 
     await act(async () => {
@@ -79,12 +88,45 @@ describe('SourcePickerScreen: consent self-heal', () => {
     });
 
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/capture/record'));
-    expect(mockHasConsented).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT);
+    expect(mockReadConsentState).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT);
     expect(mockGrantConsent).not.toHaveBeenCalled();
   });
 
+  it('never re-grants a consent the user withdrew: no grant, no navigation, a panel pointing at Settings', async () => {
+    mockReadConsentState.mockResolvedValue('withdrawn');
+    const view = await render(<SourcePickerScreen />);
+
+    await act(async () => {
+      fireEvent.press(view.getByTestId('source-card-record'));
+    });
+
+    await waitFor(() => expect(view.getByText(Copy.sourcePicker.error.consentWithdrawn.title)).toBeTruthy());
+    expect(view.getByText(Copy.sourcePicker.error.consentWithdrawn.body)).toBeTruthy();
+    expect(mockGrantConsent).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalledWith('/capture/record');
+
+    await act(async () => {
+      fireEvent.press(view.getByText(Copy.sourcePicker.error.consentWithdrawn.cta));
+    });
+    expect(mockPush).toHaveBeenCalledWith('/settings');
+  });
+
+  it('holds Upload the same way after a withdrawal', async () => {
+    mockReadConsentState.mockResolvedValue('withdrawn');
+    const view = await render(<SourcePickerScreen />);
+
+    await act(async () => {
+      fireEvent.press(view.getByTestId('source-card-upload'));
+    });
+
+    await waitFor(() => expect(view.getByText(Copy.sourcePicker.error.consentWithdrawn.title)).toBeTruthy());
+    expect(mockGrantConsent).not.toHaveBeenCalled();
+    // The soft-ask panel is the next step of the upload flow; it must not have been reached.
+    expect(view.queryByText(Copy.sourcePicker.permission.library.title)).toBeNull();
+  });
+
   it('proceeds to Record even when the repair attempt itself fails (best-effort, not a gate)', async () => {
-    mockHasConsented.mockResolvedValue(false);
+    mockReadConsentState.mockResolvedValue('none');
     mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
     const view = await render(<SourcePickerScreen />);
 
@@ -93,5 +135,33 @@ describe('SourcePickerScreen: consent self-heal', () => {
     });
 
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/capture/record'));
+  });
+
+  it('disables both cards while the consent read is in flight, so a double tap navigates once', async () => {
+    let resolveRead: (state: 'granted') => void = () => undefined;
+    mockReadConsentState.mockReturnValue(
+      new Promise<'granted'>((resolve) => {
+        resolveRead = resolve;
+      })
+    );
+    const view = await render(<SourcePickerScreen />);
+
+    await act(async () => {
+      fireEvent.press(view.getByTestId('source-card-record'));
+    });
+    expect(view.getByTestId('source-card-record').props.accessibilityState.disabled).toBe(true);
+    expect(view.getByTestId('source-card-upload').props.accessibilityState.disabled).toBe(true);
+    await act(async () => {
+      fireEvent.press(view.getByTestId('source-card-record'));
+    });
+
+    await act(async () => {
+      resolveRead('granted');
+    });
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/capture/record'));
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockReadConsentState).toHaveBeenCalledTimes(1);
+    expect(view.getByTestId('source-card-record').props.accessibilityState.disabled).toBe(false);
   });
 });

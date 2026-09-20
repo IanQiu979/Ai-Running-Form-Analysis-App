@@ -27,6 +27,7 @@ import {
   FUTURE_UPLOADS_ATTESTATION_CONSENT,
   grantConsent,
   hasConsented,
+  readConsentState,
   THIRD_PARTY_ATTESTATION_CONSENT,
   UPLOAD_HEALTH_CONSENT,
   withdrawConsent,
@@ -107,6 +108,45 @@ describe('hasConsented', () => {
     mockSelectChain({ data: null, error: { message: 'network unreachable' } });
 
     await expect(hasConsented(UPLOAD_HEALTH_CONSENT)).rejects.toThrow('network unreachable');
+  });
+});
+
+describe('readConsentState', () => {
+  // The distinction `hasConsented` collapses and a repair path must not: no row at all is a
+  // legacy account that may be healed silently; a newest row of granted = false is a withdrawal
+  // the user made on purpose, and re-granting over it would forge an Art. 9 consent.
+  it("reports 'none' when the user has no rows for the key", async () => {
+    mockSelectChain({ data: null, error: null });
+
+    await expect(readConsentState(UPLOAD_HEALTH_CONSENT)).resolves.toBe('none');
+  });
+
+  it("reports 'granted' when the newest row is a grant", async () => {
+    mockSelectChain({ data: { granted: true }, error: null });
+
+    await expect(readConsentState(UPLOAD_HEALTH_CONSENT)).resolves.toBe('granted');
+  });
+
+  it("reports 'withdrawn' — not 'none' — when the newest row is a withdrawal", async () => {
+    mockSelectChain({ data: { granted: false }, error: null });
+
+    await expect(readConsentState(UPLOAD_HEALTH_CONSENT)).resolves.toBe('withdrawn');
+  });
+
+  it('asks for the newest row scoped to the key, same as hasConsented', async () => {
+    const chain = mockSelectChain({ data: { granted: false }, error: null });
+
+    await readConsentState(UPLOAD_HEALTH_CONSENT);
+
+    expect(chain.eq).toHaveBeenCalledWith('consent_key', 'upload.health.v1');
+    expect(chain.order).toHaveBeenCalledWith('created_at', { ascending: false });
+    expect(chain.limit).toHaveBeenCalledWith(1);
+  });
+
+  it('throws when the query fails, rather than reporting any state', async () => {
+    mockSelectChain({ data: null, error: { message: 'network unreachable' } });
+
+    await expect(readConsentState(UPLOAD_HEALTH_CONSENT)).rejects.toThrow('network unreachable');
   });
 });
 
