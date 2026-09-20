@@ -137,7 +137,8 @@ describe('sign-in screen: Turnstile expiry', () => {
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled()
     );
     await fireEvent.press(view.getByTestId('signup-age-18-plus'));
-    await fireEvent.press(view.getByRole('checkbox'));
+    await fireEvent.press(view.getByTestId('signup-consent'));
+    await fireEvent.press(view.getByTestId('signup-future-uploads-consent'));
     await waitFor(() =>
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled()
     );
@@ -168,12 +169,13 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled()
     );
 
-    const checkbox = view.getByRole('checkbox');
+    const checkbox = view.getByTestId('signup-consent');
     expect(checkbox.props.accessibilityState.checked).toBe(false);
     await fireEvent.press(checkbox);
+    await fireEvent.press(view.getByTestId('signup-future-uploads-consent'));
 
     await waitFor(() => {
-      expect(view.getByRole('checkbox').props.accessibilityState.checked).toBe(true);
+      expect(view.getByTestId('signup-consent').props.accessibilityState.checked).toBe(true);
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled();
     });
   });
@@ -181,11 +183,11 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
   it('stays disabled with consent but no token', async () => {
     const view = await render(<SignInScreen />);
 
-    await waitFor(() => expect(view.getByRole('checkbox')).toBeTruthy());
-    await fireEvent.press(view.getByRole('checkbox'));
+    await waitFor(() => expect(view.getByTestId('signup-consent')).toBeTruthy());
+    await fireEvent.press(view.getByTestId('signup-consent'));
 
     await waitFor(() =>
-      expect(view.getByRole('checkbox').props.accessibilityState.checked).toBe(true)
+      expect(view.getByTestId('signup-consent').props.accessibilityState.checked).toBe(true)
     );
     expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled();
   });
@@ -230,7 +232,8 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
     await fireEvent.press(view.getByTestId('signup-age-18-plus'));
-    await fireEvent.press(view.getByRole('checkbox'));
+    await fireEvent.press(view.getByTestId('signup-consent'));
+    await fireEvent.press(view.getByTestId('signup-future-uploads-consent'));
     await waitFor(() =>
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled()
     );
@@ -244,7 +247,8 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
     await waitFor(() =>
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled()
     );
-    expect(view.getByRole('checkbox').props.accessibilityState.checked).toBe(true);
+    expect(view.getByTestId('signup-consent').props.accessibilityState.checked).toBe(true);
+    expect(view.getByTestId('signup-future-uploads-consent').props.accessibilityState.checked).toBe(true);
     // The age choice survives the round trip too, like the consent tick.
     expect(view.getByTestId('signup-age-18-plus').props.accessibilityState.checked).toBe(true);
 
@@ -290,7 +294,8 @@ describe('sign-in screen: the mode search param', () => {
     await waitFor(() =>
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeTruthy()
     );
-    expect(view.getByRole('checkbox')).toBeTruthy();
+    expect(view.getByTestId('signup-consent')).toBeTruthy();
+    expect(view.getByTestId('signup-future-uploads-consent')).toBeTruthy();
   });
 });
 
@@ -327,8 +332,14 @@ describe('sign-in screen: Continue with Google needs consent in sign-in mode too
 
     await fireEvent.press(view.getByTestId('signup-consent'));
     await waitFor(() =>
-      expect(view.getByRole('checkbox').props.accessibilityState.checked).toBe(true)
+      expect(view.getByTestId('signup-consent').props.accessibilityState.checked).toBe(true)
     );
+    // The Terms box alone is not enough — the future-uploads attestation gates Google too.
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.cta.google }));
+    await waitFor(() => expect(view.getByText(Copy.auth.error.futureUploadsConsentRequired)).toBeTruthy());
+    expect(signInWithGoogle).not.toHaveBeenCalled();
+
+    await fireEvent.press(view.getByTestId('signup-future-uploads-consent'));
     await fireEvent.press(view.getByRole('button', { name: Copy.auth.cta.google }));
 
     await waitFor(() => expect(signInWithGoogle).toHaveBeenCalledTimes(1));
@@ -339,8 +350,9 @@ describe('sign-in screen: Continue with Google needs consent in sign-in mode too
     const { signInWithGoogle } = jest.requireMock('@/lib/auth');
     const view = await render(<SignInScreen />);
 
-    await waitFor(() => expect(view.getByRole('checkbox')).toBeTruthy());
-    await fireEvent.press(view.getByRole('checkbox'));
+    await waitFor(() => expect(view.getByTestId('signup-consent')).toBeTruthy());
+    await fireEvent.press(view.getByTestId('signup-consent'));
+    await fireEvent.press(view.getByTestId('signup-future-uploads-consent'));
     await fireEvent.press(view.getByRole('button', { name: Copy.auth.signIn.switchLink }));
     await waitFor(() =>
       expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy()
@@ -370,7 +382,8 @@ describe('sign-in screen: control reachability', () => {
       expect(view.getByRole('button', { name: Copy.auth.cta.google })).toBeTruthy();
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeTruthy();
       expect(view.getByRole('button', { name: Copy.auth.signIn.switchLink })).toBeTruthy();
-      expect(view.getByRole('checkbox')).toBeTruthy();
+      expect(view.getByTestId('signup-consent')).toBeTruthy();
+      expect(view.getByTestId('signup-future-uploads-consent')).toBeTruthy();
     });
   });
 
@@ -380,7 +393,8 @@ describe('sign-in screen: control reachability', () => {
 
     expect(view.getByRole('button', { name: Copy.auth.cta.google })).toBeEnabled();
     expect(view.getByRole('button', { name: Copy.auth.signIn.switchLink })).toBeEnabled();
-    expect(view.getByRole('checkbox')).toBeEnabled();
+    expect(view.getByTestId('signup-consent')).toBeEnabled();
+    expect(view.getByTestId('signup-future-uploads-consent')).toBeEnabled();
   });
 
   it('switches to sign-in mode from the footer link and back', async () => {

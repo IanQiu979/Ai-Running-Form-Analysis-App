@@ -46,11 +46,32 @@ import {
   recordAgeBand,
   type AgeBand,
 } from '@/lib/age-band';
+import { FUTURE_UPLOADS_ATTESTATION_CONSENT, grantConsent, hasConsented, UPLOAD_HEALTH_CONSENT } from '@/lib/consent';
 import { useSession } from '@/lib/session-provider';
 import { signOut } from '@/lib/sign-out';
 import { useAnnounce } from '@/lib/use-announce';
 
 type Phase = 'hidden' | 'checking' | 'ask' | 'loadError';
+
+/**
+ * Confirms both consent rows exist for the signed-in account, granting them if they don't.
+ * Never throws — a caller that is about to mark the age band recorded and close the gate must
+ * treat `false` as "do not close", the same way the direct grant on the main submit path already
+ * does. `hasConsented` is checked first rather than granting unconditionally, because this also
+ * runs on the `age_band_already_recorded` retry path, where consent may already be on file.
+ */
+async function ensureConsentGranted(): Promise<boolean> {
+  try {
+    if (await hasConsented(UPLOAD_HEALTH_CONSENT)) return true;
+    await Promise.all([
+      grantConsent(UPLOAD_HEALTH_CONSENT),
+      grantConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 type Props = {
   /** The signed-in surface the gate covers (the tab navigator). */
@@ -113,19 +134,37 @@ export function AgeBandGate({ children }: Props) {
     const result = await recordAgeBand(selection);
     if (unmountedRef.current) return;
     if (result.ok) {
+      const consentOk = await ensureConsentGranted();
+      if (unmountedRef.current) return;
+      if (!consentOk) {
+        setPending(false);
+        setError(Copy.auth.ageGate.error.save);
+        return;
+      }
       await markAgeBandRecordedLocally(userId);
       if (unmountedRef.current) return;
       setPending(false);
       setPhase('hidden');
       return;
     }
-    setPending(false);
     if (result.code === 'age_band_already_recorded') {
-      // A band is on file (a dropped response retried, or another device got there first). The
-      // profile is the authority on which one — re-read it rather than trust this call's input.
-      void check();
+      // A band is on file (a dropped response retried, or another device got there first). That
+      // does not by itself prove consent was ever recorded — the earlier attempt may have written
+      // the band and then failed on the consent grant — so confirm/grant consent before treating
+      // this as done rather than trusting the band's presence alone.
+      const consentOk = await ensureConsentGranted();
+      if (unmountedRef.current) return;
+      setPending(false);
+      if (!consentOk) {
+        setError(Copy.auth.ageGate.error.save);
+        return;
+      }
+      await markAgeBandRecordedLocally(userId);
+      if (unmountedRef.current) return;
+      setPhase('hidden');
       return;
     }
+    setPending(false);
     setError(describeRecordAgeBandError(result.code));
   }
 

@@ -79,7 +79,6 @@ appId: com.ian.paceanalysisai
 #
 # - tapOn:
 #     id: "source-card-record"
-# - runFlow: subflows/grant-consent.yaml
 # - assertVisible: "Camera access required" # capture.permission.camera.title
 # - tapOn: "Allow camera access"
 # - tapOn: "Allow" # OS permission dialog (confirmed "Allow"/"Don't Allow" 2026-09-19) — see happy-path.yaml

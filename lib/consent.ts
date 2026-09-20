@@ -8,23 +8,25 @@
  *
  * Everything here FAILS CLOSED — see hasConsented().
  *
- * Three consent keys, not one — see `components/consent-gate.tsx`'s docblock for the full
- * reasoning behind why they exist and why they don't share a "once granted, never asked again"
- * lifecycle. In one line: `UPLOAD_HEALTH_CONSENT` and `AGE_CONFIRMATION_CONSENT` are facts about
- * the ACCOUNT and are granted once, ever; `THIRD_PARTY_ATTESTATION_CONSENT` is a fact about a
- * SPECIFIC upload (who's actually in that photo or video) and is granted fresh every time the
- * uploader says the subject is someone else — a returning "self-consent" grant proves nothing
- * about who is in today's clip. Using a distinct key per grant is also what "the record must
- * distinguish self-consent from third-party attestation" (issue #94) means in practice: the
- * `consent_key` column IS that distinction — no extra table or column was needed.
+ * Consent keys, and their lifecycles — they do NOT all share a "once granted, never asked again"
+ * shape. `UPLOAD_HEALTH_CONSENT` is a fact about the ACCOUNT, granted once, ever, at sign-up or
+ * first Google use. `FUTURE_UPLOADS_ATTESTATION_CONSENT` is granted at that same moment and
+ * covers every upload/recording the account will ever make, present and future — it replaced the
+ * old per-upload `THIRD_PARTY_ATTESTATION_CONSENT` flow (see that key's own doc). The former age
+ * key (`upload.ageConfirmation.v1`) is gone: sign-up's age-band flow (`@shared/age-band`,
+ * `components/age-band-choice.tsx`) supersedes it, and nothing writes it anymore — historical
+ * rows for that key remain in `public.consents` but the app no longer types or grants it.
  */
 import { supabase } from './supabase';
 
 /**
- * Consent to the upload → Anthropic → health-feedback processing chain, at the exact wording
- * shipped in `Copy.consent.upload` (copy-deck.md § Consent). Self-consent — this is the uploader
- * consenting to processing of THEIR OWN images. See `THIRD_PARTY_ATTESTATION_CONSENT` for the
- * distinct grant recorded when the uploader says someone else is in the frame.
+ * Consent to the upload → Anthropic → health-feedback processing chain. Collected by the
+ * account-level sign-up/first-use flow, not a health-specific checkbox of its own: the health
+ * processing acceptance rides on the generic sign-up Terms/Privacy checkbox, while the adjacent
+ * `Copy.auth.consent.futureUploads.checkbox` wording (see `FUTURE_UPLOADS_ATTESTATION_CONSENT`
+ * below) covers the future-uploads statement. Self-consent — this is the uploader consenting to
+ * processing of THEIR OWN images. See `THIRD_PARTY_ATTESTATION_CONSENT` for the distinct grant
+ * recorded when the uploader says someone else is in the frame.
  *
  * The version lives in the key on purpose. Consent to one wording is not consent to a later one,
  * so rewording the deck means minting `upload.health.v2` here — at which point hasConsented() is
@@ -34,29 +36,30 @@ import { supabase } from './supabase';
 export const UPLOAD_HEALTH_CONSENT = 'upload.health.v1';
 
 /**
- * Confirmation that the account holder is 16 or older, per what was `docs/privacy-policy.md`'s
- * "Age and other people in your media" section (split on 2026-09-20 into "Age", which now sets a
- * 13-and-up floor with guardian consent, and "Other people in your media" — see
- * `docs/status.md` Known Issue #52 follow-up 1 for the resulting contradiction) — stated there
- * but, before issue #94, never asked or recorded anywhere in the app. Granted once, ever, alongside `UPLOAD_HEALTH_CONSENT` on the same
- * first-upload screen (age only moves in one direction, so there is nothing to re-ask).
- */
-export const AGE_CONFIRMATION_CONSENT = 'upload.ageConfirmation.v1';
-
-/**
- * The uploader's attestation, given fresh for a specific upload, that the person shown — who is
- * NOT the uploader — has agreed to this analysis, or their parent/guardian has if they're a
- * minor. Recorded ONLY when `components/consent-gate.tsx`'s subject phase answers "someone else"
- * — a coach filming a different athlete each session is a different data subject each time, so
- * this is deliberately not a once-ever grant the way the two keys above are (see this module's
- * docblock and the component's for the full reasoning).
+ * RETIRED. The uploader's attestation, given fresh for a specific upload, that the person shown
+ * — who is NOT the uploader — has agreed to this analysis, or their parent/guardian has if
+ * they're a minor. Was recorded when the (now-deleted) `components/consent-gate.tsx`'s subject
+ * phase answered "someone else" — a coach filming a different athlete each session was treated as
+ * a different data subject each time. Superseded by `FUTURE_UPLOADS_ATTESTATION_CONSENT`, granted
+ * once at sign-up and covering every future upload instead of asking per upload. No longer
+ * granted anywhere going forward; the export stays only so historical rows keep a type.
  */
 export const THIRD_PARTY_ATTESTATION_CONSENT = 'upload.thirdPartyAttestation.v1';
 
+/**
+ * Granted once, ever — at sign-up (email) or on first use (a Google-created account, via
+ * `components/age-band-gate.tsx`) — alongside `UPLOAD_HEALTH_CONSENT`. States that every photo or
+ * video the account uploads or records, now and in the future, shows only the account holder or
+ * someone who has agreed to be analyzed. Supersedes the old per-upload attestation flow
+ * (`THIRD_PARTY_ATTESTATION_CONSENT`, retired above): rather than asking who is in THIS clip every
+ * time, the account holder attests up front to a standing rule that covers every future upload.
+ */
+export const FUTURE_UPLOADS_ATTESTATION_CONSENT = 'upload.futureUploadsAttestation.v1';
+
 export type ConsentKey =
   | typeof UPLOAD_HEALTH_CONSENT
-  | typeof AGE_CONFIRMATION_CONSENT
-  | typeof THIRD_PARTY_ATTESTATION_CONSENT;
+  | typeof THIRD_PARTY_ATTESTATION_CONSENT
+  | typeof FUTURE_UPLOADS_ATTESTATION_CONSENT;
 
 /**
  * True if the newest consent event for this key is a grant.

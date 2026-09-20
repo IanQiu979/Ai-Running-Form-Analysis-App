@@ -37,6 +37,10 @@ jest.mock('@/lib/signup-with-captcha', () => ({
   signUpWithCaptcha: jest.fn(),
   applySignupSession: jest.fn(),
 }));
+jest.mock('@/lib/consent', () => {
+  const actual = jest.requireActual('@/lib/consent');
+  return { ...actual, grantConsent: jest.fn() };
+});
 jest.mock('@/lib/supabase', () => ({
   supabase: { auth: { signInWithPassword: jest.fn() } },
 }));
@@ -85,23 +89,28 @@ const SignInScreen = require('../sign-in').default;
 const { signUpWithCaptcha, applySignupSession } = require('@/lib/signup-with-captcha');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { checkPasswordBreached } = require('@/lib/hibp');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { grantConsent, UPLOAD_HEALTH_CONSENT, FUTURE_UPLOADS_ATTESTATION_CONSENT } = require('@/lib/consent');
 
 const mockSignUp = signUpWithCaptcha as jest.Mock;
 const mockApply = applySignupSession as jest.Mock;
 const mockBreachCheck = checkPasswordBreached as jest.Mock;
+const mockGrantConsent = grantConsent as jest.Mock;
 
 beforeEach(() => {
   mockSignUp.mockReset();
   mockApply.mockReset();
   mockBreachCheck.mockReset();
+  mockGrantConsent.mockReset();
+  mockGrantConsent.mockResolvedValue(undefined);
   // The screen runs this before the network call and returns early on `'breached'` — a real
   // answer is required or every test here would stop at the pre-check instead of submitting.
   mockBreachCheck.mockResolvedValue({ status: 'safe' });
 });
 
-/** Gets the screen's default sign-up mode to a filled form with "18 or older" picked, the consent
- *  box ticked and a Turnstile token in hand — the exact state the real "Create account" button
- *  becomes pressable from. */
+/** Gets the screen's default sign-up mode to a filled form with "18 or older" picked, the Terms
+ *  and future-uploads boxes ticked and a Turnstile token in hand — the exact state the real
+ *  "Create account" button becomes pressable from. */
 async function fillSignUpForm() {
   // The queries below run against the object THIS render returns, never the module-level `screen`
   // helper. `screen` tracks the most recent render globally, and a full submit leaves its own
@@ -117,7 +126,8 @@ async function fillSignUpForm() {
   await fireEvent.changeText(getByPlaceholderText(Copy.auth.password.placeholder), 'aRealStrongPassw0rd!9x');
   // RNTL 14's `fireEvent.*` is async; each event is awaited so none overlaps the last one's act().
   await fireEvent.press(getByTestId('signup-age-18-plus'));
-  await fireEvent.press(getByRole('checkbox'));
+  await fireEvent.press(getByTestId('signup-consent'));
+  await fireEvent.press(getByTestId('signup-future-uploads-consent'));
   await fireEvent.press(getByTestId('mock-turnstile-token'));
 
   await waitFor(() => expect(getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled());
@@ -147,6 +157,11 @@ describe('sign-in screen: a successful sign-up enters the app', () => {
     // Nothing failed, so nothing may be reported as having failed. This assertion is the captain's
     // actual symptom, inverted: he saw this exact string on a sign-up that had already succeeded.
     expect(queryByText(Copy.auth.error.generic)).toBeNull();
+
+    // The two once-ever grants (2026-09-20) are recorded right after the session is applied.
+    await waitFor(() => expect(mockGrantConsent).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT));
+    expect(mockGrantConsent).toHaveBeenCalledWith(FUTURE_UPLOADS_ATTESTATION_CONSENT);
+    expect(mockGrantConsent).toHaveBeenCalledTimes(2);
   });
 
   // NOT TESTED HERE: the failure path (an error message on screen, and `applySignupSession` never
@@ -157,4 +172,32 @@ describe('sign-in screen: a successful sign-up enters the app', () => {
   // `session_malformed` rather than a usable session, and `lib/__tests__/auth-errors.test.ts`
   // proves `mapSignupWithCaptchaError` turns that into `Copy.auth.error.generic`. What only a
   // screen test can prove — which arguments this screen passes downstream on SUCCESS — is above.
+});
+
+describe('sign-in screen: the future-uploads local gate', () => {
+  // Mirrors the age-band/consent-required local gates already proven for this screen: the
+  // future-uploads attestation must be ticked before the submit handler ever contacts a server.
+  it('refuses to submit and reports futureUploadsConsentRequired when the box is unticked', async () => {
+    const view = await render(<SignInScreen />);
+    const { getByTestId, getByPlaceholderText, findByText } = view;
+
+    await waitFor(() => expect(getByTestId('mock-turnstile-token')).toBeTruthy());
+
+    await fireEvent.changeText(getByPlaceholderText(Copy.auth.email.placeholder), 'runner2@example.com');
+    await fireEvent.changeText(
+      getByPlaceholderText(Copy.auth.password.placeholder),
+      'aRealStrongPassw0rd!9x'
+    );
+    await fireEvent.press(getByTestId('signup-age-18-plus'));
+    await fireEvent.press(getByTestId('signup-consent'));
+    await fireEvent.press(getByTestId('mock-turnstile-token'));
+    // Deliberately never ticking signup-future-uploads-consent.
+
+    // The return key reaches the handler with the button still disabled — same reason the
+    // existing age-band/consent-required gates are tested via onSubmitEditing, not the button.
+    await fireEvent(getByPlaceholderText(Copy.auth.password.placeholder), 'submitEditing');
+
+    await findByText(Copy.auth.error.futureUploadsConsentRequired);
+    expect(mockSignUp).not.toHaveBeenCalled();
+  });
 });

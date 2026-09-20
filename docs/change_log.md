@@ -27,6 +27,26 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   the not-assessed picker row and the "Back from comparing returns to the picker" contract) and a
   rewrite of `components/compare/__tests__/pace-delta-panel.test.tsx` for the new row structure.
 
+## 2026-09-20 (consent merged into sign-up; per-upload gate removed)
+
+- The old per-upload `consent-gate.tsx` flow is gone: `UPLOAD_HEALTH_CONSENT` and the new
+  `FUTURE_UPLOADS_ATTESTATION_CONSENT` (replacing the retired per-clip
+  `THIRD_PARTY_ATTESTATION_CONSENT`) are now both granted once, ever, at email sign-up or on a
+  Google account's first use (`components/age-band-gate.tsx`), not asked again per upload.
+  `app/capture/index.tsx` no longer gates on consent at all — the server-side check inside
+  `analyze-form` is the only enforcement.
+- Fixed a lockout this merge introduced: `components/age-band-gate.tsx`'s
+  `age_band_already_recorded` retry path (a dropped response retried, or a second device racing
+  the same account) used to re-read the profile and close the gate without ever attempting the
+  consent grant, so an account whose earlier attempt wrote the band but failed the grant would
+  have the gate close over it silently with no consent row on file and no way back in
+  (`analyze-form` 403s forever). That path now checks `hasConsented`/`grantConsent` before
+  closing, same as the main success path, via a shared `ensureConsentGranted` helper.
+- Added a best-effort self-heal in `app/capture/index.tsx`: before Upload/Record, if
+  `hasConsented(UPLOAD_HEALTH_CONSENT)` is false the screen retries both grants once, since the
+  post-signup grants in `app/(auth)/sign-in.tsx` are fire-and-forget and had no retry path at all.
+  Not a hard gate — a failed repair still proceeds, and `analyze-form` remains the real enforcement.
+
 ## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
 
 - **The signed-out entry flow is one paged scroll** (`app/(auth)/welcome.tsx`): the V23-02 hero,

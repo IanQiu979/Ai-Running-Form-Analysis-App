@@ -61,6 +61,7 @@ import { AgeBandChoiceGroup, selectionOf } from '@/components/age-band-choice';
 import { TurnstileWidget, type TurnstileWidgetHandle } from '@/components/turnstile-widget';
 import { SquareButton } from '@/components/ui/square-button';
 import { TextField } from '@/components/ui/text-field';
+import { UploadConsentCheckbox } from '@/components/upload-consent-checkbox';
 import { PASSWORD_MIN_LENGTH } from '@/constants/auth';
 import { Copy } from '@/constants/copy';
 import { ContentWidth } from '@/constants/theme';
@@ -68,6 +69,7 @@ import { Ink, Layout, Motion, Space, Type } from '@/constants/v23-theme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { signInWithGoogle } from '@/lib/auth';
 import { mapAuthError, mapSignupWithCaptchaError, validateSignInForm } from '@/lib/auth-errors';
+import { FUTURE_UPLOADS_ATTESTATION_CONSENT, grantConsent, UPLOAD_HEALTH_CONSENT } from '@/lib/consent';
 import { checkPasswordBreached } from '@/lib/hibp';
 import { useSession } from '@/lib/session-provider';
 import { applySignupSession, signUpWithCaptcha } from '@/lib/signup-with-captcha';
@@ -130,6 +132,11 @@ export default function SignInScreen() {
   // shared across modes, so it survives the footer toggle.
   const [consentChecked, setConsentChecked] = useState(false);
   const [consentRevealed, setConsentRevealed] = useState(false);
+
+  // The future-uploads attestation (2026-09-20) — granted once, at sign-up or first Google use,
+  // alongside `UPLOAD_HEALTH_CONSENT` below. Sign-up mode only; a returning Google user is asked
+  // by `components/age-band-gate.tsx` on first use instead.
+  const [futureUploadsChecked, setFutureUploadsChecked] = useState(false);
 
   // The age choice (2026-09-20) — drawn in sign-up mode only. `ageBand` starts unpicked and the
   // guardian attestation starts unticked; like the consent tick above, both survive a footer
@@ -204,6 +211,11 @@ export default function SignInScreen() {
       setErrorMessage(Copy.auth.error.consentRequired);
       return;
     }
+    if (!futureUploadsChecked) {
+      setConsentRevealed(true);
+      setErrorMessage(Copy.auth.error.futureUploadsConsentRequired);
+      return;
+    }
     clearErrors();
     setPendingAction('google');
     try {
@@ -245,6 +257,12 @@ export default function SignInScreen() {
       setErrorMessage(
         ageBand === null ? Copy.auth.error.ageBandRequired : Copy.auth.error.guardianConsentRequired
       );
+      return;
+    }
+    // Same shape of local, before-any-network gate as the two checks above, for the
+    // future-uploads attestation (2026-09-20).
+    if (mode === 'signUp' && !futureUploadsChecked) {
+      setErrorMessage(Copy.auth.error.futureUploadsConsentRequired);
       return;
     }
 
@@ -320,6 +338,18 @@ export default function SignInScreen() {
         // from `signInWithPassword` — flips `session`, and the root layout's Stack.Protected
         // guard routes to (tabs) automatically. No manual navigation here.
         await applySignupSession(signupResult.session);
+
+        try {
+          await Promise.all([
+            grantConsent(UPLOAD_HEALTH_CONSENT),
+            grantConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
+          ]);
+        } catch {
+          // Fail open on the UX path deliberately: the account exists and is signed in already.
+          // lib/consent.ts's server-side gate (analyze-form) fails closed on its own if this row is
+          // missing, so a transient failure here does not silently grant access — it just means the
+          // user's first analysis attempt will 403 and they retry. Do not block sign-up success on this.
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email: trimmedEmail,
@@ -482,6 +512,15 @@ export default function SignInScreen() {
               </Pressable>
             )}
 
+            {(isSignUp || consentRevealed) && (
+              <UploadConsentCheckbox
+                checked={futureUploadsChecked}
+                onToggle={() => setFutureUploadsChecked((checked) => !checked)}
+                disabled={isBusy}
+                testID="signup-future-uploads-consent"
+              />
+            )}
+
             {/* Issue #12/Known Issue #12 — sign-up only. `TURNSTILE_CONFIG` is only null in a
                 misconfigured environment (see .env.example), but "misconfigured" was shipped:
                 the v23-launch-audit-r1 audit found the key empty in every environment it could
@@ -531,7 +570,11 @@ export default function SignInScreen() {
                 label={isSignUp ? Copy.auth.signUp.submit : Copy.auth.signIn.submit}
                 onPress={handleEmailSubmit}
                 testID="auth-email-submit"
-                disabled={isBusy || (isSignUp && (!captchaToken || !consentChecked || ageSelection === null))}
+                disabled={
+                  isBusy ||
+                  (isSignUp &&
+                    (!captchaToken || !consentChecked || !futureUploadsChecked || ageSelection === null))
+                }
                 // Only when the button can NEVER become enabled. A missing token with a key
                 // present is the ordinary "solve the challenge" wait, which the visible widget
                 // already explains — hinting there would nag on every render.

@@ -75,6 +75,7 @@ describe('sign-in screen: a 13–17 sign-up with the attestation', () => {
     await waitFor(() => expect(view.getByTestId('signup-age-guardian-consent')).toBeTruthy());
     await fireEvent.press(view.getByTestId('signup-age-guardian-consent'));
     await fireEvent.press(view.getByTestId('signup-consent'));
+    await fireEvent.press(view.getByTestId('signup-future-uploads-consent'));
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
     await waitFor(() => expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled());
 

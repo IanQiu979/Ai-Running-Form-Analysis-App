@@ -1,28 +1,19 @@
 /**
  * Source picker (design brief screen 3, issue #36) — "Add your run": two cards, Upload
  * (library) or Record (in-app). Also hosts:
- *   - the consent gate (`components/consent-gate.tsx`, issues #68 and #94) — the copy deck
- *     names this screen as the exact place it intercepts: "gates the Source Picker ->
- *     Capture/Upload handoff" (docs/design/copy-deck.md § Consent). Every card press shows the
- *     gate now — it used to skip straight through for a returning, already-consented user, but
- *     issue #94 added a per-upload "who's actually in this photo or video" question that a
- *     once-ever grant cannot answer, so the gate always mounts and decides its own starting
- *     phase internally (see that component's docblock).
  *   - the photo-library permission dance (soft-ask -> OS prompt -> denied), since the deck's
  *     `sourcePicker.permission.library.*` keys live on THIS screen, not a separate one.
  *   - `lib/media-caps.ts`'s pre-flight check on whatever the library picker returns (a picked
  *     video, unlike an in-app recording, isn't bounded by `CameraView`'s own `maxDuration`).
  *
  * Camera permission is Capture's (`app/capture/record.tsx`) own concern, not this screen's —
- * tapping Record just navigates there once the gate fires onConsented.
+ * tapping Record just navigates there directly.
  *
  * VISUALLY (V23-10, first artboard): the page's top row ("ADD FOOTAGE" between a bled Back
  * control and a 44 pt spacer), then two `SquareCard`s at the 24 pt card padding — a 56 pt
  * `line`-ruled badge holding the page's glyph beside an H1 title and a `note` subtitle — and the
  * framing tip centred beneath. The permission and error panels are not drawn on the page; they
- * are the same card with a semibold title, a `note` body and the two button variants. When the
- * gate is up it takes the whole screen (the page draws it as the phone, not as a card), so it is
- * rendered directly on the `Ink.bg` root with no wrapper of its own.
+ * are the same card with a semibold title, a `note` body and the two button variants.
  */
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
@@ -31,7 +22,6 @@ import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ConsentGate } from '@/components/consent-gate';
 import { SquareButton } from '@/components/ui/square-button';
 import { SquareCard } from '@/components/ui/square-card';
 import { SquareIconButton } from '@/components/ui/square-icon-button';
@@ -39,14 +29,37 @@ import { TopBar } from '@/components/ui/top-bar';
 import { BackIcon, RecordIcon, UploadIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
 import { Font, Ink, Layout, Space, Type } from '@/constants/v23-theme';
+import { FUTURE_UPLOADS_ATTESTATION_CONSENT, grantConsent, hasConsented, UPLOAD_HEALTH_CONSENT } from '@/lib/consent';
 import { readFileSizeBytes } from '@/lib/media-file-size';
 import { checkMediaCaps } from '@/lib/media-caps';
 import { classifyPermission, permissionRecoveryAction } from '@/lib/permission-state';
 import { useAnnounce } from '@/lib/use-announce';
 
+/**
+ * Best-effort self-heal, not a gate (there is no consent gate at capture — see
+ * `components/age-band-gate.tsx` and `app/(auth)/sign-in.tsx` for where consent is actually
+ * granted). Email/Google sign-up grants `UPLOAD_HEALTH_CONSENT` and
+ * `FUTURE_UPLOADS_ATTESTATION_CONSENT` fire-and-forget; if that grant silently failed, the account
+ * is left with no consent row and every `analyze-form` call 403s with no way back in. Checking
+ * here, right before the two actions that lead to an upload, catches that case cheaply — the check
+ * always runs, but the extra grant round trip only happens when it is actually missing. A failure
+ * here is not fatal: `analyze-form`'s own server-side gate still enforces this and fails closed
+ * with `consent_required` if the repair could not complete.
+ */
+async function ensureConsentGranted(): Promise<void> {
+  try {
+    if (await hasConsented(UPLOAD_HEALTH_CONSENT)) return;
+    await Promise.all([
+      grantConsent(UPLOAD_HEALTH_CONSENT),
+      grantConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
+    ]);
+  } catch {
+    // Proceed regardless — see the function doc above.
+  }
+}
+
 const PRESSED_OPACITY = 0.6;
 
-type PendingAction = 'record' | 'upload' | null;
 type LibraryFlow = 'idle' | 'softAsk';
 type InlineError = { title: string; body: string };
 
@@ -57,7 +70,6 @@ export default function SourcePickerScreen() {
   const [libraryPermission, requestLibraryPermission] = ImagePicker.useMediaLibraryPermissions();
   const libraryState = classifyPermission(libraryPermission);
 
-  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [libraryFlow, setLibraryFlow] = useState<LibraryFlow>('idle');
   const [uploadError, setUploadError] = useState<InlineError | null>(null);
   // Guards double-taps while a native permission dialog / picker sheet is in flight — both are
@@ -66,6 +78,18 @@ export default function SourcePickerScreen() {
 
   function goToRecord() {
     router.push('/capture/record');
+  }
+
+  async function handleRecordPress() {
+    setUploadError(null);
+    await ensureConsentGranted();
+    goToRecord();
+  }
+
+  async function handleUploadPress() {
+    setUploadError(null);
+    await ensureConsentGranted();
+    await beginUploadFlow();
   }
 
   async function launchLibraryPicker() {
@@ -136,24 +160,6 @@ export default function SourcePickerScreen() {
     // hook resolves on its own re-render — nothing to do here either way.
   }
 
-  // Always routes through the gate now (issue #94) — there is no "already consented, skip
-  // straight through" shortcut anymore, because the gate's per-upload subject question has no
-  // such thing as "already answered" (see components/consent-gate.tsx's docblock).
-  function handleCardPress(action: 'record' | 'upload') {
-    setUploadError(null);
-    setPendingAction(action);
-  }
-
-  function handleConsented() {
-    const action = pendingAction;
-    setPendingAction(null);
-    if (action === 'record') {
-      goToRecord();
-    } else if (action === 'upload') {
-      void beginUploadFlow();
-    }
-  }
-
   async function handleSoftAskAllow() {
     setBusy(true);
     const result = await requestLibraryPermission();
@@ -178,14 +184,6 @@ export default function SourcePickerScreen() {
   }
 
   const cardsDisabled = busy;
-
-  if (pendingAction !== null) {
-    return (
-      <View style={styles.screen}>
-        <ConsentGate onConsented={handleConsented} onCancel={() => setPendingAction(null)} />
-      </View>
-    );
-  }
 
   return (
     <View style={styles.screen}>
@@ -220,7 +218,9 @@ export default function SourcePickerScreen() {
             title={Copy.sourcePicker.card.upload.title}
             subtitle={Copy.sourcePicker.card.upload.subtitle}
             disabled={cardsDisabled}
-            onPress={() => handleCardPress('upload')}
+            onPress={() => {
+              void handleUploadPress();
+            }}
           />
 
           {libraryState === 'denied' && libraryFlow === 'idle' && (
@@ -253,7 +253,9 @@ export default function SourcePickerScreen() {
             title={Copy.sourcePicker.card.record.title}
             subtitle={Copy.sourcePicker.card.record.subtitle}
             disabled={cardsDisabled}
-            onPress={() => handleCardPress('record')}
+            onPress={() => {
+              void handleRecordPress();
+            }}
           />
 
           <Text style={styles.framingTip}>{Copy.sourcePicker.framingTip}</Text>

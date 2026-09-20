@@ -120,6 +120,8 @@ appId: com.ian.paceanalysisai
     id: "signup-age-18-plus"
 - tapOn:
     id: "signup-consent"
+- tapOn:
+    id: "signup-future-uploads-consent"
 - runFlow:
     when:
       visible: "Verify you are human"
