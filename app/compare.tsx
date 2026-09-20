@@ -287,8 +287,7 @@ function PickerRow({
         disabled && styles.disabled,
         pressed && !disabled && styles.pressed,
       ]}>
-      {/* Same `Layout.consentCheckbox` square idiom `components/age-band-choice.tsx` and
-          `components/consent-gate.tsx` draw. */}
+      {/* Same `Layout.consentCheckbox` square idiom `components/age-band-choice.tsx` draws. */}
       <View style={[styles.checkbox, selected && styles.checkboxChecked]}>{selected ? <CheckIcon /> : null}</View>
 
       <View style={styles.rowInfo}>

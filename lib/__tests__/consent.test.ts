@@ -16,17 +16,21 @@
  * query ASKS for `created_at desc, limit 1` (case 4). That the database honors it is verified
  * against the real project in Task 1 of the plan, not here.
  *
- * `AGE_CONFIRMATION_CONSENT` and `THIRD_PARTY_ATTESTATION_CONSENT` (issue #94) need no new
+ * `FUTURE_UPLOADS_ATTESTATION_CONSENT` and `THIRD_PARTY_ATTESTATION_CONSENT` need no new
  * behavior in this module — `hasConsented`/`grantConsent`/`withdrawConsent` are already generic
  * over `ConsentKey`, and every case above already proves the generic behavior. The one thing
- * worth locking down here instead is the new keys' own VALUES: they must actually be distinct
- * strings, or "the record must distinguish self-consent from third-party attestation" (the
- * issue's own requirement) would be false at the data layer regardless of what the UI does.
+ * worth locking down here instead is the keys' own VALUES: they must actually be distinct
+ * strings, or the record's ability to distinguish one grant from another would be false at the
+ * data layer regardless of what the UI does.
  */
 import {
-  AGE_CONFIRMATION_CONSENT,
+  aggregateSignupConsentState,
+  ensureConsentsGranted,
+  FUTURE_UPLOADS_ATTESTATION_CONSENT,
   grantConsent,
   hasConsented,
+  readConsentState,
+  readSignupConsentState,
   THIRD_PARTY_ATTESTATION_CONSENT,
   UPLOAD_HEALTH_CONSENT,
   withdrawConsent,
@@ -41,6 +45,44 @@ const mockFrom = supabase.from as jest.MockedFunction<typeof supabase.from>;
 
 type Row = { granted: boolean };
 type QueryError = { message: string };
+type KeyState = 'none' | 'granted' | 'withdrawn' | 'error';
+
+/**
+ * Mocks `.from('consents')` with a per-key newest row for the SELECT chain and a recording INSERT,
+ * so `ensureConsentsGranted`'s two reads and any grants all route through the one `from` mock.
+ * Returns the inserts that landed, in order.
+ */
+function mockConsentTable(
+  states: Record<string, KeyState>,
+  options: { insertError?: QueryError | ((key: string) => QueryError | null) } = {}
+) {
+  const inserted: { consent_key: string; granted: boolean }[] = [];
+  mockFrom.mockImplementation(() => {
+    let key = '';
+    const maybeSingle = jest.fn().mockImplementation(async () => {
+      const state = states[key] ?? 'none';
+      if (state === 'error') return { data: null, error: { message: `read failed for ${key}` } };
+      if (state === 'none') return { data: null, error: null };
+      return { data: { granted: state === 'granted' }, error: null };
+    });
+    const limit = jest.fn().mockReturnValue({ maybeSingle });
+    const order = jest.fn().mockReturnValue({ limit });
+    const eq = jest.fn().mockImplementation((_column: string, value: string) => {
+      key = value;
+      return { order };
+    });
+    const select = jest.fn().mockReturnValue({ eq });
+    const insert = jest.fn().mockImplementation(async (row: { consent_key: string; granted: boolean }) => {
+      const err =
+        typeof options.insertError === 'function' ? options.insertError(row.consent_key) : options.insertError ?? null;
+      if (err) return { error: err };
+      inserted.push(row);
+      return { error: null };
+    });
+    return { select, insert } as never;
+  });
+  return inserted;
+}
 
 /** Mocks `.from('consents').select(..).eq(..).order(..).limit(..).maybeSingle()`. */
 function mockSelectChain(result: { data: Row | null; error: QueryError | null }) {
@@ -110,6 +152,45 @@ describe('hasConsented', () => {
   });
 });
 
+describe('readConsentState', () => {
+  // The distinction `hasConsented` collapses and a repair path must not: no row at all is a
+  // legacy account that may be healed silently; a newest row of granted = false is a withdrawal
+  // the user made on purpose, and re-granting over it would forge an Art. 9 consent.
+  it("reports 'none' when the user has no rows for the key", async () => {
+    mockSelectChain({ data: null, error: null });
+
+    await expect(readConsentState(UPLOAD_HEALTH_CONSENT)).resolves.toBe('none');
+  });
+
+  it("reports 'granted' when the newest row is a grant", async () => {
+    mockSelectChain({ data: { granted: true }, error: null });
+
+    await expect(readConsentState(UPLOAD_HEALTH_CONSENT)).resolves.toBe('granted');
+  });
+
+  it("reports 'withdrawn' — not 'none' — when the newest row is a withdrawal", async () => {
+    mockSelectChain({ data: { granted: false }, error: null });
+
+    await expect(readConsentState(UPLOAD_HEALTH_CONSENT)).resolves.toBe('withdrawn');
+  });
+
+  it('asks for the newest row scoped to the key, same as hasConsented', async () => {
+    const chain = mockSelectChain({ data: { granted: false }, error: null });
+
+    await readConsentState(UPLOAD_HEALTH_CONSENT);
+
+    expect(chain.eq).toHaveBeenCalledWith('consent_key', 'upload.health.v1');
+    expect(chain.order).toHaveBeenCalledWith('created_at', { ascending: false });
+    expect(chain.limit).toHaveBeenCalledWith(1);
+  });
+
+  it('throws when the query fails, rather than reporting any state', async () => {
+    mockSelectChain({ data: null, error: { message: 'network unreachable' } });
+
+    await expect(readConsentState(UPLOAD_HEALTH_CONSENT)).rejects.toThrow('network unreachable');
+  });
+});
+
 describe('grantConsent', () => {
   it('appends a row with granted = true', async () => {
     const chain = mockInsertChain({ error: null });
@@ -164,23 +245,22 @@ describe('withdrawConsent', () => {
   });
 });
 
-describe('issue #94 consent keys', () => {
-  // The data-layer half of "the record must distinguish self-consent from third-party
-  // attestation": the three keys must be three different strings, or every guarantee the
-  // component layer builds on top of them (components/consent-gate.tsx) collapses.
-  it('gives the health, age, and third-party-attestation keys distinct values', () => {
-    const keys = [UPLOAD_HEALTH_CONSENT, AGE_CONFIRMATION_CONSENT, THIRD_PARTY_ATTESTATION_CONSENT];
+describe('consent keys', () => {
+  // The data-layer guarantee: the three keys must be three different strings, or the record's
+  // ability to distinguish one grant from another collapses.
+  it('gives the health, future-uploads, and third-party-attestation keys distinct values', () => {
+    const keys = [UPLOAD_HEALTH_CONSENT, FUTURE_UPLOADS_ATTESTATION_CONSENT, THIRD_PARTY_ATTESTATION_CONSENT];
 
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('grants AGE_CONFIRMATION_CONSENT under its own key, not the self-consent key', async () => {
+  it('grants FUTURE_UPLOADS_ATTESTATION_CONSENT under its own key, not the self-consent key', async () => {
     const chain = mockInsertChain({ error: null });
 
-    await grantConsent(AGE_CONFIRMATION_CONSENT);
+    await grantConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT);
 
     expect(chain.insert).toHaveBeenCalledWith({
-      consent_key: 'upload.ageConfirmation.v1',
+      consent_key: 'upload.futureUploadsAttestation.v1',
       granted: true,
     });
   });
@@ -196,11 +276,216 @@ describe('issue #94 consent keys', () => {
     });
   });
 
-  it('reads AGE_CONFIRMATION_CONSENT scoped to its own key', async () => {
+  it('reads FUTURE_UPLOADS_ATTESTATION_CONSENT scoped to its own key', async () => {
     const chain = mockSelectChain({ data: { granted: true }, error: null });
 
-    await hasConsented(AGE_CONFIRMATION_CONSENT);
+    await hasConsented(FUTURE_UPLOADS_ATTESTATION_CONSENT);
 
-    expect(chain.eq).toHaveBeenCalledWith('consent_key', 'upload.ageConfirmation.v1');
+    expect(chain.eq).toHaveBeenCalledWith('consent_key', 'upload.futureUploadsAttestation.v1');
+  });
+});
+
+describe('ensureConsentsGranted', () => {
+  // The self-heal every sign-up path relies on. It must decide per KEY — the sign-up grant runs
+  // both inserts concurrently, so one landing says nothing about the other — and it must never
+  // write over a withdrawal.
+  it('is a no-op when both sign-up keys are already granted', async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'granted',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('granted');
+    expect(inserted).toEqual([]);
+  });
+
+  it('grants only the missing key when the health key landed but the future-uploads key did not', async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'none',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('granted');
+    expect(inserted).toEqual([{ consent_key: FUTURE_UPLOADS_ATTESTATION_CONSENT, granted: true }]);
+  });
+
+  it('grants only the missing key when the future-uploads key landed but the health key did not', async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'none',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'granted',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('granted');
+    expect(inserted).toEqual([{ consent_key: UPLOAD_HEALTH_CONSENT, granted: true }]);
+  });
+
+  it('grants both keys for an account with no rows at all', async () => {
+    const inserted = mockConsentTable({});
+
+    await expect(ensureConsentsGranted()).resolves.toBe('granted');
+    expect(inserted).toEqual(
+      expect.arrayContaining([
+        { consent_key: UPLOAD_HEALTH_CONSENT, granted: true },
+        { consent_key: FUTURE_UPLOADS_ATTESTATION_CONSENT, granted: true },
+      ])
+    );
+    expect(inserted).toHaveLength(2);
+  });
+
+  it("reports 'withdrawn' and writes nothing when the health key was withdrawn — even if the other key is missing", async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'withdrawn',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'none',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('withdrawn');
+    expect(inserted).toEqual([]);
+  });
+
+  it("reports 'withdrawn' and writes nothing when only the future-uploads key was withdrawn", async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'withdrawn',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('withdrawn');
+    expect(inserted).toEqual([]);
+  });
+
+  it("reports 'failed' when a needed grant errors, instead of throwing", async () => {
+    mockConsentTable({}, { insertError: { message: 'permission denied' } });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('failed');
+  });
+
+  it("reports 'failed' when reading either key's state errors, instead of guessing", async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'error',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('failed');
+    expect(inserted).toEqual([]);
+  });
+
+  it("resolves 'failed' when the round trip outlives `timeoutMs`, so a stalled connection never holds the caller", async () => {
+    jest.useFakeTimers();
+    try {
+      mockFrom.mockImplementation(() => {
+        const maybeSingle = jest.fn().mockReturnValue(new Promise(() => undefined));
+        const limit = jest.fn().mockReturnValue({ maybeSingle });
+        const order = jest.fn().mockReturnValue({ limit });
+        const eq = jest.fn().mockReturnValue({ order });
+        const select = jest.fn().mockReturnValue({ eq });
+        return { select } as never;
+      });
+
+      const pending = ensureConsentsGranted({ timeoutMs: 3000 });
+      let settled = false;
+      void pending.then(() => { settled = true; });
+
+      await jest.advanceTimersByTimeAsync(2999);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toBe('failed');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not let the timeout fire after a fast result has already settled', async () => {
+    jest.useFakeTimers();
+    try {
+      mockConsentTable({
+        [UPLOAD_HEALTH_CONSENT]: 'granted',
+        [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'granted',
+      });
+
+      await expect(ensureConsentsGranted({ timeoutMs: 3000 })).resolves.toBe('granted');
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('aggregateSignupConsentState', () => {
+  // The single rule every reader shares. Settings offers "Give consent" and capture refuses to
+  // proceed on the SAME aggregate, so a partial write can never leave capture blocking with a
+  // Settings screen that offers no way back.
+  it.each([
+    [['granted', 'granted'], 'granted'],
+    [['none', 'none'], 'none'],
+    [['granted', 'none'], 'granted'],
+    [['none', 'granted'], 'granted'],
+    [['withdrawn', 'withdrawn'], 'withdrawn'],
+    [['granted', 'withdrawn'], 'withdrawn'],
+    [['withdrawn', 'granted'], 'withdrawn'],
+    [['none', 'withdrawn'], 'withdrawn'],
+    [['withdrawn', 'none'], 'withdrawn'],
+  ] as const)('%j → %s', (states, expected) => {
+    expect(aggregateSignupConsentState(states)).toBe(expected);
+  });
+});
+
+describe('readSignupConsentState', () => {
+  it("reads both sign-up keys and reports 'withdrawn' when only the future-uploads key was withdrawn (the partial-restore state)", async () => {
+    mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'withdrawn',
+    });
+
+    await expect(readSignupConsentState()).resolves.toBe('withdrawn');
+  });
+
+  it("reports 'withdrawn' when only the health key was withdrawn (the partial-withdraw state)", async () => {
+    mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'withdrawn',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'granted',
+    });
+
+    await expect(readSignupConsentState()).resolves.toBe('withdrawn');
+  });
+
+  it("reports 'granted' for a partial sign-up write (one key landed, the other has no row)", async () => {
+    mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'none',
+    });
+
+    await expect(readSignupConsentState()).resolves.toBe('granted');
+  });
+
+  it("reports 'none' only when neither key has a row", async () => {
+    mockConsentTable({});
+
+    await expect(readSignupConsentState()).resolves.toBe('none');
+  });
+
+  it('agrees with ensureConsentsGranted on every mixed state: Settings offers Give consent exactly where capture refuses', async () => {
+    const mixes: [KeyState, KeyState][] = [
+      ['granted', 'withdrawn'],
+      ['withdrawn', 'granted'],
+      ['none', 'withdrawn'],
+      ['withdrawn', 'none'],
+      ['granted', 'none'],
+      ['none', 'granted'],
+    ];
+    for (const [health, future] of mixes) {
+      mockConsentTable({ [UPLOAD_HEALTH_CONSENT]: health, [FUTURE_UPLOADS_ATTESTATION_CONSENT]: future });
+      const settingsView = await readSignupConsentState();
+      mockConsentTable({ [UPLOAD_HEALTH_CONSENT]: health, [FUTURE_UPLOADS_ATTESTATION_CONSENT]: future });
+      const captureView = await ensureConsentsGranted();
+      expect(captureView === 'withdrawn').toBe(settingsView === 'withdrawn');
+    }
+  });
+
+  it('throws when either key\'s read fails, rather than reporting any state', async () => {
+    mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'error',
+    });
+
+    await expect(readSignupConsentState()).rejects.toThrow('read failed');
   });
 });

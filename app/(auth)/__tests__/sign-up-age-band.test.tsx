@@ -96,6 +96,7 @@ describe('sign-up form: the age choice', () => {
 
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
     await fireEvent.press(view.getByTestId('signup-consent'));
+    await fireEvent.press(view.getByTestId('signup-future-uploads-consent'));
     await fireEvent.press(view.getByTestId('signup-age-13-17'));
     await waitFor(() => expect(view.getByTestId('signup-age-guardian-consent')).toBeTruthy());
     expect(submit(view)).toBeDisabled();
@@ -110,6 +111,7 @@ describe('sign-up form: the age choice', () => {
 
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
     await fireEvent.press(view.getByTestId('signup-consent'));
+    await fireEvent.press(view.getByTestId('signup-future-uploads-consent'));
     expect(submit(view)).toBeDisabled();
     await fireEvent.press(view.getByTestId('signup-age-18-plus'));
     await waitFor(() => expect(submit(view)).toBeEnabled());

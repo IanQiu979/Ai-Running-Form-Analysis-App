@@ -11,6 +11,7 @@ import { Text } from 'react-native';
 
 import { Copy } from '@/constants/copy';
 import { readAgeBand, recordAgeBand } from '@/lib/age-band';
+import { ensureConsentsGranted } from '@/lib/consent';
 import { signOut } from '@/lib/sign-out';
 
 import { AgeBandGate } from '../age-band-gate';
@@ -32,6 +33,10 @@ jest.mock('@/lib/age-band', () => {
 });
 jest.mock('@/lib/sign-out', () => ({ signOut: jest.fn() }));
 jest.mock('@/lib/use-announce', () => ({ useAnnounce: jest.fn() }));
+jest.mock('@/lib/consent', () => {
+  const actual = jest.requireActual('@/lib/consent');
+  return { ...actual, ensureConsentsGranted: jest.fn() };
+});
 
 let mockProvider: string = 'google';
 jest.mock('@/lib/session-provider', () => ({
@@ -43,6 +48,7 @@ jest.mock('@/lib/session-provider', () => ({
 const mockRead = readAgeBand as jest.Mock;
 const mockRecord = recordAgeBand as jest.Mock;
 const mockSignOut = signOut as jest.Mock;
+const mockEnsureConsents = ensureConsentsGranted as jest.Mock;
 
 /** The gate always wraps the signed-in surface; a labelled stand-in makes the a11y hiding visible. */
 const Gate = () => (
@@ -57,6 +63,8 @@ beforeEach(async () => {
   mockRecord.mockReset();
   mockSignOut.mockReset();
   mockSignOut.mockResolvedValue({ ok: true });
+  mockEnsureConsents.mockReset();
+  mockEnsureConsents.mockResolvedValue('granted');
   // The per-device "answered" note lives in AsyncStorage (jest.setup.js's in-memory mock) and must
   // not leak between tests.
   await AsyncStorage.clear();
@@ -116,6 +124,11 @@ describe('AgeBandGate: who is gated', () => {
     await waitFor(() => expect(view.getByText(Copy.auth.ageGate.title)).toBeTruthy());
     expect(view.getByTestId('age-gate-18-plus')).toBeTruthy();
     expect(view.getByTestId('age-gate-13-17')).toBeTruthy();
+    // Continue also writes the two consent rows (ticked on sign-in before the OAuth round trip),
+    // so the screen says what confirming records — as a plain line, not another control.
+    expect(view.getByText(Copy.auth.ageGate.consentReminder)).toBeTruthy();
+    expect(view.getByTestId('age-gate-consent-reminder').props.accessibilityRole).toBeUndefined();
+    expect(view.getByTestId('age-gate-consent-reminder').props.onPress).toBeUndefined();
   });
 
   it('fails closed on a read error, with Retry and Sign out', async () => {
@@ -124,6 +137,7 @@ describe('AgeBandGate: who is gated', () => {
 
     await waitFor(() => expect(view.getByText(Copy.auth.ageGate.error.load)).toBeTruthy());
     expect(view.queryByTestId('age-gate-18-plus')).toBeNull();
+    expect(view.queryByTestId('age-gate-consent-reminder')).toBeNull();
     expect(view.getByTestId('age-gate-sign-out')).toBeTruthy();
 
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-retry')); });
@@ -168,16 +182,82 @@ describe('AgeBandGate: recording the choice', () => {
     await waitFor(() => expect(view.queryByTestId('age-band-gate')).toBeNull());
   });
 
-  it('re-reads the profile on the server\'s write-once answer and lifts when a band is on file', async () => {
+  it('runs the consent check-and-repair before the gate closes on a successful submit', async () => {
+    mockRecord.mockResolvedValue({ ok: true, data: { ageBand: '18_plus', guardianConsentRecorded: false } });
+    const view = await render(<Gate />);
+    await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
+
+    await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
+    await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
+
+    await waitFor(() => expect(mockEnsureConsents).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(view.queryByTestId('age-band-gate')).toBeNull());
+  });
+
+  it('does not close the gate when the consent repair fails after a successful age-band write', async () => {
+    mockRecord.mockResolvedValue({ ok: true, data: { ageBand: '18_plus', guardianConsentRecorded: false } });
+    mockEnsureConsents.mockResolvedValue('failed');
+    const view = await render(<Gate />);
+    await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
+
+    await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
+    await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
+
+    await waitFor(() => expect(view.getByText(Copy.auth.ageGate.error.consent)).toBeTruthy());
+    expect(view.queryByText(Copy.auth.ageGate.error.save)).toBeNull();
+    expect(view.getByTestId('age-band-gate')).toBeTruthy();
+    expect(view.queryByTestId('tabs-stand-in')).toBeNull();
+    expect(await AsyncStorage.getItem('age-band.recorded.u1')).not.toBe('1');
+  });
+
+  it('on the server\'s write-once answer, still runs the consent repair and lifts once it settles', async () => {
     mockRecord.mockResolvedValue({ ok: false, code: 'age_band_already_recorded' });
-    mockRead.mockReset().mockResolvedValueOnce(null).mockResolvedValueOnce('13_17');
     const view = await render(<Gate />);
     await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
+    await waitFor(() => expect(mockEnsureConsents).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(view.queryByTestId('age-band-gate')).toBeNull());
-    expect(mockRead).toHaveBeenCalledTimes(2);
     expect(await AsyncStorage.getItem('age-band.recorded.u1')).toBe('1');
+  });
+
+  it('on the write-once answer, a consent withdrawn on another device lifts the gate without a write — Settings owns the re-grant', async () => {
+    mockRecord.mockResolvedValue({ ok: false, code: 'age_band_already_recorded' });
+    mockEnsureConsents.mockResolvedValue('withdrawn');
+    const view = await render(<Gate />);
+    await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
+    await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
+    await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
+
+    await waitFor(() => expect(view.queryByTestId('age-band-gate')).toBeNull());
+    expect(view.queryByText(Copy.auth.ageGate.error.consent)).toBeNull();
+    expect(await AsyncStorage.getItem('age-band.recorded.u1')).toBe('1');
+  });
+
+  it('on a successful write, a withdrawn consent lifts the gate the same way', async () => {
+    mockRecord.mockResolvedValue({ ok: true, data: { ageBand: '18_plus', guardianConsentRecorded: false } });
+    mockEnsureConsents.mockResolvedValue('withdrawn');
+    const view = await render(<Gate />);
+    await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
+    await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
+    await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
+
+    await waitFor(() => expect(view.queryByTestId('age-band-gate')).toBeNull());
+    expect(view.queryByText(Copy.auth.ageGate.error.consent)).toBeNull();
+  });
+
+  it('does NOT close the gate on the write-once answer when the consent repair fails — this is issue #240, the silent lockout', async () => {
+    mockRecord.mockResolvedValue({ ok: false, code: 'age_band_already_recorded' });
+    mockEnsureConsents.mockResolvedValue('failed');
+    const view = await render(<Gate />);
+    await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
+    await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
+    await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
+
+    await waitFor(() => expect(view.getByText(Copy.auth.ageGate.error.consent)).toBeTruthy());
+    expect(view.getByTestId('age-band-gate')).toBeTruthy();
+    expect(view.queryByTestId('tabs-stand-in')).toBeNull();
+    expect(await AsyncStorage.getItem('age-band.recorded.u1')).not.toBe('1');
   });
 
   it('a successful write leaves the per-device note', async () => {

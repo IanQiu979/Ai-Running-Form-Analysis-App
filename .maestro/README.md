@@ -49,10 +49,10 @@ pre-provisioned synthetic fixture account:
 - Pass both as `MAESTRO_E2E_EMAIL` / `MAESTRO_E2E_PASSWORD` (see "Run it" below). The wrapper
   script requires them for `happy-path.yaml`/`dead-end-offline.yaml` and fails fast with a named
   error if either is missing.
-- `subflows/grant-consent.yaml`'s phase 1 (the once-ever health/age checkboxes) is now
-  conditional (`runFlow: when:`), because that grant is a `public.consents` row keyed to the
-  ACCOUNT, not local app state — a reused fixture account skips straight to phase 2 on every run
-  after its first, even though the harness reinstalls the app fresh each time.
+- Consent no longer has its own gate or subflow (2026-09-20): `subflows/grant-consent.yaml` is
+  gone, and `subflows/sign-up.yaml` now taps the future-uploads attestation checkbox
+  (`signup-future-uploads-consent`) alongside the age choice and Terms checkbox on the sign-up
+  form itself — see `lib/consent.ts`'s `FUTURE_UPLOADS_ATTESTATION_CONSENT`.
 - `subflows/sign-in.yaml` also dismisses iOS's own Keychain "Save Password?" sheet, which fires
   on a real sign-in submit (distinct from the "Use Strong Password?" panel that fires on focusing
   sign-UP's empty password field — `sign-up.yaml` closes that one in-flow since 2026-09-20; the
@@ -155,10 +155,7 @@ title → tap "Allow camera access" → tap the OS dialog's real button → THEN
 run". The OS dialog's button also reads **"Allow" / "Don't Allow"** on iOS 26.5 with this build,
 not "OK" — update this the next time you verify against a different iOS version. Maestro was also
 upgraded 1.39.0 → 2.10.0 on this host (`curl -Ls https://get.maestro.mobile.dev | bash`) while
-chasing the accessibility-bridge flakiness on `subflows/grant-consent.yaml`'s "Who is in this
-photo or video?" text assertion — the upgrade didn't fix that specific case (the fix was
-asserting the `consent-subject-option-me` testID instead of that text; see the file's own
-comment), but keep it current regardless.
+chasing accessibility-bridge flakiness elsewhere in these flows — keep it current regardless.
 
 **UPDATE 2026-07-25 (issues #84, #86, #92) — executed for real, for the first time, against a
 real build.** A `preview-local` EAS simulator build (issue #84 — a standalone build, not
@@ -286,7 +283,7 @@ without colliding on "email already registered."
 .maestro/
   config.yaml                              # scopes `maestro test .maestro` to flows/*.yaml
   flows/
-    happy-path.yaml                        # sign-up -> consent -> capture -> extract -> Home
+    happy-path.yaml                        # sign-up -> capture -> extract -> Home
                                             # -> Settings -> sign out (see its own header for
                                             # exactly where it stops, and why)
     dead-end-quota-exhausted.yaml           # Free tier, quota used up -> must reach the paywall
@@ -294,8 +291,8 @@ without colliding on "email already registered."
     dead-end-analysis-failure.yaml          # model call fails/times out -> Retry/Cancel, no trap
     subflows/
       sign-up.yaml                          # reusable: hero -> story (scroll) -> fresh email/password
-                                            # stranger (consent ticked) -> Home
-      grant-consent.yaml                    # reusable: the Art. 9 consent gate, first-time-only
+                                            # stranger (age choice, Terms and future-uploads
+                                            # attestation all ticked) -> Home
       sign-in.yaml                          # reusable: hero -> story (scroll) -> existing account -> Home
       clear-history.yaml                    # reusable: Home -> History -> delete every row -> Home
 ```
@@ -311,8 +308,8 @@ version. As of the 2026-07-25 execution report above, the flows have now actuall
 against a real build — see that section for what passed vs. hit driver flakiness.
 
 **Real and scriptable today**, confirmed against `main`:
-- Sign-up (email/password) → Home.
-- The consent gate (`components/consent-gate.tsx`) — fully wired.
+- Sign-up (email/password), including the age choice, Terms and future-uploads attestation
+  checkboxes on the sign-up form itself — no separate consent gate exists anymore (2026-09-20).
 - Source picker → in-app Record → camera permission dance → a recorded clip → frame extraction
   → "Frames ready" → **"Start analysis" → `/analyzing` → mock resolves (~4s, hardcoded
   `'success'`) → Result screen with the mock's clearly-fake data → "Back to Home"** (#135, new).

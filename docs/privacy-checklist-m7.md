@@ -120,14 +120,16 @@ real privacy regime, not just GDPR-by-analogy. Flag for counsel before public la
       **removes nothing, and orphans every frame**. Recurse per-analysis prefix. Same trap in
       `DELETE analysis/:id`. The M6 test must prove zero orphaned objects.
 - [ ] **Sign in with Apple** present (Google is offered → Guideline 4.8) — tracked, status.md #3.
-- [ ] Art. 9-grade consent modal (checkbox + names the health processing) renders **before
-      first upload** — **BLOCKED ON M2** (capture/upload flow doesn't exist yet). Design is
-      now **decided** (Ian, 2026-07-12): a checkbox the user must actively tick, gating the
-      primary CTA, not a plain Continue/Cancel notice. Copy drafted at `consent.upload.title`
-      / `consent.upload.body` / `consent.upload.checkbox` / `consent.upload.cta.primary` /
-      `consent.upload.link.privacy` in `docs/design/copy-deck.md` — the checkbox variant itself
-      is now built (`components/consent-gate.tsx`, landed 2026-07-12); M2 must **host** it on
-      the capture/upload flow, not build it from scratch.
+- [x] Art. 9-grade consent (checkbox + names the health processing) renders **before first
+      upload** — **MET, but where it lives changed 2026-09-20.** The per-upload modal
+      (`components/consent-gate.tsx`, hosted on the source picker 2026-07-13) was deleted;
+      consent is now one affirmative tick at sign-up (email) or first Google use, on the same
+      page as the account terms, with the privacy policy as a link: `auth.consent.healthProcessing`
+      + `auth.consent.futureUploads.checkbox` in `constants/copy.ts`, written to `public.consents`
+      as `upload.health.v1` + `upload.futureUploadsAttestation.v1`, and `analyze-form` still refuses without
+      the health row. See `docs/architecture.md`'s "Current — consent merged into sign-up
+      (2026-09-20)". Note the tick names "AI", not Anthropic by name — see the re-opened SHOULD
+      below.
 - [ ] "Not medical advice" disclaimer on every result — **BLOCKED ON M4** (result screen
       doesn't exist yet); copy at `result.disclaimer.footer` in `docs/design/copy-deck.md` is
       sourced from `knowledge/pace_framework.md`, **not** `knowledge/injury_flags.md` as this
@@ -145,10 +147,10 @@ real privacy regime, not just GDPR-by-analogy. Flag for counsel before public la
 ## MUST — before public launch
 
 - [ ] Complete App Store nutrition labels (+ Data Safety if Android) per the mapping above.
-- [ ] Host the already-built Art. 9-grade consent modal (`components/consent-gate.tsx`; checkbox
-      names the health processing and Anthropic) for health-data processing + third-party AI
-      transfer — a "by continuing" line is a notice, not Art. 9 consent. Design decided
-      2026-07-12 (see the TestFlight consent item above); hosting is **BLOCKED ON M2**.
+- [x] Art. 9-grade consent for health-data processing + third-party AI transfer — a "by
+      continuing" line is a notice, not Art. 9 consent. Hosted 2026-07-13 as a per-upload modal,
+      moved to a sign-up-time tick 2026-09-20 (see the TestFlight consent item above). Still open
+      inside it: the tick itself no longer names Anthropic (the re-opened SHOULD below).
 
 > **Update 2026-07-12 (issue #68's unblocked slice):** the consent **record** and both
 > components the three boxes above call for now exist — `public.consents` (append-only log,
@@ -183,10 +185,11 @@ real privacy regime, not just GDPR-by-analogy. Flag for counsel before public la
 - [ ] Data export path (Art. 20 portability) — manual/support process acceptable initially.
 - [ ] Disclose deletion persistence in backups (+ the paused Echo project's 90-day restore
       window from 2026-07-10).
-- [x] ~~Name Anthropic in the consent copy itself (all drafts say "our AI provider")~~ —
-      **RESOLVED** 2026-07-12: `consent.upload.body` in `docs/design/copy-deck.md` now names
-      Anthropic explicitly, as part of the Art. 9-grade consent redesign (see the consent
-      item above).
+- [x] Name Anthropic in the consent copy itself. RESOLVED 2026-07-12 via `consent.upload.body`;
+      that key was deleted 2026-09-20 with the per-upload gate and the item briefly re-opened.
+      **RESOLVED again 2026-09-21**: the sign-up consent tick (`auth.consent.healthProcessing`,
+      drawn on the sign-up form and the Google first-use screen) now reads "processed by AI
+      (Anthropic)", so the processor is named in the affirmative act, not only one link away.
 - [ ] Inactivity auto-purge to give retention a real ceiling.
 
 ## Doc conflicts found (for doc-writer / the phase gates)

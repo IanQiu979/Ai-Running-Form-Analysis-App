@@ -45,12 +45,15 @@ jest.mock('@/lib/subscription', () => ({
   formatRenewalDate: jest.fn(() => 'Oct 12, 2026'),
 }));
 
-const mockHasConsented = jest.fn();
+const mockReadSignupConsentState = jest.fn();
 const mockWithdrawConsent = jest.fn();
+const mockGrantConsent = jest.fn();
 jest.mock('@/lib/consent', () => ({
   UPLOAD_HEALTH_CONSENT: 'upload.health.v1',
-  hasConsented: (...args: unknown[]) => mockHasConsented(...args),
+  FUTURE_UPLOADS_ATTESTATION_CONSENT: 'upload.futureUploadsAttestation.v1',
+  readSignupConsentState: (...args: unknown[]) => mockReadSignupConsentState(...args),
   withdrawConsent: (...args: unknown[]) => mockWithdrawConsent(...args),
+  grantConsent: (...args: unknown[]) => mockGrantConsent(...args),
 }));
 
 const mockSignOut = jest.fn();
@@ -118,8 +121,10 @@ const press = async (node: ReturnType<typeof screen.getByText>) => {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetQuotaStatus.mockResolvedValue({ ok: true, data: PRO_QUOTA });
-  mockHasConsented.mockResolvedValue(true);
+  mockReadSignupConsentState.mockResolvedValue('granted');
   mockWithdrawConsent.mockResolvedValue(undefined);
+  mockGrantConsent.mockReset();
+  mockGrantConsent.mockResolvedValue(undefined);
   mockSignOut.mockResolvedValue({ ok: true });
   mockSubmitDelete.mockResolvedValue({ ok: false, error: { error: 'x', code: 'unknown' } });
   mockGetReauthProvider.mockReturnValue('password');
@@ -212,21 +217,61 @@ describe('SettingsScreen rows (V23-12)', () => {
     expect(Linking.openURL).toHaveBeenCalledWith(PRIVACY_POLICY_URL);
   });
 
-  it('Privacy: a withdrawn consent reads as a value, with no action', async () => {
-    mockHasConsented.mockResolvedValue(false);
+  it('Privacy: a withdrawn consent reads as a value, with Give consent as its only action', async () => {
+    mockReadSignupConsentState.mockResolvedValue('withdrawn');
     await renderSettled();
 
     expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
     expect(screen.getByText(/^You have not consented to health-related analysis/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Give consent' })).toBeTruthy();
+  });
+
+  it('Privacy: an account with no consent row at all is not told it withdrew, and gets no action', async () => {
+    mockReadSignupConsentState.mockResolvedValue('none');
+    await renderSettled();
+
+    expect(screen.getByText('Consent is recorded when you first upload or record.')).toBeTruthy();
+    expect(screen.queryByText(/not consented/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Give consent' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
+    expect(mockGrantConsent).not.toHaveBeenCalled();
+  });
+
+  it('Give consent: re-grants BOTH sign-up keys and the row flips back to Withdraw consent', async () => {
+    mockReadSignupConsentState.mockResolvedValue('withdrawn');
+    await renderSettled();
+
+    await press(screen.getByRole('button', { name: 'Give consent' }));
+    expect(mockGrantConsent).toHaveBeenCalledWith('upload.health.v1');
+    expect(mockGrantConsent).toHaveBeenCalledWith('upload.futureUploadsAttestation.v1');
+    expect(mockGrantConsent).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('button', { name: 'Give consent' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
+  });
+
+  it('Give consent (failure): never claims nothing changed — two inserts may half-land — and keeps the action', async () => {
+    mockReadSignupConsentState.mockResolvedValue('withdrawn');
+    mockGrantConsent.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('offline'));
+    await renderSettled();
+
+    await press(screen.getByRole('button', { name: 'Give consent' }));
+    expect(screen.getByRole('header', { name: 'Consent could not be fully saved' })).toBeTruthy();
+    expect(
+      screen.getByText('Consent could not be fully saved. Check your connection and tap Give consent again.')
+    ).toBeTruthy();
+    expect(screen.queryByText(/Nothing has changed/)).toBeNull();
+    await press(screen.getByRole('button', { name: 'OK' }));
+    expect(screen.getByRole('button', { name: 'Give consent' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
   });
 
   it('Privacy: a failed consent read offers its own Retry', async () => {
-    mockHasConsented.mockRejectedValueOnce(new Error('offline'));
+    mockReadSignupConsentState.mockRejectedValueOnce(new Error('offline'));
     await renderSettled();
 
     expect(screen.getByText('Consent status could not be loaded.')).toBeTruthy();
     await press(screen.getByRole('button', { name: 'Retry loading consent status' }));
-    expect(mockHasConsented).toHaveBeenCalledTimes(2);
+    expect(mockReadSignupConsentState).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy());
   });
 
@@ -351,18 +396,21 @@ describe('SettingsScreen dialogs (every Alert is now a <ConfirmDialog>)', () => 
 
     await press(primary);
     expect(mockWithdrawConsent).toHaveBeenCalledWith('upload.health.v1');
+    expect(mockWithdrawConsent).toHaveBeenCalledWith('upload.futureUploadsAttestation.v1');
+    expect(mockWithdrawConsent).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
     expect(screen.getByText(/^You have not consented to health-related analysis/)).toBeTruthy();
   });
 
-  it('Withdraw consent (failure): says nothing changed, and keeps the action', async () => {
+  it('Withdraw consent (failure): never claims nothing changed — two inserts may half-land — and keeps the action', async () => {
     mockWithdrawConsent.mockRejectedValue(new Error('offline'));
     await renderSettled();
 
     await press(screen.getByRole('button', { name: 'Withdraw consent' }));
     await press(screen.getByTestId('settings-dialog-primary'));
 
-    expect(screen.getByRole('header', { name: 'Consent could not be withdrawn' })).toBeTruthy();
+    expect(screen.getByRole('header', { name: 'Consent could not be fully withdrawn' })).toBeTruthy();
+    expect(screen.queryByText(/Nothing has changed/)).toBeNull();
     await press(screen.getByRole('button', { name: 'OK' }));
     expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
   });

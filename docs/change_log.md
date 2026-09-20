@@ -27,6 +27,84 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   the not-assessed picker row and the "Back from comparing returns to the picker" contract) and a
   rewrite of `components/compare/__tests__/pace-delta-panel.test.tsx` for the new row structure.
 
+## 2026-09-20 (consent merged into sign-up; per-upload gate removed)
+
+- The old per-upload `consent-gate.tsx` flow is gone: `UPLOAD_HEALTH_CONSENT` and the new
+  `FUTURE_UPLOADS_ATTESTATION_CONSENT` (replacing the retired per-clip
+  `THIRD_PARTY_ATTESTATION_CONSENT`) are now both granted once, ever, at email sign-up or on a
+  Google account's first use (`components/age-band-gate.tsx`), not asked again per upload.
+  `app/capture/index.tsx` no longer gates on consent at all — the server-side check inside
+  `analyze-form` is the only enforcement.
+- Fixed a lockout this merge introduced: `components/age-band-gate.tsx`'s
+  `age_band_already_recorded` retry path (a dropped response retried, or a second device racing
+  the same account) used to re-read the profile and close the gate without ever attempting the
+  consent grant, so an account whose earlier attempt wrote the band but failed the grant would
+  have the gate close over it silently with no consent row on file and no way back in
+  (`analyze-form` 403s forever). That path now checks `hasConsented`/`grantConsent` before
+  closing, same as the main success path, via a shared `ensureConsentGranted` helper.
+- Added a best-effort self-heal in `app/capture/index.tsx`: before Upload/Record, if the account
+  has NO consent row for `UPLOAD_HEALTH_CONSENT` the screen retries both grants once, since the
+  post-signup grants in `app/(auth)/sign-in.tsx` are fire-and-forget and had no retry path at all.
+  Not a hard gate — a failed repair still proceeds, and `analyze-form` remains the real enforcement.
+- Review round 2 (same day): the self-heal no longer re-grants a WITHDRAWN consent. It used
+  `hasConsented`, which reads a Settings withdrawal (newest row `granted = false`) the same as
+  "never consented", so a user who withdrew and then tapped Upload had both keys silently
+  re-granted with no action of theirs. `lib/consent.ts` gained `readConsentState` (`none` /
+  `granted` / `withdrawn`); capture heals only `none`, and on `withdrawn` shows
+  `sourcePicker.error.consentWithdrawn` with an "Open Settings" action instead of navigating.
+  Settings' Consent row gained "Give consent" for the withdrawn state (the only place a withdrawn
+  key is re-granted), and its withdrawn/withdraw-confirm copy no longer promises a re-ask at the
+  next upload. The consent check now runs under the screen's `busy` guard (a double tap during the
+  round trip pushed Record twice). The sign-up consent row gained one sentence
+  (`auth.consent.healthProcessing`) naming uploads as health-related data processed by AI, so
+  `upload.health.v1` keeps the meaning it was minted with; `components/age-band-gate.tsx` shows a
+  non-interactive line above Continue stating what confirming records for a Google account.
+- Review round 3 (same day): `components/age-band-gate.tsx`'s own consent step now holds the same
+  invariant — it reads `readConsentState` and grants only when there is no row at all. A consent
+  withdrawn on another device between this device mounting the gate and tapping Continue is left
+  withdrawn (the band is answered, so the gate lifts; capture's Settings panel is where the user
+  is told). Its header no longer claims the write-once answer re-reads the profile.
+- Review round 4 (same day): Settings' Consent row now reads `readConsentState` too. "Give
+  consent" grants BOTH sign-up keys (health + future-uploads attestation), so a restored account
+  is not left without the attestation row the capture self-heal would otherwise never backfill;
+  and an account with NO row at all (`none`) is no longer told it withdrew — it reads "Consent is
+  recorded when you first upload or record." with no action, leaving it to the silent capture /
+  age-band-gate heal. The age-band gate's consent-step failure now shows its own message
+  (`auth.ageGate.error.consent`: the band was saved, the consent was not) instead of the
+  age-save error.
+- Review round 5 (same day): Settings' "Give consent" failure notice no longer claims "Nothing
+  has changed" — it writes two rows, so the first may have landed before the second failed; the
+  copy now says consent could not be fully saved and to tap Give consent again (append-only, so a
+  retry is always safe). Restore logic unchanged.
+- Review round 6 (2026-09-21): the self-heal is now one function, `lib/consent.ts`'s
+  `ensureConsentsGranted` (`granted` / `withdrawn` / `failed`), used by both
+  `app/capture/index.tsx` and `components/age-band-gate.tsx` in place of their two private
+  copies. It reads BOTH sign-up keys and grants each one that has no row at all — the old copies
+  keyed on `UPLOAD_HEALTH_CONSENT` alone, so a sign-up whose health insert landed and whose
+  future-uploads insert failed was never repaired (Settings offers "Give consent" only on a
+  withdrawal). Any key in `withdrawn` state still means nothing is written. Capture races the
+  check against a 3 s budget and proceeds on timeout, so a stalled connection cannot hold the
+  Upload/Record cards (the server gate remains the enforcement). Settings' "Withdraw consent"
+  now appends a withdrawal row for BOTH keys, symmetric with the grant and restore, and its
+  failure notice no longer claims "Nothing has changed" (two writes; retry is append-only safe).
+- Review round 7 (2026-09-21): Settings' Consent row now reads `lib/consent.ts`'s new
+  `readSignupConsentState` — both sign-up keys collapsed by the one `aggregateSignupConsentState`
+  rule (`withdrawn` if either key is withdrawn, else `granted` if either is granted, else `none`)
+  that `ensureConsentsGranted` also applies. Before, Settings read the health key alone, so a
+  half-landed restore or withdrawal (one key granted, the other withdrawn) had capture refusing
+  with "give consent again in Settings" while Settings showed "Withdraw consent" and no "Give
+  consent". The two readers can no longer disagree.
+- Docs housekeeping (2026-09-21): `docs/privacy-policy.md`'s "what you agree to" paragraph now
+  describes the sign-up-time consent instead of the deleted per-upload screen ("Last updated"
+  unchanged — same revision date). `docs/privacy-checklist-m7.md` re-opens its "name Anthropic in
+  the consent copy itself" item: `consent.upload.body` named Anthropic, the replacement
+  `auth.consent.healthProcessing` says "AI". `docs/design/copy-deck.md`'s consent section is
+  reduced to a pointer at `constants/copy.ts` and `docs/architecture.md`.
+- Docs housekeeping, round 2 (2026-09-21, captain's call): `auth.consent.healthProcessing` now
+  reads "processed by AI (Anthropic)", so the processor is named in the consent tick itself and
+  the checklist item above is resolved again. `docs/privacy-policy.md`'s consent paragraph names
+  Anthropic in the same place and its withdrawal sentence names the Settings Consent row.
+
 ## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
 
 - **The signed-out entry flow is one paged scroll** (`app/(auth)/welcome.tsx`): the V23-02 hero,

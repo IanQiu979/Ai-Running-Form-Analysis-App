@@ -8,23 +8,27 @@
  *
  * Everything here FAILS CLOSED — see hasConsented().
  *
- * Three consent keys, not one — see `components/consent-gate.tsx`'s docblock for the full
- * reasoning behind why they exist and why they don't share a "once granted, never asked again"
- * lifecycle. In one line: `UPLOAD_HEALTH_CONSENT` and `AGE_CONFIRMATION_CONSENT` are facts about
- * the ACCOUNT and are granted once, ever; `THIRD_PARTY_ATTESTATION_CONSENT` is a fact about a
- * SPECIFIC upload (who's actually in that photo or video) and is granted fresh every time the
- * uploader says the subject is someone else — a returning "self-consent" grant proves nothing
- * about who is in today's clip. Using a distinct key per grant is also what "the record must
- * distinguish self-consent from third-party attestation" (issue #94) means in practice: the
- * `consent_key` column IS that distinction — no extra table or column was needed.
+ * Consent keys, and their lifecycles — they do NOT all share a "once granted, never asked again"
+ * shape. `UPLOAD_HEALTH_CONSENT` is a fact about the ACCOUNT, granted once, ever, at sign-up or
+ * first Google use. `FUTURE_UPLOADS_ATTESTATION_CONSENT` is granted at that same moment and
+ * covers every upload/recording the account will ever make, present and future — it replaced the
+ * old per-upload `THIRD_PARTY_ATTESTATION_CONSENT` flow (see that key's own doc). The former age
+ * key (`upload.ageConfirmation.v1`) is gone: sign-up's age-band flow (`@shared/age-band`,
+ * `components/age-band-choice.tsx`) supersedes it, and nothing writes it anymore — historical
+ * rows for that key remain in `public.consents` but the app no longer types or grants it.
  */
 import { supabase } from './supabase';
 
 /**
- * Consent to the upload → Anthropic → health-feedback processing chain, at the exact wording
- * shipped in `Copy.consent.upload` (copy-deck.md § Consent). Self-consent — this is the uploader
- * consenting to processing of THEIR OWN images. See `THIRD_PARTY_ATTESTATION_CONSENT` for the
- * distinct grant recorded when the uploader says someone else is in the frame.
+ * Consent to the upload → Anthropic → health-feedback processing chain. Collected by the
+ * account-level sign-up/first-use flow, not a health-specific checkbox of its own: the tick on
+ * `components/upload-consent-checkbox.tsx` covers BOTH `Copy.auth.consent.healthProcessing`
+ * (the one sentence naming uploads as health-related data processed by AI, which is what keeps
+ * this key's meaning) and the adjacent `Copy.auth.consent.futureUploads.checkbox` wording (see
+ * `FUTURE_UPLOADS_ATTESTATION_CONSENT` below); a Google account reads the same statement on
+ * `components/age-band-gate.tsx` before its confirm. Self-consent — this is the uploader consenting to
+ * processing of THEIR OWN images. See `THIRD_PARTY_ATTESTATION_CONSENT` for the distinct grant
+ * recorded when the uploader says someone else is in the frame.
  *
  * The version lives in the key on purpose. Consent to one wording is not consent to a later one,
  * so rewording the deck means minting `upload.health.v2` here — at which point hasConsented() is
@@ -34,44 +38,54 @@ import { supabase } from './supabase';
 export const UPLOAD_HEALTH_CONSENT = 'upload.health.v1';
 
 /**
- * Confirmation that the account holder is 16 or older, per what was `docs/privacy-policy.md`'s
- * "Age and other people in your media" section (split on 2026-09-20 into "Age", which now sets a
- * 13-and-up floor with guardian consent, and "Other people in your media" — see
- * `docs/status.md` Known Issue #52 follow-up 1 for the resulting contradiction) — stated there
- * but, before issue #94, never asked or recorded anywhere in the app. Granted once, ever, alongside `UPLOAD_HEALTH_CONSENT` on the same
- * first-upload screen (age only moves in one direction, so there is nothing to re-ask).
- */
-export const AGE_CONFIRMATION_CONSENT = 'upload.ageConfirmation.v1';
-
-/**
- * The uploader's attestation, given fresh for a specific upload, that the person shown — who is
- * NOT the uploader — has agreed to this analysis, or their parent/guardian has if they're a
- * minor. Recorded ONLY when `components/consent-gate.tsx`'s subject phase answers "someone else"
- * — a coach filming a different athlete each session is a different data subject each time, so
- * this is deliberately not a once-ever grant the way the two keys above are (see this module's
- * docblock and the component's for the full reasoning).
+ * RETIRED. The uploader's attestation, given fresh for a specific upload, that the person shown
+ * — who is NOT the uploader — has agreed to this analysis, or their parent/guardian has if
+ * they're a minor. Was recorded when the (now-deleted) `components/consent-gate.tsx`'s subject
+ * phase answered "someone else" — a coach filming a different athlete each session was treated as
+ * a different data subject each time. Superseded by `FUTURE_UPLOADS_ATTESTATION_CONSENT`, granted
+ * once at sign-up and covering every future upload instead of asking per upload. No longer
+ * granted anywhere going forward; the export stays only so historical rows keep a type.
  */
 export const THIRD_PARTY_ATTESTATION_CONSENT = 'upload.thirdPartyAttestation.v1';
 
+/**
+ * Granted once, ever — at sign-up (email) or on first use (a Google-created account, via
+ * `components/age-band-gate.tsx`) — alongside `UPLOAD_HEALTH_CONSENT`. States that every photo or
+ * video the account uploads or records, now and in the future, shows only the account holder or
+ * someone who has agreed to be analyzed. Supersedes the old per-upload attestation flow
+ * (`THIRD_PARTY_ATTESTATION_CONSENT`, retired above): rather than asking who is in THIS clip every
+ * time, the account holder attests up front to a standing rule that covers every future upload.
+ */
+export const FUTURE_UPLOADS_ATTESTATION_CONSENT = 'upload.futureUploadsAttestation.v1';
+
 export type ConsentKey =
   | typeof UPLOAD_HEALTH_CONSENT
-  | typeof AGE_CONFIRMATION_CONSENT
-  | typeof THIRD_PARTY_ATTESTATION_CONSENT;
+  | typeof THIRD_PARTY_ATTESTATION_CONSENT
+  | typeof FUTURE_UPLOADS_ATTESTATION_CONSENT;
 
 /**
- * True if the newest consent event for this key is a grant.
- *
- * Withdrawal needs no special case: it is simply a newer row with granted = false, so reading
- * the latest row returns it. The ordering is done by Postgres, not here.
+ * The three states a key can be in, read from the newest row alone. `none` is an account that has
+ * never recorded anything for the key (a legacy account from before that key existed, or a grant
+ * that was never written); `withdrawn` is an account whose newest row is a `granted = false` —
+ * an explicit act the user took, which no client code may silently reverse (Art. 7(3)); `granted`
+ * is a live consent. Callers that repair a missing grant MUST branch on `none`, never on
+ * "not granted", or they would re-grant over a withdrawal.
+ */
+export type ConsentState = 'none' | 'granted' | 'withdrawn';
+
+/**
+ * Reads the newest consent event for this key. Withdrawal needs no special case: it is simply a
+ * newer row with granted = false, so reading the latest row returns it. The ordering is done by
+ * Postgres, not here.
  *
  * THROWS on any query failure — offline, RLS misconfigured, network flake. It deliberately does
- * NOT return `false` dressed up as "probably fine", and it does NOT return `true` to avoid
- * inconveniencing the user. Returning true would process Art. 9 health data with no legal basis.
- * Returning false silently would be indistinguishable from a user who genuinely never consented,
- * which hides the outage — that is exactly the bug open at #74, where lib/hibp.ts fails open and
- * nothing says so. The caller must treat a throw as "cannot upload" and surface it.
+ * NOT return `none` dressed up as "probably fine", and it does NOT return `granted` to avoid
+ * inconveniencing the user. Returning `granted` would process Art. 9 health data with no legal
+ * basis. Returning `none` silently would be indistinguishable from a user who genuinely never
+ * consented, which hides the outage — that is exactly the bug open at #74, where lib/hibp.ts
+ * fails open and nothing says so. The caller must treat a throw as "cannot upload" and surface it.
  */
-export async function hasConsented(key: ConsentKey): Promise<boolean> {
+export async function readConsentState(key: ConsentKey): Promise<ConsentState> {
   // No user_id filter: RLS scopes SELECT to the owner, so this can only ever see our own rows.
   const { data, error } = await supabase
     .from('consents')
@@ -85,7 +99,17 @@ export async function hasConsented(key: ConsentKey): Promise<boolean> {
     throw new Error(`Could not read consent "${key}": ${error.message}`);
   }
 
-  return data?.granted ?? false;
+  if (!data) return 'none';
+  return data.granted ? 'granted' : 'withdrawn';
+}
+
+/**
+ * True if the newest consent event for this key is a grant. Same read and the same fail-closed
+ * throw as `readConsentState`; `none` and `withdrawn` both read as false here, so a caller that
+ * needs to tell them apart (a repair path) must use `readConsentState` instead.
+ */
+export async function hasConsented(key: ConsentKey): Promise<boolean> {
+  return (await readConsentState(key)) === 'granted';
 }
 
 /** Record an explicit grant. Appends a row; never updates one. */
@@ -97,12 +121,81 @@ export async function grantConsent(key: ConsentKey): Promise<void> {
  * Record a withdrawal (Art. 7(3): withdrawing consent must be as easy as giving it). Appends a
  * row with granted = false, which supersedes the earlier grant by being newer.
  *
- * Unused until the Settings screen exists (#53). The record supports withdrawal before there is
- * any UI to trigger it because the table shape is the expensive thing to change later, not the
- * button.
+ * Triggered from the Settings screen's Consent row, which is also where a withdrawn consent is
+ * given again (`grantConsent`) — nothing at capture time re-asks or re-grants a withdrawn key.
  */
 export async function withdrawConsent(key: ConsentKey): Promise<void> {
   await recordConsent(key, false);
+}
+
+/**
+ * The two keys a single sign-up tick grants together and Settings withdraws/restores together.
+ * Every repair path checks each of them on its own: one landing does not prove the other did.
+ */
+export const SIGNUP_CONSENT_KEYS = [UPLOAD_HEALTH_CONSENT, FUTURE_UPLOADS_ATTESTATION_CONSENT] as const;
+
+export type EnsureConsentsResult = 'granted' | 'withdrawn' | 'failed';
+
+/**
+ * The one rule that collapses the two sign-up keys into a single account-level state, shared by
+ * every reader so Settings and the self-heal can never disagree: any withdrawal on either key is
+ * `withdrawn` (an explicit act, never reversed silently — Settings must offer the way back), else
+ * any grant is `granted` (a partial sign-up write is a consented account with a repairable gap),
+ * else `none` (no row anywhere: a legacy account, left to the silent heal).
+ */
+export function aggregateSignupConsentState(states: readonly ConsentState[]): ConsentState {
+  if (states.includes('withdrawn')) return 'withdrawn';
+  if (states.includes('granted')) return 'granted';
+  return 'none';
+}
+
+/**
+ * Reads BOTH sign-up keys and applies `aggregateSignupConsentState`. Same fail-closed throw as
+ * `readConsentState`: a failed read on either key throws rather than reporting a state.
+ */
+export async function readSignupConsentState(): Promise<ConsentState> {
+  return aggregateSignupConsentState(await readSignupConsentStates());
+}
+
+async function readSignupConsentStates(): Promise<ConsentState[]> {
+  return Promise.all(SIGNUP_CONSENT_KEYS.map((key) => readConsentState(key)));
+}
+
+/**
+ * Check-and-repair for the sign-up consents. Reads BOTH keys' states and grants only the ones with
+ * NO row at all. A `withdrawn` state on either key is the user's own explicit act in Settings and
+ * is never reversed here — nothing is written and `withdrawn` is returned so the caller can point
+ * at Settings, the one surface that re-grants. Never throws: a read or grant failure (or, with
+ * `timeoutMs`, a round trip that outlives the budget) resolves `failed`, and the caller decides
+ * whether that blocks (the age-band gate) or proceeds best-effort (capture, where `analyze-form`'s
+ * server gate still fails closed).
+ */
+export async function ensureConsentsGranted(
+  options: { timeoutMs?: number } = {}
+): Promise<EnsureConsentsResult> {
+  const work = (async (): Promise<EnsureConsentsResult> => {
+    try {
+      const states = await readSignupConsentStates();
+      if (aggregateSignupConsentState(states) === 'withdrawn') return 'withdrawn';
+      const missing = SIGNUP_CONSENT_KEYS.filter((_, i) => states[i] === 'none');
+      await Promise.all(missing.map((key) => grantConsent(key)));
+      return 'granted';
+    } catch {
+      return 'failed';
+    }
+  })();
+
+  if (options.timeoutMs === undefined) return work;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<EnsureConsentsResult>((resolve) => {
+    timer = setTimeout(() => resolve('failed'), options.timeoutMs);
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function recordConsent(key: ConsentKey, granted: boolean): Promise<void> {

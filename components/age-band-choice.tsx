@@ -9,7 +9,7 @@
  * would have to be read back through a ref. `selectionOf()` is the one pure rule both hosts share —
  * "is this a complete, sendable choice?" — so the button gate and the request body cannot disagree.
  *
- * The drawn idiom is `components/consent-gate.tsx`'s: the V23 sheet draws one square for both a
+ * The drawn idiom is shared with `components/upload-consent-checkbox.tsx`: the V23 sheet draws one square for both a
  * checkbox and a radio (a smaller `ink` square when a radio is selected, a check glyph when a box is
  * ticked). Under 13 is not offered — `eligibility` says so in one line — so there is nothing to
  * disable and nothing to refuse client-side: a user who is under 13 has no option to pick.
@@ -127,7 +127,7 @@ function RadioRow({
   );
 }
 
-// consent-gate.tsx's geometry: the 20 pt square sits 2 pt down so it centres on the first line
+// Shared with upload-consent-checkbox.tsx: the 20 pt square sits 2 pt down so it centres on the first line
 // of a bodySm label; the selected-radio mark is a 10 pt `ink` square inside it.
 const BOX_TOP_OFFSET = 2;
 const RADIO_MARK_SIZE = 10;

@@ -69,7 +69,14 @@ import { ArrowRightIcon, BackIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
 import { PRIVACY_POLICY_URL } from '@/constants/links';
 import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
-import { hasConsented, UPLOAD_HEALTH_CONSENT, withdrawConsent } from '@/lib/consent';
+import {
+  FUTURE_UPLOADS_ATTESTATION_CONSENT,
+  grantConsent,
+  readSignupConsentState,
+  UPLOAD_HEALTH_CONSENT,
+  withdrawConsent,
+  type ConsentState as ConsentRecordState,
+} from '@/lib/consent';
 import {
   deleteAccountClient,
   getReauthProvider,
@@ -92,9 +99,14 @@ import { useAnnounce } from '@/lib/use-announce';
  *  caption and the renewal date, and all three come off this one object. */
 type PlanState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; quota: QuotaStatus };
 
-/** `hasConsented` THROWS on any query failure and deliberately does not guess (lib/consent.ts
- *  fails closed). So "we don't know" is a first-class state here, distinct from "withdrawn". */
-type ConsentState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; granted: boolean };
+/** `readSignupConsentState` reads BOTH sign-up keys with the same any-withdrawn rule the capture /
+ *  age-band-gate self-heal applies, so "Give consent" is offered in exactly the states capture
+ *  refuses to proceed in. It THROWS on any query failure and deliberately does not guess
+ *  (lib/consent.ts fails closed). So "we don't know" is a first-class state here, distinct from
+ *  "withdrawn" — and so is `none`: an account with no row at all (it predates the sign-up consent,
+ *  or its grant was dropped) is not one that withdrew, must not read as if it had, and is healed
+ *  silently by capture / the age-band gate rather than asked here. */
+type ConsentState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; state: ConsentRecordState };
 
 /**
  * Every dialog this screen can have up, one at a time. The confirms and the Google prompt carry no
@@ -185,6 +197,7 @@ export default function SettingsScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [isRestoringConsent, setIsRestoringConsent] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   // Issue #124's step-up reauthentication flow. `passwordReauthVisible` gates the password modal
   // (email/password accounts only — Google's reauth is a dialog + browser flow, no modal needed).
@@ -214,9 +227,7 @@ export default function SettingsScreen() {
       : consent.status === 'error'
         ? Copy.settings.consent.status.error
         : consent.status === 'ready'
-          ? consent.granted
-            ? Copy.settings.consent.status.granted
-            : Copy.settings.consent.status.withdrawn
+          ? Copy.settings.consent.status[consent.state]
           : null
   );
   useAnnounce(isDeleting ? Copy.settings.deleteAccountState.pending : null);
@@ -225,7 +236,7 @@ export default function SettingsScreen() {
   // This screen unmounts the instant `session` flips to null (the route guard), which happens
   // mid-flight for sign-out and for a successful delete. Any `setState` after that point is a
   // no-op at best and a warning at worst, so every async handler checks this first — the same
-  // guard `components/consent-gate.tsx` uses, for the same reason.
+  // guard `components/age-band-gate.tsx` uses, for the same reason.
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
@@ -248,9 +259,9 @@ export default function SettingsScreen() {
   const fetchConsent = useCallback(async () => {
     setConsent({ status: 'loading' });
     try {
-      const granted = await hasConsented(UPLOAD_HEALTH_CONSENT);
+      const state = await readSignupConsentState();
       if (!isMountedRef.current) return;
-      setConsent({ status: 'ready', granted });
+      setConsent({ status: 'ready', state });
     } catch {
       // Fail closed and SAY SO. Rendering "withdrawn" here would be indistinguishable from a user
       // who genuinely never consented, which hides the outage — the exact bug class lib/consent.ts
@@ -268,7 +279,7 @@ export default function SettingsScreen() {
     void fetchConsent();
   }, [fetchConsent]);
 
-  const isBusy = isSigningOut || isDeleting || isWithdrawing;
+  const isBusy = isSigningOut || isDeleting || isWithdrawing || isRestoringConsent;
 
   function closeDialog() {
     setDialog(null);
@@ -543,16 +554,43 @@ export default function SettingsScreen() {
     setIsWithdrawing(true);
 
     try {
-      await withdrawConsent(UPLOAD_HEALTH_CONSENT);
+      // Symmetric with the sign-up grant and `handleRestoreConsent`: one tick granted both keys,
+      // so one withdrawal revokes both. Withdrawals are append-only, so a retry is always safe.
+      await Promise.all([
+        withdrawConsent(UPLOAD_HEALTH_CONSENT),
+        withdrawConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
+      ]);
       if (!isMountedRef.current) return;
-      setConsent({ status: 'ready', granted: false });
+      setConsent({ status: 'ready', state: 'withdrawn' });
     } catch {
       if (!isMountedRef.current) return;
-      // Nothing was recorded, so nothing changed — and we say exactly that rather than optimistically
-      // flipping the status to "withdrawn" on a write we can't prove landed.
+      // Two writes may half-land, so the copy asks for a retry rather than flipping the status
+      // to "withdrawn" on writes we cannot prove landed.
       showNotice(Copy.settings.consent.withdraw.error.title, Copy.settings.consent.withdraw.error.body);
     } finally {
       if (isMountedRef.current) setIsWithdrawing(false);
+    }
+  }
+
+  // Giving consent again after a withdrawal. The only place a withdrawn key is ever re-granted:
+  // capture deliberately refuses to repair a `withdrawn` state (app/capture/index.tsx) and sends
+  // the user here, where the card's summary restates the disclosure being consented to.
+  async function handleRestoreConsent() {
+    if (isBusy) return;
+    setIsRestoringConsent(true);
+
+    try {
+      await Promise.all([
+        grantConsent(UPLOAD_HEALTH_CONSENT),
+        grantConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
+      ]);
+      if (!isMountedRef.current) return;
+      setConsent({ status: 'ready', state: 'granted' });
+    } catch {
+      if (!isMountedRef.current) return;
+      showNotice(Copy.settings.consent.restore.error.title, Copy.settings.consent.restore.error.body);
+    } finally {
+      if (isMountedRef.current) setIsRestoringConsent(false);
     }
   }
 
@@ -826,7 +864,7 @@ export default function SettingsScreen() {
 
               {/* Only offered when there is a live consent to withdraw. Art. 7(3) requires
                   withdrawal to be as easy as giving it — one tap, right here, no support email. */}
-              {consent.status === 'ready' && consent.granted && (
+              {consent.status === 'ready' && consent.state === 'granted' && (
                 <RowAction
                   label={Copy.settings.consent.withdraw.cta}
                   disabled={isBusy}
@@ -835,8 +873,22 @@ export default function SettingsScreen() {
                   onPress={confirmWithdrawConsent}
                 />
               )}
-              {consent.status === 'ready' && !consent.granted && (
-                <RowValue live>{Copy.settings.consent.status.withdrawn}</RowValue>
+              {consent.status === 'ready' && consent.state === 'none' && (
+                <RowValue live>{Copy.settings.consent.status.none}</RowValue>
+              )}
+              {consent.status === 'ready' && consent.state === 'withdrawn' && (
+                <View style={styles.rowValueStack}>
+                  <RowValue live>{Copy.settings.consent.status.withdrawn}</RowValue>
+                  <RowAction
+                    label={Copy.settings.consent.restore.cta}
+                    disabled={isBusy}
+                    busy={isRestoringConsent}
+                    busyTestID="settings-restore-consent-busy"
+                    onPress={() => {
+                      void handleRestoreConsent();
+                    }}
+                  />
+                </View>
               )}
             </Row>
 

@@ -25,8 +25,26 @@
  * not "checked and fine" — plus Sign out, so the screen is never a dead end.
  *
  * Write-once on the server: a `age_band_already_recorded` answer means a band is on file (a retry
- * after a dropped response, or a second device racing this one); the gate re-reads the profile,
- * which records the local note and lifts it.
+ * after a dropped response, or a second device racing this one). The gate does NOT re-read the
+ * profile for it — the server has just said the band exists — but it does not lift on that alone
+ * either: the earlier attempt may have written the band and then failed the consent grant, so it
+ * runs the same `ensureConsentsGranted` step (`lib/consent.ts`) as the success path, and only once that settles does
+ * it leave the local note and lift. A failed grant keeps the gate up with the consent error
+ * (`Copy.auth.ageGate.error.consent`, which says the band was saved), never the age-save one.
+ *
+ * CONSENT. This is also where a Google account's `UPLOAD_HEALTH_CONSENT` and
+ * `FUTURE_UPLOADS_ATTESTATION_CONSENT` rows are written (2026-09-20). The wording was shown and
+ * ticked on `app/(auth)/sign-in.tsx` BEFORE the browser round trip — "Continue with Google" is
+ * disabled until both the Terms and the photo/video statement are ticked — and the rows are
+ * recorded here, on this screen's Continue, because this is the first moment the account exists
+ * and can own a row. The tick is therefore not blind: `Copy.auth.ageGate.consentReminder`, a
+ * non-interactive line above Continue, restates what confirming records.
+ *
+ * The one thing Continue never does is reverse a withdrawal. If the account's newest
+ * `UPLOAD_HEALTH_CONSENT` row is a `granted = false` (another device finished this gate and then
+ * withdrew in Settings before this one tapped Continue), nothing is re-granted: the band is
+ * answered, so the gate lifts, and `app/capture/index.tsx` is where the user meets the
+ * "give consent again in Settings" panel — Settings being the only surface that re-grants.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -46,6 +64,7 @@ import {
   recordAgeBand,
   type AgeBand,
 } from '@/lib/age-band';
+import { ensureConsentsGranted } from '@/lib/consent';
 import { useSession } from '@/lib/session-provider';
 import { signOut } from '@/lib/sign-out';
 import { useAnnounce } from '@/lib/use-announce';
@@ -70,7 +89,7 @@ export function AgeBandGate({ children }: Props) {
   const [error, setError] = useState<string | null>(null);
   const selection = selectionOf(ageBand, guardianConsent);
 
-  // Unmount guard, same shape as consent-gate.tsx: a late resolve must not touch state.
+  // Unmount guard, same shape as app/settings.tsx's: a late resolve must not touch state.
   const unmountedRef = useRef(false);
   useEffect(() => () => { unmountedRef.current = true; }, []);
 
@@ -113,19 +132,37 @@ export function AgeBandGate({ children }: Props) {
     const result = await recordAgeBand(selection);
     if (unmountedRef.current) return;
     if (result.ok) {
+      const consent = await ensureConsentsGranted();
+      if (unmountedRef.current) return;
+      if (consent === 'failed') {
+        setPending(false);
+        setError(Copy.auth.ageGate.error.consent);
+        return;
+      }
       await markAgeBandRecordedLocally(userId);
       if (unmountedRef.current) return;
       setPending(false);
       setPhase('hidden');
       return;
     }
-    setPending(false);
     if (result.code === 'age_band_already_recorded') {
-      // A band is on file (a dropped response retried, or another device got there first). The
-      // profile is the authority on which one — re-read it rather than trust this call's input.
-      void check();
+      // A band is on file (a dropped response retried, or another device got there first). That
+      // does not by itself prove consent was ever recorded — the earlier attempt may have written
+      // the band and then failed on the consent grant — so confirm/grant consent before treating
+      // this as done rather than trusting the band's presence alone.
+      const consent = await ensureConsentsGranted();
+      if (unmountedRef.current) return;
+      setPending(false);
+      if (consent === 'failed') {
+        setError(Copy.auth.ageGate.error.consent);
+        return;
+      }
+      await markAgeBandRecordedLocally(userId);
+      if (unmountedRef.current) return;
+      setPhase('hidden');
       return;
     }
+    setPending(false);
     setError(describeRecordAgeBandError(result.code));
   }
 
@@ -221,6 +258,12 @@ export function AgeBandGate({ children }: Props) {
             </Text>
           )}
 
+          {phase === 'ask' && (
+            <Text style={styles.consentReminder} testID="age-gate-consent-reminder">
+              {Copy.auth.ageGate.consentReminder}
+            </Text>
+          )}
+
           <View style={styles.actions}>
             {phase === 'loadError' ? (
               <SquareButton
@@ -296,6 +339,10 @@ const styles = StyleSheet.create({
   error: {
     ...Type.small,
     color: Ink.danger,
+  },
+  consentReminder: {
+    ...Type.small,
+    color: Ink.ink2,
   },
   actions: {
     gap: Space.lg,

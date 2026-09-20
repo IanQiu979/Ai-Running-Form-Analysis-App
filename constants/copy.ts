@@ -124,6 +124,22 @@ export const Copy = {
       and: ' and ',
       privacy: 'Privacy Policy',
       a11yLabel: 'I agree to the Terms and Privacy Policy',
+      // The future-uploads attestation (2026-09-20) — granted once, at sign-up or first Google
+      // use, and covers every upload the account ever makes (`lib/consent.ts`'s
+      // FUTURE_UPLOADS_ATTESTATION_CONSENT), replacing the old per-upload subject-attestation
+      // flow. Drawn by `components/upload-consent-checkbox.tsx`, below the Terms line on the
+      // sign-up form.
+      futureUploads: {
+        checkbox:
+          'I confirm that any photo or video I upload or record now or later shows only myself, or someone who has agreed to this analysis.',
+      },
+      // The one sentence that keeps `UPLOAD_HEALTH_CONSENT` (`upload.health.v1`) meaning what it
+      // did when the key was minted: uploads are health-related data and AI processes them.
+      // Names Anthropic in the affirmative act itself (captain, 2026-09-21; the processor must be
+      // named in the consent copy, not one link away — `docs/privacy-checklist-m7.md` SHOULD).
+      // Drawn as the first sentence of the same checkbox row, so the one tick covers both.
+      healthProcessing:
+        'Photos and videos you upload are health-related data, processed by AI (Anthropic) to analyze your running form.',
     },
     // The age choice (captain's plan, approved 2026-09-20; mirrors V2.2's guardian-consent block,
     // IanQiu979/Ai-Customized-Running-Plan-App#123). Two options — under 13 is not offered, and
@@ -167,7 +183,14 @@ export const Copy = {
         retry: 'Retry',
         // Distinct from `auth.error.generic`: nothing about the account failed, one write did.
         save: 'Your age choice could not be saved. Check your connection and try again.',
+        // The band IS on file when this shows; it is the consent rows that did not land.
+        consent: 'Your age choice was saved, but your consent could not be recorded. Check your connection and try again.',
       },
+      // A Google account ticked the Terms and the photo or video statement on the sign-in screen
+      // before the browser round trip; the consent rows are written when this screen's Continue
+      // is confirmed, so the line above the button restates what that confirm records.
+      consentReminder:
+        'Continuing records your acceptance of the Terms and Privacy Policy, your confirmation that any photo or video you upload shows only yourself or someone who has agreed to this analysis, and your consent to AI processing of your uploads as health-related data.',
     },
     signIn: {
       submit: 'Sign in',
@@ -226,6 +249,9 @@ export const Copy = {
       ageBandRequired: 'Select your age range to continue.',
       guardianConsentRequired:
         'Confirm that a parent or guardian has read the Privacy Policy and agrees to it on your behalf.',
+      // 2026-09-20: the future-uploads attestation gates account creation the same local-first
+      // way as `consentRequired` above.
+      futureUploadsConsentRequired: 'Confirm the photo or video statement to continue.',
       // The "or reset your password" clause is back (issue #18's closing condition): the route it
       // points at now exists — app/(auth)/reset-password.tsx, reached from the "Forgot password?"
       // link on sign-in (issue #81). Before that, this clause pointed at nothing and was a dead
@@ -434,66 +460,6 @@ export const Copy = {
       },
     },
   },
-  consent: {
-    upload: {
-      title: 'Before you upload',
-      body: 'Your frames are stored privately until you delete them. We send them to Anthropic, our AI provider, to analyze your form. The analysis produces health-related feedback about you, including injury-risk flags.',
-      checkbox:
-        'I consent to my images being analyzed to produce health-related feedback, and to Anthropic processing them to do so.',
-      // NEW key (issue #94). `docs/privacy-policy.md`'s age section stated a 16+ minimum when
-      // this was written; nothing asked or recorded it anywhere in the app. Shown alongside
-      // `checkbox` above, on the same once-ever first-upload screen — both must be ticked before
-      // the primary CTA enables (see components/consent-gate.tsx). OPEN (2026-09-20, docs/status.md
-      // Known Issue #52): account creation now records a 13-and-up age band (`auth.ageBand`), and
-      // this line still says 16 — a 13–17 account cannot honestly tick it. Left as is pending a
-      // product call; changing the wording mints a new consent key (lib/consent.ts).
-      age: {
-        checkbox: 'I confirm I am 16 or older.',
-      },
-      link: {
-        privacy: 'Privacy details in Settings',
-      },
-      cta: {
-        primary: 'I consent — continue',
-        secondary: 'Cancel',
-      },
-      error: {
-        record:
-          'Your consent could not be recorded. Nothing has been uploaded. Check your connection and try again.',
-      },
-      // NEW namespace (issue #94). The gap #68's self-consent copy above doesn't cover: that
-      // checkbox is "I consent to MY images" by construction, so it says nothing when the
-      // uploader is filming someone else — the most obvious real use of a running-form analyzer
-      // built by a running coach. This screen asks who is actually in the frame, EVERY time (not
-      // once-ever like the block above — see components/consent-gate.tsx's docblock for why),
-      // and requires a fresh attestation whenever the answer is "someone else."
-      subject: {
-        title: 'Who is in this photo or video?',
-        body: "Indicate whether this is your own running form or someone else's, such as an athlete you coach.",
-        option: {
-          me: 'This is me',
-          other: 'Someone else',
-        },
-        thirdParty: {
-          checkbox:
-            "I confirm the person in this photo or video has agreed to this analysis — or, if they're under 16, their parent or guardian has agreed on their behalf — and I consent to Anthropic processing their images to produce this feedback.",
-        },
-        cta: {
-          // A template function, not a plain string — the deck's own convention for a
-          // runtime-templated value (see this file's header note on capture.recording.timer).
-          // The label differs by answer: choosing "This is me" gives no NEW consent (the block
-          // above already covers self-processing), so it reads as plain navigation; choosing
-          // "Someone else" is itself the affirmative attestation act, so the button names that.
-          primary: (subject: 'me' | 'other') => (subject === 'other' ? 'I confirm — continue' : 'Continue'),
-          secondary: 'Cancel',
-        },
-        error: {
-          record:
-            'Your confirmation could not be recorded. Nothing has been uploaded. Check your connection and try again.',
-        },
-      },
-    },
-  },
   // Screen 6 — Analyzing (issue #80). `title` and `longWait` are the deck's; the status lines
   // are V23-05's (2026-09-13): "Uploading your photo" / "Finding your stride" / "Done".
   analyzing: {
@@ -557,7 +523,7 @@ export const Copy = {
       cta: {
         // The deck says "Reuse shared.cta.retry" / "shared.cta.cancel" — no Copy.shared
         // namespace exists in this codebase yet. Every screen shipped so far (Home's
-        // `quota.error.retry`, ConsentGate's `cta.secondary`) has likewise duplicated the
+        // `quota.error.retry`, the since-deleted ConsentGate's `cta.secondary`) has likewise duplicated the
         // literal string under its own key rather than introducing one; following that
         // established precedent here instead of unilaterally adding an app-wide namespace
         // from this screen's issue (out of scope per issue #80: "do NOT reorganize
@@ -863,10 +829,9 @@ export const Copy = {
     privacy: {
       // Captain's 2026-09-20 polish pass: the two long paragraphs this card used to carry are
       // gone — one sentence stays here, and the full disclosure lives behind the `privacyPolicy`
-      // link row below, not repeated inline. That one sentence still has to name the facts the
-      // consent gate's "Privacy details in Settings" link (`consent.upload.link.privacy`) sends
-      // the user here for: Anthropic processing, video never leaving the device, private
-      // storage, removal on delete.
+      // link row below, not repeated inline. That one sentence still has to name the facts a
+      // user giving consent again from the row below (`consent.restore`) is consenting to:
+      // Anthropic processing, video never leaving the device, private storage, removal on delete.
       summary:
         'Frames are processed by Anthropic to produce your feedback, the original video never leaves your device, and frames are stored privately until you delete them.',
     },
@@ -974,7 +939,11 @@ export const Copy = {
       label: 'Consent',
       status: {
         granted: 'You have consented to health-related analysis of your uploaded frames.',
-        withdrawn: 'You have not consented to health-related analysis. You will be asked again before your next upload.',
+        withdrawn: 'You have not consented to health-related analysis. Nothing will be analyzed until you give consent here.',
+        // An account with no consent row at all — it predates the sign-up consent, or its grant
+        // was dropped. Not a withdrawal, so no withdrawal language and no action: the first
+        // upload or recording records it (`app/capture/index.tsx`'s self-heal).
+        none: 'Consent is recorded when you first upload or record.',
         loading: 'Checking consent…',
         // hasConsented() THROWS on any query failure and must not be guessed either way (see
         // lib/consent.ts — it fails closed on purpose). So we say we don't know, rather than
@@ -992,19 +961,32 @@ export const Copy = {
           // erasure. Art. 7(3) withdrawal stops future processing; it does not retroactively
           // delete what is already stored. Saying so plainly — and pointing at the control that
           // DOES erase — is the difference between an honest control and a false comfort.
-          body: 'You will be asked for consent again before your next upload, and nothing will be analyzed until you give it. This does not delete frames or analyses already stored. Use Delete account for that.',
+          body: 'Nothing will be analyzed until you give consent again here. This does not delete frames or analyses already stored. Use Delete account for that.',
           cta: {
             primary: 'Withdraw consent',
             secondary: 'Cancel',
           },
         },
         error: {
-          title: 'Consent could not be withdrawn',
-          // Mirrors `consent.upload.error.record`'s rule for the grant path: say plainly that
-          // nothing changed, so the user never walks away believing they withdrew when they
-          // didn't. The consent row is append-only — a failed write means no row, means the
-          // previous grant still stands, so "nothing has changed" is literally true here.
-          body: 'Nothing has changed. Your consent remains on record. Check your connection and try again.',
+          title: 'Consent could not be fully withdrawn',
+          // Two rows are written (health + future-uploads attestation), so a failure is NOT
+          // provably "nothing changed" — one insert may have landed. Withdrawals are append-only,
+          // so tapping again is always safe; the user must never walk away believing they
+          // withdrew when the record may still show a live consent.
+          body: 'Consent could not be fully withdrawn. Check your connection and tap Withdraw consent again.',
+        },
+      },
+      // Giving consent again after a withdrawal (Art. 7(3) in reverse: as easy as withdrawing).
+      // Sits beside the withdrawn status; the card's own summary above the row restates the
+      // disclosure this grants against, and the full policy is one row down.
+      restore: {
+        cta: 'Give consent',
+        // Two rows are written (health + future-uploads attestation), so — exactly like
+        // `withdraw.error` above — a failure here is NOT provably "nothing changed": the first
+        // insert may have landed. Grants are append-only, so tapping again is always safe.
+        error: {
+          title: 'Consent could not be fully saved',
+          body: 'Consent could not be fully saved. Check your connection and tap Give consent again.',
         },
       },
     },
@@ -1229,7 +1211,7 @@ export const Copy = {
   // docs/design/copy-deck.md by key, same convention as every namespace above. A few keys
   // below are NEW — not in the deck — because the scenario they cover was never specced;
   // each is marked "NEW" at its definition and mirrored into copy-deck.md's Screen 3/4/5
-  // tables (with the same "NEW key" annotation the deck already uses for
+  // tables (with the same "NEW key" annotation the deck already used for the since-deleted
   // consent.upload.checkbox/error.record) rather than left undocumented.
   //
   // Also new to this file (not a reorganization of anything above): a handful of values below
@@ -1283,6 +1265,14 @@ export const Copy = {
       fileTooLarge: {
         title: 'File too large to analyze',
         body: 'Select a smaller photo or video, or record a new clip in the app.',
+      },
+      // Consent was withdrawn in Settings. Nothing here re-asks or re-grants it — that would
+      // reverse an explicit withdrawal without the user acting — so the panel points at the one
+      // place a consent can be given again.
+      consentWithdrawn: {
+        title: 'Consent withdrawn',
+        body: 'You withdrew consent to health-related analysis. Give consent again in Settings before uploading or recording.',
+        cta: 'Open Settings',
       },
     },
   },

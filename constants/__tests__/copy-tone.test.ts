@@ -14,8 +14,6 @@ import { Copy } from '@/constants/copy';
 
 /** Consent/legal strings whose wording is frozen by meaning, not tone. */
 const EXEMPT_KEYS = new Set<string>([
-  'consent.upload.subject.thirdParty.checkbox',
-  'consent.upload.subject.body',
   // 2026-09-20: the parent/guardian attestation for a 13–17 sign-up, worded after V2.2's
   // `legal.ts` guardian sentence and recorded server-side against a policy version — its
   // meaning, not its tone, is what is frozen. The only key this change exempts.
@@ -24,7 +22,6 @@ const EXEMPT_KEYS = new Set<string>([
 
 /** Representative arguments for each template-function value in `Copy`. */
 const TEMPLATE_ARGS: Record<string, unknown[]> = {
-  'consent.upload.subject.cta.primary': ['other'],
   'paywall.gate.paid.body': [10, 'Oct 1, 2026'],
   'paywall.purchase.success.title': ['Pro'],
   'analyzing.step.uploading': ['photo'],

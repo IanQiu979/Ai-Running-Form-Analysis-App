@@ -62,16 +62,18 @@ The *results* are different. Scores, injury-risk flags, and posture descriptions
 information about your body and your health, and we treat them as health data under data
 protection law (GDPR Article 9).
 
-We ask you to agree before your first upload. The first time you submit a photo or video,
-the app shows you a screen explaining that your frames are stored privately until you
-delete them, that they are sent to Anthropic to analyse your form, and that the analysis
-produces health-related feedback about you including injury-risk flags. You must actively
-confirm you consent before anything is uploaded. If you cancel, nothing is uploaded and no
-analysis is created.
+We ask you to agree once, when you create your account (or, for a Google sign-in, the first
+time you use it). On that same page as the account terms, you must actively tick a statement
+confirming that the photos and videos you upload are health-related data processed by AI
+(Anthropic) to analyse your running form, and that any photo or video you upload or record —
+now or later — shows only yourself or someone who has agreed to this analysis. This policy,
+which names Anthropic and explains how your frames are stored, is linked from that page. The
+app does not ask again before each upload; nothing is analysed for an account that has not
+given this consent, and no analysis is created without it.
 
-You can withdraw your consent at any time by deleting your analyses or your account, or by
-contacting us at the address below. Withdrawing stops any further processing of your
-health data; it does not undo processing that already happened.
+You can withdraw your consent at any time from the Consent row in Settings, by deleting your
+analyses or your account, or by contacting us at the address below. Withdrawing stops any
+further processing of your health data; it does not undo processing that already happened.
 
 ---
 
