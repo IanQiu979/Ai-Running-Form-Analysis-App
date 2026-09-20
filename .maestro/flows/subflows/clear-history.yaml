@@ -2,7 +2,8 @@
 # account has, through the app's own History delete path, then returns to Home.
 #
 # Added for issue #203 (2026-09-20). Since happy-path.yaml signs in to a REUSED fixture account
-# instead of minting a fresh stranger (issue #230), its History leg — delete one row, assert
+# instead of minting a fresh stranger (first forced by issue #230, kept by choice since that
+# turned out to be a harness artefact), its History leg — delete one row, assert
 # "No analyses yet" — only holds when the account has exactly one persisted analysis. Anything
 # leaves extra rows behind: dead-end-offline.yaml ends on the result readout without deleting
 # its analysis, and any run that fails between the analysis and the delete leaves one too. This

@@ -155,7 +155,7 @@ run_harness \
   MAESTRO_IOS_SIMULATOR_UDID=test-udid \
   MAESTRO_ALLOW_PAID_ANALYSIS=1 \
   -- happy-path
-assert_failed_with "live analysis requires the fixture sign-in credentials (issue #230)" "happy-path.yaml signs in to a pre-provisioned fixture account (issue #230 blocks sign-up on this build) and requires MAESTRO_E2E_EMAIL and MAESTRO_E2E_PASSWORD."
+assert_failed_with "live analysis requires the fixture sign-in credentials" "happy-path.yaml signs in to a pre-provisioned fixture account (see .maestro/README.md) and requires MAESTRO_E2E_EMAIL and MAESTRO_E2E_PASSWORD."
 assert_no_external_tools "fixture-credential rejection happens before external tools"
 
 run_harness \

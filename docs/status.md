@@ -970,12 +970,14 @@ milestone "done" criteria.
     `.maestro/README.md`'s 2026-07-25 update for the full diagnosis and how to get a clean run.
     **UPDATE 2026-09-20 (issue #203):** a repeatable command now exists (`npm run
     e2e:maestro:ios-dev`, against the EAS development build and the live project) and the
-    accessibility-bridge flakiness is no longer what blocks the pass — two real app bugs are:
-    sign-up's "Create account" button is not painted after Turnstile succeeds (issue #230; the
-    flows sign in with a fixture account instead), and `expo-camera`'s `record()` throws
-    `SimulatorNotSupported` on the Simulator (issue #232), which stops both runnable flows before
-    the capture→analyze handoff. Still not a passing gate. `.maestro/README.md`'s 2026-09-20
-    section owns the fixture account, run command and pass/fail matrix.
+    accessibility-bridge flakiness is no longer what blocks the pass — one real app bug is:
+    `expo-camera`'s `record()` throws `SimulatorNotSupported` on the Simulator (issue #232), which
+    stops both runnable flows before the capture→analyze handoff. Sign-up's "Create account"
+    button looking unpainted after Turnstile (issue #230) was a harness artefact — iOS 26's "Use
+    Strong Password?" panel over the CTA, invisible in Maestro's XCTest screenshots — and
+    `subflows/sign-up.yaml` was repaired and verified live on 2026-09-20 (the flows still sign in
+    with a fixture account, by choice). Still not a passing gate. `.maestro/README.md`'s
+    2026-09-20 section owns the fixture account, run command and pass/fail matrix.
     **UPDATE 2026-09-20 (issue #232 closed):** the app now catches that rejection and shows a
     `<ConfirmDialog>` pointing at Upload (`Copy.capture.recordingError.*`), and both flows stop
     cleanly at the capture chooser with a `capture skipped: simulator` step instead of failing —
@@ -2115,9 +2117,9 @@ still standing between here and a public/TestFlight release:
   local Postgres integration proof for it could not be run this session (Docker was stopped) —
   report that proof as **unproven**, never as passing.
 - **Known Issue #31** — `.maestro/` E2E flows have a repeatable dev-build command (2026-09-20) but
-  are not yet a clean pass: blocked by app bug #230 (sign-up CTA), and the capture→analyze leg is
-  skipped on a simulator (#232 is fixed in-app, but the Simulator has no camera and no fixture
-  clip is checked in).
+  are not yet a clean pass: #230 (sign-up CTA) was a harness artefact, fixed in the flow
+  2026-09-20, and the capture→analyze leg is skipped on a simulator (#232 is fixed in-app, but
+  the Simulator has no camera and no fixture clip is checked in).
 - **Known Issue #24/#34** — several blocks of uncertified copy across Settings, consent, paywall,
   history, and password-reset screens still need `ux-copywriter`/Ian review.
 - [`docs/blocked-on-apple.md`](blocked-on-apple.md) — everything gated on the Apple Developer

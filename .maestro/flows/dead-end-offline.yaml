@@ -32,12 +32,13 @@
 #
 # This flow exercises the REAL, reachable gate (#2 above). It used to mint a fresh stranger via
 # subflows/sign-up.yaml, since any signed-up account works for this and there was no reason to
-# make the caller supply one. RETARGETED for issue #203 (2026-09-19): sign-up is blocked by a
-# real app bug on the EAS development build (GitHub issue #230, evidence in
-# docs/evidence/issue-203/signup-cta-unreachable.md), so this now signs in to the same
-# pre-provisioned fixture account happy-path.yaml uses (`${MAESTRO_E2E_EMAIL}` /
-# `${MAESTRO_E2E_PASSWORD}` — see subflows/sign-in.yaml and ../README.md's "Fixture account"
-# section). Re-point this back at sign-up.yaml once #230 is fixed and re-verified.
+# make the caller supply one. RETARGETED for issue #203 (2026-09-19) when sign-up stopped
+# completing on the EAS development build (GitHub issue #230 — a harness artefact, the iOS 26
+# "Use Strong Password?" panel, repaired in sign-up.yaml on 2026-09-20; see
+# docs/evidence/issue-203/signup-cta-unreachable.md). This stays on the same pre-provisioned
+# fixture account happy-path.yaml uses (`${MAESTRO_E2E_EMAIL}` / `${MAESTRO_E2E_PASSWORD}` — see
+# subflows/sign-in.yaml and ../README.md's "Fixture account" section) so runs do not mint an
+# auth.users row each; swap the first step back to sign-up.yaml if a per-run stranger is wanted.
 #
 # `setAirplaneMode` is Maestro's mechanism for this on iOS Simulator — verify against the
 # installed `maestro -v` version and the actual simulator's behavior before trusting it; the

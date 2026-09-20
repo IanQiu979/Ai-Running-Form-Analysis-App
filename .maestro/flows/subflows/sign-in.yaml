@@ -1,11 +1,11 @@
 # Subflow — signs in an EXISTING account via email/password and lands on Home.
 #
-# Added for issue #203 after `sign-up.yaml` became unusable end to end: on the EAS development
-# build, the enabled `auth-email-submit` ("Create account") button is reachable in the
-# accessibility tree but not painted in the viewport after Turnstile succeeds (app bug, filed as
-# GitHub issue #230 — see docs/evidence/issue-203/signup-cta-unreachable.md). A fresh-install
-# harness run can no longer mint a new stranger through sign-up, so every flow that only needs an
-# authenticated session now signs in to a pre-provisioned fixture account instead.
+# Added for issue #203 when `sign-up.yaml` could not complete on the EAS development build. That
+# turned out to be a harness artefact, not an app bug — iOS 26's "Use Strong Password?" panel
+# hiding the CTA and eating the typed password (GitHub issue #230, fixed in sign-up.yaml on
+# 2026-09-20; see docs/evidence/issue-203/signup-cta-unreachable.md). The flows that only need an
+# authenticated session keep signing in to a pre-provisioned fixture account anyway: one account,
+# no auth.users growth per run, History cleaned by clear-history.yaml.
 #
 # Requires ${MAESTRO_E2E_EMAIL} / ${MAESTRO_E2E_PASSWORD} — the synthetic fixture account
 # (maestro.e2e.issue203@example.com as of 2026-09-19; see ../../README.md's "Fixture account"
@@ -52,8 +52,8 @@ appId: com.ian.paceanalysisai
 - tapOn: "Sign in"
 
 # iOS's own Keychain "Save Password?" system sheet appears after a real credential submission —
-# distinct from the "Use Strong Password?" sheet CLAUDE.md/README already document for sign-UP,
-# which fires on typing a new password and needs a Simulator Settings toggle to suppress.
+# distinct from the "Use Strong Password?" panel that fires on focusing sign-UP's empty password
+# field (sign-up.yaml now closes that one in-flow; the Simulator Settings toggle is optional).
 # "Save Password?" fires on SIGN-IN submit instead and just needs dismissing here; it otherwise
 # sits on top of Home and fails the next assertion (observed 2026-09-19 on iOS 26.5).
 - runFlow:

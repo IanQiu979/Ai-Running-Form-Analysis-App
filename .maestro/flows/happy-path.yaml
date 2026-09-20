@@ -4,14 +4,16 @@
 # owns the fresh install and initial launch; this flow owns the user journey only.
 #
 # RETARGETED to sign-in for issue #203 (2026-09-19): this flow used to open with
-# `runFlow: subflows/sign-up.yaml`, minting a fresh stranger each run. Sign-up is currently
-# blocked by a real app bug on the EAS development build — GitHub issue #230, evidence in
-# docs/evidence/issue-203/signup-cta-unreachable.md — so a fresh-install run can no longer create
-# an account through the UI. This flow now signs in to a pre-provisioned fixture account instead
-# (see subflows/sign-in.yaml and ../README.md's "Fixture account" section). This is flow drift,
-# not a scope change: the M7 gate this flow proves is "an authenticated user has no dead end
-# through analysis," and sign-in reaches that same starting state. Re-point this back at
-# sign-up.yaml once #230 is fixed and re-verified.
+# `runFlow: subflows/sign-up.yaml`, minting a fresh stranger each run, until sign-up stopped
+# completing on the EAS development build (GitHub issue #230). That was a harness artefact — the
+# iOS 26 "Use Strong Password?" panel — and sign-up.yaml was repaired and re-verified on
+# 2026-09-20 (docs/evidence/issue-203/signup-cta-unreachable.md). This flow stays on the
+# pre-provisioned fixture account by choice (see subflows/sign-in.yaml and ../README.md's
+# "Fixture account" section): one account instead of one auth.users row per run, with History
+# cleaned by subflows/clear-history.yaml. This is flow drift, not a scope change: the M7 gate
+# this flow proves is "an authenticated user has no dead end through analysis," and sign-in
+# reaches that same starting state. Swap the first step back to sign-up.yaml if a per-run
+# stranger is ever wanted again.
 #
 # CAPTURE SKIPPED ON THE IOS SIMULATOR (issue #232, 2026-09-20). `scripts/run-maestro-ios-dev-
 # build.sh` only ever drives an iOS Simulator (`xcrun simctl`, `MAESTRO_IOS_SIMULATOR_UDID`) —
