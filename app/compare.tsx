@@ -287,9 +287,8 @@ function PickerRow({
         disabled && styles.disabled,
         pressed && !disabled && styles.pressed,
       ]}>
-      {/* Same square checkbox idiom `components/age-band-choice.tsx` draws for its guardian-consent
-          row — the old comment pointing at `components/consent-gate.tsx` is stale; that component
-          no longer exists. */}
+      {/* Same `Layout.consentCheckbox` square idiom `components/age-band-choice.tsx` and
+          `components/consent-gate.tsx` draw. */}
       <View style={[styles.checkbox, selected && styles.checkboxChecked]}>{selected ? <CheckIcon /> : null}</View>
 
       <View style={styles.rowInfo}>

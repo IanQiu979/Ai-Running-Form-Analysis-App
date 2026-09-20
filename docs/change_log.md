@@ -12,9 +12,9 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   VISUAL ONLY: no change to `lib/compare.ts`'s diffing/copy-formatting, the fresh per-mount Elite
   re-check, or any copy key. `Ink.bg` painted directly with live-inset padding (matching lane 2's
   screens), `<TopBar align="leading">` + `<SquareIconButton>`/`<BackIcon>` for the header,
-  `<SquareButton>` for every action, and the picker's checkbox re-drawn with the square idiom
-  `components/age-band-choice.tsx` already uses (the file's old comment pointing at the deleted
-  `components/consent-gate.tsx` is corrected). Not a tab screen, so no `<V23TabBar>`. Each stacked
+  `<SquareButton>` for every action, and the picker's checkbox re-drawn with the
+  `Layout.consentCheckbox` square idiom `components/age-band-choice.tsx` and
+  `components/consent-gate.tsx` already use. Not a tab screen, so no `<V23TabBar>`. Each stacked
   readout renders `<PaceReadout>` directly under a plain date label, matching how
   `app/result/[id].tsx` already uses that component with no outer card.
 - **`components/compare/pace-delta-panel.tsx` re-cut too, and its `<DeltaRing>` pair retired**

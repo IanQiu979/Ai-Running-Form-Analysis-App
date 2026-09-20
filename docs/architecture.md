@@ -1207,11 +1207,11 @@ user-facing screen still on `constants/theme.ts` (the captain's own phone test, 
 theme") — visual only, no change to data flow, the fresh Elite re-check, or copy. Same shape as
 lane 2's screens: `Ink.bg` painted directly, live insets via `Math.max(insets.top/bottom,
 Layout.canvas.safeTop/safeBottom)`, `<TopBar align="leading">` + `<SquareIconButton>`/`<BackIcon>`
-for the header, `<SquareButton>` for every action, a square checkbox idiom in the picker (the same
-one `components/age-band-choice.tsx` draws — the old comment pointing at
-`components/consent-gate.tsx` was stale; that file is deleted). It is not a tab screen, so it draws
-no `<V23TabBar>`. Each stacked readout is `<PaceReadout>` rendered directly (already fully
-V23-native, no wrapping card, matching `app/result/[id].tsx`'s own usage) under a plain date label.
+for the header, `<SquareButton>` for every action, the same `Layout.consentCheckbox` square idiom
+`components/age-band-choice.tsx` and `components/consent-gate.tsx` draw for the picker's checkbox.
+It is not a tab screen, so it draws no `<V23TabBar>`. Each stacked readout is `<PaceReadout>`
+rendered directly (already fully V23-native, no wrapping card, matching `app/result/[id].tsx`'s
+own usage) under a plain date label.
 `components/compare/pace-delta-panel.tsx` is re-cut too — the old "Cadence Arcs" `<DeltaRing>` pair
 it depended on (`components/compare/delta-ring.tsx`, now deleted) had no V23 equivalent to carry
 forward, since the redesign replaced rings with the readout's own 2 px score bar; the panel now
