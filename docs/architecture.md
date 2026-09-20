@@ -71,7 +71,11 @@ components/              # consent-gate.tsx and result-disclaimer.tsx (2026-07-1
                           # V23 lane 2" below. pill-button / surface-card / glass-frost /
                           # screen-gradient / circle-icon-button / eyebrow / arc-ring /
                           # arc-loader remain only for the screens no page covers yet
-                          # (extracting, compare, password reset, offline banner).
+                          # (extracting, password reset, offline banner). `app/compare.tsx` was
+                          # re-cut to V23 2026-09-21 (change-list item 5) — the panel's old
+                          # `<DeltaRing>` (`components/compare/delta-ring.tsx`) is deleted;
+                          # `components/compare/pace-delta-panel.tsx` now draws a plain
+                          # `<SquareCard>` row per pillar instead.
   v23-tab-bar.tsx         # V23-07/09's tab bar: 64 pt, Home + History cells, floating
                           # (translucent, blurred) or inline (opaque).
   stride-hero.tsx         # V23-02 (2026-09-13): the entry hero's line-drawn runner and its four
@@ -106,10 +110,11 @@ components/              # consent-gate.tsx and result-disclaimer.tsx (2026-07-1
   # (2026-09-14, lane 2); see "Current — V23 lane 2" below.
 constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
                           # palette, spacing/radii/type scales; M1 added
-                          # ControlHeight/ControlWidth/HitTarget/Opacity. As of 2026-09-14 only
-                          # extracting, compare, the password-reset screens, the offline banner
-                          # and the Turnstile widget still import it — plus `ScoreBandLabel`,
-                          # which is copy and is read from here by the V23 screens until it moves.
+                          # ControlHeight/ControlWidth/HitTarget/Opacity. As of 2026-09-21 only
+                          # extracting, the password-reset screens, the offline banner and the
+                          # Turnstile widget still import it — plus `ScoreBandLabel`, which is
+                          # copy and is read from here by the V23 screens (including
+                          # `app/compare.tsx`, re-cut 2026-09-21) until it moves.
 constants/v23-theme.ts    # THE V23-01 THEME SHEET (2026-09-13): Ink / Font / Type / Space /
                           # Layout / Motion / Chrome, dark only. Consumed by the entry flow,
                           # Analyzing and (2026-09-14, lane 2) Home / Result / History / Capture /
@@ -1196,6 +1201,22 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   deleted afterwards (`auth.users` checked clean). Not reachable on Free and therefore unverified
   on device: Home's Pro "Renews …" line, the paywall's "Voluntary · Pro current" artboard and
   Settings' Renews row.
+
+**Compare re-cut to V23 (2026-09-21, change-list item 5).** `app/compare.tsx` was the last
+user-facing screen still on `constants/theme.ts` (the captain's own phone test, "Compare works, old
+theme") — visual only, no change to data flow, the fresh Elite re-check, or copy. Same shape as
+lane 2's screens: `Ink.bg` painted directly, live insets via `Math.max(insets.top/bottom,
+Layout.canvas.safeTop/safeBottom)`, `<TopBar align="leading">` + `<SquareIconButton>`/`<BackIcon>`
+for the header, `<SquareButton>` for every action, a square checkbox idiom in the picker (the same
+one `components/age-band-choice.tsx` draws — the old comment pointing at
+`components/consent-gate.tsx` was stale; that file is deleted). It is not a tab screen, so it draws
+no `<V23TabBar>`. Each stacked readout is `<PaceReadout>` rendered directly (already fully
+V23-native, no wrapping card, matching `app/result/[id].tsx`'s own usage) under a plain date label.
+`components/compare/pace-delta-panel.tsx` is re-cut too — the old "Cadence Arcs" `<DeltaRing>` pair
+it depended on (`components/compare/delta-ring.tsx`, now deleted) had no V23 equivalent to carry
+forward, since the redesign replaced rings with the readout's own 2 px score bar; the panel now
+draws one `<SquareCard>` with a plain letter/name/delta-sentence row per pillar instead. The
+not-assessed honesty rule (`lib/compare.ts`, unchanged) is unaffected either way.
 
 ## Current — app icon & splash assets (done 2026-07-12, closes GitHub issue #26)
 

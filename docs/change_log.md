@@ -5,6 +5,28 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-21 (Compare re-cut to V23, change-list item 5)
+
+- **`app/compare.tsx` re-cut to the V23 sheet** — the captain flagged it via his own phone test
+  ("Compare works, old theme") as the last user-facing screen still on `constants/theme.ts`.
+  VISUAL ONLY: no change to `lib/compare.ts`'s diffing/copy-formatting, the fresh per-mount Elite
+  re-check, or any copy key. `Ink.bg` painted directly with live-inset padding (matching lane 2's
+  screens), `<TopBar align="leading">` + `<SquareIconButton>`/`<BackIcon>` for the header,
+  `<SquareButton>` for every action, and the picker's checkbox re-drawn with the square idiom
+  `components/age-band-choice.tsx` already uses (the file's old comment pointing at the deleted
+  `components/consent-gate.tsx` is corrected). Not a tab screen, so no `<V23TabBar>`. Each stacked
+  readout renders `<PaceReadout>` directly under a plain date label, matching how
+  `app/result/[id].tsx` already uses that component with no outer card.
+- **`components/compare/pace-delta-panel.tsx` re-cut too, and its `<DeltaRing>` pair retired**
+  (`components/compare/delta-ring.tsx` deleted) — the V23 redesign replaced rings with the
+  readout's own 2 px score bar and left no ring language for this panel to carry forward, so the
+  panel now draws one `<SquareCard>` with a plain letter/name/delta-sentence row per pillar. The
+  not-assessed honesty rule (a pillar missing on either side reads "not assessed," never a delta
+  of zero) is unchanged — still enforced entirely by `lib/compare.ts`.
+- New tests: `app/__tests__/compare.test.tsx` (loading/error/locked/empty/picker/comparing, plus
+  the not-assessed picker row and the "Back from comparing returns to the picker" contract) and a
+  rewrite of `components/compare/__tests__/pace-delta-panel.test.tsx` for the new row structure.
+
 ## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
 
 - **The signed-out entry flow is one paged scroll** (`app/(auth)/welcome.tsx`): the V23-02 hero,
