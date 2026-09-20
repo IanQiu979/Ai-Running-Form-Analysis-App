@@ -85,9 +85,9 @@ const TICKER_OPACITY = 0.5;
 
 export default function HomeScreen() {
   // Live insets, with the design canvas's safe areas as the floor (the pages were drawn on
-  // 59 / 34), same as `app/(auth)/details.tsx`. The bottom inset is what the floating tab bar
-  // sits above (`app/(tabs)/_layout.tsx`), so the content pays it once here and the bar's own
-  // height plus its air go on the ticker strip below.
+  // 59 / 34), same as `components/pillar-story.tsx`. The bottom inset is what the floating tab
+  // bar sits above (`app/(tabs)/_layout.tsx`), so the content pays it once here and the bar's
+  // own height plus its air go on the ticker strip below.
   const insets = useSafeAreaInsets();
   const contentStyle = [
     styles.content,

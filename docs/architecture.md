@@ -1116,9 +1116,10 @@ above is still what those screens are built on and both font sets load at startu
   page's t=1.0 / 2.0 / end artboards, details at rest / mid-stagger / box open, the sign-up /
   sign-in / error artboards, analyzing stopwatch + laser + Done → result, and a throwaway email account created
   through the new gate and deleted afterwards. Screen-level locks:
-  `app/(auth)/__tests__/entry-hero.test.tsx`, `details.test.tsx`, the updated `sign-in*.test.tsx`
-  and `app/__tests__/analyzing.test.tsx`; component tests for `stride-hero`, `pillar-box` and
-  `laser-sweep`.
+  `app/(auth)/__tests__/entry-hero.test.tsx` (rewritten for the 2026-09-20 scroll; the deleted
+  `details.test.tsx` is succeeded by `components/__tests__/pillar-story.test.tsx`), the updated
+  `sign-in*.test.tsx` and `app/__tests__/analyzing.test.tsx`; component tests for `stride-hero`,
+  `pillar-box`, `pillar-story` and `laser-sweep`.
 
 ## Current — V23 lane 2: Home, Result, History, Capture, Paywall, Settings (2026-09-14)
 

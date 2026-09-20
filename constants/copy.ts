@@ -90,8 +90,8 @@ export const Copy = {
   },
   auth: {
     // V23-06 (2026-09-13): the page's eyebrow and Display title. The old wordmark / value-prop /
-    // "about" scroll content came off this screen with the redesign — the hero and details pages
-    // (`Copy.entry`) carry what the app does now.
+    // "about" scroll content came off this screen with the redesign — the hero and the pillars
+    // story (`Copy.entry`) carry what the app does now.
     eyebrow: 'Run better tomorrow',
     title: 'Get started',
     cta: {

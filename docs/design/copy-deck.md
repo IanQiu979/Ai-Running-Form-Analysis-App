@@ -59,7 +59,7 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 
 ## Screen 1 — Sign in / Sign up
 
-> **Rebuilt to V23-06 on 2026-09-13.** Sign-in is no longer the front door — `(auth)/welcome` → `(auth)/details` precede it, and their strings (`Copy.entry`) are lifted verbatim from the approved pages, not specced here. `auth.valueProp` / `auth.cta.email` / `auth.wordmark` / `auth.about` were removed with that rebuild; the screen's new `auth.eyebrow`, `auth.title`, the sign-up-only `auth.consent.*` line and `auth.error.consentRequired` are keyed and commented in `constants/copy.ts`. See `docs/architecture.md`'s "Current — V23 entry flow".
+> **Rebuilt to V23-06 on 2026-09-13.** Sign-in is no longer the front door — `(auth)/welcome` (the hero and, since 2026-09-20, the pillars story in one scroll; the `(auth)/details` route is deleted) precedes it, and their strings (`Copy.entry`) are lifted verbatim from the approved pages, not specced here. `auth.valueProp` / `auth.cta.email` / `auth.wordmark` / `auth.about` were removed with that rebuild; the screen's new `auth.eyebrow`, `auth.title`, the sign-up-only `auth.consent.*` line and `auth.error.consentRequired` are keyed and commented in `constants/copy.ts`. See `docs/architecture.md`'s "Current — V23 entry flow".
 
 | Key | String | Shows when |
 |---|---|---|

@@ -1,8 +1,9 @@
 /**
- * V23-06 · Sign-up / sign-in (2026-09-13) — the third and last screen of the entry flow
- * (hero → details → here), rebuilt to the captain-approved Claude Design page on the V23-01
- * theme sheet. One screen, two modes: sign-up is the default (the details page sends new users
- * here; the page's first artboard), and the footer link flips to sign-in for a returning user.
+ * V23-06 · Sign-up / sign-in (2026-09-13) — the last screen of the entry flow (hero → pillars
+ * story → here; since 2026-09-20 the first two are one scroll in `welcome`), rebuilt to the
+ * captain-approved Claude Design page on the V23-01 theme sheet. One screen, two modes: sign-up
+ * is the default (the story's "Get started" sends new users here; the page's first artboard),
+ * and the footer link flips to sign-in for a returning user.
  *
  * The page draws: eyebrow + Display title, two 56 pt fields, a 12 pt consent checkbox with a
  * line of fine print, a white primary button, a bordered secondary "Continue with Google", and a
@@ -106,10 +107,10 @@ export default function SignInScreen() {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
 
-  // Sign-up is the default (the details page sends new users here). `?mode=signIn` seeds the
-  // other mode for a caller who knows the user already has an account and has no sign-in screen
-  // beneath it — update-password's "Back to sign in", reached by deep link — so an
-  // expired-recovery-link user does not land on "Create account". Any other value keeps the
+  // Sign-up is the default (the story's "Get started" sends new users here). `?mode=signIn`
+  // seeds the other mode for a caller who knows the user already has an account and has no
+  // sign-in screen beneath it — update-password's "Back to sign in", reached by deep link — so
+  // an expired-recovery-link user does not land on "Create account". Any other value keeps the
   // default.
   const params = useLocalSearchParams<{ mode?: string }>();
   const [mode, setMode] = useState<Mode>(params.mode === 'signIn' ? 'signIn' : 'signUp');

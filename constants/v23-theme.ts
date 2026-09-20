@@ -370,7 +370,8 @@ export const Motion = {
     /** The arrive range's floor and ceiling; a single element arrives inside it. */
     arriveMin: 400,
     arriveMax: 700,
-    /** The details page's rise-and-fade per item. */
+    /** The result readout's rise-and-fade per item (`components/pace-readout.tsx`); the entry
+     *  story uses the slower `storyRise` below. */
     rise: 600,
     /** A pillar box opening or closing. */
     expand: 320,
