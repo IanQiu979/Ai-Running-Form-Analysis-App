@@ -800,9 +800,7 @@ export default function SettingsScreen() {
             {Copy.settings.section.privacy}
           </Text>
           <SquareCard padding={0} style={styles.card}>
-            <Text style={styles.paragraph}>{Copy.settings.privacy.body}</Text>
-            <Rule />
-            <Text style={styles.paragraph}>{Copy.settings.privacy.deleteNote}</Text>
+            <Text style={styles.paragraph}>{Copy.settings.privacy.summary}</Text>
             <Rule />
 
             <Row label={Copy.settings.consent.label}>

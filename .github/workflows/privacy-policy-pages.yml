@@ -1,4 +1,7 @@
-# Publishes `docs/privacy-policy.md` — and ONLY that file — to GitHub Pages (issue #202).
+# Publishes `docs/privacy-policy.md` — plus the theme in `docs/privacy-policy-theme/` — and
+# NOTHING else, to GitHub Pages (issue #202; themed 2026-09-20, item 3 of the captain's phone-test
+# polish pass — see `docs/privacy-policy-theme/style.css`'s header for why the page is themed by
+# hand rather than importing `constants/v23-theme.ts`).
 #
 # Public URL: https://ianqiu979.github.io/Ai-Running-Form-Analysis-App/privacy-policy/
 #
@@ -7,11 +10,12 @@
 # page of the public site. The 2026-07-12 hosting plan (`docs/status.md` Known Issue #15) called
 # for a separate public repo for exactly that reason, back when this repo was private; the repo
 # is public now, so the policy is served from its source-of-truth file here instead and can never
-# drift from it. This job stages the one file into a scratch directory, injects the Jekyll front
-# matter the source file deliberately does not carry (it is also read raw on GitHub), and builds
-# that directory alone. The leading `<!-- … -->` editor note in the source file is stripped at
-# staging time so the published HTML source carries only the policy text; the note stays in the
-# repo file where editors read it. The Pages source for the repo is set to "GitHub Actions"
+# drift from it. This job stages the policy markdown plus the two theme files into a scratch
+# directory, injects the Jekyll front matter the source file deliberately does not carry (it is
+# also read raw on GitHub), and builds that directory alone — no other file under `docs/` is ever
+# staged. The leading `<!-- … -->` editor note in the source file is stripped at staging time so
+# the published HTML source carries only the policy text; the note stays in the repo file where
+# editors read it. The Pages source for the repo is set to "GitHub Actions"
 # (`gh api -X POST repos/IanQiu979/Ai-Running-Form-Analysis-App/pages -f build_type=workflow`).
 #
 # Attaching the URL to the App Store Connect record is Apple-gated (`docs/blocked-on-apple.md`).
@@ -23,6 +27,7 @@ on:
     branches: [main]
     paths:
       - docs/privacy-policy.md
+      - docs/privacy-policy-theme/**
       - .github/workflows/privacy-policy-pages.yml
   workflow_dispatch:
 
@@ -45,17 +50,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Stage the policy as the only page
+      - name: Stage the policy, its theme, and nothing else
         run: |
           set -euo pipefail
-          mkdir -p _pages_src
+          mkdir -p _pages_src/_layouts _pages_src/assets
           {
             printf -- '---\nlayout: default\ntitle: Pace Analysis AI — Privacy Policy\npermalink: /privacy-policy/\n---\n\n'
             awk 'NR == 1 { skip = ($0 == "<!--") } skip { if ($0 == "-->") skip = 0; next } { print }' docs/privacy-policy.md
           } > _pages_src/privacy-policy.md
           grep -qxF '# Pace Analysis AI — Privacy Policy' _pages_src/privacy-policy.md
           printf -- '---\nlayout: default\ntitle: Pace Analysis AI\npermalink: /\n---\n\n[Privacy Policy](./privacy-policy/)\n' > _pages_src/index.md
-          printf 'title: Pace Analysis AI\ndescription: Privacy policy for the Pace Analysis AI app\ntheme: jekyll-theme-primer\n' > _pages_src/_config.yml
+          printf 'title: Pace Analysis AI\ndescription: Privacy policy for the Pace Analysis AI app\n' > _pages_src/_config.yml
+          cp docs/privacy-policy-theme/default.html _pages_src/_layouts/default.html
+          cp docs/privacy-policy-theme/style.css _pages_src/assets/style.css
 
       - uses: actions/configure-pages@v5
 

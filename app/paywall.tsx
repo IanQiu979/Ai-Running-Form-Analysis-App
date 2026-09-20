@@ -117,6 +117,24 @@ function ctaForFree(plan: PlanState): TierCardCta {
   return { kind: 'current' };
 }
 
+type TierKey = 'free' | 'pro' | 'elite';
+
+/** The mark count is a property of the TIER, not of where its card renders — see
+ *  `orderedTierKeys` below. */
+const TIER_MARKS: Record<TierKey, number> = { free: 1, pro: 2, elite: 3 };
+
+/** Captain's 2026-09-20 polish pass, item 5: "current plan on top". The ladder always lists
+ *  free, pro, elite in that order UNLESS the plan read has confirmed a tier — then that tier's
+ *  card moves to the front, and the rest follow in their usual order. Unresolved or errored
+ *  reads keep the plain ladder order, matching `ctaForFree`'s own "no confirmed tier, no
+ *  reordering either" caution. */
+function orderedTierKeys(plan: PlanState): readonly TierKey[] {
+  const LADDER: readonly TierKey[] = ['free', 'pro', 'elite'];
+  if (plan.status !== 'ready') return LADDER;
+  const current = plan.data.tier;
+  return [current, ...LADDER.filter((key) => key !== current)];
+}
+
 export default function PaywallScreen() {
   const insets = useSafeAreaInsets();
 
@@ -278,35 +296,25 @@ export default function PaywallScreen() {
           </SquareCard>
         )}
 
-        {/* The three cards, in ladder order, each wearing one more rule than the one above it —
-            see components/paywall/tier-card.tsx for why that is the honest picture of a tier
-            ladder whose own footnote says the higher tiers are "more of it, not different". The
-            mark counts are ornament, never a quota or an entitlement. */}
+        {/* The three cards, each wearing one more rule than the free tier — see
+            components/paywall/tier-card.tsx for why that is the honest picture of a tier ladder
+            whose own footnote says the higher tiers are "more of it, not different". The mark
+            counts are ornament, never a quota or an entitlement. Render ORDER is
+            `orderedTierKeys`'s call, not the ladder's: a confirmed tier's card leads, the rest
+            follow — the mark count stays fixed to the tier itself so a reordered card still
+            wears its own rung, not the position it's rendered in. */}
         <View style={styles.cards}>
-          <TierCard
-            testID="paywall-tier-free"
-            name={Copy.paywall.tier.free.name}
-            price={Copy.paywall.tier.free.price}
-            detail={Copy.paywall.tier.free.detail}
-            marks={1}
-            cta={ctaForFree(plan)}
-          />
-          <TierCard
-            testID="paywall-tier-pro"
-            name={Copy.paywall.tier.pro.name}
-            price={Copy.paywall.tier.pro.price}
-            detail={Copy.paywall.tier.pro.detail}
-            marks={2}
-            cta={ctaForPurchasableTier('pro', plan, purchase, handleUpgrade)}
-          />
-          <TierCard
-            testID="paywall-tier-elite"
-            name={Copy.paywall.tier.elite.name}
-            price={Copy.paywall.tier.elite.price}
-            detail={Copy.paywall.tier.elite.detail}
-            marks={3}
-            cta={ctaForPurchasableTier('elite', plan, purchase, handleUpgrade)}
-          />
+          {orderedTierKeys(plan).map((key) => (
+            <TierCard
+              key={key}
+              testID={`paywall-tier-${key}`}
+              name={Copy.paywall.tier[key].name}
+              price={Copy.paywall.tier[key].price}
+              detail={Copy.paywall.tier[key].detail}
+              marks={TIER_MARKS[key]}
+              cta={key === 'free' ? ctaForFree(plan) : ctaForPurchasableTier(key, plan, purchase, handleUpgrade)}
+            />
+          ))}
         </View>
 
         <Text style={styles.footnote}>{Copy.paywall.footnote}</Text>

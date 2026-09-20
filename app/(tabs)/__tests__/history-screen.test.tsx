@@ -159,7 +159,6 @@ describe('history render smoke', () => {
     await render(<HistoryScreen />);
     await waitFor(() => expect(screen.getByText(Copy.history.empty.title)).toBeTruthy());
     expect(screen.getByText(Copy.history.empty.body)).toBeTruthy();
-    expect(screen.getByTestId('history-empty-box', { includeHiddenElements: true })).toBeTruthy();
     expect(screen.getByRole('button', { name: Copy.history.empty.cta })).toBeTruthy();
     expect(screen.getByTestId('history-tab-bar')).toBeTruthy();
   });

@@ -851,9 +851,10 @@ export const Copy = {
       },
     },
     privacy: {
-      body: 'Your original photo or video never leaves your device. A small number of still frames are extracted on your phone, and only those frames are uploaded. They are stored in a private location only you can access, until you delete the analysis or your account. To generate results, the stored frames are sent to Anthropic, our AI provider, to analyze your form.',
-      deleteNote:
-        'Deleting an analysis removes its stored frames immediately. Deleting your account removes everything.',
+      // Captain's 2026-09-20 polish pass: the two long paragraphs this card used to carry are
+      // gone — one short orientation line stays here, and the full disclosure lives behind the
+      // `privacyPolicy` link row below, not repeated inline.
+      summary: 'Your frames are stored privately and removed when you delete them.',
     },
 
     // ----------------------------------------------------------------------------------------

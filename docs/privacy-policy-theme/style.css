@@ -1,0 +1,145 @@
+/*
+ * Published privacy policy — palette, type and corner radius transcribed from
+ * `constants/v23-theme.ts` (`Ink`, `Type`, `Font`), the same dark, square-cornered system the
+ * in-app Settings screen and the rest of the V23 lane render on. This file is the web analogue,
+ * not a copy of the RN tokens by import — there is no shared build step between the Expo app and
+ * a static Jekyll page, so the values are kept in sync by hand; re-check them here after any
+ * `Ink`/`Type` edit that could visibly drift the two.
+ */
+
+:root {
+  --ink-bg: #0a0a0a;
+  --ink-bg-raised: #141414;
+  --ink-line: #2a2a2a;
+  --ink: #f5f5f5;
+  --ink-2: #9a9a9a;
+  --ink-3: #5c5c5c;
+  --ink-accent: #ffffff;
+  --ink-danger: #e5484d;
+
+  --font-condensed: 'Barlow Condensed', sans-serif;
+  --font-tight: 'Inter Tight', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  /* Square corners everywhere — the V23 sheet has no rounded radius. */
+  border-radius: 0 !important;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--ink-bg);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-tight);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.policy {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 56px 24px 96px;
+}
+
+/* Type.h1: Barlow Condensed 700, 28/32, sentence case — the page's own display heading. */
+.policy h1 {
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 32px;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+
+/* Type.h2 / h3: Inter Tight 600 — section headings, one step down from the display role. */
+.policy h2,
+.policy h3 {
+  font-family: var(--font-tight);
+  font-weight: 600;
+  color: var(--ink);
+  margin: 40px 0 12px;
+}
+
+.policy h2 {
+  font-size: 20px;
+  line-height: 24px;
+}
+
+.policy h3 {
+  font-size: 17px;
+  line-height: 22px;
+}
+
+.policy p,
+.policy li {
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.policy strong {
+  font-weight: 600;
+}
+
+/* The "Last updated" line and similarly quiet asides read at the secondary tone. */
+.policy p:has(> strong:only-child) {
+  color: var(--ink-2);
+}
+
+.policy a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--ink-line);
+  text-underline-offset: 3px;
+}
+
+.policy a:hover,
+.policy a:focus {
+  text-decoration-color: var(--ink);
+}
+
+.policy hr {
+  border: none;
+  border-top: 1px solid var(--ink-line);
+  margin: 40px 0;
+}
+
+.policy ul,
+.policy ol {
+  padding-left: 20px;
+}
+
+.policy code {
+  font-family: ui-monospace, Menlo, monospace;
+  background: var(--ink-bg-raised);
+  border: 1px solid var(--ink-line);
+  padding: 1px 4px;
+  color: var(--ink-2);
+}
+
+.policy table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+}
+
+.policy th,
+.policy td {
+  border: 1px solid var(--ink-line);
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.policy th {
+  color: var(--ink-2);
+  font-weight: 600;
+}

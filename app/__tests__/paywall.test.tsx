@@ -110,7 +110,68 @@ describe('PaywallScreen artboards', () => {
     expect(screen.getByTestId('paywall-tier-pro')).toBeTruthy();
     expect(screen.getByTestId('paywall-tier-free')).toBeTruthy();
   });
+});
 
+// Captain's 2026-09-20 polish pass, item 5: "current plan on top" — the confirmed tier's card
+// renders first, the other two follow in their usual order, and the mark count stays pinned to
+// the tier itself rather than to the render position.
+describe('PaywallScreen tier ordering (current plan first)', () => {
+  function orderedTierIds() {
+    return screen.getAllByTestId(/^paywall-tier-/).map((node) => node.props.testID);
+  }
+
+  it('Free is current: free, pro, elite — the plain ladder order', async () => {
+    mockGetQuotaStatus.mockResolvedValue({ ok: true, data: FREE_EXHAUSTED });
+    await render(<PaywallScreen />);
+    await waitFor(() => expect(screen.getByText('Free analysis used')).toBeTruthy());
+
+    expect(orderedTierIds()).toEqual(['paywall-tier-free', 'paywall-tier-pro', 'paywall-tier-elite']);
+  });
+
+  it('Pro is current: pro leads, then free, then elite', async () => {
+    mockGetQuotaStatus.mockResolvedValue({
+      ok: true,
+      data: {
+        ...FREE_EXHAUSTED,
+        tier: 'pro',
+        used: 2,
+        limit: 10,
+        remaining: 8,
+        isLifetime: false,
+        periodStart: '2026-09-01T00:00:00Z',
+        periodEnd: '2026-10-01T00:00:00Z',
+      },
+    });
+    await render(<PaywallScreen />);
+    await waitFor(() => expect(screen.getAllByText('Current plan')).toHaveLength(1));
+
+    expect(orderedTierIds()).toEqual(['paywall-tier-pro', 'paywall-tier-free', 'paywall-tier-elite']);
+  });
+
+  it('Elite is current: elite leads, then free, then pro', async () => {
+    mockGetQuotaStatus.mockResolvedValue({
+      ok: true,
+      data: {
+        ...FREE_EXHAUSTED,
+        tier: 'elite',
+        used: 2,
+        limit: 30,
+        remaining: 28,
+        isLifetime: false,
+        periodStart: '2026-09-01T00:00:00Z',
+        periodEnd: '2026-10-01T00:00:00Z',
+      },
+    });
+    await render(<PaywallScreen />);
+    await waitFor(() => expect(screen.getAllByText('Current plan')).toHaveLength(1));
+
+    expect(orderedTierIds()).toEqual(['paywall-tier-elite', 'paywall-tier-free', 'paywall-tier-pro']);
+    // Elite's own upgrade path (Pro) stays suppressed regardless of where its card renders.
+    expect(screen.queryByRole('button', { name: 'Upgrade to Pro' })).toBeNull();
+  });
+});
+
+describe('PaywallScreen artboards', () => {
   it('shows a quiet loading row until the plan read resolves, then removes it', async () => {
     let resolvePlan: (value: unknown) => void = () => {};
     mockGetQuotaStatus.mockReturnValue(

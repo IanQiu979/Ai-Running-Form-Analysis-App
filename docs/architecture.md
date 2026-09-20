@@ -1127,13 +1127,14 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   word space and dot inside it (one long `Text` ellipsizes to the clip) and loops a fixed
   `Motion.marqueeLoop`.
 - **Result** (`app/result/[id].tsx`, `components/pace-readout.tsx`, `pillar-detail-modal.tsx`,
-  `partial-result-banner.tsx`, `result-disclaimer.tsx`, `duotone-frame.tsx`,
-  `annotation-lines.tsx`). The hero box is 3:4 at full width and reaches the top of the device;
-  `<DuotoneFrame>` draws the signed frame through `react-native-svg`'s `Image` with an
-  `FeColorMatrix type="saturate" values="0"` filter (the page's "duotone grade" — greyscale,
-  shadows washed toward `Ink.bg`), `<AnnotationLines>` is the page's SVG verbatim (fixed
-  geometry, `viewBox 0 0 393 524`, `preserveAspectRatio="none"`) and a radial vignette sits over
-  both. The readout is the Overall block plus four nested `SquareCard` pillar rows with a 2 px
+  `partial-result-banner.tsx`, `result-disclaimer.tsx`, `duotone-frame.tsx`). The hero box is 3:4
+  at full width and reaches the top of the device; `<DuotoneFrame>` draws the signed frame through
+  `react-native-svg`'s `Image` with an `FeColorMatrix type="saturate" values="0"` filter (the
+  page's "duotone grade" — greyscale, shadows washed toward `Ink.bg`) and a radial vignette sits
+  over it. The drawn annotation overlay (`components/annotation-lines.tsx` — a fixed ground rule,
+  dashed posture line and landing marker) was removed 2026-09-20 (captain's phone test: "completely
+  removed"); the component and its tests are deleted, not just unmounted. The readout is the
+  Overall block plus four nested `SquareCard` pillar rows with a 2 px
   score bar; **flags and drills render only in the detail modal**. On a fresh analysis the bars
   fill with `Motion.curve.move` over `Motion.duration.rise`, staggered `Motion.stagger.item`;
   everything else is static. `components/aperture.tsx` and `pace-reveal.tsx` are deleted. The
