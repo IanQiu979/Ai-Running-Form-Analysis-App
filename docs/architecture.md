@@ -381,6 +381,24 @@ lib/
 
 ## Current — auth flow (M1)
 
+- **Age band at account creation (2026-09-20; cross-app decision IanQiu979/
+  Ai-Customized-Running-Plan-App#95, mirroring that repo's #123).** Every account records which
+  regime it is under — `profiles.age_band` = `'18_plus' | '13_17'` — and a 13–17 account carries a
+  `public.guardian_consent` row (`user_id` PK → `auth.users` ON DELETE CASCADE, `granted_at`,
+  `policy_version` = `docs/privacy-policy.md`'s "Last updated", stamped server-side from
+  `supabase/functions/_shared/legal.ts`). Under 13 is not offered. The ONLY write path is the
+  service-role-only, write-once `pace_record_age_band()` RPC (`20260920120000_guardian_consent.sql`),
+  reached two ways: (1) email sign-up — `signup-with-captcha` takes `ageBand` + `guardianConsent`,
+  refuses a missing band or a 13–17 band without the attestation by name before the CAPTCHA is
+  spent, writes the band right after `createUser`, and rolls the account back if that write fails;
+  (2) an OAuth-created account — `POST /functions/v1/record-age-band` (JWT caller only), called by
+  the one-time `<AgeBandGate>` (`components/age-band-gate.tsx`, an overlay over `app/(tabs)/`) that
+  a non-`email` provider with no band on file sees on first use. Email accounts from before
+  2026-09-20 (the old "16+" line) have a NULL band and are left alone: no backfill, no gate.
+  Shared types: `_shared/age-band.ts` (imported by the app as `@shared/age-band`); the form group:
+  `components/age-band-choice.tsx`; the client: `lib/age-band.ts`. The sign-up screen's Terms +
+  Privacy agreement is now age-free and required for every band; "Continue with Google" is gated
+  on that agreement only, and the band is collected by the gate.
 - **PKCE browser OAuth (Google).** `signInWithOAuth({ skipBrowserRedirect: true })` gets the
   provider URL, then `WebBrowser.openAuthSessionAsync` (with `preferEphemeralSession: true`, so
   a stale silent Google session can't complete against an already-consumed PKCE verifier)
@@ -1838,6 +1856,7 @@ RLS.
 | `GET /functions/v1/quota-status` | JWT | — | `{ tier, used, limit, remaining, frameCap, isLifetime, periodStart, periodEnd, blocked, blockedReason, blockedUntil }` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26** (issue #50, 2026-07-12; deployed with #128); **redeployed 2026-09-19 as v16**, which recognises `blockedReason: 'zero_pillar_cooldown'` from the 2026-09-19 `pace_quota_status` — see "Current" below. Drives Home "7 of 10 left" (Pro/Elite, period-based) or "1 of 1 used, lifetime" (Free). `used`/`limit` computed server-side via a new read-only RPC, `pace_quota_status`, that shares `reserve_analysis`'s own `pace_current_period`/`pace_is_farming_signal` calls — never a client counter. `blocked`/`blockedReason`/`blockedUntil` represent issue #6's anti-farm cap as a state independent of quota: a user can have `remaining > 0` and `blocked: true` at the same time. |
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `409 in_progress` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). `409 in_progress` (2026-09-06, not yet deployed) refuses a row still `'reserved'` with a model call in flight — deleting it then would refund spend; `lib/history.ts` surfaces that code and its retry-after-it-finishes message. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Redeployed 2026-07-26 from the current repo code, so issue #132's second-purge/`orphans_remaining` behavior is now live** — that deploy also carried the shared-key parse fix (`docs/status.md` Known Issue #35). |
 | `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26, verified live** (issue #58, 2026-07-13; response contract fixed post-review, same date; deployed with #128 — see `docs/status.md` Known Issue #35). The client (`lib/delete-account.ts`) has called the real function since PR #122 (2026-07-13, `docs/status.md` Known Issue #23), so the Settings flow reaches it end to end. See "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
+| `POST /functions/v1/record-age-band` | JWT | `{ ageBand: '18_plus' \| '13_17', guardianConsent?: boolean }` | `200 { ageBand, guardianConsentRecorded }` or `400 { error, code }` for `invalid_body` / `age_band_required` / `guardian_consent_required`, `401 unauthorized`, `409 age_band_already_recorded`, `500 age_band_unavailable` | **Built and Deno-tested 2026-09-20, NOT YET DEPLOYED** (ships with `20260920120000_guardian_consent.sql`; `docs/auth-config-runbook.md` § 3). The one-time age choice for an OAuth-created account, called by `components/age-band-gate.tsx` via `lib/age-band.ts`; records for the JWT caller only, through the same service-role `pace_record_age_band` RPC `signup-with-captcha` uses, with the policy version stamped server-side. Write-once: a second call is a `409` and the app closes the gate by re-reading `profiles.age_band`. |
 | `POST /functions/v1/signup-with-captcha` | none (pre-auth) | `{ email, password, captchaToken }` | `200 { session, user }` or `400 { error, code }` for `invalid_body` / `captcha_invalid` / `email_in_use` / `weak_password_length` / `weak_password_pwned` / `signup_failed`, or `500` for `signup_unavailable` / `no_session` | **Built, Deno-tested, and DEPLOYED to the live project 2026-08-03** (issue #12/Known Issue #12 — see `docs/status.md`). Verifies a Cloudflare Turnstile token server-side, then — only if valid — creates the account. Until 2026-09-19 the deployed version proxied a plain `supabase.auth.signUp()` (publishable key). **Deployed 2026-09-19 as v12, hook enabled the same day (issue #48 residual; `docs/status.md` Known Issue #51):** `auth.admin.createUser` on the secret key + `signInWithPassword` on the publishable key, paired with the `before-user-created` hook that closes raw `/auth/v1/signup` — same wire contract; ordered deploy in `docs/auth-config-runbook.md` § 1. Either way GoTrue's own `minimum_password_length` is enforced unchanged — the admin API runs the same `checkPasswordStrength` (`password_hibp_enabled` is off since 2026-09-12, see "Current — Supabase config" below — `weak_password_pwned` would fire again if it's ever re-enabled). Replaces native `auth.captcha`, which was tried live and reverted the same day for gating sign-in too (project-wide, not per-endpoint). `app/(auth)/sign-in.tsx` calls this in sign-up mode only; sign-in calls `signInWithPassword` directly, untouched. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
@@ -2089,7 +2108,16 @@ landed with M1 on 2026-07-11; the 8th and 9th, `consents` and `consents_grant_ha
 -- public.profiles: one row per auth.users row, auto-created by an AFTER INSERT trigger
 -- (handle_new_user, SECURITY DEFINER) on signup for every provider.
 profiles       (id uuid pk -> auth.users(id) on delete cascade,
-                display_name text, created_at timestamptz)
+                display_name text, created_at timestamptz,
+                age_band text check in ('18_plus','13_17') null)  -- 2026-09-20, NOT YET PUSHED; NULL = pre-change account or OAuth account not yet asked
+
+-- public.guardian_consent (20260920120000, NOT YET PUSHED): the most recent parent/guardian consent
+-- event for a 13–17 account. Written only by pace_record_age_band() (SECURITY DEFINER, EXECUTE for
+-- service_role only, write-once per user); owner-scoped SELECT is the only client policy and the
+-- legacy grant-all is revoked. FK to auth.users, not profiles, so delete-account's LAST step
+-- (auth.admin.deleteUser) is what purges it — proven in guardian-consent-sql.deno.test.ts.
+guardian_consent (user_id uuid pk -> auth.users(id) on delete cascade,
+                  granted_at timestamptz, policy_version text)  -- = docs/privacy-policy.md "Last updated"
 
 -- public.subscriptions: at most one row per user; NO row = free. subscription_tier is
 -- 'pro' | 'elite' ONLY — 'free' is never a value here (contrast analysis_tier below).
@@ -2672,13 +2700,24 @@ to own).
 account creation — replaces the client's direct `supabase.auth.signUp()` call in sign-up mode.
 
 ```
-POST /functions/v1/signup-with-captcha   { email, password, captchaToken }
+POST /functions/v1/signup-with-captcha   { email, password, captchaToken,
+                                           ageBand: '18_plus' | '13_17', guardianConsent?: boolean }
   -> 200 { session: {...} | null, user: {...} }
-  -> 400 invalid_body | captcha_invalid | email_in_use
-       | weak_password_length | weak_password_pwned | signup_failed
+  -> 400 invalid_body | age_band_required | guardian_consent_required | captcha_invalid
+       | email_in_use | weak_password_length | weak_password_pwned | signup_failed
   -> 405 method_not_allowed
-  -> 500 signup_unavailable | signup_failed | no_session
+  -> 500 signup_unavailable | signup_failed | no_session | age_band_record_failed
 ```
+
+**The age choice (2026-09-20).** `ageBand` is required and `guardianConsent: true` is required
+with `13_17`; both refusals come from `parseSignupRequest` BEFORE the Turnstile token is spent, so a
+bad form keeps its token. On either "the account now exists" outcome the handler calls
+`pace_record_age_band` (service role, `_shared/age-band-recorder.ts`) with the band, the attestation
+and `_shared/legal.ts`'s `PRIVACY_POLICY_VERSION`; if that write does not succeed the account is
+deleted again (`SignUpClient.deleteUser` → `auth.admin.deleteUser`) and the attempt fails as a
+whole with `age_band_record_failed`, so no email-and-password account can exist without a band.
+The RPC does not exist on a project that has not had `20260920120000_guardian_consent.sql` pushed,
+which is why the deploy order in `docs/auth-config-runbook.md` § 3 is migration first.
 
 **Why a custom function and not `auth.captcha`.** Cloudflare Turnstile keys were created and
 provided by Ian; native `auth.captcha` was enabled live via the same scoped Management API PATCH

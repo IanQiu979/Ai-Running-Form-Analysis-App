@@ -16,6 +16,10 @@ import { Copy } from '@/constants/copy';
 const EXEMPT_KEYS = new Set<string>([
   'consent.upload.subject.thirdParty.checkbox',
   'consent.upload.subject.body',
+  // 2026-09-20: the parent/guardian attestation for a 13–17 sign-up, worded after V2.2's
+  // `legal.ts` guardian sentence and recorded server-side against a policy version — its
+  // meaning, not its tone, is what is frozen. The only key this change exempts.
+  'auth.ageBand.guardian.checkbox',
 ]);
 
 /** Representative arguments for each template-function value in `Copy`. */

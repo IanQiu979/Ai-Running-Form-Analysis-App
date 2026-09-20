@@ -5,6 +5,52 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-20 (13–17 with parent-or-guardian consent at sign-up — cross-app decision IanQiu979/Ai-Customized-Running-Plan-App#95, mirroring that repo's #123)
+
+- **The sign-up form's "I am 16+ and agree to the Terms and Privacy Policy" line is now two
+  facts, recorded separately.** An AGE CHOICE — "18 or older" / "13–17 — my parent or guardian
+  agrees" (under 13 is not offered; one line says the app is for ages 13 and up) — sits above a
+  Terms + Privacy agreement that every band must tick. Picking 13–17 reveals the guardian
+  attestation checkbox ("I am 13–17, and a parent or guardian has read the Privacy Policy and
+  agrees to it on my behalf."), worded after V2.2's `legal.ts`; it is the one new key
+  `copy-tone.test.ts` exempts. "Create account" needs a captcha token, the agreement AND a complete
+  choice; the return-key path refuses locally by name (`ageBandRequired` / `guardianConsentRequired`)
+  before any network call. `components/age-band-choice.tsx` draws the group; `app/(auth)/sign-in.tsx`
+  hosts it in sign-up mode only.
+- **`signup-with-captcha` requires `ageBand: '18_plus' | '13_17'` and, for 13–17,
+  `guardianConsent: true`** — refused by name (400 `age_band_required` /
+  `guardian_consent_required`) BEFORE the Turnstile token is spent. On success the band is written
+  to the existing `profiles` row and, for 13–17, a `public.guardian_consent` row (`user_id` PK →
+  `auth.users` ON DELETE CASCADE, `granted_at`, `policy_version` = the privacy policy's "Last
+  updated" date, stamped server-side from `_shared/legal.ts`) — both in one transaction through the
+  new service-role-only `pace_record_age_band()` RPC (`20260920120000_guardian_consent.sql`,
+  write-once: a minor cannot later re-record as an adult). If that write fails the account is
+  deleted again and the attempt fails as a whole (500 `age_band_record_failed`), so no
+  email-and-password account exists without a band. RLS on `guardian_consent`: owner-scoped SELECT
+  only; the legacy grant-all is revoked. Proven against real Postgres (PGlite) in
+  `_shared/__tests__/guardian-consent-sql.deno.test.ts`, including the delete-account cascade.
+- **NEW `POST /functions/v1/record-age-band`** (authenticated) plus a one-time in-app screen
+  (`components/age-band-gate.tsx`, mounted over the tab navigator): a "Continue with Google"
+  account is minted inside the OAuth exchange with no body of ours, so it is asked the same question
+  on first use and the answer goes through the same RPC. Only a non-`email` provider with no band on
+  file is gated — existing email accounts (pre-2026-09-20, "16+" line) are untouched, no backfill.
+  Existing Google accounts see the screen once; nothing was ever recorded for them. The gate reads
+  the profile once per account per device (a local note, safe because the band is write-once), is
+  modal for assistive tech, offers Sign out even while checking, and reports a sign-out that did
+  not go through. It is client-side UX: server-side enforcement for a bandless OAuth account is
+  follow-up 2 in Known Issue #52.
+- **`docs/privacy-policy.md`: new "Age" section** (13-and-up floor, the 13–17 guardian paragraph
+  V2.2's policy carries, the Google first-use question, deletion of the record with the account),
+  an "Age range" row in "What we collect", **"Last updated" bumped to 2026-09-20**; the publish
+  workflow is unchanged. `_shared/__tests__/legal.test.ts` fails if the constant and the page drift.
+- **Not deployed** (PR-only, per the brief): the migration and both functions ship with the next
+  deploy — order in `docs/auth-config-runbook.md` § 3 (migration first; the redeployed
+  `signup-with-captcha` refuses every sign-up until the RPC exists, and the app build last).
+  Counsel review of the attestation stays a public-launch item. **Open follow-up (Known Issue
+  #52 in `docs/status.md`):** the upload `ConsentGate`'s own "I confirm I am 16 or older."
+  checkbox (`consent.upload.age.checkbox`, issue #94) was not in scope and now contradicts the
+  13–17 band — a minor admitted at sign-up cannot honestly tick it.
+
 ## 2026-09-20 (issue #230 — the "unreachable" sign-up CTA was a harness artefact)
 
 - **`subflows/sign-up.yaml` reaches Home again on the EAS development build; no app code

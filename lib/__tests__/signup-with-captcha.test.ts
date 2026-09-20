@@ -26,6 +26,7 @@
  */
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
+import type { AgeBandChoice } from '@shared/age-band';
 import {
   handleSignupWithCaptcha,
   type SessionPayload,
@@ -62,6 +63,9 @@ function fakeJsonResponse(body: unknown) {
 /** The session the stubbed `SignUpClient` hands back. Typed as the SERVER's `SessionPayload`, so
  *  renaming a field in `@shared/signup-with-captcha.ts` breaks this line at compile time — that
  *  type annotation is load-bearing, not decoration. */
+/** The baseline age choice every call here sends; the 13–17 arm spells out its own. */
+const ADULT: AgeBandChoice = { ageBand: '18_plus', guardianConsent: false };
+
 const SERVER_SESSION: SessionPayload = {
   accessToken: 'access-tok',
   refreshToken: 'refresh-tok',
@@ -81,11 +85,16 @@ async function serverSuccessBody(email = 'runner@example.com') {
     async signUp(signUpEmail) {
       return { outcome: 'created', session: SERVER_SESSION, user: { id: 'user-1', email: signUpEmail } };
     },
+    async deleteUser() {},
   };
 
   const result = await handleSignupWithCaptcha(
-    { captchaVerifier: { verify: async () => true }, signUpClient },
-    { email, password: 'aRealStrongPassw0rd!9x', captchaToken: 'tok-123' },
+    {
+      captchaVerifier: { verify: async () => true },
+      signUpClient,
+      ageBandRecorder: { record: async () => ({ outcome: 'recorded' }) },
+    },
+    { email, password: 'aRealStrongPassw0rd!9x', captchaToken: 'tok-123', ageBand: '18_plus' },
     null
   );
 
@@ -99,7 +108,7 @@ describe('signUpWithCaptcha', () => {
   it('resolves { ok: true, session } on a real 200 body built by the edge function itself', async () => {
     mockInvoke.mockResolvedValue({ data: await serverSuccessBody(), error: null } as never);
 
-    const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123');
+    const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123', ADULT);
 
     expect(result).toEqual({
       ok: true,
@@ -107,9 +116,39 @@ describe('signUpWithCaptcha', () => {
     });
     expect(mockInvoke).toHaveBeenCalledWith('signup-with-captcha', {
       method: 'POST',
-      body: { email: 'runner@example.com', password: 'aRealStrongPassw0rd!9x', captchaToken: 'tok-123' },
+      body: {
+        email: 'runner@example.com',
+        password: 'aRealStrongPassw0rd!9x',
+        captchaToken: 'tok-123',
+        ageBand: '18_plus',
+        guardianConsent: false,
+      },
     });
   });
+
+  it('sends the 13–17 choice with its guardian attestation under the server\'s field names', async () => {
+    mockInvoke.mockResolvedValue({ data: await serverSuccessBody(), error: null } as never);
+    await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123', {
+      ageBand: '13_17',
+      guardianConsent: true,
+    });
+    expect(mockInvoke).toHaveBeenCalledWith('signup-with-captcha', {
+      method: 'POST',
+      body: expect.objectContaining({ ageBand: '13_17', guardianConsent: true }),
+    });
+  });
+
+  it.each(['age_band_required', 'guardian_consent_required', 'age_band_record_failed'] as const)(
+    'passes the server\'s %s code through by name',
+    async (code) => {
+      mockInvoke.mockResolvedValue({
+        data: null,
+        error: new FunctionsHttpError(fakeJsonResponse({ error: 'refused', code })),
+      } as never);
+      const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123', ADULT);
+      expect(result).toEqual({ ok: false, code });
+    }
+  );
 
   // THE REGRESSION LOCK. This exact body is what the old test asserted success on, and what the
   // old client happily "read" — producing `{ accessToken: undefined, refreshToken: undefined }`
@@ -124,7 +163,7 @@ describe('signUpWithCaptcha', () => {
       error: null,
     } as never);
 
-    const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123');
+    const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123', ADULT);
 
     expect(result).toEqual({ ok: false, code: 'session_malformed' });
   });
@@ -139,7 +178,7 @@ describe('signUpWithCaptcha', () => {
       error: null,
     } as never);
 
-    const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123');
+    const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123', ADULT);
 
     expect(result).toEqual({ ok: false, code: 'session_malformed' });
   });
@@ -150,7 +189,7 @@ describe('signUpWithCaptcha', () => {
   it('reports session_malformed for a 200 with no body at all', async () => {
     mockInvoke.mockResolvedValue({ data: null, error: null } as never);
 
-    const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123');
+    const result = await signUpWithCaptcha('runner@example.com', 'aRealStrongPassw0rd!9x', 'tok-123', ADULT);
 
     expect(result).toEqual({ ok: false, code: 'session_malformed' });
   });
@@ -161,7 +200,7 @@ describe('signUpWithCaptcha', () => {
       error: null,
     } as never);
 
-    const result = await signUpWithCaptcha('runner@example.com', 'password123!', 'tok-123');
+    const result = await signUpWithCaptcha('runner@example.com', 'password123!', 'tok-123', ADULT);
 
     expect(result).toEqual({ ok: false, code: 'unknown' });
   });
@@ -174,7 +213,7 @@ describe('signUpWithCaptcha', () => {
       ),
     } as never);
 
-    const result = await signUpWithCaptcha('runner@example.com', 'password123!', 'bad-tok');
+    const result = await signUpWithCaptcha('runner@example.com', 'password123!', 'bad-tok', ADULT);
 
     expect(result).toEqual({ ok: false, code: 'captcha_invalid' });
   });
@@ -190,7 +229,7 @@ describe('signUpWithCaptcha', () => {
       ),
     } as never);
 
-    const result = await signUpWithCaptcha('runner@example.com', 'password123!', 'tok-123');
+    const result = await signUpWithCaptcha('runner@example.com', 'password123!', 'tok-123', ADULT);
 
     expect(result).toEqual({ ok: false, code: 'weak_password_pwned' });
   });
@@ -201,7 +240,7 @@ describe('signUpWithCaptcha', () => {
       error: new FunctionsHttpError(fakeJsonResponse({ error: 'Something new.', code: 'some_future_code' })),
     } as never);
 
-    const result = await signUpWithCaptcha('runner@example.com', 'password123!', 'tok-123');
+    const result = await signUpWithCaptcha('runner@example.com', 'password123!', 'tok-123', ADULT);
 
     expect(result).toEqual({ ok: false, code: 'unknown' });
   });
@@ -209,7 +248,7 @@ describe('signUpWithCaptcha', () => {
   it('reports { ok: false, code: "network" } for a network-class failure', async () => {
     mockInvoke.mockRejectedValue(new Error('offline'));
 
-    const result = await signUpWithCaptcha('runner@example.com', 'password123!', 'tok-123');
+    const result = await signUpWithCaptcha('runner@example.com', 'password123!', 'tok-123', ADULT);
 
     expect(result).toEqual({ ok: false, code: 'network' });
   });

@@ -3,11 +3,11 @@
   "compilerOptions": {
     "strict": true
   },
-
   "exclude": [
     "_shared/__tests__/ai-guard.test.ts",
     "_shared/__tests__/ai-pricing.test.ts",
     "_shared/__tests__/pace.test.ts",
-    "_shared/__tests__/log.test.ts"
+    "_shared/__tests__/log.test.ts",
+    "_shared/__tests__/legal.test.ts"
   ]
 }

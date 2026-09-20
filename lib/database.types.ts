@@ -22,6 +22,12 @@
 // Once those migrations are pushed, regenerate this file and the two `.rpc(...)` calls in that
 // pair of edge functions will start being checked against real return types instead of
 // whatever shape their hand-written parsers assume.
+//
+// HAND-PATCHED 2026-09-20 (the one exception to the header): `profiles.age_band`,
+// `guardian_consent` and `pace_record_age_band` from `20260920120000_guardian_consent.sql` were
+// added by hand, in the generator's own shape, because `lib/age-band.ts` reads the new column
+// and the migration cannot be pushed from a PR branch (deploys are captain-run). Regenerate as
+// above after that migration is live and the diff should be empty for these entries.
 export type Json =
   | string
   | number
@@ -299,18 +305,39 @@ export type Database = {
           },
         ]
       }
+      guardian_consent: {
+        Row: {
+          granted_at: string
+          policy_version: string
+          user_id: string
+        }
+        Insert: {
+          granted_at?: string
+          policy_version: string
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          policy_version?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
+          age_band: string | null
           created_at: string
           display_name: string | null
           id: string
         }
         Insert: {
+          age_band?: string | null
           created_at?: string
           display_name?: string | null
           id: string
         }
         Update: {
+          age_band?: string | null
           created_at?: string
           display_name?: string | null
           id?: string
@@ -372,6 +399,15 @@ export type Database = {
       pace_add_months_clamped: {
         Args: { base: string; n: number }
         Returns: string
+      }
+      pace_record_age_band: {
+        Args: {
+          p_age_band: string
+          p_guardian_consent: boolean
+          p_policy_version: string
+          p_user_id: string
+        }
+        Returns: undefined
       }
       pace_current_period: {
         Args: { anchor: string; as_of: string }

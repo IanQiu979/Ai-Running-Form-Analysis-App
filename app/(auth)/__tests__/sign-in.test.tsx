@@ -136,6 +136,7 @@ describe('sign-in screen: Turnstile expiry', () => {
     await waitFor(() =>
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled()
     );
+    await fireEvent.press(view.getByTestId('signup-age-18-plus'));
     await fireEvent.press(view.getByRole('checkbox'));
     await waitFor(() =>
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled()
@@ -151,15 +152,18 @@ describe('sign-in screen: Turnstile expiry', () => {
 });
 
 /**
- * V23-06's consent line is a real gate, not decoration: "Create account" needs BOTH a captcha
- * token and the ticked box. Either one alone leaves the button disabled.
+ * V23-06's consent line is a real gate, not decoration: "Create account" needs a captcha token,
+ * the ticked box AND (since 2026-09-20) a complete age choice. Any one missing leaves the button
+ * disabled. The age choice's own arms (13–17 needs the attestation, the local refusals, what is
+ * sent) live in sign-up-age-band.test.tsx.
  */
 describe('sign-in screen: the consent checkbox gates sign-up', () => {
-  it('stays disabled with a token but no consent, and enables once both are present', async () => {
+  it('stays disabled with a token and an age but no consent, and enables once all three are present', async () => {
     const view = await render(<SignInScreen />);
 
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
+    await fireEvent.press(view.getByTestId('signup-age-18-plus'));
     await waitFor(() =>
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled()
     );
@@ -225,6 +229,7 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
 
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
+    await fireEvent.press(view.getByTestId('signup-age-18-plus'));
     await fireEvent.press(view.getByRole('checkbox'));
     await waitFor(() =>
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled()
@@ -240,6 +245,8 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled()
     );
     expect(view.getByRole('checkbox').props.accessibilityState.checked).toBe(true);
+    // The age choice survives the round trip too, like the consent tick.
+    expect(view.getByTestId('signup-age-18-plus').props.accessibilityState.checked).toBe(true);
 
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
     await waitFor(() =>

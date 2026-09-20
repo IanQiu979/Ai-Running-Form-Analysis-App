@@ -47,6 +47,7 @@
  *      function version still deployed, say — degrades to an honest `session_malformed` code and
  *      a dev-time warning naming the fields, rather than a generic error from inside supabase-js.
  */
+import type { AgeBandChoice } from '@shared/age-band';
 import type { SessionPayload, UserPayload } from '@shared/signup-with-captcha';
 
 import { invokeFunction } from './functions-client';
@@ -61,6 +62,12 @@ export interface SignupWithCaptchaSession {
 
 export type SignupWithCaptchaErrorCode =
   | 'invalid_body'
+  // 2026-09-20: the age choice (`@shared/age-band`). Both are refused server-side before the
+  // CAPTCHA token is spent; the screen refuses them locally first, so reaching either here means
+  // a client and the deployed function disagree about what a sign-up carries.
+  | 'age_band_required'
+  | 'guardian_consent_required'
+  | 'age_band_record_failed'
   | 'captcha_invalid'
   | 'email_in_use'
   | 'weak_password_length'
@@ -100,6 +107,9 @@ function isKnownErrorCode(
 ): code is Exclude<SignupWithCaptchaErrorCode, 'network' | 'session_malformed' | 'unknown'> {
   return (
     code === 'invalid_body' ||
+    code === 'age_band_required' ||
+    code === 'guardian_consent_required' ||
+    code === 'age_band_record_failed' ||
     code === 'captcha_invalid' ||
     code === 'email_in_use' ||
     code === 'weak_password_length' ||
@@ -165,11 +175,15 @@ function warnMalformedSession(value: unknown): void {
 export async function signUpWithCaptcha(
   email: string,
   password: string,
-  captchaToken: string
+  captchaToken: string,
+  ageChoice: AgeBandChoice
 ): Promise<SignupWithCaptchaResult> {
   const result = await invokeFunction<SignupWithCaptchaResponseBody>(EDGE_FUNCTION_NAME, {
     method: 'POST',
-    body: { email, password, captchaToken },
+    // `ageBand` + `guardianConsent` are the server's field names (`parseSignupRequest`); the
+    // guardian flag is sent for every band so the wire shape is one shape, and the server ignores
+    // it for `18_plus`.
+    body: { email, password, captchaToken, ageBand: ageChoice.ageBand, guardianConsent: ageChoice.guardianConsent },
   });
 
   if (!result.ok) {

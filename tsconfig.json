@@ -7,6 +7,12 @@
     // resolution setup — supabase/migrations/__tests__/*.test.ts (Jest globals) and
     // superseded_not_applied.test.ts (Node globals) went dark without this.
     "types": ["jest", "node"],
+    // Deno modules under `@shared/*` import each other with explicit `.ts` extensions (Deno
+    // requires them). Type-only imports are erased before tsc cares, but a VALUE import — the
+    // first one reachable from the app is `_shared/signup-with-captcha.ts` → `./age-band.ts`
+    // (2026-09-20) — needs this flag or `tsc --noEmit` refuses the extension (TS5097). Safe under
+    // `noEmit` (the base config's), which is the only mode the flag is permitted in.
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": [
         "./*"

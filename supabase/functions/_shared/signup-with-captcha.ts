@@ -41,6 +41,9 @@
  * `_shared/purchase-tier.ts` / `purchase-tier/index.ts`.
  */
 
+import type { AgeBandChoice, AgeBandRefusalCode } from './age-band.ts';
+import { parseAgeBandChoice } from './age-band.ts';
+import type { AgeBandRecorder } from './age-band-recorder.ts';
 import type { CaptchaVerifier } from './captcha.ts';
 export type { CaptchaVerifier };
 
@@ -72,17 +75,25 @@ export type SignUpOutcome =
 
 export interface SignUpClient {
   signUp(email: string, password: string): Promise<SignUpOutcome>;
+  /**
+   * Rollback for the one failure that can happen AFTER the account exists: the age-band write
+   * (below). Must resolve, not throw, when the user is already gone. `auth.admin.deleteUser` on
+   * the secret key in production (`signup-client.ts`).
+   */
+  deleteUser(userId: string): Promise<void>;
 }
 
 export interface SignupRequest {
   email: string;
   password: string;
   captchaToken: string;
+  /** The age choice (2026-09-20) — see `age-band.ts`. Validated before the CAPTCHA is spent. */
+  ageChoice: AgeBandChoice;
 }
 
 export type ParseResult =
   | { ok: true; request: SignupRequest }
-  | { ok: false; error: string; code: 'invalid_body' };
+  | { ok: false; error: string; code: 'invalid_body' | AgeBandRefusalCode };
 
 /** Deliberately minimal — this is a shape/presence check only. The real business rules (password
  * length, breach status, email format) are GoTrue's job on the `createUser` call below; this
@@ -100,12 +111,22 @@ export function parseSignupRequest(rawBody: unknown): ParseResult {
   if (email.length === 0 || password.length === 0 || captchaToken.length === 0) {
     return {
       ok: false,
-      error: 'Request body must be { email, password, captchaToken }, all non-empty strings.',
+      error:
+        'Request body must be { email, password, captchaToken, ageBand, guardianConsent? }, with the first three non-empty strings.',
       code: 'invalid_body',
     };
   }
 
-  return { ok: true, request: { email, password, captchaToken } };
+  // The age choice is checked here, before the CAPTCHA token is spent on siteverify: a form that
+  // arrives without a band (or a 13–17 band without the attestation) is refused by name and the
+  // client keeps its token. The two rules are re-checked by `pace_record_age_band` itself, which is
+  // the layer no future caller can skip.
+  const ageChoice = parseAgeBandChoice(body);
+  if (!ageChoice.ok) {
+    return { ok: false, error: ageChoice.error, code: ageChoice.code };
+  }
+
+  return { ok: true, request: { email, password, captchaToken, ageChoice: ageChoice.choice } };
 }
 
 export type SignupResult =
@@ -118,8 +139,21 @@ export type SignupResult =
  * (`captchaVerifier`, `signUpClient`) is injected — this function never touches `Deno.env` or
  * `fetch` directly, so it runs identically under `deno test` and Jest.
  */
+/**
+ * Fired when the age-band write fails after the account exists — the one operator-actionable
+ * failure this handler has. `rolledBack: false` means a bandless account is STRANDED and named
+ * here; `index.ts` logs it with the hashed user id. Optional so the portable handler stays
+ * dependency-light under Jest.
+ */
+export type AgeBandWriteFailure = { userId: string; reason: string; rolledBack: boolean };
+
 export async function handleSignupWithCaptcha(
-  deps: { captchaVerifier: CaptchaVerifier; signUpClient: SignUpClient },
+  deps: {
+    captchaVerifier: CaptchaVerifier;
+    signUpClient: SignUpClient;
+    ageBandRecorder: AgeBandRecorder;
+    onAgeBandWriteFailed?: (failure: AgeBandWriteFailure) => void;
+  },
   rawBody: unknown,
   remoteIp: string | null,
 ): Promise<SignupResult> {
@@ -127,7 +161,7 @@ export async function handleSignupWithCaptcha(
   if (!parsed.ok) {
     return { status: 400, body: { error: parsed.error, code: parsed.code } };
   }
-  const { email, password, captchaToken } = parsed.request;
+  const { email, password, captchaToken, ageChoice } = parsed.request;
 
   const captchaOk = await deps.captchaVerifier.verify(captchaToken, remoteIp);
   if (!captchaOk) {
@@ -141,6 +175,37 @@ export async function handleSignupWithCaptcha(
   }
 
   const result = await deps.signUpClient.signUp(email, password);
+
+  // THE AGE BAND IS PART OF ACCOUNT CREATION, NOT A FOLLOW-UP. On either "the account now exists"
+  // outcome the band (and, for 13–17, the guardian-consent row) is written before anything is
+  // returned; if that write fails the account is deleted again and the attempt fails as a whole,
+  // so no email-and-password account can exist without a band. The client keeps its form and can
+  // retry; a retry is a fresh CAPTCHA token and a fresh `createUser`, which is why the rollback
+  // matters — without it the retry would come back `email_in_use` against a bandless account.
+  if (result.outcome === 'created' || result.outcome === 'created_no_session') {
+    const recorded = await deps.ageBandRecorder.record(result.user.id, ageChoice);
+    // `already_recorded` cannot happen for a user created a moment ago; it is accepted rather than
+    // rolled back because the invariant it guards (a band exists) already holds.
+    if (recorded.outcome !== 'recorded' && recorded.outcome !== 'already_recorded') {
+      const reason = recorded.outcome === 'unavailable' ? recorded.message : recorded.code;
+      let rolledBack = true;
+      try {
+        await deps.signUpClient.deleteUser(result.user.id);
+      } catch {
+        // Best effort: the 500 below is returned either way. A stranded bandless account is the
+        // residual this cannot close — so it is at least NAMED, via the callback, in the log.
+        rolledBack = false;
+      }
+      deps.onAgeBandWriteFailed?.({ userId: result.user.id, reason, rolledBack });
+      return {
+        status: 500,
+        body: {
+          error: 'Your account could not be created. Please try again.',
+          code: 'age_band_record_failed',
+        },
+      };
+    }
+  }
 
   switch (result.outcome) {
     case 'created':

@@ -56,6 +56,9 @@ export interface SignUpAuthSurface {
     data: { session: SessionLike | null };
     error: AuthErrorLike | null;
   }>;
+  /** `auth.admin.deleteUser` on the secret-key client — the age-band rollback (see
+   * `signup-with-captcha.ts`'s `handleSignupWithCaptcha`). */
+  deleteUser(userId: string): Promise<{ error: AuthErrorLike | null }>;
 }
 
 function defaultAuthSurface(): SignUpAuthSurface {
@@ -66,6 +69,7 @@ function defaultAuthSurface(): SignUpAuthSurface {
   return {
     createUser: (params) => admin.auth.admin.createUser(params),
     signInWithPassword: (params) => user.auth.signInWithPassword(params),
+    deleteUser: (userId) => admin.auth.admin.deleteUser(userId),
   };
 }
 
@@ -109,6 +113,14 @@ export function createSignUpClient(auth: SignUpAuthSurface = defaultAuthSurface(
         return { outcome: 'error', message: error.message, code: error.code ?? null };
       }
 
+      const createdUserId = created.data.user?.id;
+      if (!createdUserId) {
+        // GoTrue always returns the user on a successful admin create; if it ever does not, no id
+        // means nothing downstream (the age-band write, the rollback) can name the account.
+        // Refuse here rather than carry an empty id forward.
+        return { outcome: 'error', message: 'Account creation returned no user id.', code: 'no_user_id' };
+      }
+
       const signedIn = await auth.signInWithPassword({ email, password });
 
       if (signedIn.error || !signedIn.data.session) {
@@ -117,7 +129,7 @@ export function createSignUpClient(auth: SignUpAuthSurface = defaultAuthSurface(
         // `email_in_use`; the sign-in screen recovers them with the password they just chose.
         return {
           outcome: 'created_no_session',
-          user: { id: created.data.user?.id ?? '', email: created.data.user?.email ?? null },
+          user: { id: createdUserId, email: created.data.user?.email ?? null },
         };
       }
 
@@ -127,6 +139,15 @@ export function createSignUpClient(auth: SignUpAuthSurface = defaultAuthSurface(
         session: toSessionPayload(session),
         user: { id: session.user.id, email: session.user.email ?? null },
       };
+    },
+
+    async deleteUser(userId: string): Promise<void> {
+      const { error } = await auth.deleteUser(userId);
+      // GoTrue answers a missing user with `user_not_found`; a rollback that finds nothing to roll
+      // back has succeeded. Any other error propagates so the handler's best-effort catch logs it.
+      if (error && error.code !== 'user_not_found') {
+        throw new Error(`Failed to roll back account creation: ${error.message}`);
+      }
     },
   };
 }

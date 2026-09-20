@@ -22,6 +22,13 @@ jest.mock('expo-router', () => ({
   Tabs: () => null,
 }));
 
+// `_layout.tsx` mounts `<AgeBandGate>` (2026-09-20), which imports `lib/age-band` → `lib/supabase`,
+// and that module throws without env. The gate has its own suite
+// (components/__tests__/age-band-gate.test.tsx); here it is inert.
+jest.mock('@/components/age-band-gate', () => ({
+  AgeBandGate: ({ children }: { children: unknown }) => children,
+}));
+
 function props(index: 0 | 1, overrides: Partial<{ defaultPrevented: boolean }> = {}) {
   const navigation = {
     emit: jest.fn(() => ({ defaultPrevented: overrides.defaultPrevented ?? false })),

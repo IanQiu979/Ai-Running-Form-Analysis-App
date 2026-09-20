@@ -14,7 +14,7 @@
 
 # Pace Analysis AI — Privacy Policy
 
-**Last updated: 2026-09-19**
+**Last updated: 2026-09-20**
 
 Pace Analysis AI ("the app," "we," "us") is operated by **Ian Qiu**, a sole trader
 established in **Thailand**, who is the data controller for everything described below. This
@@ -46,6 +46,7 @@ professional. Never keep running through sharp or worsening pain to get an analy
 | Extracted frames from your photo or video | Still images pulled from your submission, showing your body and possibly your face | To generate your form analysis | Contract (GDPR Art. 6(1)(b)) |
 | Your analysis results | Scores, injury-risk flags, and posture descriptions for each analysis | To show you your results and let you revisit them in Past Analyses | Consent (GDPR Art. 6(1)(a)), plus explicit consent for special category health data (GDPR Art. 9(2)(a)) — see below |
 | Usage details | Your subscription tier, how many analyses you've run, whether you submitted a photo or video, and timestamps | To enforce your plan's limits and keep your account working correctly | Contract (GDPR Art. 6(1)(b)) |
+| Age range | Whether you told us you are 18 or older, or 13 to 17 — never your exact age — and, if you are 13 to 17, the record of your parent's or guardian's consent (see "Age" below) | To apply the right rules to your account and to be able to show that a minor's data is processed with consent | Legal obligation and explicit consent (GDPR Art. 6(1)(c), Art. 9(2)(a); Thai PDPA s.26) |
 
 **A note on the video you record or upload:** your original, full-resolution video **never
 leaves your device**. The app extracts a small number of still frames from it on your
@@ -185,12 +186,28 @@ your personal information.
 
 ---
 
-## Age and other people in your media
+## Age
 
-You must be 16 or older to use the app. Pace Analysis AI is intended for the account
-holder's own running form. If your photo or video includes another person — a friend, a
-coached athlete, or a minor — you're responsible for having their (or their
-parent's/guardian's, for a minor) permission before submitting it.
+You must be **13 or older** to use Pace Analysis AI. Creating an account asks which age range you
+are in — 18 or older, or 13 to 17 — and does not offer an option for anyone younger; we do not
+knowingly hold an account for anyone under 13, and if we learn that we do, we delete it.
+
+If you are **13 to 17**, you may use the app **only with the consent of a parent or guardian**,
+who agrees to this policy on your behalf. Before an account in that range can be created, the app
+requires an explicit checkbox affirming that a parent or guardian has read this policy and agrees
+to it on the runner's behalf, and we record that consent — the time it was given and which
+version of this policy it covered — as a server-side event. An account created with Google
+sign-in is asked the same question the first time it is used. This recorded consent is our stated
+legal basis for processing a minor's data under GDPR Article 9(2)(a) and Thai PDPA section 26. If
+you are a parent or guardian and believe your child is using the app without your consent,
+contact us at the address below and we will delete the account. Deleting an account deletes its
+consent record with it.
+
+## Other people in your media
+
+Pace Analysis AI is intended for the account holder's own running form. If your photo or video
+includes another person — a friend, a coached athlete, or a minor — you're responsible for having
+their (or their parent's/guardian's, for a minor) permission before submitting it.
 
 ---
 
