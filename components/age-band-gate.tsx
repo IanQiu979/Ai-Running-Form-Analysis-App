@@ -25,8 +25,11 @@
  * not "checked and fine" — plus Sign out, so the screen is never a dead end.
  *
  * Write-once on the server: a `age_band_already_recorded` answer means a band is on file (a retry
- * after a dropped response, or a second device racing this one); the gate re-reads the profile,
- * which records the local note and lifts it.
+ * after a dropped response, or a second device racing this one). The gate does NOT re-read the
+ * profile for it — the server has just said the band exists — but it does not lift on that alone
+ * either: the earlier attempt may have written the band and then failed the consent grant, so it
+ * runs the same `ensureConsentGranted` step as the success path, and only once that settles does
+ * it leave the local note and lift. A failed grant keeps the gate up with the save error.
  *
  * CONSENT. This is also where a Google account's `UPLOAD_HEALTH_CONSENT` and
  * `FUTURE_UPLOADS_ATTESTATION_CONSENT` rows are written (2026-09-20). The wording was shown and
@@ -35,6 +38,12 @@
  * recorded here, on this screen's Continue, because this is the first moment the account exists
  * and can own a row. The tick is therefore not blind: `Copy.auth.ageGate.consentReminder`, a
  * non-interactive line above Continue, restates what confirming records.
+ *
+ * The one thing Continue never does is reverse a withdrawal. If the account's newest
+ * `UPLOAD_HEALTH_CONSENT` row is a `granted = false` (another device finished this gate and then
+ * withdrew in Settings before this one tapped Continue), nothing is re-granted: the band is
+ * answered, so the gate lifts, and `app/capture/index.tsx` is where the user meets the
+ * "give consent again in Settings" panel — Settings being the only surface that re-grants.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -54,7 +63,7 @@ import {
   recordAgeBand,
   type AgeBand,
 } from '@/lib/age-band';
-import { FUTURE_UPLOADS_ATTESTATION_CONSENT, grantConsent, hasConsented, UPLOAD_HEALTH_CONSENT } from '@/lib/consent';
+import { FUTURE_UPLOADS_ATTESTATION_CONSENT, grantConsent, readConsentState, UPLOAD_HEALTH_CONSENT } from '@/lib/consent';
 import { useSession } from '@/lib/session-provider';
 import { signOut } from '@/lib/sign-out';
 import { useAnnounce } from '@/lib/use-announce';
@@ -62,22 +71,26 @@ import { useAnnounce } from '@/lib/use-announce';
 type Phase = 'hidden' | 'checking' | 'ask' | 'loadError';
 
 /**
- * Confirms both consent rows exist for the signed-in account, granting them if they don't.
- * Never throws — a caller that is about to mark the age band recorded and close the gate must
- * treat `false` as "do not close", the same way the direct grant on the main submit path already
- * does. `hasConsented` is checked first rather than granting unconditionally, because this also
- * runs on the `age_band_already_recorded` retry path, where consent may already be on file.
+ * Confirms both consent rows exist for the signed-in account, granting them only when there is
+ * NO row for the key at all. Never throws — a caller that is about to mark the age band recorded
+ * and close the gate must treat `failed` as "do not close". `readConsentState` rather than
+ * `hasConsented`, because this also runs on the `age_band_already_recorded` retry path, where
+ * consent may already be on file — or may have been withdrawn on another device, which must
+ * stay withdrawn (see the header).
  */
-async function ensureConsentGranted(): Promise<boolean> {
+async function ensureConsentGranted(): Promise<'granted' | 'withdrawn' | 'failed'> {
   try {
-    if (await hasConsented(UPLOAD_HEALTH_CONSENT)) return true;
-    await Promise.all([
-      grantConsent(UPLOAD_HEALTH_CONSENT),
-      grantConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
-    ]);
-    return true;
+    const state = await readConsentState(UPLOAD_HEALTH_CONSENT);
+    if (state === 'withdrawn') return 'withdrawn';
+    if (state === 'none') {
+      await Promise.all([
+        grantConsent(UPLOAD_HEALTH_CONSENT),
+        grantConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
+      ]);
+    }
+    return 'granted';
   } catch {
-    return false;
+    return 'failed';
   }
 }
 
@@ -142,9 +155,9 @@ export function AgeBandGate({ children }: Props) {
     const result = await recordAgeBand(selection);
     if (unmountedRef.current) return;
     if (result.ok) {
-      const consentOk = await ensureConsentGranted();
+      const consent = await ensureConsentGranted();
       if (unmountedRef.current) return;
-      if (!consentOk) {
+      if (consent === 'failed') {
         setPending(false);
         setError(Copy.auth.ageGate.error.save);
         return;
@@ -160,10 +173,10 @@ export function AgeBandGate({ children }: Props) {
       // does not by itself prove consent was ever recorded — the earlier attempt may have written
       // the band and then failed on the consent grant — so confirm/grant consent before treating
       // this as done rather than trusting the band's presence alone.
-      const consentOk = await ensureConsentGranted();
+      const consent = await ensureConsentGranted();
       if (unmountedRef.current) return;
       setPending(false);
-      if (!consentOk) {
+      if (consent === 'failed') {
         setError(Copy.auth.ageGate.error.save);
         return;
       }

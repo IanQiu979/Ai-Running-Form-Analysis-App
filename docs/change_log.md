@@ -59,6 +59,11 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   (`auth.consent.healthProcessing`) naming uploads as health-related data processed by AI, so
   `upload.health.v1` keeps the meaning it was minted with; `components/age-band-gate.tsx` shows a
   non-interactive line above Continue stating what confirming records for a Google account.
+- Review round 3 (same day): `components/age-band-gate.tsx`'s own consent step now holds the same
+  invariant — it reads `readConsentState` and grants only when there is no row at all. A consent
+  withdrawn on another device between this device mounting the gate and tapping Continue is left
+  withdrawn (the band is answered, so the gate lifts; capture's Settings panel is where the user
+  is told). Its header no longer claims the write-once answer re-reads the profile.
 
 ## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
 
