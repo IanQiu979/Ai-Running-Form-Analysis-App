@@ -241,7 +241,7 @@ Deno.test('handleSignupWithCaptcha: a rollback that itself fails still returns a
   const recorder = new FakeAgeBandRecorder({ outcome: 'unavailable', message: 'boom' });
   const failures: unknown[] = [];
   const result = await handleSignupWithCaptcha(
-    { ...deps(captcha, signUp, recorder), onAgeBandWriteFailed: (f) => failures.push(f) },
+    { ...deps(captcha, signUp, recorder), onAgeBandWriteFailed: (f) => { failures.push(f); } },
     VALID_BODY,
     null,
   );
@@ -256,11 +256,46 @@ Deno.test('handleSignupWithCaptcha: a successful rollback is reported as rolled 
   const recorder = new FakeAgeBandRecorder({ outcome: 'refused', code: 'profile_not_found' });
   const failures: unknown[] = [];
   await handleSignupWithCaptcha(
-    { ...deps(captcha, signUp, recorder), onAgeBandWriteFailed: (f) => failures.push(f) },
+    { ...deps(captcha, signUp, recorder), onAgeBandWriteFailed: (f) => { failures.push(f); } },
     VALID_BODY,
     null,
   );
   assertEquals(failures, [{ userId: 'user-1', reason: 'profile_not_found', rolledBack: true }]);
+});
+
+Deno.test('handleSignupWithCaptcha: an async failure hook settles before the 500 is returned', async () => {
+  const captcha = new FakeCaptchaVerifier(true);
+  const signUp = new FakeSignUpClient(SUCCESS_OUTCOME);
+  const recorder = new FakeAgeBandRecorder({ outcome: 'unavailable', message: 'boom' });
+  const order: string[] = [];
+  const result = await handleSignupWithCaptcha(
+    {
+      ...deps(captcha, signUp, recorder),
+      onAgeBandWriteFailed: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        order.push('logged');
+      },
+    },
+    VALID_BODY,
+    null,
+  );
+  order.push('returned');
+  assertEquals(result.status, 500);
+  assertEquals(order, ['logged', 'returned']);
+});
+
+Deno.test('handleSignupWithCaptcha: a failure hook that rejects does not mask the 500', async () => {
+  const captcha = new FakeCaptchaVerifier(true);
+  const signUp = new FakeSignUpClient(SUCCESS_OUTCOME);
+  const recorder = new FakeAgeBandRecorder({ outcome: 'unavailable', message: 'boom' });
+  const result = await handleSignupWithCaptcha(
+    { ...deps(captcha, signUp, recorder), onAgeBandWriteFailed: () => Promise.reject(new Error('log sink down')) },
+    VALID_BODY,
+    null,
+  );
+  assertEquals(result.status, 500);
+  if (result.status !== 200) assertEquals(result.body.code, 'age_band_record_failed');
+  assertEquals(signUp.deletedUserIds, ['user-1']);
 });
 
 Deno.test('handleSignupWithCaptcha: a band that is somehow already on file is accepted, not rolled back', async () => {

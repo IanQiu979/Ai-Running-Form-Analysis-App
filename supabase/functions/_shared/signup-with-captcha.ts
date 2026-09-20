@@ -152,7 +152,7 @@ export async function handleSignupWithCaptcha(
     captchaVerifier: CaptchaVerifier;
     signUpClient: SignUpClient;
     ageBandRecorder: AgeBandRecorder;
-    onAgeBandWriteFailed?: (failure: AgeBandWriteFailure) => void;
+    onAgeBandWriteFailed?: (failure: AgeBandWriteFailure) => void | Promise<void>;
   },
   rawBody: unknown,
   remoteIp: string | null,
@@ -196,7 +196,11 @@ export async function handleSignupWithCaptcha(
         // residual this cannot close — so it is at least NAMED, via the callback, in the log.
         rolledBack = false;
       }
-      deps.onAgeBandWriteFailed?.({ userId: result.user.id, reason, rolledBack });
+      try {
+        await deps.onAgeBandWriteFailed?.({ userId: result.user.id, reason, rolledBack });
+      } catch {
+        // The log line is evidence, not the response — a failing hook must not mask the 500.
+      }
       return {
         status: 500,
         body: {

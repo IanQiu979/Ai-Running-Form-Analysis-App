@@ -100,17 +100,16 @@ Deno.serve(async (req) => {
         // The one failure that leaves state behind: a created account whose band could not be
         // written. `rolledBack: false` is the line an operator acts on (delete the account by
         // hand); the id is hashed like every other user id in these logs.
-        onAgeBandWriteFailed: ({ userId, reason, rolledBack }) => {
-          void hashUserId(userId).then((hashed) =>
-            logEvent({
-              level: 'error',
-              fn: 'signup-with-captcha',
-              event: rolledBack ? 'age_band_write_failed_rolled_back' : 'age_band_write_failed_account_stranded',
-              requestId,
-              userId: hashed,
-              code: reason,
-            }),
-          );
+        onAgeBandWriteFailed: async ({ userId, reason, rolledBack }) => {
+          const hashed = await hashUserId(userId);
+          logEvent({
+            level: 'error',
+            fn: 'signup-with-captcha',
+            event: rolledBack ? 'age_band_write_failed_rolled_back' : 'age_band_write_failed_account_stranded',
+            requestId,
+            userId: hashed,
+            code: reason,
+          });
         },
       },
       rawBody,
