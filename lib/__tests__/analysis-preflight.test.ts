@@ -52,7 +52,6 @@ function quotaFor(overrides: Partial<QuotaStatus> = {}): QuotaStatus {
     limit: 1,
     remaining: 1,
     frameCap: PACE_FRAME_CAP.free,
-    unlimited: false,
     isLifetime: true,
     periodStart: null,
     periodEnd: null,
@@ -125,13 +124,6 @@ describe('resolveAnalysisGate — the allowance cap', () => {
     expect(resolveAnalysisGate(okResult({ remaining: 1 })).kind).toBe('allowed');
   });
 
-  // `unlimited` readings carry `remaining: null` by contract and can never be exhausted — the
-  // comprehensive-test override (`ALL_USERS_UNLIMITED_ACCESS`) is exactly this shape.
-  it('never refuses an unlimited reading, whose remaining is null by contract', () => {
-    expect(
-      resolveAnalysisGate(okResult({ unlimited: true, limit: null, remaining: null, isLifetime: false })).kind
-    ).toBe('allowed');
-  });
 });
 
 describe('resolveAnalysisGate — failing open', () => {

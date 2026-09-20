@@ -66,7 +66,11 @@ the database password via `SUPABASE_DB_PASSWORD`, which lives in no repo file), 
 `supabase functions deploy <name> --project-ref … --use-api` (no Docker here). **Never apply a repo
 migration with the Supabase MCP `apply_migration` tool** — it stamps `now()` as the version and
 strips comments, so the ledger drifts from the file names while the DDL is live (issue #201, repaired
-2026-09-19; `docs/status.md` Known Issue #49 has the sequence). `~/.local/bin/supabase` is a shim:
+2026-09-19; `docs/status.md` Known Issue #49 has the sequence). **Before your NEXT `supabase db push
+--linked`, run `supabase migration repair --linked --status reverted 20260807090000` first** — the
+2026-09-20 override-family deletion removed that migration file from the repo, but production's
+ledger still has a row for it (`docs/status.md` Known Issue #49), and `db push` refuses to proceed
+against a ledger row with no matching local file until it is reverted. `~/.local/bin/supabase` is a shim:
 `db push`/`functions deploy` fail with "Could not find the `supabase-go` binary" until
 `SUPABASE_GO_BINARY=~/.local/share/supabase/supabase-go` is exported. `supabase db query --linked`
 runs read-only verification SQL through the Management API with no password.
@@ -105,12 +109,11 @@ runs read-only verification SQL through the Management API with no password.
 - `ANTHROPIC_API_KEY` must NEVER get an `EXPO_PUBLIC_` prefix and must NEVER go in `.env`. It
   belongs in `supabase/functions/.env` (gitignored, local dev) and is pushed to production with
   `supabase secrets set` — done 2026-07-26, alongside the first `analyze-form` deploy.
-- **Temporary comprehensive-test override:** the server-only secret
-  `ALL_USERS_UNLIMITED_ACCESS=true` makes every authenticated account behave as Elite with an
-  unlimited analysis-count quota. The additive wrapper RPCs live in
-  `20260807090000_all_users_unlimited_access_override.sql`; the normal hardened quota/RLS path is
-  untouched and remains the default. **Unset this secret (or set it to `false`) before onboarding
-  real users.** Never add an `EXPO_PUBLIC_` version and never replace the underlying quota system.
+- The temporary `ALL_USERS_UNLIMITED_ACCESS` comprehensive-test override (an all-Elite,
+  unlimited-quota secret flag plus its additive wrapper RPCs) was deleted 2026-09-20 — its secret
+  was already unset in production and its migration had never run there (`docs/status.md` Known
+  Issue #49). The normal hardened quota/RLS path (`reserve_analysis`, `pace_quota_status`,
+  `gate_ai_call`) is the only path now; there is no captain-only override left to re-enable.
 - Supabase auto-injects `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEYS`, `SUPABASE_SECRET_KEYS`
   into edge functions at runtime. Never set these by hand. **Both `*_KEYS` vars hold a JSON object
   keyed by key name (`{"default":"sb_..."}`), not an array or a bare string** — always read them

@@ -57,7 +57,6 @@ function lastKnownFrom(state: QuotaState): QuotaStatus | null {
       limit: state.limit,
       remaining: state.remaining,
       frameCap: state.frameCap,
-      unlimited: state.unlimited,
       isLifetime: state.isLifetime,
       periodStart: state.periodStart,
       periodEnd: state.periodEnd,

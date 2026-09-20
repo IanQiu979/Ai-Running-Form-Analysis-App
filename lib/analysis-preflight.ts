@@ -93,10 +93,8 @@ export function resolveAnalysisGate(result: QuotaStatusResult): AnalysisGate {
     return { kind: 'cooldown', blockedUntil: quota.blockedUntil };
   }
 
-  // `unlimited` readings carry `remaining: null` by contract (`_shared/quota-status.ts`) and can
-  // never be exhausted. A non-number `remaining` on a non-unlimited reading is not something we
-  // can refuse on either — leave it to the server.
-  if (!quota.unlimited && typeof quota.remaining === 'number' && quota.remaining <= 0) {
+  // A non-number `remaining` is not something we can refuse on — leave it to the server.
+  if (typeof quota.remaining === 'number' && quota.remaining <= 0) {
     return { kind: 'exhausted', tier: quota.tier };
   }
 

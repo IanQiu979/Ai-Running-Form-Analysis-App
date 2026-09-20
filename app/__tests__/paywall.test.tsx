@@ -29,7 +29,6 @@ const FREE_EXHAUSTED = {
   limit: 1,
   remaining: 0,
   frameCap: 1,
-  unlimited: false,
   isLifetime: true,
   periodStart: null,
   periodEnd: null,

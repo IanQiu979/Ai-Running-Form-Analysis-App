@@ -106,7 +106,6 @@ Deno.test('getQuotaStatus: free tier, lifetime quota exhausted — remaining 0, 
     limit: 1,
     remaining: 0,
     frameCap: 1,
-    unlimited: false,
     isLifetime: true,
     periodStart: null,
     periodEnd: null,
@@ -144,41 +143,6 @@ Deno.test('getQuotaStatus: free tier, quota not yet used — remaining 1, never 
 // ---------------------------------------------------------------------------
 // 2. Paid tiers — period windowing
 // ---------------------------------------------------------------------------
-
-Deno.test('getQuotaStatus: unlimited override — Elite frame cap with null limit/remaining and no block', async () => {
-  const client = new FakeRpcClient({
-    data: {
-      tier: 'elite',
-      used: 42,
-      limit: null,
-      frame_cap: 8,
-      unlimited: true,
-      is_lifetime: false,
-      period_start: null,
-      period_end: null,
-      blocked: true,
-      blocked_reason: 'too_many_failed_attempts',
-      blocked_until: '2026-08-05T12:00:00+00:00',
-    },
-    error: null,
-  });
-
-  const status = await getQuotaStatus(client, USER_ID);
-  assertEquals(status, {
-    tier: 'elite',
-    used: 42,
-    limit: null,
-    remaining: null,
-    frameCap: 8,
-    unlimited: true,
-    isLifetime: false,
-    periodStart: null,
-    periodEnd: null,
-    blocked: false,
-    blockedReason: null,
-    blockedUntil: null,
-  });
-});
 
 Deno.test('getQuotaStatus: pro tier, period windowing — periodStart/periodEnd pass through, remaining computed against the period limit', async () => {
   const client = new FakeRpcClient({

@@ -16,16 +16,6 @@
  * construction. That is real, but partial, protection: nothing here can stop `analyze-form`'s
  * own code from calling the Anthropic API directly and never touching this module at all. See
  * the migration header for the full, honest scoping of what "physically cannot" means here.
- *
- * DEPLOY-GATED. The per-user cap's `gate_ai_call_unlimited` (the `ALL_USERS_UNLIMITED_ACCESS`
- * sibling) only exists once `supabase/migrations/20260907120000_per_user_ai_daily_cap.sql` is
- * applied, so `supabase db push` MUST run BEFORE this function is deployed — the same ordering
- * `pace_quota_status` / `pace_purchase_tier` needed for `quota-status` / `purchase-tier`. If it
- * is deployed the other way round, `gateAiCall` stays AVAILABLE rather than 500ing, by falling
- * back to `gate_ai_call` — which, in that same unmigrated database, is still the old global-cap-
- * only definition. The degraded window therefore enforces the platform-wide $10/day ceiling ALONE,
- * with NO per-user ceiling at all: exactly today's production behaviour, not a tighter one. See
- * the missing-function fallback below.
  */
 
 export type GateDenyReason =
@@ -80,39 +70,9 @@ export interface GateAiCallParams {
   estimatedOutputTokens: number;
   model?: string;
   analysisId?: string | null;
-  /**
-   * The temporary `ALL_USERS_UNLIMITED_ACCESS` override (migration 20260807090000). Swaps
-   * `gate_ai_call` for `gate_ai_call_unlimited`, exactly as `currentTier`/`reserveAnalysis` in
-   * `analyze-form/flow.ts` already swap `pace_current_tier`/`reserve_analysis` for their
-   * `_unlimited` siblings. The override applies the ELITE per-user cap; it does NOT lift the cap
-   * — per that migration's own wording, "unlimited" means analysis COUNT and "the AI spend
-   * guardrails remain intact too".
-   */
-  allUsersUnlimitedAccess?: boolean;
 }
 
 const BASE_GATE_FN = 'gate_ai_call';
-const OVERRIDE_GATE_FN = 'gate_ai_call_unlimited';
-
-/**
- * True only for "the RPC we called is not in the database". `PGRST202` is sufficient on its own:
- * PostgREST raises it only when it cannot resolve the requested RPC itself. Everything else must
- * BOTH name the function we called AND say a FUNCTION is what is missing — Postgres emits
- * `relation "…" does not exist` / `column "…" does not exist` for faults raised from INSIDE a
- * function too (a partially applied migration, a dropped dependency), and misreading one of those
- * as "the RPC is absent" would silently retry a real fault into an allow. When in doubt this
- * returns false and the caller throws, which is the safe direction for a spend gate.
- */
-function isMissingFunctionError(error: { message: string; code?: string }, fn: string): boolean {
-  if (error.code === 'PGRST202') {
-    return true;
-  }
-  const message = error.message.toLowerCase();
-  if (!message.includes(fn.toLowerCase())) {
-    return false;
-  }
-  return message.includes('could not find the function') || /function\s[^\n]*does not exist/.test(message);
-}
 
 /**
  * Reserves budget headroom for one Anthropic call. Denies — without ever reserving anything —
@@ -132,32 +92,9 @@ export async function gateAiCall(client: RpcClient, params: GateAiCallParams): P
     p_model: params.model ?? 'claude-sonnet-5',
     p_analysis_id: params.analysisId ?? null,
   };
-  const fn = params.allUsersUnlimitedAccess ? OVERRIDE_GATE_FN : BASE_GATE_FN;
-  let { data, error } = await client.rpc(fn, args);
-
-  if (error && fn === OVERRIDE_GATE_FN && isMissingFunctionError(error, OVERRIDE_GATE_FN)) {
-    // The override sibling ships in 20260907120000_per_user_ai_daily_cap.sql; if the edge
-    // function is deployed before `supabase db push` runs, the RPC simply does not exist. Fall
-    // back to the always-present `gate_ai_call` once rather than 500ing every analysis. This is
-    // an AVAILABILITY fallback to the status quo ante, NOT a tighter cap: in a database missing
-    // the override sibling, `gate_ai_call` is still the old 20260712210100 definition — global
-    // `daily_usd_cap` only, no per-user ceiling, no tier derivation — so during the degraded
-    // window the request is gated by the pre-existing platform-wide $10/day cap ALONE, exactly as
-    // production behaves today. It self-heals the moment the migration is pushed, and every
-    // non-missing-function error still throws, so a real fault can never become an allow.
-    console.error(
-      `[ai-guard] ${OVERRIDE_GATE_FN} is missing from the database (${error.message}). ` +
-        `The PER-USER daily spend cap is NOT being enforced until ` +
-        `20260907120000_per_user_ai_daily_cap.sql is applied — run \`supabase db push\`. ` +
-        `Falling back once to ${BASE_GATE_FN}, which in an unmigrated database enforces only the ` +
-        `global daily cap.`
-    );
-    ({ data, error } = await client.rpc(BASE_GATE_FN, args));
-    if (error) {
-      throw new Error(`${BASE_GATE_FN} failed: ${error.message}`);
-    }
-  } else if (error) {
-    throw new Error(`${fn} failed: ${error.message}`);
+  const { data, error } = await client.rpc(BASE_GATE_FN, args);
+  if (error) {
+    throw new Error(`${BASE_GATE_FN} failed: ${error.message}`);
   }
 
   const result = data as {

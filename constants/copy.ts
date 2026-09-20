@@ -303,9 +303,6 @@ export const Copy = {
       // --- issues #54/#15 additions end ---
     },
     quota: {
-      // Temporary all-users test mode. The server is the authority for `unlimited: true`; this
-      // string contains no quota number that could drift when the flag is later removed.
-      unlimited: 'Elite access · Unlimited analyses',
       free: {
         available: '1 free analysis available',
       },

@@ -72,7 +72,6 @@ jest.mock('@/lib/quota', () => {
           limit: 3,
           remaining: 2,
           frameCap: 6,
-          unlimited: false,
           isLifetime: true,
           periodStart: null,
           periodEnd: null,

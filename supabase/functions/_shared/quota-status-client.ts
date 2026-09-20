@@ -34,7 +34,7 @@ import { getSecretKey } from './supabase-keys.ts';
  * This is the exact issue #90/#91 `ai-guard-client.ts` bug; avoided here from the start by
  * copying its fix rather than rediscovering it.
  */
-export function createQuotaStatusClient(allUsersUnlimitedAccess = false): RpcClient {
+export function createQuotaStatusClient(): RpcClient {
   const url = Deno.env.get('SUPABASE_URL');
   if (!url) {
     throw new Error('SUPABASE_URL is not set in the edge function environment');
@@ -43,15 +43,6 @@ export function createQuotaStatusClient(allUsersUnlimitedAccess = false): RpcCli
     auth: { persistSession: false },
   });
   return {
-    rpc: async (fn, args) => {
-      // The flag only redirects the one read this client owns. Normal enforcement stays the
-      // default, and the underlying RPC remains unchanged for an instant rollback.
-      const selectedFn =
-        allUsersUnlimitedAccess && fn === 'pace_quota_status'
-          ? 'pace_quota_status_unlimited'
-          : fn;
-      const result = await client.rpc(selectedFn, args);
-      return result;
-    },
+    rpc: async (fn, args) => await client.rpc(fn, args),
   };
 }

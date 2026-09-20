@@ -70,14 +70,14 @@ pre-provisioned synthetic fixture account:
   cleanup does NOT release it.** `reserve_analysis` counts the account's `reserved`/`delivered`
   rows regardless of `deleted_at` — deleting from History is a soft delete by design
   (`20260712040000_analyses_quota_soft_delete.sql`, issue #2), precisely so a delete cannot
-  refund a free analysis. With the server-only `ALL_USERS_UNLIMITED_ACCESS` override unset on the
-  live project (it is, per `docs/change_log.md` 2026-09-19), a Free fixture therefore gets
-  exactly ONE live analysis ever; the second `happy-path`/`dead-end-offline` run routes Home's
-  CTA to the paywall instead of Analyzing. This is masked today because no simulator run reaches
-  the analyze handoff (capture is skipped — prerequisite #3, issue #232). Before the first run
-  that does reach it (a real device, or a locally-fixtured Upload path), either grant the fixture
-  an Elite entitlement, set the override, or provision a fresh fixture per run — a live-project
-  decision, deliberately not made here.
+  refund a free analysis. A Free fixture therefore gets exactly ONE live analysis ever; the
+  second `happy-path`/`dead-end-offline` run routes Home's CTA to the paywall instead of
+  Analyzing. This is masked today because no simulator run reaches the analyze handoff (capture
+  is skipped — prerequisite #3, issue #232). Before the first run that does reach it (a real
+  device, or a locally-fixtured Upload path), either grant the fixture an Elite entitlement (via
+  `purchase-tier`) or provision a fresh fixture per run — a live-project decision, deliberately
+  not made here. (There is no longer an all-users override to fall back on — it was deleted
+  2026-09-20, `docs/status.md` Known Issue #49.)
 
 ### Run it
 
