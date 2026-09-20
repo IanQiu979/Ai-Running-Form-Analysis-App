@@ -83,7 +83,6 @@ const PRO_QUOTA = {
   limit: 5,
   remaining: 3,
   frameCap: 6,
-  unlimited: false,
   isLifetime: false,
   periodStart: '2026-09-12T00:00:00Z',
   periodEnd: '2026-10-12T00:00:00Z',

@@ -2435,57 +2435,6 @@ Deno.test('free tier: one supported result runs reserve -> model -> settle, then
   assertEquals(deliveredRows, 1, 'the first delivered row is the only delivered row');
 });
 
-Deno.test('all-users override: a normally-free account runs the full Elite path through the additive RPCs', async () => {
-  const h = harness([ok()]);
-  h.deps.allUsersUnlimitedAccess = true;
-  h.rpc.handlers.pace_current_tier_unlimited = () => ({ data: 'elite', error: null });
-  h.rpc.handlers.gate_ai_call_unlimited = () => ({
-    data: { allowed: true, call_id: 'call-1', estimated_usd: 0.23 },
-    error: null,
-  });
-  h.rpc.handlers.reserve_analysis_unlimited = () => ({
-    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'elite' },
-    error: null,
-  });
-
-  const res = await run(h);
-
-  assertEquals(res.status, 200);
-  assertEquals(h.model.sent.length, 1, 'override must produce a real model analysis, never the Free sample');
-  assert(!('isSample' in res.body), 'override responses must never carry the Free sample marker');
-  assertEquals(h.rpc.names().includes('pace_current_tier'), false);
-  assertEquals(h.rpc.names().includes('reserve_analysis'), false);
-  assertEquals(h.rpc.names().includes('pace_current_tier_unlimited'), false);
-  assertEquals(h.rpc.names().includes('reserve_analysis_unlimited'), true);
-  // The spend gate takes the same override route as tier and reserve — and, per that migration,
-  // it still CAPS (at Elite), it does not go uncapped.
-  assertEquals(h.rpc.names().includes('gate_ai_call'), false);
-  assertEquals(h.rpc.names().includes('gate_ai_call_unlimited'), true);
-});
-
-Deno.test('all-users override: the RETRY gate takes the override route too, not the default one', async () => {
-  const h = harness([prose(), ok()]);
-  h.deps.allUsersUnlimitedAccess = true;
-  h.rpc.handlers.pace_current_tier_unlimited = () => ({ data: 'elite', error: null });
-  let gateSeq = 0;
-  h.rpc.handlers.gate_ai_call_unlimited = () => {
-    gateSeq += 1;
-    return { data: { allowed: true, call_id: `call-${gateSeq}`, estimated_usd: 0.23 }, error: null };
-  };
-  h.rpc.handlers.reserve_analysis_unlimited = () => ({
-    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'elite' },
-    error: null,
-  });
-
-  await run(h);
-
-  // `prose()` is a retry-eligible failure, so this request gates TWICE. Both gates must go
-  // through the override sibling — a single default-route gate would silently apply the Free cap
-  // to a caller the rest of the request is treating as Elite.
-  assertEquals(h.rpc.to('gate_ai_call').length, 0);
-  assertEquals(h.rpc.to('gate_ai_call_unlimited').length, 2);
-});
-
 Deno.test('pro/elite tiers still run the real persisted-result path', async () => {
   for (const tier of ['pro', 'elite']) {
     const h = harness([ok()]);

@@ -31,6 +31,23 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   usage text and credential-gate message; the harness behaviour test's expectation updated with
   it) and `docs/status.md` Known Issue #31. Those two flows keep signing in to the fixture account
   by choice — one account instead of an `auth.users` row per run — not because sign-up is blocked.
+- **The `ALL_USERS_UNLIMITED_ACCESS` all-users-Elite comprehensive-test override was deleted**
+  (captain-approved housekeeping, 2026-09-20) — its secret was already unset in production and its
+  migration had never run there (`docs/status.md` Known Issue #49). Removed:
+  `supabase/migrations/20260807090000_all_users_unlimited_access_override.sql` and its test,
+  `supabase/functions/_shared/access-override.ts` and its test, every
+  `allUsersUnlimitedAccess`/`_unlimited`-branch RPC-selection call site in `ai-guard.ts`,
+  `quota-status.ts`/`quota-status-client.ts`, `analyze-form/flow.ts`/`deps.ts`, the
+  client-facing `QuotaStatus.unlimited` field and its consumers (`lib/subscription.ts`,
+  `lib/quota.ts`, `app/paywall.tsx`, `app/(tabs)/index.tsx`, the `Copy.home.quota.unlimited`
+  string), and the `ALL_USERS_UNLIMITED_ACCESS` line from `supabase/functions/.env.example`.
+  `reserve_analysis`/`pace_quota_status`/`gate_ai_call` are now the only entitlement/quota/spend
+  path. No schema DDL was added or dropped: the `_unlimited` RPCs later, unrelated migrations
+  created independently (`reserve_analysis_unlimited(…, jsonb)`, `pace_quota_status_unlimited`,
+  `gate_ai_call_unlimited`) remain live but orphaned. **Ledger caveat:** production still carries a
+  ledger row for the deleted migration, so the next `supabase db push --linked` must first run
+  `supabase migration repair --linked --status reverted 20260807090000` (documented in `CLAUDE.md`
+  and `docs/status.md` Known Issue #49).
 
 ## 2026-09-20 (Maestro E2E against the EAS development build — issue #203)
 

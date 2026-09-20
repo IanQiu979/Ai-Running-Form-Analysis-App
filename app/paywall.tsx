@@ -65,8 +65,8 @@ type Notice = { title: string; body: string } | null;
  *  (or the read hasn't resolved yet) with quota still available. */
 function gateBannerFor(plan: PlanState): { title: string; body: string } | null {
   if (plan.status !== 'ready') return null;
-  const { tier, remaining, limit, periodEnd, unlimited } = plan.data;
-  if (unlimited || remaining === null || remaining > 0) return null;
+  const { tier, remaining, limit, periodEnd } = plan.data;
+  if (remaining > 0) return null;
 
   if (tier === 'free') {
     return { title: Copy.paywall.gate.free.title, body: Copy.paywall.gate.free.body };

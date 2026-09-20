@@ -56,12 +56,9 @@ export type QuotaBlockedReason = 'too_many_failed_attempts';
 export interface QuotaStatus {
   tier: SubscriptionTier;
   used: number;
-  /** Null when the temporary all-users unlimited test override is enabled. */
-  limit: number | null;
-  /** Null means unlimited. */
-  remaining: number | null;
+  limit: number;
+  remaining: number;
   frameCap: number;
-  unlimited: boolean;
   /** True only for free — never render "this month"/"this period" copy when this is true. */
   isLifetime: boolean;
   /** ISO 8601, null for free. */
@@ -125,19 +122,17 @@ export function parseQuotaStatus(raw: unknown): QuotaStatus | null {
   if (tier !== 'free' && tier !== 'pro' && tier !== 'elite') return null;
 
   const { used, limit, remaining, frameCap } = row;
-  const unlimited = row.unlimited === true;
   if (
     typeof used !== 'number' ||
     typeof frameCap !== 'number' ||
-    (unlimited
-      ? limit !== null || remaining !== null
-      : typeof limit !== 'number' || typeof remaining !== 'number')
+    typeof limit !== 'number' ||
+    typeof remaining !== 'number'
   ) {
     return null;
   }
 
   if (typeof row.blocked !== 'boolean') return null;
-  const blocked = unlimited ? false : row.blocked;
+  const blocked = row.blocked;
 
   const blockedReason = row.blockedReason;
   if (blockedReason !== null && blockedReason !== undefined && blockedReason !== 'too_many_failed_attempts') {
@@ -147,11 +142,10 @@ export function parseQuotaStatus(raw: unknown): QuotaStatus | null {
   return {
     tier,
     used,
-    limit: unlimited ? null : (limit as number),
-    remaining: unlimited ? null : (remaining as number),
+    limit,
+    remaining,
     frameCap,
-    unlimited,
-    isLifetime: unlimited ? false : Boolean(row.isLifetime),
+    isLifetime: Boolean(row.isLifetime),
     periodStart: nullableString(row.periodStart),
     periodEnd: nullableString(row.periodEnd),
     blocked,

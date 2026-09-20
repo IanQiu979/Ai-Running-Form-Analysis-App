@@ -17,7 +17,6 @@ const MIGRATIONS = [
   '20260711150300_quota_period_helpers.sql',
   '20260712040000_analyses_quota_soft_delete.sql',
   '20260712220000_anti_farm_release_reason_fix.sql',
-  '20260807090000_all_users_unlimited_access_override.sql',
   '20260819120000_zero_pillar_release_reason.sql',
   '20260906120000_invalid_safety_release_reason.sql',
   '20260909120000_canonical_analysis_idempotency.sql',
@@ -389,16 +388,13 @@ Deno.test('identity tables are RLS-default-deny and account deletion removes all
   });
 });
 
-Deno.test('legacy four-argument reservation signatures remain callable', async () => {
+Deno.test('legacy four-argument reservation signature remains callable', async () => {
   await withDb(async (db) => {
     const userId = await createUser(db, 'pro');
-    const { rows } = await db.query<{ normal: ReserveResult; unlimited: ReserveResult }>(
-      `select
-         public.reserve_analysis($1::uuid, 'legacy-normal', 'photo'::public.media_type, 1) as normal,
-         public.reserve_analysis_unlimited($1::uuid, 'legacy-unlimited', 'photo'::public.media_type, 1) as unlimited`,
+    const { rows } = await db.query<{ normal: ReserveResult }>(
+      `select public.reserve_analysis($1::uuid, 'legacy-normal', 'photo'::public.media_type, 1) as normal`,
       [userId],
     );
     assert(rows[0].normal.allowed);
-    assert(rows[0].unlimited.allowed);
   });
 });

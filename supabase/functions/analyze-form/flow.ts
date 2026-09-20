@@ -296,9 +296,6 @@ export interface AnalyzeFormLogEvent {
 }
 
 export interface AnalyzeFormDeps {
-  /** Temporary captain-only test override. When true, selects additive service-role wrapper RPCs
-   * that report Elite and bypass count/anti-farm quota refusal. Normal RPCs remain untouched. */
-  allUsersUnlimitedAccess?: boolean;
   /** Service-role RPC client — `gate_ai_call`, `record_ai_call`, `reserve_analysis`,
    * `settle_analysis`, and `release_analysis` are ALL granted to `service_role` only. Never build
    * this from the caller's JWT: it would simply fail, which is the DB doing its job. */
@@ -464,10 +461,9 @@ async function reserveAnalysis(
     mediaType: PaceMediaKind;
     frameCount: number;
     analysisIdentity: AnalyzeFormIdentity;
-    allUsersUnlimitedAccess?: boolean;
   }
 ): Promise<ReserveResult> {
-  const fn = args.allUsersUnlimitedAccess ? 'reserve_analysis_unlimited' : 'reserve_analysis';
+  const fn = 'reserve_analysis';
   const { data, error } = await rpc.rpc(fn, {
     // CONTRACT RULE 1 — `p_user_id` is the JWT-derived id, threaded down from `index.ts`'s
     // `auth.getUser()`. There is no code path by which a request body can influence it.
@@ -820,7 +816,6 @@ export async function runAnalyzeForm(
       userId: callerUserId,
       estimatedInputTokens: firstEstimate.inputTokens,
       estimatedOutputTokens: firstEstimate.outputTokens,
-      allUsersUnlimitedAccess: deps.allUsersUnlimitedAccess,
     });
     if (!gate.allowed) {
       // `gate.detail` is deliberately NOT forwarded to the client. On a `daily_cap` denial it
@@ -866,7 +861,6 @@ export async function runAnalyzeForm(
       mediaType: request.mediaType,
       frameCount: request.frames.length,
       analysisIdentity,
-      allUsersUnlimitedAccess: deps.allUsersUnlimitedAccess,
     });
 
     if (!reserve.allowed) {
@@ -1028,7 +1022,6 @@ export async function runAnalyzeForm(
           estimatedInputTokens: retryEstimate.inputTokens,
           estimatedOutputTokens: retryEstimate.outputTokens,
           analysisId,
-          allUsersUnlimitedAccess: deps.allUsersUnlimitedAccess,
         });
 
         if (retryGate.allowed) {

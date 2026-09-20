@@ -56,13 +56,9 @@ export function isBlockedReason(value: unknown): value is BlockedReason {
 export interface QuotaStatus {
   tier: SubscriptionTier;
   used: number;
-  /** Null only while the temporary all-users unlimited override is enabled. */
-  limit: number | null;
-  /** Null means unlimited; a finite quota always reports a number. */
-  remaining: number | null;
+  limit: number;
+  remaining: number;
   frameCap: number;
-  /** True only for the temporary, server-side all-users test override. */
-  unlimited: boolean;
   /** True only for free — the copy deck is emphatic this must never read "this month". */
   isLifetime: boolean;
   /** ISO 8601, null for free (lifetime has no period). */
@@ -123,28 +119,22 @@ export function parseQuotaStatusRow(raw: unknown): QuotaStatus {
   const used = row.used;
   const limit = row.limit;
   const frameCap = row.frame_cap;
-  const unlimited = row.unlimited === true;
-  if (
-    typeof used !== 'number' ||
-    typeof frameCap !== 'number' ||
-    (unlimited ? limit !== null : typeof limit !== 'number')
-  ) {
+  if (typeof used !== 'number' || typeof frameCap !== 'number' || typeof limit !== 'number') {
     throw new Error(`pace_quota_status returned invalid used/limit/frame_cap: ${JSON.stringify(row)}`);
   }
 
-  const blocked = unlimited ? false : Boolean(row.blocked);
+  const blocked = Boolean(row.blocked);
   const blockedReason: BlockedReason | null =
     blocked && isBlockedReason(row.blocked_reason) ? row.blocked_reason : null;
 
   return {
     tier,
     used,
-    limit: unlimited ? null : (limit as number),
+    limit,
     // Never negative — a defensive floor, not a claim this can happen under correct counting.
-    remaining: unlimited ? null : Math.max((limit as number) - used, 0),
+    remaining: Math.max(limit - used, 0),
     frameCap,
-    unlimited,
-    isLifetime: unlimited ? false : Boolean(row.is_lifetime),
+    isLifetime: Boolean(row.is_lifetime),
     periodStart: nullableString(row.period_start),
     periodEnd: nullableString(row.period_end),
     blocked,

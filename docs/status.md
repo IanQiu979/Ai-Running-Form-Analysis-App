@@ -129,9 +129,10 @@ milestone "done" criteria.
   against PGlite inside `npm run test:edge`) but **is NOT yet applied to the live project** —
   `supabase db push` plus a `lib/database.types.ts` regeneration are still outstanding.
   **DEPLOY THE MIGRATION FIRST, THEN `analyze-form`** — same deploy-gated ordering
-  `pace_quota_status` / `pace_purchase_tier` needed. `ALL_USERS_UNLIMITED_ACCESS` is set on the
-  live project, so the edge function will select the new `gate_ai_call_unlimited`, which does not
-  exist until the push lands. `_shared/ai-guard.ts` stays AVAILABLE if the order is reversed (it
+  `pace_quota_status` / `pace_purchase_tier` needed. `ALL_USERS_UNLIMITED_ACCESS` was set on the
+  live project at the time, so the edge function would select the new `gate_ai_call_unlimited`,
+  which did not exist until the push landed (the override family has since been deleted — Known
+  Issue #49, 2026-09-20 — so `gate_ai_call` is the only gate `analyze-form` calls now). `_shared/ai-guard.ts` stays AVAILABLE if the order is reversed (it
   detects the missing function, logs loudly, and falls back once to `gate_ai_call`) — but in an
   unmigrated database `gate_ai_call` is still the old global-cap-only definition, so that window
   enforces the platform-wide $10/day ceiling ALONE with **no per-user cap in force**: today's
@@ -1517,8 +1518,9 @@ milestone "done" criteria.
     auth → consent → AI spend gate → `reserve_analysis` (the only place tier is now learned, via
     `reserve.tier`) → model call (+1 retry) → a new server-side normalization step → settle →
     upload → attach. `pace_current_tier`/`pace_current_tier_unlimited` are no longer called by
-    `analyze-form` at all (the `ALL_USERS_UNLIMITED_ACCESS` override still works, now via
-    `reserve_analysis_unlimited` alone). This closes the launch-blocking defect #36/#37 described:
+    `analyze-form` at all (at the time the `ALL_USERS_UNLIMITED_ACCESS` override still worked via
+    `reserve_analysis_unlimited` alone; that override family was deleted 2026-09-20 — Known Issue
+    #49). This closes the launch-blocking defect #36/#37 described:
     the fabricated sample promised a cadence figure, a left/right ground-contact comparison, and
     flags/drills that no certified knowledge file supports, and — because it was never
     persisted — zero Free signup in five weeks ever produced a real `analyses` row.
@@ -1885,9 +1887,21 @@ milestone "done" criteria.
       and the four-argument `reserve_analysis_unlimited` do not exist live (verified in `pg_proc`),
       and `ALL_USERS_UNLIMITED_ACCESS` is not set. The `_unlimited` overloads that DO exist
       (`reserve_analysis_unlimited(…, jsonb)`, `pace_quota_status_unlimited`) are created by
-      `20260909120000`/`20260910120000`, not by the override file. A follow-up PR deleting the
-      override family (this migration, `access-override.ts`, the `_unlimited` branches and
-      overloads) is a separate task.
+      `20260909120000`/`20260910120000`, not by the override file.
+      **RESOLVED 2026-09-20 — the override family was deleted (captain-approved housekeeping):**
+      the migration file, `supabase/functions/_shared/access-override.ts`, and every
+      `allUsersUnlimitedAccess`/`_unlimited`-branch call site in `ai-guard.ts`,
+      `quota-status.ts`/`quota-status-client.ts`, `analyze-form/flow.ts`/`deps.ts`, and the
+      client-facing `QuotaStatus.unlimited` field are all gone from the repo; `reserve_analysis`,
+      `pace_quota_status`, and `gate_ai_call` are the only paths left. **Because the ledger row is
+      still present on production while the file no longer exists in the repo, the next deployer
+      MUST run `supabase migration repair --linked --status reverted 20260807090000` BEFORE the
+      next `supabase db push --linked`** — otherwise the CLI sees a remote-only ledger row with no
+      matching local file and refuses to push. This is a one-time step; once reverted, the ledger
+      and repo agree again. The `_unlimited` RPCs `20260909120000`/`20260910120000`/`20260907120000`
+      created independently (`reserve_analysis_unlimited(…, jsonb)`, `pace_quota_status_unlimited`,
+      `gate_ai_call_unlimited`) are untouched and remain live but orphaned — nothing in the repo
+      calls them anymore, and no schema DDL was added or dropped to remove them.
     - **Four migrations pushed** with `supabase db push --linked --include-all`, one transaction
       each, dry-run listing exactly these four first: `20260906130000_free_zero_pillar_cooldown`,
       `20260906140000_quota_status_zero_pillar_cooldown`,

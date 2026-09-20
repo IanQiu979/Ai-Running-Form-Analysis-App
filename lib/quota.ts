@@ -107,29 +107,26 @@ export function parseQuotaStatusResponse(body: unknown): QuotaStatus | null {
   if (tier !== 'free' && tier !== 'pro' && tier !== 'elite') return null;
 
   const { used, limit, remaining, frameCap } = record;
-  const unlimited = record.unlimited === true;
   if (
     typeof used !== 'number' ||
     typeof frameCap !== 'number' ||
-    (unlimited
-      ? limit !== null || remaining !== null
-      : typeof limit !== 'number' || typeof remaining !== 'number')
+    typeof limit !== 'number' ||
+    typeof remaining !== 'number'
   ) {
     return null;
   }
 
-  const blocked = unlimited ? false : Boolean(record.blocked);
+  const blocked = Boolean(record.blocked);
   const blockedReason: BlockedReason | null =
     blocked && isBlockedReason(record.blockedReason) ? record.blockedReason : null;
 
   return {
     tier,
     used,
-    limit: unlimited ? null : (limit as number),
-    remaining: unlimited ? null : (remaining as number),
+    limit,
+    remaining,
     frameCap,
-    unlimited,
-    isLifetime: unlimited ? false : Boolean(record.isLifetime),
+    isLifetime: Boolean(record.isLifetime),
     periodStart: nullableString(record.periodStart),
     periodEnd: nullableString(record.periodEnd),
     blocked,
@@ -221,8 +218,6 @@ function formatPeriodEndDate(periodEnd: string | null): string | null {
 }
 
 function describePrimaryCaption(quota: QuotaStatus): string {
-  if (quota.unlimited) return Copy.home.quota.unlimited;
-
   if (quota.tier === 'free') {
     return (quota.remaining ?? 0) > 0
       ? Copy.home.quota.free.available
@@ -275,7 +270,7 @@ export function describeQuota(quota: QuotaStatus, now: number = Date.now()): Quo
     };
   }
 
-  if (!quota.unlimited && quota.tier !== 'free' && (quota.remaining ?? 0) > 0) {
+  if (quota.tier !== 'free' && (quota.remaining ?? 0) > 0) {
     const renewsOn = formatPeriodEndDate(quota.periodEnd);
     return { primary, secondary: renewsOn ? Copy.home.quota.renewsOn.replace('{date}', renewsOn) : null };
   }
@@ -293,7 +288,7 @@ export type PrimaryCtaKind = 'analyze' | 'upgradeToAnalyze' | 'upgradeForMore' |
  * disabled instead of relabeled.
  */
 export function primaryCtaKind(quota: QuotaStatus): PrimaryCtaKind {
-  if (quota.unlimited || (quota.remaining ?? 0) > 0) return 'analyze';
+  if ((quota.remaining ?? 0) > 0) return 'analyze';
   if (quota.tier === 'free') return 'upgradeToAnalyze';
   if (quota.tier === 'pro') return 'upgradeForMore';
   return 'analyzeDisabled';

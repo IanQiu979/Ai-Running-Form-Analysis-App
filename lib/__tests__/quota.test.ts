@@ -52,7 +52,6 @@ const FREE_AVAILABLE: QuotaStatus = {
   limit: 1,
   remaining: 1,
   frameCap: 1,
-  unlimited: false,
   isLifetime: true,
   periodStart: null,
   periodEnd: null,
@@ -67,25 +66,9 @@ const PRO_REMAINING: QuotaStatus = {
   limit: 10,
   remaining: 7,
   frameCap: 16,
-  unlimited: false,
   isLifetime: false,
   periodStart: '2026-07-01T00:00:00.000Z',
   periodEnd: '2026-08-01T00:00:00.000Z',
-  blocked: false,
-  blockedReason: null,
-  blockedUntil: null,
-};
-
-const UNLIMITED_ELITE: QuotaStatus = {
-  tier: 'elite',
-  used: 42,
-  limit: null,
-  remaining: null,
-  frameCap: 8,
-  unlimited: true,
-  isLifetime: false,
-  periodStart: null,
-  periodEnd: null,
   blocked: false,
   blockedReason: null,
   blockedUntil: null,
@@ -97,7 +80,6 @@ const ELITE_BLOCKED: QuotaStatus = {
   limit: 30,
   remaining: 28,
   frameCap: 24,
-  unlimited: false,
   isLifetime: false,
   periodStart: '2026-07-01T00:00:00.000Z',
   periodEnd: '2026-08-01T00:00:00.000Z',
@@ -122,7 +104,6 @@ describe('parseQuotaStatusResponse', () => {
     // honestly rather than collapse into a single boolean.
     ['elite, remaining but anti-farm blocked', ELITE_BLOCKED],
     ['free, zero-pillar cooldown', FREE_ZERO_PILLAR_COOLDOWN],
-    ['temporary unlimited Elite override', UNLIMITED_ELITE],
   ])('parses a well-formed %s response', (_label, quota) => {
     expect(parseQuotaStatusResponse({ ...quota })).toEqual(quota);
   });
@@ -284,13 +265,6 @@ const PRO_EXHAUSTED: QuotaStatus = { ...PRO_REMAINING, used: 10, remaining: 0 };
 const ELITE_EXHAUSTED: QuotaStatus = { ...ELITE_BLOCKED, used: 30, remaining: 0, blocked: false, blockedReason: null, blockedUntil: null };
 
 describe('describeQuota', () => {
-  it('renders the temporary unlimited Elite caption with no renewal/block line', () => {
-    expect(describeQuota(UNLIMITED_ELITE)).toEqual({
-      primary: Copy.home.quota.unlimited,
-      secondary: null,
-    });
-  });
-
   it('tells an unused Free account that one real analysis is available', () => {
     expect(describeQuota(FREE_AVAILABLE)).toEqual({
       primary: '1 free analysis available',
@@ -371,11 +345,6 @@ describe('describeQuota', () => {
 });
 
 describe('primaryCtaKind / primaryCtaLabel / isPrimaryCtaEnabled', () => {
-  it('is "analyze", enabled, when the all-users unlimited override is active', () => {
-    expect(primaryCtaKind(UNLIMITED_ELITE)).toBe('analyze');
-    expect(isPrimaryCtaEnabled(UNLIMITED_ELITE)).toBe(true);
-  });
-
   it('is "analyze", enabled, when quota remains and nothing blocks it', () => {
     expect(primaryCtaKind(FREE_AVAILABLE)).toBe('analyze');
     expect(primaryCtaLabel('analyze')).toBe(Copy.home.cta.analyze);

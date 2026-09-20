@@ -238,9 +238,8 @@ export default function SettingsScreen() {
     if (!userId) return;
     setPlan({ status: 'loading' });
 
-    // Read the same server-authoritative status Home and Paywall use. This matters beyond simple
-    // consistency: temporary entitlement overrides (including ALL_USERS_UNLIMITED_ACCESS) live on
-    // the edge-function/RPC boundary and are intentionally NOT written into subscriptions.
+    // Read the same server-authoritative status Home and Paywall use, rather than deriving tier
+    // from `subscriptions` locally.
     const result = await getQuotaStatus();
     if (!isMountedRef.current) return;
     setPlan(result.ok ? { status: 'ready', quota: result.data } : { status: 'error' });

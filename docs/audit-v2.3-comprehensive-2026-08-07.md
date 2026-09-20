@@ -5,6 +5,9 @@ functions, migrations/RLS/grants, deployment configuration, and the photo/video 
 
 ## Required temporary access override
 
+> **Historical (2026-08-07).** The override described here was deleted from the repo on
+> 2026-09-20 — see `docs/status.md` Known Issue #49. Nothing below is still in force.
+
 Implemented `ALL_USERS_UNLIMITED_ACCESS`, a **server-only, strict opt-in** flag.
 
 - `true`: every authenticated account receives Elite analysis depth, Elite's 8-frame video cap,

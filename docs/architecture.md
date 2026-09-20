@@ -2159,9 +2159,14 @@ retaining these live four-argument functions for DB-first rollout and rollback.*
   all as of 2026-09-06** — the Free-tier pre-reserve tier lookup it existed for was retired along
   with the fabricated sample it gated; `reserve_analysis`'s own returned `tier` is now the sole
   place any tier is learned, for every tier alike. The function itself still exists in the schema
-  (no migration dropped it) but is unused. `pace_current_tier_unlimited`, its
-  `ALL_USERS_UNLIMITED_ACCESS`-override counterpart, is likewise unused now — the override path
-  goes through `reserve_analysis_unlimited` alone.
+  (no migration dropped it) but is unused. The `ALL_USERS_UNLIMITED_ACCESS` override family
+  (`pace_current_tier_unlimited`, `access-override.ts`, and every `_unlimited`-branch call site)
+  was deleted from the repo 2026-09-20 (`docs/status.md` Known Issue #49) — there is no override
+  path left in the code at all now. The `_unlimited` RPCs created by later, unrelated migrations
+  (`reserve_analysis_unlimited(…, jsonb)` from `20260909120000`, `pace_quota_status_unlimited` from
+  `20260910120000`, `gate_ai_call_unlimited` from `20260907120000`) remain live in the schema —
+  deleting the override migration did not touch them — but are now orphaned: nothing in the repo
+  calls them.
 
 - **`reserve_analysis(p_user_id, p_idempotency_key, p_media_type, p_frame_count)`**
   — the sole write path for new `analyses` rows (4 args as of #88 — the row is minted with an
@@ -2495,8 +2500,10 @@ only a future edge function calling with the service-role key can invoke these, 
     `public.subscriptions`), never passed in — no edge-function bug can buy a bigger allowance by
     claiming a tier the user does not have. `gate_ai_call` is now a thin wrapper over
     `gate_ai_call_for_tier(p_user_id, p_tier, …)`; `ai_user_daily_cap_usd(p_tier)` is the single
-    place the tier→$ mapping lives; `gate_ai_call_unlimited` is the `ALL_USERS_UNLIMITED_ACCESS`
-    sibling (Elite cap — it does **not** lift the cap). All three are `SECURITY DEFINER` with
+    place the tier→$ mapping lives; `gate_ai_call_unlimited` was the `ALL_USERS_UNLIMITED_ACCESS`
+    sibling (Elite cap — it did **not** lift the cap) — the override family that called it was
+    deleted from the repo 2026-09-20 (`docs/status.md` Known Issue #49), so this function remains
+    live but orphaned. All three are `SECURITY DEFINER` with
     EXECUTE revoked from `public`/`anon`/`authenticated` and granted only to `service_role`,
     same as the rest of the gate.
   - **Total exposure is unchanged at $10/day.** The global `daily_usd_cap` is retained as the

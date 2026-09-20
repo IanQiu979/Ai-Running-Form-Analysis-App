@@ -41,7 +41,6 @@ describe('the per-user AI daily cap migration is a forward migration', () => {
       '20260712210000_ai_spend_guardrails.sql', // ai_ops_config / ai_call_log
       '20260712210100_ai_spend_guardrail_functions.sql', // gate_ai_call / ai_spend_today
       '20260804120000_pace_current_tier_function.sql', // the tier lookup the gate now calls
-      '20260807090000_all_users_unlimited_access_override.sql', // the _unlimited sibling pattern
       '20260819120000_zero_pillar_release_reason.sql', // the hole this closes
     ]) {
       expect(files.indexOf(prior)).toBeGreaterThan(-1);
