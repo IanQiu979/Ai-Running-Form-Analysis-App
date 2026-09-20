@@ -76,6 +76,17 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   has changed" — it writes two rows, so the first may have landed before the second failed; the
   copy now says consent could not be fully saved and to tap Give consent again (append-only, so a
   retry is always safe). Restore logic unchanged.
+- Review round 6 (2026-09-21): the self-heal is now one function, `lib/consent.ts`'s
+  `ensureConsentsGranted` (`granted` / `withdrawn` / `failed`), used by both
+  `app/capture/index.tsx` and `components/age-band-gate.tsx` in place of their two private
+  copies. It reads BOTH sign-up keys and grants each one that has no row at all — the old copies
+  keyed on `UPLOAD_HEALTH_CONSENT` alone, so a sign-up whose health insert landed and whose
+  future-uploads insert failed was never repaired (Settings offers "Give consent" only on a
+  withdrawal). Any key in `withdrawn` state still means nothing is written. Capture races the
+  check against a 3 s budget and proceeds on timeout, so a stalled connection cannot hold the
+  Upload/Record cards (the server gate remains the enforcement). Settings' "Withdraw consent"
+  now appends a withdrawal row for BOTH keys, symmetric with the grant and restore, and its
+  failure notice no longer claims "Nothing has changed" (two writes; retry is append-only safe).
 
 ## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
 

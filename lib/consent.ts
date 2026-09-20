@@ -128,6 +128,51 @@ export async function withdrawConsent(key: ConsentKey): Promise<void> {
   await recordConsent(key, false);
 }
 
+/**
+ * The two keys a single sign-up tick grants together and Settings withdraws/restores together.
+ * Every repair path checks each of them on its own: one landing does not prove the other did.
+ */
+export const SIGNUP_CONSENT_KEYS = [UPLOAD_HEALTH_CONSENT, FUTURE_UPLOADS_ATTESTATION_CONSENT] as const;
+
+export type EnsureConsentsResult = 'granted' | 'withdrawn' | 'failed';
+
+/**
+ * Check-and-repair for the sign-up consents. Reads BOTH keys' states and grants only the ones with
+ * NO row at all. A `withdrawn` state on either key is the user's own explicit act in Settings and
+ * is never reversed here — nothing is written and `withdrawn` is returned so the caller can point
+ * at Settings, the one surface that re-grants. Never throws: a read or grant failure (or, with
+ * `timeoutMs`, a round trip that outlives the budget) resolves `failed`, and the caller decides
+ * whether that blocks (the age-band gate) or proceeds best-effort (capture, where `analyze-form`'s
+ * server gate still fails closed).
+ */
+export async function ensureConsentsGranted(
+  options: { timeoutMs?: number } = {}
+): Promise<EnsureConsentsResult> {
+  const work = (async (): Promise<EnsureConsentsResult> => {
+    try {
+      const states = await Promise.all(SIGNUP_CONSENT_KEYS.map((key) => readConsentState(key)));
+      if (states.includes('withdrawn')) return 'withdrawn';
+      const missing = SIGNUP_CONSENT_KEYS.filter((_, i) => states[i] === 'none');
+      await Promise.all(missing.map((key) => grantConsent(key)));
+      return 'granted';
+    } catch {
+      return 'failed';
+    }
+  })();
+
+  if (options.timeoutMs === undefined) return work;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<EnsureConsentsResult>((resolve) => {
+    timer = setTimeout(() => resolve('failed'), options.timeoutMs);
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function recordConsent(key: ConsentKey, granted: boolean): Promise<void> {
   // user_id is omitted on purpose: the column defaults to auth.uid() from the verified JWT, so
   // the client never names a user at all. The INSERT policy's with-check re-verifies it anyway.

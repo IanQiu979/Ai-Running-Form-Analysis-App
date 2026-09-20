@@ -966,12 +966,12 @@ export const Copy = {
           },
         },
         error: {
-          title: 'Consent could not be withdrawn',
-          // Mirrors `consent.upload.error.record`'s rule for the grant path: say plainly that
-          // nothing changed, so the user never walks away believing they withdrew when they
-          // didn't. The consent row is append-only — a failed write means no row, means the
-          // previous grant still stands, so "nothing has changed" is literally true here.
-          body: 'Nothing has changed. Your consent remains on record. Check your connection and try again.',
+          title: 'Consent could not be fully withdrawn',
+          // Two rows are written (health + future-uploads attestation), so a failure is NOT
+          // provably "nothing changed" — one insert may have landed. Withdrawals are append-only,
+          // so tapping again is always safe; the user must never walk away believing they
+          // withdrew when the record may still show a live consent.
+          body: 'Consent could not be fully withdrawn. Check your connection and tap Withdraw consent again.',
         },
       },
       // Giving consent again after a withdrawal (Art. 7(3) in reverse: as easy as withdrawing).

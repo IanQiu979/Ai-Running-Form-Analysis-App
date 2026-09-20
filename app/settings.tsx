@@ -552,13 +552,18 @@ export default function SettingsScreen() {
     setIsWithdrawing(true);
 
     try {
-      await withdrawConsent(UPLOAD_HEALTH_CONSENT);
+      // Symmetric with the sign-up grant and `handleRestoreConsent`: one tick granted both keys,
+      // so one withdrawal revokes both. Withdrawals are append-only, so a retry is always safe.
+      await Promise.all([
+        withdrawConsent(UPLOAD_HEALTH_CONSENT),
+        withdrawConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
+      ]);
       if (!isMountedRef.current) return;
       setConsent({ status: 'ready', state: 'withdrawn' });
     } catch {
       if (!isMountedRef.current) return;
-      // Nothing was recorded, so nothing changed — and we say exactly that rather than optimistically
-      // flipping the status to "withdrawn" on a write we can't prove landed.
+      // Two writes may half-land, so the copy asks for a retry rather than flipping the status
+      // to "withdrawn" on writes we cannot prove landed.
       showNotice(Copy.settings.consent.withdraw.error.title, Copy.settings.consent.withdraw.error.body);
     } finally {
       if (isMountedRef.current) setIsWithdrawing(false);

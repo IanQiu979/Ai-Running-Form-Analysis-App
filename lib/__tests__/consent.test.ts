@@ -24,6 +24,7 @@
  * data layer regardless of what the UI does.
  */
 import {
+  ensureConsentsGranted,
   FUTURE_UPLOADS_ATTESTATION_CONSENT,
   grantConsent,
   hasConsented,
@@ -42,6 +43,44 @@ const mockFrom = supabase.from as jest.MockedFunction<typeof supabase.from>;
 
 type Row = { granted: boolean };
 type QueryError = { message: string };
+type KeyState = 'none' | 'granted' | 'withdrawn' | 'error';
+
+/**
+ * Mocks `.from('consents')` with a per-key newest row for the SELECT chain and a recording INSERT,
+ * so `ensureConsentsGranted`'s two reads and any grants all route through the one `from` mock.
+ * Returns the inserts that landed, in order.
+ */
+function mockConsentTable(
+  states: Record<string, KeyState>,
+  options: { insertError?: QueryError | ((key: string) => QueryError | null) } = {}
+) {
+  const inserted: { consent_key: string; granted: boolean }[] = [];
+  mockFrom.mockImplementation(() => {
+    let key = '';
+    const maybeSingle = jest.fn().mockImplementation(async () => {
+      const state = states[key] ?? 'none';
+      if (state === 'error') return { data: null, error: { message: `read failed for ${key}` } };
+      if (state === 'none') return { data: null, error: null };
+      return { data: { granted: state === 'granted' }, error: null };
+    });
+    const limit = jest.fn().mockReturnValue({ maybeSingle });
+    const order = jest.fn().mockReturnValue({ limit });
+    const eq = jest.fn().mockImplementation((_column: string, value: string) => {
+      key = value;
+      return { order };
+    });
+    const select = jest.fn().mockReturnValue({ eq });
+    const insert = jest.fn().mockImplementation(async (row: { consent_key: string; granted: boolean }) => {
+      const err =
+        typeof options.insertError === 'function' ? options.insertError(row.consent_key) : options.insertError ?? null;
+      if (err) return { error: err };
+      inserted.push(row);
+      return { error: null };
+    });
+    return { select, insert } as never;
+  });
+  return inserted;
+}
 
 /** Mocks `.from('consents').select(..).eq(..).order(..).limit(..).maybeSingle()`. */
 function mockSelectChain(result: { data: Row | null; error: QueryError | null }) {
@@ -241,5 +280,129 @@ describe('consent keys', () => {
     await hasConsented(FUTURE_UPLOADS_ATTESTATION_CONSENT);
 
     expect(chain.eq).toHaveBeenCalledWith('consent_key', 'upload.futureUploadsAttestation.v1');
+  });
+});
+
+describe('ensureConsentsGranted', () => {
+  // The self-heal every sign-up path relies on. It must decide per KEY — the sign-up grant runs
+  // both inserts concurrently, so one landing says nothing about the other — and it must never
+  // write over a withdrawal.
+  it('is a no-op when both sign-up keys are already granted', async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'granted',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('granted');
+    expect(inserted).toEqual([]);
+  });
+
+  it('grants only the missing key when the health key landed but the future-uploads key did not', async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'none',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('granted');
+    expect(inserted).toEqual([{ consent_key: FUTURE_UPLOADS_ATTESTATION_CONSENT, granted: true }]);
+  });
+
+  it('grants only the missing key when the future-uploads key landed but the health key did not', async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'none',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'granted',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('granted');
+    expect(inserted).toEqual([{ consent_key: UPLOAD_HEALTH_CONSENT, granted: true }]);
+  });
+
+  it('grants both keys for an account with no rows at all', async () => {
+    const inserted = mockConsentTable({});
+
+    await expect(ensureConsentsGranted()).resolves.toBe('granted');
+    expect(inserted).toEqual(
+      expect.arrayContaining([
+        { consent_key: UPLOAD_HEALTH_CONSENT, granted: true },
+        { consent_key: FUTURE_UPLOADS_ATTESTATION_CONSENT, granted: true },
+      ])
+    );
+    expect(inserted).toHaveLength(2);
+  });
+
+  it("reports 'withdrawn' and writes nothing when the health key was withdrawn — even if the other key is missing", async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'withdrawn',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'none',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('withdrawn');
+    expect(inserted).toEqual([]);
+  });
+
+  it("reports 'withdrawn' and writes nothing when only the future-uploads key was withdrawn", async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'withdrawn',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('withdrawn');
+    expect(inserted).toEqual([]);
+  });
+
+  it("reports 'failed' when a needed grant errors, instead of throwing", async () => {
+    mockConsentTable({}, { insertError: { message: 'permission denied' } });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('failed');
+  });
+
+  it("reports 'failed' when reading either key's state errors, instead of guessing", async () => {
+    const inserted = mockConsentTable({
+      [UPLOAD_HEALTH_CONSENT]: 'granted',
+      [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'error',
+    });
+
+    await expect(ensureConsentsGranted()).resolves.toBe('failed');
+    expect(inserted).toEqual([]);
+  });
+
+  it("resolves 'failed' when the round trip outlives `timeoutMs`, so a stalled connection never holds the caller", async () => {
+    jest.useFakeTimers();
+    try {
+      mockFrom.mockImplementation(() => {
+        const maybeSingle = jest.fn().mockReturnValue(new Promise(() => undefined));
+        const limit = jest.fn().mockReturnValue({ maybeSingle });
+        const order = jest.fn().mockReturnValue({ limit });
+        const eq = jest.fn().mockReturnValue({ order });
+        const select = jest.fn().mockReturnValue({ eq });
+        return { select } as never;
+      });
+
+      const pending = ensureConsentsGranted({ timeoutMs: 3000 });
+      let settled = false;
+      void pending.then(() => { settled = true; });
+
+      await jest.advanceTimersByTimeAsync(2999);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toBe('failed');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not let the timeout fire after a fast result has already settled', async () => {
+    jest.useFakeTimers();
+    try {
+      mockConsentTable({
+        [UPLOAD_HEALTH_CONSENT]: 'granted',
+        [FUTURE_UPLOADS_ATTESTATION_CONSENT]: 'granted',
+      });
+
+      await expect(ensureConsentsGranted({ timeoutMs: 3000 })).resolves.toBe('granted');
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

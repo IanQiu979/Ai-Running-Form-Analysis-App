@@ -29,7 +29,7 @@ import { TopBar } from '@/components/ui/top-bar';
 import { BackIcon, RecordIcon, UploadIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
 import { Font, Ink, Layout, Space, Type } from '@/constants/v23-theme';
-import { FUTURE_UPLOADS_ATTESTATION_CONSENT, grantConsent, readConsentState, UPLOAD_HEALTH_CONSENT } from '@/lib/consent';
+import { ensureConsentsGranted } from '@/lib/consent';
 import { readFileSizeBytes } from '@/lib/media-file-size';
 import { checkMediaCaps } from '@/lib/media-caps';
 import { classifyPermission, permissionRecoveryAction } from '@/lib/permission-state';
@@ -39,30 +39,21 @@ import { useAnnounce } from '@/lib/use-announce';
  * Best-effort self-heal, not a gate (there is no consent gate at capture — see
  * `components/age-band-gate.tsx` and `app/(auth)/sign-in.tsx` for where consent is actually
  * granted). Email/Google sign-up grants `UPLOAD_HEALTH_CONSENT` and
- * `FUTURE_UPLOADS_ATTESTATION_CONSENT` fire-and-forget; if that grant silently failed, the account
- * is left with no consent row and every `analyze-form` call 403s with no way back in. Checking
- * here, right before the two actions that lead to an upload, catches that case cheaply — the check
- * always runs, but the extra grant round trip only happens when there is genuinely NO row for the
- * key. A `withdrawn` state (newest row is `granted = false`) is the user's own explicit act in
- * Settings and is never repaired here — the caller shows the way back to Settings instead, and
- * the server's `consent_required` refusal stands. A read or grant failure is not fatal:
- * `analyze-form`'s own server-side gate still enforces this and fails closed if the repair could
- * not complete.
+ * `FUTURE_UPLOADS_ATTESTATION_CONSENT` fire-and-forget; if either grant silently failed, the
+ * account is left with a missing row — for the health key that means every `analyze-form` call
+ * 403s with no way back in. `lib/consent.ts`'s `ensureConsentsGranted` checks both keys right
+ * before the two actions that lead to an upload and grants only the ones with genuinely NO row;
+ * a `withdrawn` state is the user's own explicit act in Settings and is never repaired here — the
+ * caller shows the way back to Settings instead, and the server's `consent_required` refusal
+ * stands. A read or grant failure, or a round trip slower than `CONSENT_CHECK_TIMEOUT_MS`, is not
+ * fatal: the cards are never held longer than that budget, and `analyze-form`'s own server-side
+ * gate still enforces this and fails closed if the repair could not complete.
  */
+const CONSENT_CHECK_TIMEOUT_MS = 3000;
+
 async function ensureConsentGranted(): Promise<'proceed' | 'withdrawn'> {
-  try {
-    const state = await readConsentState(UPLOAD_HEALTH_CONSENT);
-    if (state === 'withdrawn') return 'withdrawn';
-    if (state === 'none') {
-      await Promise.all([
-        grantConsent(UPLOAD_HEALTH_CONSENT),
-        grantConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
-      ]);
-    }
-  } catch {
-    // Proceed regardless — see the function doc above.
-  }
-  return 'proceed';
+  const result = await ensureConsentsGranted({ timeoutMs: CONSENT_CHECK_TIMEOUT_MS });
+  return result === 'withdrawn' ? 'withdrawn' : 'proceed';
 }
 
 const PRESSED_OPACITY = 0.6;

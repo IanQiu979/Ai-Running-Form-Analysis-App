@@ -11,7 +11,7 @@ import { Text } from 'react-native';
 
 import { Copy } from '@/constants/copy';
 import { readAgeBand, recordAgeBand } from '@/lib/age-band';
-import { FUTURE_UPLOADS_ATTESTATION_CONSENT, grantConsent, readConsentState, UPLOAD_HEALTH_CONSENT } from '@/lib/consent';
+import { ensureConsentsGranted } from '@/lib/consent';
 import { signOut } from '@/lib/sign-out';
 
 import { AgeBandGate } from '../age-band-gate';
@@ -35,7 +35,7 @@ jest.mock('@/lib/sign-out', () => ({ signOut: jest.fn() }));
 jest.mock('@/lib/use-announce', () => ({ useAnnounce: jest.fn() }));
 jest.mock('@/lib/consent', () => {
   const actual = jest.requireActual('@/lib/consent');
-  return { ...actual, grantConsent: jest.fn(), readConsentState: jest.fn() };
+  return { ...actual, ensureConsentsGranted: jest.fn() };
 });
 
 let mockProvider: string = 'google';
@@ -48,8 +48,7 @@ jest.mock('@/lib/session-provider', () => ({
 const mockRead = readAgeBand as jest.Mock;
 const mockRecord = recordAgeBand as jest.Mock;
 const mockSignOut = signOut as jest.Mock;
-const mockGrantConsent = grantConsent as jest.Mock;
-const mockReadConsentState = readConsentState as jest.Mock;
+const mockEnsureConsents = ensureConsentsGranted as jest.Mock;
 
 /** The gate always wraps the signed-in surface; a labelled stand-in makes the a11y hiding visible. */
 const Gate = () => (
@@ -64,10 +63,8 @@ beforeEach(async () => {
   mockRecord.mockReset();
   mockSignOut.mockReset();
   mockSignOut.mockResolvedValue({ ok: true });
-  mockGrantConsent.mockReset();
-  mockGrantConsent.mockResolvedValue(undefined);
-  mockReadConsentState.mockReset();
-  mockReadConsentState.mockResolvedValue('none');
+  mockEnsureConsents.mockReset();
+  mockEnsureConsents.mockResolvedValue('granted');
   // The per-device "answered" note lives in AsyncStorage (jest.setup.js's in-memory mock) and must
   // not leak between tests.
   await AsyncStorage.clear();
@@ -185,7 +182,7 @@ describe('AgeBandGate: recording the choice', () => {
     await waitFor(() => expect(view.queryByTestId('age-band-gate')).toBeNull());
   });
 
-  it('grants both once-ever consents before the gate closes on a successful submit', async () => {
+  it('runs the consent check-and-repair before the gate closes on a successful submit', async () => {
     mockRecord.mockResolvedValue({ ok: true, data: { ageBand: '18_plus', guardianConsentRecorded: false } });
     const view = await render(<Gate />);
     await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
@@ -193,15 +190,13 @@ describe('AgeBandGate: recording the choice', () => {
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
 
-    await waitFor(() => expect(mockGrantConsent).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT));
-    expect(mockGrantConsent).toHaveBeenCalledWith(FUTURE_UPLOADS_ATTESTATION_CONSENT);
-    expect(mockGrantConsent).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(mockEnsureConsents).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(view.queryByTestId('age-band-gate')).toBeNull());
   });
 
-  it('does not close the gate when a consent grant fails after a successful age-band write', async () => {
+  it('does not close the gate when the consent repair fails after a successful age-band write', async () => {
     mockRecord.mockResolvedValue({ ok: true, data: { ageBand: '18_plus', guardianConsentRecorded: false } });
-    mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
+    mockEnsureConsents.mockResolvedValue('failed');
     const view = await render(<Gate />);
     await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
 
@@ -212,63 +207,48 @@ describe('AgeBandGate: recording the choice', () => {
     expect(view.queryByText(Copy.auth.ageGate.error.save)).toBeNull();
     expect(view.getByTestId('age-band-gate')).toBeTruthy();
     expect(view.queryByTestId('tabs-stand-in')).toBeNull();
+    expect(await AsyncStorage.getItem('age-band.recorded.u1')).not.toBe('1');
   });
 
-  it('on the server\'s write-once answer, grants consent (already missing) and lifts once granted', async () => {
+  it('on the server\'s write-once answer, still runs the consent repair and lifts once it settles', async () => {
     mockRecord.mockResolvedValue({ ok: false, code: 'age_band_already_recorded' });
-    mockReadConsentState.mockResolvedValue('none');
     const view = await render(<Gate />);
     await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
-    await waitFor(() => expect(mockGrantConsent).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT));
-    expect(mockGrantConsent).toHaveBeenCalledWith(FUTURE_UPLOADS_ATTESTATION_CONSENT);
+    await waitFor(() => expect(mockEnsureConsents).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(view.queryByTestId('age-band-gate')).toBeNull());
     expect(await AsyncStorage.getItem('age-band.recorded.u1')).toBe('1');
   });
 
-  it('on the server\'s write-once answer, skips granting again when consent is already on file', async () => {
+  it('on the write-once answer, a consent withdrawn on another device lifts the gate without a write — Settings owns the re-grant', async () => {
     mockRecord.mockResolvedValue({ ok: false, code: 'age_band_already_recorded' });
-    mockReadConsentState.mockResolvedValue('granted');
-    const view = await render(<Gate />);
-    await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
-    await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
-    await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
-    await waitFor(() => expect(view.queryByTestId('age-band-gate')).toBeNull());
-    expect(mockGrantConsent).not.toHaveBeenCalled();
-    expect(await AsyncStorage.getItem('age-band.recorded.u1')).toBe('1');
-  });
-
-  it('on the write-once answer, never re-grants a consent withdrawn on another device — the gate lifts, nothing is written', async () => {
-    mockRecord.mockResolvedValue({ ok: false, code: 'age_band_already_recorded' });
-    mockReadConsentState.mockResolvedValue('withdrawn');
+    mockEnsureConsents.mockResolvedValue('withdrawn');
     const view = await render(<Gate />);
     await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
 
     await waitFor(() => expect(view.queryByTestId('age-band-gate')).toBeNull());
-    expect(mockReadConsentState).toHaveBeenCalledWith(UPLOAD_HEALTH_CONSENT);
-    expect(mockGrantConsent).not.toHaveBeenCalled();
+    expect(view.queryByText(Copy.auth.ageGate.error.consent)).toBeNull();
     expect(await AsyncStorage.getItem('age-band.recorded.u1')).toBe('1');
   });
 
-  it('on a successful write, never re-grants a consent that is already withdrawn either', async () => {
+  it('on a successful write, a withdrawn consent lifts the gate the same way', async () => {
     mockRecord.mockResolvedValue({ ok: true, data: { ageBand: '18_plus', guardianConsentRecorded: false } });
-    mockReadConsentState.mockResolvedValue('withdrawn');
+    mockEnsureConsents.mockResolvedValue('withdrawn');
     const view = await render(<Gate />);
     await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-submit')); });
 
     await waitFor(() => expect(view.queryByTestId('age-band-gate')).toBeNull());
-    expect(mockGrantConsent).not.toHaveBeenCalled();
+    expect(view.queryByText(Copy.auth.ageGate.error.consent)).toBeNull();
   });
 
-  it('does NOT close the gate on the write-once answer when consent is missing and the grant fails — this is issue #240, the silent lockout', async () => {
+  it('does NOT close the gate on the write-once answer when the consent repair fails — this is issue #240, the silent lockout', async () => {
     mockRecord.mockResolvedValue({ ok: false, code: 'age_band_already_recorded' });
-    mockReadConsentState.mockResolvedValue('none');
-    mockGrantConsent.mockRejectedValue(new Error('network unreachable'));
+    mockEnsureConsents.mockResolvedValue('failed');
     const view = await render(<Gate />);
     await waitFor(() => expect(view.getByTestId('age-gate-18-plus')).toBeTruthy());
     await act(async () => { fireEvent.press(view.getByTestId('age-gate-18-plus')); });

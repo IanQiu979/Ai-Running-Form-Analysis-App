@@ -396,18 +396,21 @@ describe('SettingsScreen dialogs (every Alert is now a <ConfirmDialog>)', () => 
 
     await press(primary);
     expect(mockWithdrawConsent).toHaveBeenCalledWith('upload.health.v1');
+    expect(mockWithdrawConsent).toHaveBeenCalledWith('upload.futureUploadsAttestation.v1');
+    expect(mockWithdrawConsent).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
     expect(screen.getByText(/^You have not consented to health-related analysis/)).toBeTruthy();
   });
 
-  it('Withdraw consent (failure): says nothing changed, and keeps the action', async () => {
+  it('Withdraw consent (failure): never claims nothing changed — two inserts may half-land — and keeps the action', async () => {
     mockWithdrawConsent.mockRejectedValue(new Error('offline'));
     await renderSettled();
 
     await press(screen.getByRole('button', { name: 'Withdraw consent' }));
     await press(screen.getByTestId('settings-dialog-primary'));
 
-    expect(screen.getByRole('header', { name: 'Consent could not be withdrawn' })).toBeTruthy();
+    expect(screen.getByRole('header', { name: 'Consent could not be fully withdrawn' })).toBeTruthy();
+    expect(screen.queryByText(/Nothing has changed/)).toBeNull();
     await press(screen.getByRole('button', { name: 'OK' }));
     expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
   });
