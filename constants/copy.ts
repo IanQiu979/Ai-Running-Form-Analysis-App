@@ -135,9 +135,11 @@ export const Copy = {
       },
       // The one sentence that keeps `UPLOAD_HEALTH_CONSENT` (`upload.health.v1`) meaning what it
       // did when the key was minted: uploads are health-related data and AI processes them.
+      // Names Anthropic in the affirmative act itself (captain, 2026-09-21; the processor must be
+      // named in the consent copy, not one link away — `docs/privacy-checklist-m7.md` SHOULD).
       // Drawn as the first sentence of the same checkbox row, so the one tick covers both.
       healthProcessing:
-        'Photos and videos you upload are health-related data, processed by AI to analyze your running form.',
+        'Photos and videos you upload are health-related data, processed by AI (Anthropic) to analyze your running form.',
     },
     // The age choice (captain's plan, approved 2026-09-20; mirrors V2.2's guardian-consent block,
     // IanQiu979/Ai-Customized-Running-Plan-App#123). Two options — under 13 is not offered, and

@@ -3845,7 +3845,7 @@ no per-upload interstitial any more (captain's decision from device testing, 202
   exists); that screen carries `auth.ageGate.consentReminder`, a non-interactive line restating
   what Continue records.
 - **What the tick says.** `auth.consent.healthProcessing` — one sentence naming uploads as
-  health-related data processed by AI, which keeps `UPLOAD_HEALTH_CONSENT` (`upload.health.v1`)
+  health-related data processed by AI (Anthropic, named in the tick itself), which keeps `UPLOAD_HEALTH_CONSENT` (`upload.health.v1`)
   meaning what it did when minted — followed by `auth.consent.futureUploads.checkbox`, the standing
   attestation that every upload, now or later, shows only the account holder or someone who agreed.
   One tick, two rows: `UPLOAD_HEALTH_CONSENT` and `FUTURE_UPLOADS_ATTESTATION_CONSENT`.

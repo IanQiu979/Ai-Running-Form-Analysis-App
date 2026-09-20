@@ -64,16 +64,16 @@ protection law (GDPR Article 9).
 
 We ask you to agree once, when you create your account (or, for a Google sign-in, the first
 time you use it). On that same page as the account terms, you must actively tick a statement
-confirming that the photos and videos you upload are health-related data processed by AI to
-analyse your running form, and that any photo or video you upload or record — now or later —
-shows only yourself or someone who has agreed to this analysis. This policy, which names
-Anthropic and explains how your frames are stored, is linked from that page. The app does not
-ask again before each upload; nothing is analysed for an account that has not given this
-consent, and no analysis is created without it.
+confirming that the photos and videos you upload are health-related data processed by AI
+(Anthropic) to analyse your running form, and that any photo or video you upload or record —
+now or later — shows only yourself or someone who has agreed to this analysis. This policy,
+which names Anthropic and explains how your frames are stored, is linked from that page. The
+app does not ask again before each upload; nothing is analysed for an account that has not
+given this consent, and no analysis is created without it.
 
-You can withdraw your consent at any time by deleting your analyses or your account, or by
-contacting us at the address below. Withdrawing stops any further processing of your
-health data; it does not undo processing that already happened.
+You can withdraw your consent at any time from the Consent row in Settings, by deleting your
+analyses or your account, or by contacting us at the address below. Withdrawing stops any
+further processing of your health data; it does not undo processing that already happened.
 
 ---
 

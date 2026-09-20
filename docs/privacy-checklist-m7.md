@@ -185,11 +185,11 @@ real privacy regime, not just GDPR-by-analogy. Flag for counsel before public la
 - [ ] Data export path (Art. 20 portability) — manual/support process acceptable initially.
 - [ ] Disclose deletion persistence in backups (+ the paused Echo project's 90-day restore
       window from 2026-07-10).
-- [ ] Name Anthropic in the consent copy itself. Was RESOLVED 2026-07-12 via
-      `consent.upload.body`, but that key was deleted 2026-09-20 with the per-upload gate, and
-      the replacement sign-up tick (`auth.consent.healthProcessing`) says "processed by AI".
-      Anthropic is named one link away (`settings.privacy.summary`, the privacy policy), not in
-      the affirmative act — **RE-OPENED 2026-09-20**, product call pending.
+- [x] Name Anthropic in the consent copy itself. RESOLVED 2026-07-12 via `consent.upload.body`;
+      that key was deleted 2026-09-20 with the per-upload gate and the item briefly re-opened.
+      **RESOLVED again 2026-09-21**: the sign-up consent tick (`auth.consent.healthProcessing`,
+      drawn on the sign-up form and the Google first-use screen) now reads "processed by AI
+      (Anthropic)", so the processor is named in the affirmative act, not only one link away.
 - [ ] Inactivity auto-purge to give retention a real ceiling.
 
 ## Doc conflicts found (for doc-writer / the phase gates)

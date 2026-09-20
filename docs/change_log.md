@@ -100,6 +100,10 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   the consent copy itself" item: `consent.upload.body` named Anthropic, the replacement
   `auth.consent.healthProcessing` says "AI". `docs/design/copy-deck.md`'s consent section is
   reduced to a pointer at `constants/copy.ts` and `docs/architecture.md`.
+- Docs housekeeping, round 2 (2026-09-21, captain's call): `auth.consent.healthProcessing` now
+  reads "processed by AI (Anthropic)", so the processor is named in the consent tick itself and
+  the checklist item above is resolved again. `docs/privacy-policy.md`'s consent paragraph names
+  Anthropic in the same place and its withdrawal sentence names the Settings Consent row.
 
 ## 2026-09-20 (entry flow — scroll, not tap; the pillars as a one-per-screen story)
 
