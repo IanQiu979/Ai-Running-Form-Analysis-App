@@ -1904,8 +1904,9 @@ milestone "done" criteria.
       still present on production while the file no longer exists in the repo, the next deployer
       MUST run `supabase migration repair --linked --status reverted 20260807090000` BEFORE the
       next `supabase db push --linked`** — otherwise the CLI sees a remote-only ledger row with no
-      matching local file and refuses to push. This is a one-time step; once reverted, the ledger
-      and repo agree again. The `_unlimited` RPCs `20260909120000`/`20260910120000`/`20260907120000`
+      matching local file and refuses to push. **DONE 2026-09-21**, as the first step of that
+      day's deploy (Known Issue #52) — the ledger and repo agree again; this was a one-time step
+      and needs no repeating. The `_unlimited` RPCs `20260909120000`/`20260910120000`/`20260907120000`
       created independently (`reserve_analysis_unlimited(…, jsonb)`, `pace_quota_status_unlimited`,
       `gate_ai_call_unlimited`) are untouched and remain live but orphaned — nothing in the repo
       calls them anymore, and no schema DDL was added or dropped to remove them.
@@ -2087,8 +2088,8 @@ milestone "done" criteria.
     `snapshot/source-*`. Deleted media is not recoverable (no bucket versioning) — the only
     irreversible step, and the reason the three candidates were reviewed before the flip.
 
-52. **13–17 with parent-or-guardian consent at sign-up — code-complete 2026-09-20, NOT DEPLOYED;
-    two follow-ups open.** Captain's plan (approved 2026-09-20; cross-app decision
+52. **13–17 with parent-or-guardian consent at sign-up — code-complete 2026-09-20, DEPLOYED
+    2026-09-21; two follow-ups open.** Captain's plan (approved 2026-09-20; cross-app decision
     IanQiu979/Ai-Customized-Running-Plan-App#95, mirroring that repo's #123): the sign-up form's
     "I am 16+ and agree…" line became an age choice ("18 or older" / "13–17 — my parent or guardian
     agrees", under 13 not offered) plus an age-free Terms + Privacy agreement; `signup-with-captcha`
@@ -2099,11 +2100,22 @@ milestone "done" criteria.
     on first use, via the new `record-age-band` function and `components/age-band-gate.tsx`.
     Details: `docs/change_log.md` 2026-09-20 and `docs/architecture.md` "Current — auth flow".
 
-    **What ships when.** The migration and the two functions are in the PR and NOT applied to
-    `vputdomdlknvthnzritt`; `docs/auth-config-runbook.md` § 3 has the order (migration first — the
-    redeployed `signup-with-captcha` rolls back every sign-up with `age_band_record_failed` until
-    the RPC exists — then the functions, then the app build). `lib/database.types.ts` is
-    hand-patched for the new column/table/RPC and should be regenerated after the push.
+    **DEPLOYED 2026-09-21, ~08:35–08:50 +07.** `docs/auth-config-runbook.md` § 3 has the order
+    that was followed (migration first — the redeployed `signup-with-captcha` rolls back every
+    sign-up with `age_band_record_failed` until the RPC exists — then the functions, then the app
+    build). `supabase migration repair --linked --status reverted 20260807090000` ran first
+    (closes Known Issue #49's pending repair step below), then `supabase db push --linked` applied
+    `20260920120000_guardian_consent.sql` (`profiles.age_band` verified present), then `supabase
+    functions deploy --use-api` for `analyze-form`, `quota-status`, `record-age-band`, and
+    `signup-with-captcha` — everything changed under `supabase/functions/` since PR #234. Verified
+    live with the publishable key as both the `apikey` and `Authorization` headers (the gateway
+    otherwise answers `UNAUTHORIZED_NO_AUTH_HEADER` before the function runs, even for these
+    pre-auth/no-session probes): `signup-with-captcha` without `ageBand` → `400
+    age_band_required`; with `ageBand: '13_17'` and no guardian consent → `400
+    guardian_consent_required`; `record-age-band` without a session → `401 unauthorized`. The app
+    build is NOT done yet — an EAS preview APK follows later this week; the captain's test path
+    until then is the Expo Go dev server. `lib/database.types.ts` was hand-patched for the new
+    column/table/RPC and has now been regenerated against the live project.
 
     **Deliberate non-changes.** Existing email accounts (created under the "16+" line) keep a NULL
     `age_band`: no backfill, no gate, nothing asked. Existing GOOGLE accounts — the captain's own

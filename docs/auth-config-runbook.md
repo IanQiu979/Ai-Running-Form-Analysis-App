@@ -132,7 +132,7 @@ Supabase's `redirect_to` rejection — expected, and the reason this waits for t
 
 ---
 
-## 3. Age band + guardian consent (2026-09-20) — PREPARED, NOT APPLIED
+## 3. Age band + guardian consent (2026-09-20) — APPLIED 2026-09-21
 
 Not an auth-config PATCH — a DB push plus two function deploys — but it lives here because the
 order is load-bearing in the same way § 1's was, and because `signup-with-captcha` is the function
@@ -164,14 +164,21 @@ supabase db query --linked "select has_function_privilege('service_role', 'publi
 # 2. Functions
 supabase functions deploy signup-with-captcha --project-ref $REF --use-api
 supabase functions deploy record-age-band     --project-ref $REF --use-api
-# 3. Verify the refusals live (no account is created by either)
-curl -s -X POST "https://$REF.supabase.co/functions/v1/signup-with-captcha" -H 'Content-Type: application/json' \
+# 3. Verify the refusals live (no account is created by either). The gateway requires the
+#    publishable key as BOTH the apikey and Authorization headers, even for these pre-auth /
+#    no-session probes — omitting them gets UNAUTHORIZED_NO_AUTH_HEADER from the gateway itself,
+#    before the function ever runs, which reads like a function bug and isn't one.
+curl -s -X POST "https://$REF.supabase.co/functions/v1/signup-with-captcha" \
+  -H 'Content-Type: application/json' -H "apikey: $PUBLISHABLE_KEY" -H "Authorization: Bearer $PUBLISHABLE_KEY" \
   -d '{"email":"probe@example.com","password":"probe-Passw0rd!","captchaToken":"x"}'
 # expected: 400 {"code":"age_band_required"}
-curl -s -X POST "https://$REF.supabase.co/functions/v1/signup-with-captcha" -H 'Content-Type: application/json' \
+curl -s -X POST "https://$REF.supabase.co/functions/v1/signup-with-captcha" \
+  -H 'Content-Type: application/json' -H "apikey: $PUBLISHABLE_KEY" -H "Authorization: Bearer $PUBLISHABLE_KEY" \
   -d '{"email":"probe@example.com","password":"probe-Passw0rd!","captchaToken":"x","ageBand":"13_17"}'
 # expected: 400 {"code":"guardian_consent_required"}
-curl -s -X POST "https://$REF.supabase.co/functions/v1/record-age-band" -H 'Content-Type: application/json' -d '{"ageBand":"18_plus"}'
+curl -s -X POST "https://$REF.supabase.co/functions/v1/record-age-band" \
+  -H 'Content-Type: application/json' -H "apikey: $PUBLISHABLE_KEY" -H "Authorization: Bearer $PUBLISHABLE_KEY" \
+  -d '{"ageBand":"18_plus"}'
 # expected: 401 {"code":"unauthorized"}
 # 4. Then the app build (EAS) — the old build's sign-up is refused by the new function until then.
 ```
@@ -182,3 +189,12 @@ ignores the column and the table. Do not drop `guardian_consent` while any 13–
 
 **After the push:** regenerate `lib/database.types.ts` (`supabase gen types typescript --linked`)
 and commit it — the PR hand-patched the three new entries in the generator's shape.
+
+**APPLIED 2026-09-21, ~08:35–08:50 +07.** Ledger repair (`supabase migration repair --linked
+--status reverted 20260807090000`) ran first, closing `docs/status.md` Known Issue #49's pending
+step. `supabase db push --linked` then applied `20260920120000_guardian_consent.sql`; `profiles.age_band`
+verified present. `signup-with-captcha`, `quota-status`, `record-age-band`, and `analyze-form` were
+redeployed with `--use-api` (everything changed under `supabase/functions/` since PR #234). Live
+verification above passed with the `apikey`/`Authorization` headers included, as this section's
+curls now show. App build not done yet — an EAS preview APK follows later this week; the captain's
+test path until then is the Expo Go dev server.

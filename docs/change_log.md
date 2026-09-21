@@ -5,6 +5,27 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-09-21 (production deploy — age band + guardian consent live)
+
+- **Docs-only entry recording the production deploy** of PR #238's 13–17 parent-or-guardian
+  consent work to `vputdomdlknvthnzritt`, ~08:35–08:50 +07. In order: `supabase migration repair
+  --linked --status reverted 20260807090000` (closes `docs/status.md` Known Issue #49's pending
+  repair step — production's ledger still had a row for the deleted override migration, #237);
+  `supabase db push --linked`, which applied `20260920120000_guardian_consent.sql` (`profiles.age_band`
+  verified present); `supabase functions deploy --use-api` for `analyze-form`, `quota-status`,
+  `record-age-band`, and `signup-with-captcha` — every function changed under `supabase/functions/`
+  since PR #234, per `git diff --stat`. Live verification, with the publishable key as both the
+  `apikey` and `Authorization` headers (the gateway answers `UNAUTHORIZED_NO_AUTH_HEADER` before
+  the function runs without them, even pre-auth/no-session): `signup-with-captcha` without
+  `ageBand` → `400 age_band_required`; with `ageBand: '13_17'` and no guardian consent → `400
+  guardian_consent_required`; `record-age-band` without a session → `401 unauthorized`.
+  `docs/auth-config-runbook.md` § 3's verification curls were missing those two headers and got
+  the gateway-level error instead of the function's own response — fixed in the same pass.
+  `docs/status.md` Known Issues #52 (deployed) and #49 (repair done) updated; the `docs/architecture.md`
+  API table's four function rows updated. `lib/database.types.ts` regenerated against the live
+  project. App build not done yet — an EAS preview APK follows later this week; the Expo Go dev
+  server remains the test path until then.
+
 ## 2026-09-21 (Compare re-cut to V23, change-list item 5)
 
 - **`app/compare.tsx` re-cut to the V23 sheet** — the captain flagged it via his own phone test
