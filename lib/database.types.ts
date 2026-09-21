@@ -12,22 +12,13 @@
 // itself — the generic on `createClient<Database>` in `lib/supabase.ts` would silently fall
 // back to untyped if this were gitignored.
 //
-// KNOWN DRIFT (2026-07-13): two functions defined in this repo's migrations —
-// `pace_quota_status` (`20260712233000_quota_status_function.sql`) and `pace_purchase_tier`
-// (`20260713120000_purchase_tier_function.sql`) — are NOT present below because they have not
-// been pushed to the linked project yet (confirmed via the Supabase MCP's `list_migrations`,
-// which stops at `20260712230000`). This is expected and already documented at the two call
-// sites that depend on them (`supabase/functions/_shared/quota-status.ts`,
-// `supabase/functions/_shared/purchase-tier.ts` — both deploy-gated, per their own headers).
-// Once those migrations are pushed, regenerate this file and the two `.rpc(...)` calls in that
-// pair of edge functions will start being checked against real return types instead of
-// whatever shape their hand-written parsers assume.
-//
-// HAND-PATCHED 2026-09-20 (the one exception to the header): `profiles.age_band`,
-// `guardian_consent` and `pace_record_age_band` from `20260920120000_guardian_consent.sql` were
-// added by hand, in the generator's own shape, because `lib/age-band.ts` reads the new column
-// and the migration cannot be pushed from a PR branch (deploys are captain-run). Regenerate as
-// above after that migration is live and the diff should be empty for these entries.
+// Regenerated 2026-09-21 against the live project after that day's deploy (docs/status.md Known
+// Issue #52): includes `profiles.age_band`, `guardian_consent`, and `pace_record_age_band` for
+// real (the 2026-09-20 hand-patch is gone — the diff against it was empty for those entries),
+// plus the 2026-09-19 migrations (`analysis_request_aliases`, `canonical_analysis_claims`, the
+// zero-pillar cooldown RPCs) that a prior docs-only deploy PR (#234) never regenerated this file
+// for. `pace_quota_status` and `pace_purchase_tier` are both present — the 2026-07-13 KNOWN DRIFT
+// note about them being unpushed is stale and removed.
 export type Json =
   | string
   | number
@@ -182,6 +173,9 @@ export type Database = {
           id: boolean
           pending_timeout_seconds: number
           updated_at: string
+          user_daily_usd_cap_elite: number
+          user_daily_usd_cap_free: number
+          user_daily_usd_cap_pro: number
         }
         Insert: {
           analyze_enabled?: boolean
@@ -192,6 +186,9 @@ export type Database = {
           id?: boolean
           pending_timeout_seconds?: number
           updated_at?: string
+          user_daily_usd_cap_elite?: number
+          user_daily_usd_cap_free?: number
+          user_daily_usd_cap_pro?: number
         }
         Update: {
           analyze_enabled?: boolean
@@ -202,6 +199,9 @@ export type Database = {
           id?: boolean
           pending_timeout_seconds?: number
           updated_at?: string
+          user_daily_usd_cap_elite?: number
+          user_daily_usd_cap_free?: number
+          user_daily_usd_cap_pro?: number
         }
         Relationships: []
       }
@@ -266,6 +266,93 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "analyses_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      analysis_request_aliases: {
+        Row: {
+          analysis_id: string
+          analyzer_revision: string
+          created_at: string
+          idempotency_key: string
+          input_fingerprint: string
+          tier_at_run: Database["public"]["Enums"]["analysis_tier"]
+          user_id: string
+        }
+        Insert: {
+          analysis_id: string
+          analyzer_revision: string
+          created_at?: string
+          idempotency_key: string
+          input_fingerprint: string
+          tier_at_run: Database["public"]["Enums"]["analysis_tier"]
+          user_id: string
+        }
+        Update: {
+          analysis_id?: string
+          analyzer_revision?: string
+          created_at?: string
+          idempotency_key?: string
+          input_fingerprint?: string
+          tier_at_run?: Database["public"]["Enums"]["analysis_tier"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_request_aliases_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "analysis_request_aliases_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      canonical_analysis_claims: {
+        Row: {
+          analysis_id: string
+          analyzer_revision: string
+          created_at: string
+          input_fingerprint: string
+          tier_at_run: Database["public"]["Enums"]["analysis_tier"]
+          user_id: string
+        }
+        Insert: {
+          analysis_id: string
+          analyzer_revision: string
+          created_at?: string
+          input_fingerprint: string
+          tier_at_run: Database["public"]["Enums"]["analysis_tier"]
+          user_id: string
+        }
+        Update: {
+          analysis_id?: string
+          analyzer_revision?: string
+          created_at?: string
+          input_fingerprint?: string
+          tier_at_run?: Database["public"]["Enums"]["analysis_tier"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canonical_analysis_claims_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: true
+            referencedRelation: "analyses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "canonical_analysis_claims_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -386,6 +473,18 @@ export type Database = {
     Functions: {
       ai_breaker_state: { Args: never; Returns: Json }
       ai_spend_today: { Args: never; Returns: Json }
+      ai_user_daily_cap_usd: {
+        Args: { p_tier: Database["public"]["Enums"]["analysis_tier"] }
+        Returns: number
+      }
+      attach_media_paths: {
+        Args: {
+          p_analysis_id: string
+          p_media_paths: string[]
+          p_user_id: string
+        }
+        Returns: Json
+      }
       gate_ai_call: {
         Args: {
           p_analysis_id?: string
@@ -396,9 +495,76 @@ export type Database = {
         }
         Returns: Json
       }
+      gate_ai_call_for_tier: {
+        Args: {
+          p_analysis_id?: string
+          p_estimated_input_tokens: number
+          p_estimated_output_tokens: number
+          p_model?: string
+          p_tier: Database["public"]["Enums"]["analysis_tier"]
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      gate_ai_call_unlimited: {
+        Args: {
+          p_analysis_id?: string
+          p_estimated_input_tokens: number
+          p_estimated_output_tokens: number
+          p_model?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      list_orphaned_media_prefixes: {
+        Args: { p_limit?: number; p_older_than?: string }
+        Returns: {
+          analysis_id: string
+          object_count: number
+          oldest_object_at: string
+          prefix: string
+          user_id: string
+        }[]
+      }
       pace_add_months_clamped: {
         Args: { base: string; n: number }
         Returns: string
+      }
+      pace_before_user_created: { Args: { event: Json }; Returns: Json }
+      pace_current_period: {
+        Args: { anchor: string; as_of: string }
+        Returns: unknown
+      }
+      pace_current_tier: {
+        Args: { p_user_id: string }
+        Returns: Database["public"]["Enums"]["analysis_tier"]
+      }
+      pace_is_farming_signal: {
+        Args: { p_release_reason: string }
+        Returns: boolean
+      }
+      pace_media_paths_within_namespace: {
+        Args: {
+          p_analysis_id: string
+          p_media_paths: string[]
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      pace_purchase_tier: {
+        Args: {
+          p_tier: Database["public"]["Enums"]["subscription_tier"]
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      pace_quota_status: {
+        Args: { p_as_of?: string; p_user_id: string }
+        Returns: Json
+      }
+      pace_quota_status_unlimited: {
+        Args: { p_as_of?: string; p_user_id: string }
+        Returns: Json
       }
       pace_record_age_band: {
         Args: {
@@ -409,14 +575,11 @@ export type Database = {
         }
         Returns: undefined
       }
-      pace_current_period: {
-        Args: { anchor: string; as_of: string }
-        Returns: unknown
+      pace_zero_pillar_cooldown_remaining: {
+        Args: { p_user_id: string }
+        Returns: number
       }
-      pace_is_farming_signal: {
-        Args: { p_release_reason: string }
-        Returns: boolean
-      }
+      pace_zero_pillar_cooldown_seconds: { Args: never; Returns: number }
       record_ai_call: {
         Args: {
           p_analysis_id?: string
@@ -433,54 +596,65 @@ export type Database = {
         Args: { p_analysis_id: string; p_reason?: string; p_user_id: string }
         Returns: Json
       }
+      reserve_analysis:
+        | {
+            Args: {
+              p_frame_count: number
+              p_idempotency_key: string
+              p_media_type: Database["public"]["Enums"]["media_type"]
+              p_user_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_analysis_identity: Json
+              p_frame_count: number
+              p_idempotency_key: string
+              p_media_type: Database["public"]["Enums"]["media_type"]
+              p_user_id: string
+            }
+            Returns: Json
+          }
+      reserve_analysis_unlimited: {
+        Args: {
+          p_analysis_identity: Json
+          p_frame_count: number
+          p_idempotency_key: string
+          p_media_type: Database["public"]["Enums"]["media_type"]
+          p_user_id: string
+        }
+        Returns: Json
+      }
       resolve_analysis_request: {
         Args: { p_idempotency_key: string }
         Returns: Json
       }
-      reserve_analysis: {
-        Args:
-          | {
-              p_frame_count: number
-              p_idempotency_key: string
-              p_media_type: Database["public"]["Enums"]["media_type"]
+      settle_analysis:
+        | {
+            Args: {
+              p_analysis_id: string
+              p_is_fallback?: boolean
+              p_media_paths?: string[]
+              p_result: Json
               p_user_id: string
             }
-          | {
-              p_analysis_identity: Json
-              p_frame_count: number
-              p_idempotency_key: string
-              p_media_type: Database["public"]["Enums"]["media_type"]
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_analysis_id: string
+              p_is_fallback: boolean
+              p_media_paths: string[]
+              p_result: Json
               p_user_id: string
+              p_zero_pillar: boolean
             }
-        Returns: Json
-      }
-      reserve_analysis_unlimited: {
-        Args:
-          | {
-              p_frame_count: number
-              p_idempotency_key: string
-              p_media_type: Database["public"]["Enums"]["media_type"]
-              p_user_id: string
-            }
-          | {
-              p_analysis_identity: Json
-              p_frame_count: number
-              p_idempotency_key: string
-              p_media_type: Database["public"]["Enums"]["media_type"]
-              p_user_id: string
-            }
-        Returns: Json
-      }
-      settle_analysis: {
-        Args: {
-          p_analysis_id: string
-          p_is_fallback?: boolean
-          p_media_paths?: string[]
-          p_result: Json
-          p_user_id: string
-          p_zero_pillar: boolean
-        }
-        Returns: Json
+            Returns: Json
+          }
+      sweep_stale_reservations: {
+        Args: { p_batch_limit?: number; p_stale_after?: string }
+        Returns: number
       }
     }
     Enums: {
@@ -511,12 +685,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -540,11 +714,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -565,11 +739,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -590,11 +764,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -607,11 +781,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
