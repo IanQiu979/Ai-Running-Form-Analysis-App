@@ -18,8 +18,8 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   contact fails; any other warns. VO in cm still fails everywhere. New export
   `classifyNumericClaims` returns the per-figure judgement.
 - **The four round-6 and two round-7 gaps #208 listed are closed**, and the six regex rounds' 11
-  edge cases plus those gaps are one table-driven corpus in `grounding-eval.deno.test.ts` (39 rows;
-  the old grader misjudged 18 of them). A replay test runs the grader over every real recorded
+  edge cases plus those gaps are one table-driven corpus in `grounding-eval.deno.test.ts` (72 rows;
+  the old grader misjudged 34 of them). A replay test runs the grader over every real recorded
   result in `stride-burst-latency.results.json` and `grounding-eval.results.json` (14) and requires
   all to pass — none changed verdict (all 14 passed before and after).
 - **One existing test's expectation changed, on purpose.** The 2026-09-07 Elite sentence (`…from
