@@ -806,6 +806,10 @@ const FALSE_PRECISION_CORPUS: CorpusRow[] = [
   { origin: 'review: a hedged or demonstrative evidence window', text: 'Ground contact cannot be timed from a roughly 700 ms window.', expect: 'pass' },
   { origin: 'review: a hedged or demonstrative evidence window', text: 'Ground contact cannot be timed from the approximately 700 ms window.', expect: 'pass' },
   { origin: 'review: a hedged or demonstrative evidence window', text: 'Ground contact cannot be timed from this ~700 ms burst.', expect: 'pass' },
+  { origin: 'review: a refusal that names the evidence or the runner', text: 'Ground contact cannot be timed from the ~700 ms window of this burst.', expect: 'pass' },
+  { origin: 'review: a refusal that names the evidence or the runner', text: 'Ground contact cannot be judged here from a ~700 ms window.', expect: 'pass' },
+  { origin: 'review: a refusal that names the evidence or the runner', text: 'Your ground contact cannot be timed from a ~700 ms window.', expect: 'pass' },
+  { origin: 'review: a refusal that names the evidence or the runner', text: 'I cannot time your ground contact from a ~700 ms burst.', expect: 'pass' },
 ];
 
 Deno.test('#208: every case in the false-precision regression corpus', () => {
