@@ -1014,7 +1014,7 @@ export interface NumericFigure {
   clause: string;
 }
 
-const NUM = String.raw`\d{1,3}`;
+const NUM = String.raw`\d{1,3}(?:\.\d+)?`;
 /** A range separator. The dashes are INSIDE a figure, which is why figures are masked before any
  * clause is split — #208's round-7 gap was "160–170" being cut in two by the clause splitter. */
 const RANGE_SEP = String.raw`\s*(?:[-–—]|\bto\b|\band\b)\s*`;
@@ -1063,16 +1063,19 @@ const INTERVAL_AFTER = new RegExp(
   String.raw`^\s*(?:\([^)]{0,40}\)\s*)?-?\s*(?:apart|intervals?|spacing|spaced|gaps?|window|burst|span|frames?|samples?|between\s+(?:frames|captures|samples)|of\s+(?:footage|video|clip|film|capture|recording|motion|running))\b`,
   'i'
 );
-const INTERVAL_BEFORE = anyOf(
+const FRAMES_BEFORE = anyOf(
   [
     // "frames ~200 ms apart", "frames taken every 100 ms"
     String.raw`\b(?:frames?|timestamps?|captures?|samples?)\s+(?:(?:are|were|is|sit|sits|come|spaced|taken|roughly|about|around|every|at|only)\s+){0,3}~?\s*$`,
-    // "a spacing of about 200 ms", "a window of 700 ms", "the burst is ~700 ms"
-    String.raw`\b(?:spacing|interval|gap|window|span|burst|clip|footage|video|recording)\s+(?:(?:of|is|was)\s+)?(?:(?:about|around|roughly|approximately|only|just)\s+)?~?\s*$`,
     String.raw`\bevery\s+(?:(?:about|around|roughly)\s+)?~?\s*$`,
   ],
   'i'
 );
+/** "a spacing of about 200 ms", "a window of 700 ms". Weaker than `FRAMES_BEFORE`/`INTERVAL_AFTER`:
+ * it never excuses a figure whose own clause names ground contact ("ground contact window of
+ * 250 ms"), and an evidence noun ("in this clip is about 250 ms") is not an interval at all. */
+const INTERVAL_NOUN_BEFORE =
+  /\b(?:spacing|interval|gap|window|span)\s+(?:(?:of|is|was)\s+)?(?:(?:about|around|roughly|approximately|only|just)\s+)?~?\s*$/i;
 const GCT_TERMS = anyOf(
   [
     String.raw`ground[-\s]?contact`,
@@ -1118,8 +1121,11 @@ const COMPARISON_BEFORE = /\b(?:like|than|unlike|versus|vs\.?|compared\s+(?:with
  * AFTER it in its clause, so "You are at 164 spm and should aim for 170 spm" still fails on 164. */
 const PRESCRIPTION_MARKER = anyOf(
   [
-    String.raw`\b(?:aim|aiming|shoot|shooting|go|going)\s+(?:for|at)\b`,
-    String.raw`\btarget(?:s|ing|ed)?\b`,
+    String.raw`\b(?:aim|aiming|shoot|shooting)\s+for\b`,
+    // "a target of", "target cadence of", "your target is" — the noun, never "on target at"
+    String.raw`\btargets?\s+(?:${CADENCE_NOUN}\s+|rate\s+)?(?:of|is|would\s+be|should\s+be)\b`,
+    // the imperative verb, at the head of its clause: "Target about 170 spm"
+    String.raw`^\s*(?:then\s+|and\s+|so\s+)?target\b`,
     String.raw`\bgoal\b`,
     // "work toward", "build up to", "bring your cadence up to"
     String.raw`\b(?:work|working|build|building|move|moving|progress|progressing|climb|climbing|nudge|nudging|bring|bringing|raise|raising|lift|lifting|increase|increasing|push|pushing|bump|bumping|ease|easing)\b(?:\s+\S+){0,3}?\s+(?:up\s+)?(?:to|toward|towards|into)\b`,
@@ -1130,11 +1136,13 @@ const PRESCRIPTION_MARKER = anyOf(
   'i'
 );
 
-/** Sentence ends, but not a decimal point ("1.5 cm"). */
-const SENTENCE_END = /[.!?](?!\d)|\n/;
+/** Sentence ends, but not a decimal point ("1.5 cm") or an abbreviation ("approx.", "vs.", "e.g.",
+ * "i.e."), whose period would otherwise cut a hedge or a comparison off from its figure. */
+const SENTENCE_END =
+  /(?<!\b(?:approx|vs|e\.g|i\.e))(?<!\be(?=\.g\.))(?<!\bi(?=\.e\.))[.!?](?!\d)|\n/i;
 /** Clause boundaries, applied to a sentence whose figures are already masked. A coordinating
  * conjunction only starts a clause when a new subject follows it ("…170-180 spm and you look…"). */
-const CLAUSE_BREAK = anyOf(
+const CLAUSE_BREAK_ALTERNATIVES = anyOf(
   [
     String.raw`[;,:()—–]`,
     String.raw`\s-\s`,
@@ -1143,6 +1151,13 @@ const CLAUSE_BREAK = anyOf(
   ],
   'i'
 );
+/** The same breaks, captured, so `split` keeps each separator between the clauses it divides. */
+const CLAUSE_BREAK = new RegExp(`(${CLAUSE_BREAK_ALTERNATIVES.source})`, 'i');
+/** A hard break ends a prescription: "Cadence should come up; right now it is about 158 spm". */
+const HARD_BREAK = /^[;:]$/;
+/** A relative or appositive clause describes its antecedent; it never becomes the main clause's
+ * subject ("Your cadence, which is typical for recreational runners, looks like roughly 160 spm"). */
+const RELATIVE_CLAUSE = /^\s*(?:which|who|whom|whose|that)\b/i;
 
 /** Placeholders the masked sentence carries in place of each figure. Control characters never
  * appear in model prose and never match a clause break or a marker. */
@@ -1198,7 +1213,7 @@ type Judgement = Pick<NumericFigure, 'verdict' | 'reason'>;
 function judgeSpm(figure: RawFigure, sentence: string, subject: ClaimSubject): Judgement {
   const before = sentence.slice(0, figure.start);
   const after = sentence.slice(figure.end);
-  const values = (figure.text.match(/\d+/g) ?? []).map(Number);
+  const values = (figure.text.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
   if (
     DELTA_BEFORE.test(before) ||
     DELTA_AFTER.test(after) ||
@@ -1220,12 +1235,17 @@ function judgeSpm(figure: RawFigure, sentence: string, subject: ClaimSubject): J
   }
 }
 
-function judgeMs(figure: RawFigure, sentence: string): Judgement {
+function judgeMs(figure: RawFigure, sentence: string, clause: string): Judgement {
   const before = sentence.slice(0, figure.start);
-  if (INTERVAL_BEFORE.test(before) || INTERVAL_AFTER.test(sentence.slice(figure.end))) {
+  const namesContact = GCT_TERMS.test(clause);
+  if (
+    FRAMES_BEFORE.test(before) ||
+    INTERVAL_AFTER.test(sentence.slice(figure.end)) ||
+    (!namesContact && INTERVAL_NOUN_BEFORE.test(before))
+  ) {
     return { verdict: 'pass', reason: 'the frame spacing or window, not a ground-contact time' };
   }
-  return GCT_TERMS.test(sentence)
+  return namesContact || GCT_TERMS.test(sentence)
     ? { verdict: 'fail', reason: 'a ground-contact time in ms' }
     : { verdict: 'warn', reason: 'a millisecond figure that is neither a frame interval nor named' };
 }
@@ -1251,7 +1271,10 @@ export function classifyNumericClaims(text: string): NumericFigure[] {
     const restore = (s: string) => s.replace(MASK, (_, i) => figures[Number(i)].text).trim();
 
     let carried: ClaimSubject = 'unattributed';
-    for (const clause of masked.split(CLAUSE_BREAK)) {
+    const parts = masked.split(CLAUSE_BREAK);
+    for (let p = 0; p < parts.length; p += 2) {
+      const clause = parts[p];
+      if (p > 0 && carried === 'prescription' && HARD_BREAK.test(parts[p - 1])) carried = 'unattributed';
       const own = clauseSubject(clause);
       const subjectHere: ClaimSubject = own ?? carried;
       let segmentStart = 0;
@@ -1265,12 +1288,14 @@ export function classifyNumericClaims(text: string): NumericFigure[] {
           figure.kind === 'spm'
             ? judgeSpm(figure, sentence, subject)
             : figure.kind === 'ms'
-              ? judgeMs(figure, sentence)
+              ? judgeMs(figure, sentence, clause)
               : { verdict: 'fail' as const, reason: 'a vertical-oscillation figure in cm' };
         out.push({ text: figure.text, kind: figure.kind, subject, ...judged, clause: restore(clause) });
       }
       // A clause that names nobody but prescribes hands that on ("Aim for a quicker rhythm, around
       // 170 spm"); one that names nobody at all hands on whatever it inherited.
+      // A relative clause hands on nothing: the main clause's subject resumes after it.
+      if (RELATIVE_CLAUSE.test(clause)) continue;
       carried = own ?? (PRESCRIPTION_MARKER.test(clause) ? 'prescription' : carried);
     }
   }

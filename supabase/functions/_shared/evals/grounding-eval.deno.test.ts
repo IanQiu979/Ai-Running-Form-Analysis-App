@@ -773,6 +773,19 @@ const FALSE_PRECISION_CORPUS: CorpusRow[] = [
   { origin: '#112 GCT', text: 'Most elite runners spend under 200 ms on the ground.', expect: 'fail', fails: ['200 ms'] },
   { origin: '#112 VO', text: 'You are bouncing about 12 cm vertically on each step.', expect: 'fail', fails: ['12 cm'] },
   { origin: '#112: an unexplained ms figure is worth an eye', text: 'Flight time looks close to 120 ms.', expect: 'warn' },
+
+  // ── Review round 1 on the classifier ─────────────────────────────────────────────────────
+  { origin: 'review: an evidence noun is not a frame interval', text: 'Your ground contact time in this clip is about 250 ms.', expect: 'fail', fails: ['250 ms'] },
+  { origin: 'review: an evidence noun is not a frame interval', text: 'Ground contact across the burst is about 240 ms.', expect: 'fail', fails: ['240 ms'] },
+  { origin: 'review: a decimal cadence is one figure', text: 'Your cadence is 164.5 spm.', expect: 'fail', fails: ['164.5 spm'] },
+  { origin: 'review: "going at" describes, it does not prescribe', text: "You're going at roughly 162 spm.", expect: 'fail', fails: ['162 spm'] },
+  { origin: 'review: "going at" describes, it does not prescribe', text: 'Going at about 160 spm, you are overstriding.', expect: 'fail', fails: ['160 spm'] },
+  { origin: 'review: "on target" is not a target', text: 'You are on target at roughly 170 spm.', expect: 'fail', fails: ['170 spm'] },
+  { origin: 'review: a relative clause does not replace the main subject', text: 'Your cadence, which is typical for recreational runners, looks like roughly 160 spm.', expect: 'fail', fails: ['160 spm'] },
+  { origin: 'review: a prescription does not carry across a hard break', text: 'Cadence should come up; right now it is about 158 spm.', expect: 'fail', fails: ['158 spm'] },
+  { origin: 'review: an abbreviation does not end the sentence', text: 'Your cadence looks approx. 165 spm.', expect: 'fail', fails: ['165 spm'] },
+  { origin: 'review: an abbreviation does not end the sentence', text: 'Most runners vs. you: you sit around 160 spm.', expect: 'fail', fails: ['160 spm'] },
+  { origin: 'review: a noun-phrase target is prescription', text: 'A target of about 170 spm is reasonable for the next block.', expect: 'pass' },
 ];
 
 Deno.test('#208: every case in the false-precision regression corpus', () => {
