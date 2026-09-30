@@ -1067,7 +1067,7 @@ const INTERVAL_AFTER = new RegExp(
  * in a clause about ground contact ("cannot be timed from frames ~100 ms apart"). A bare frame
  * reference ("250 ms between frames 4 and 6", "240 ms - frames 3 to 5") does not. */
 const SPACING_AFTER =
-  /^\s*(?:\([^)]{0,40}\)\s*)?-?\s*(?:apart|intervals?|spacing|spaced|gaps?|of\s+(?:footage|video|clip|film|capture|recording))\b/i;
+  /^\s*(?:\([^)]{0,40}\)\s*)?-?\s*(?:apart|intervals?|spacing|spaced|gaps?|window|burst|span|of\s+(?:footage|video|clip|film|capture|recording))\b/i;
 /** A real spacing form: "frames spaced ~200 ms", "frames taken every 100 ms". */
 const FRAMES_BEFORE = anyOf(
   [
