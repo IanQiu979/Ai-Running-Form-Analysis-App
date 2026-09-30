@@ -663,6 +663,7 @@ Deno.test('THE GRADER IS NOT THE BUG (2): describing the FRAME SPACING in ms is 
     'The grader judged the FRAME INTERVAL ("~200ms-apart") as a ground-contact time. A millisecond ' +
       `figure describing the frame spacing is not a GCT claim. Got: ${JSON.stringify(ms)}`
   );
+  // Recorded 2026-09-07, BEFORE the stride-burst migration forbade ranges — the verdict moved, not the rule.
   assert(
     figures.some((f) => f.kind === 'spm' && f.verdict === 'fail'),
     `A range estimated for this runner must fail since the stride-burst migration. Got: ${JSON.stringify(figures)}`
