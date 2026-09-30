@@ -1067,7 +1067,10 @@ const INTERVAL_AFTER = new RegExp(
  * in a clause about ground contact ("cannot be timed from frames ~100 ms apart"). A bare frame
  * reference ("250 ms between frames 4 and 6", "240 ms - frames 3 to 5") does not. */
 const SPACING_AFTER =
-  /^\s*(?:\([^)]{0,40}\)\s*)?-?\s*(?:apart|intervals?|spacing|spaced|gaps?|window|burst|span|of\s+(?:footage|video|clip|film|capture|recording))\b/i;
+  /^\s*(?:\([^)]{0,40}\)\s*)?-?\s*(?:apart|intervals?|spacing|spaced|gaps?|of\s+(?:footage|video|clip|film|capture|recording))\b/i;
+// A ms figure passes when it names the EVIDENCE WINDOW the model reasons from, never the runner's contact.
+const EVIDENCE_WINDOW_BEFORE = /\b(?:from|across|in|over|within)\s+(?:a|an|the)\s+~?\s*$/i;
+const EVIDENCE_WINDOW_AFTER = /^\s*(?:window|burst|span)\b/i;
 /** A real spacing form: "frames spaced ~200 ms", "frames taken every 100 ms". */
 const FRAMES_BEFORE = anyOf(
   [
@@ -1254,6 +1257,7 @@ function judgeMs(figure: RawFigure, sentence: string, clause: string): Judgement
   if (
     FRAMES_BEFORE.test(before) ||
     (namesContact ? SPACING_AFTER : INTERVAL_AFTER).test(sentence.slice(figure.end)) ||
+    (EVIDENCE_WINDOW_BEFORE.test(before) && EVIDENCE_WINDOW_AFTER.test(sentence.slice(figure.end))) ||
     (!namesContact && INTERVAL_NOUN_BEFORE.test(before))
   ) {
     return { verdict: 'pass', reason: 'the frame spacing or window, not a ground-contact time' };
