@@ -1068,8 +1068,10 @@ const INTERVAL_AFTER = new RegExp(
  * reference ("250 ms between frames 4 and 6", "240 ms - frames 3 to 5") does not. */
 const SPACING_AFTER =
   /^\s*(?:\([^)]{0,40}\)\s*)?-?\s*(?:apart|intervals?|spacing|spaced|gaps?|of\s+(?:footage|video|clip|film|capture|recording))\b/i;
-// A ms figure passes when it names the EVIDENCE WINDOW the model reasons from, never the runner's contact.
-const EVIDENCE_WINDOW_BEFORE = /\b(?:from|across|in|over|within)\s+(?:a|an|the)\s+~?\s*$/i;
+// A ms figure passes when it names the EVIDENCE WINDOW the model reasons from ("timed from a ~700 ms
+// window"), never when it describes this runner's contact ("your ground contact sits within a 250 ms window").
+const EVIDENCE_WINDOW_BEFORE =
+  /\b(?:from|across|in)\s+(?:a|an|the|this|that)\s+(?:(?:roughly|about|around|approximately|approx\.?)\s+)?~?\s*$/i;
 const EVIDENCE_WINDOW_AFTER = /^\s*(?:window|burst|span)\b/i;
 /** A real spacing form: "frames spaced ~200 ms", "frames taken every 100 ms". */
 const FRAMES_BEFORE = anyOf(
@@ -1251,13 +1253,15 @@ function judgeSpm(figure: RawFigure, sentence: string, subject: ClaimSubject): J
   }
 }
 
-function judgeMs(figure: RawFigure, sentence: string, clause: string): Judgement {
+function judgeMs(figure: RawFigure, sentence: string, clause: string, subject: ClaimSubject): Judgement {
   const before = sentence.slice(0, figure.start);
   const namesContact = GCT_TERMS.test(clause);
   if (
     FRAMES_BEFORE.test(before) ||
     (namesContact ? SPACING_AFTER : INTERVAL_AFTER).test(sentence.slice(figure.end)) ||
-    (EVIDENCE_WINDOW_BEFORE.test(before) && EVIDENCE_WINDOW_AFTER.test(sentence.slice(figure.end))) ||
+    (subject !== 'runner' &&
+      EVIDENCE_WINDOW_BEFORE.test(before) &&
+      EVIDENCE_WINDOW_AFTER.test(sentence.slice(figure.end))) ||
     (!namesContact && INTERVAL_NOUN_BEFORE.test(before))
   ) {
     return { verdict: 'pass', reason: 'the frame spacing or window, not a ground-contact time' };
@@ -1305,7 +1309,7 @@ export function classifyNumericClaims(text: string): NumericFigure[] {
           figure.kind === 'spm'
             ? judgeSpm(figure, sentence, subject)
             : figure.kind === 'ms'
-              ? judgeMs(figure, sentence, clause)
+              ? judgeMs(figure, sentence, clause, subjectHere)
               : { verdict: 'fail' as const, reason: 'a vertical-oscillation figure in cm' };
         out.push({ text: figure.text, kind: figure.kind, subject, ...judged, clause: restore(clause) });
       }

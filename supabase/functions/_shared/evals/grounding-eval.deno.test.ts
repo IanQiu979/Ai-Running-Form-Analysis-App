@@ -801,6 +801,11 @@ const FALSE_PRECISION_CORPUS: CorpusRow[] = [
   { origin: 'review: a window noun does not excuse a ground-contact duration', text: 'Your ground contact lasts roughly a 250 ms span.', expect: 'fail', fails: ['250 ms'] },
   { origin: 'review: a window noun does not excuse a ground-contact duration', text: 'Each ground contact is about a 250 ms window on the ground.', expect: 'fail', fails: ['250 ms'] },
   { origin: 'review: a window noun does not excuse a ground-contact duration', text: 'Ground contact looks like about 240 ms burst of stance.', expect: 'fail', fails: ['240 ms'] },
+  { origin: 'review: a runner-attributed window is a contact claim', text: 'Your ground contact sits within a 250 ms window.', expect: 'fail', fails: ['250 ms'] },
+  { origin: 'review: a runner-attributed window is a contact claim', text: 'Your ground contact happens over a 240 ms span.', expect: 'fail', fails: ['240 ms'] },
+  { origin: 'review: a hedged or demonstrative evidence window', text: 'Ground contact cannot be timed from a roughly 700 ms window.', expect: 'pass' },
+  { origin: 'review: a hedged or demonstrative evidence window', text: 'Ground contact cannot be timed from the approximately 700 ms window.', expect: 'pass' },
+  { origin: 'review: a hedged or demonstrative evidence window', text: 'Ground contact cannot be timed from this ~700 ms burst.', expect: 'pass' },
 ];
 
 Deno.test('#208: every case in the false-precision regression corpus', () => {
