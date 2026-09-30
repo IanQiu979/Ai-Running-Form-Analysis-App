@@ -786,6 +786,11 @@ const FALSE_PRECISION_CORPUS: CorpusRow[] = [
   { origin: 'review: an abbreviation does not end the sentence', text: 'Your cadence looks approx. 165 spm.', expect: 'fail', fails: ['165 spm'] },
   { origin: 'review: an abbreviation does not end the sentence', text: 'Most runners vs. you: you sit around 160 spm.', expect: 'fail', fails: ['160 spm'] },
   { origin: 'review: a noun-phrase target is prescription', text: 'A target of about 170 spm is reasonable for the next block.', expect: 'pass' },
+  { origin: 'review: frames as the evidence are not a frame interval', text: 'Ground contact in these frames is about 240 ms.', expect: 'fail', fails: ['240 ms'] },
+  { origin: 'review: frames as the evidence are not a frame interval', text: 'Your ground contact across the samples is about 250 ms.', expect: 'fail', fails: ['250 ms'] },
+  { origin: 'review: a prescription carries across a colon', text: 'Target: roughly 170 spm.', expect: 'pass' },
+  { origin: 'review: a prescription carries across a colon', text: 'Goal: about 170 spm.', expect: 'pass' },
+  { origin: 'review: a prescription carries across a colon', text: 'Aim for this: roughly 170 spm.', expect: 'pass' },
 ];
 
 Deno.test('#208: every case in the false-precision regression corpus', () => {

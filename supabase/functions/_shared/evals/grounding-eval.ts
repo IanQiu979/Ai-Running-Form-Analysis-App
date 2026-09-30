@@ -1063,19 +1063,25 @@ const INTERVAL_AFTER = new RegExp(
   String.raw`^\s*(?:\([^)]{0,40}\)\s*)?-?\s*(?:apart|intervals?|spacing|spaced|gaps?|window|burst|span|frames?|samples?|between\s+(?:frames|captures|samples)|of\s+(?:footage|video|clip|film|capture|recording|motion|running))\b`,
   'i'
 );
+/** A real spacing form: "frames spaced ~200 ms", "frames taken every 100 ms". */
 const FRAMES_BEFORE = anyOf(
   [
-    // "frames ~200 ms apart", "frames taken every 100 ms"
-    String.raw`\b(?:frames?|timestamps?|captures?|samples?)\s+(?:(?:are|were|is|sit|sits|come|spaced|taken|roughly|about|around|every|at|only)\s+){0,3}~?\s*$`,
+    String.raw`\b(?:frames?|timestamps?|captures?|samples?)\s+(?:(?:are|were|is)\s+)?(?:spaced|taken|captured|sampled|come)\s+(?:(?:at|every|roughly|about|around|only)\s+){0,2}~?\s*$`,
     String.raw`\bevery\s+(?:(?:about|around|roughly)\s+)?~?\s*$`,
   ],
   'i'
 );
-/** "a spacing of about 200 ms", "a window of 700 ms". Weaker than `FRAMES_BEFORE`/`INTERVAL_AFTER`:
- * it never excuses a figure whose own clause names ground contact ("ground contact window of
- * 250 ms"), and an evidence noun ("in this clip is about 250 ms") is not an interval at all. */
-const INTERVAL_NOUN_BEFORE =
-  /\b(?:spacing|interval|gap|window|span)\s+(?:(?:of|is|was)\s+)?(?:(?:about|around|roughly|approximately|only|just)\s+)?~?\s*$/i;
+/** "frames ~200 ms", "a spacing of about 200 ms", "a window of 700 ms". Weaker than
+ * `FRAMES_BEFORE`/`INTERVAL_AFTER`: it never excuses a figure whose own clause names ground contact
+ * ("ground contact in these frames is about 240 ms", "ground contact window of 250 ms"), and an
+ * evidence noun ("in this clip is about 250 ms") is not an interval at all. */
+const INTERVAL_NOUN_BEFORE = anyOf(
+  [
+    String.raw`\b(?:frames?|timestamps?|captures?|samples?)\s+(?:(?:are|were|is|sit|sits|roughly|about|around|at|only)\s+){0,3}~?\s*$`,
+    String.raw`\b(?:spacing|interval|gap|window|span)\s+(?:(?:of|is|was)\s+)?(?:(?:about|around|roughly|approximately|only|just)\s+)?~?\s*$`,
+  ],
+  'i'
+);
 const GCT_TERMS = anyOf(
   [
     String.raw`ground[-\s]?contact`,
@@ -1153,8 +1159,10 @@ const CLAUSE_BREAK_ALTERNATIVES = anyOf(
 );
 /** The same breaks, captured, so `split` keeps each separator between the clauses it divides. */
 const CLAUSE_BREAK = new RegExp(`(${CLAUSE_BREAK_ALTERNATIVES.source})`, 'i');
-/** A hard break ends a prescription: "Cadence should come up; right now it is about 158 spm". */
-const HARD_BREAK = /^[;:]$/;
+/** A semicolon joins independent clauses, so it ends a prescription ("Cadence should come up;
+ * right now it is about 158 spm"). A colon introduces the prescription's own content ("Target:
+ * roughly 170 spm") and does not. */
+const HARD_BREAK = /^;$/;
 /** A relative or appositive clause describes its antecedent; it never becomes the main clause's
  * subject ("Your cadence, which is typical for recreational runners, looks like roughly 160 spm"). */
 const RELATIVE_CLAUSE = /^\s*(?:which|who|whom|whose|that)\b/i;
