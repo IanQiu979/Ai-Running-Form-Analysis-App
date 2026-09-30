@@ -791,6 +791,10 @@ const FALSE_PRECISION_CORPUS: CorpusRow[] = [
   { origin: 'review: a prescription carries across a colon', text: 'Target: roughly 170 spm.', expect: 'pass' },
   { origin: 'review: a prescription carries across a colon', text: 'Goal: about 170 spm.', expect: 'pass' },
   { origin: 'review: a prescription carries across a colon', text: 'Aim for this: roughly 170 spm.', expect: 'pass' },
+  { origin: 'review: a frame reference after a GCT figure is not a spacing', text: 'Each ground contact lasts about 250 ms between frames 4 and 6.', expect: 'fail', fails: ['250 ms'] },
+  { origin: 'review: a frame reference after a GCT figure is not a spacing', text: 'Your ground contact spans about 240 ms - frames 3 to 5.', expect: 'fail', fails: ['240 ms'] },
+  { origin: 'review: a frame reference after a GCT figure is not a spacing', text: 'Your ground contact looks like about 240 ms (approximate) frames 3 to 5.', expect: 'fail', fails: ['240 ms'] },
+  { origin: 'review: a frame reference after a GCT figure is not a spacing', text: 'Your ground contact lasts about 240 ms of running.', expect: 'fail', fails: ['240 ms'] },
 ];
 
 Deno.test('#208: every case in the false-precision regression corpus', () => {
