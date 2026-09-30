@@ -5,6 +5,31 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-10-01 (eval grader `no-false-precision` redesigned, #208)
+
+- **`checkNoFalsePrecision` (`supabase/functions/_shared/evals/grounding-eval.ts`) is now a
+  clause-level classifier, not a regex lattice.** Eval-only: no app, prompt or edge-function
+  behavior changed. Each field is split into sentences, every SPM / ms / cm figure is found and
+  masked *before* clauses are split (so a typographic dash inside `160–170 SPM` is never read as a
+  clause break), and each SPM figure is judged by its clause's subject: this runner → fail, hedged
+  or not; runners at large → pass, even with a second-person word in a modifier; prescription,
+  relative or absolute (`aim for about 170 spm`) → pass; unattributed → fail if hedged, else warn.
+  A ms figure qualified as the frame spacing or window passes; one in a sentence about ground
+  contact fails; any other warns. VO in cm still fails everywhere. New export
+  `classifyNumericClaims` returns the per-figure judgement.
+- **The four round-6 and two round-7 gaps #208 listed are closed**, and the six regex rounds' 11
+  edge cases plus those gaps are one table-driven corpus in `grounding-eval.deno.test.ts` (39 rows;
+  the old grader misjudged 18 of them). A replay test runs the grader over every real recorded
+  result in `stride-burst-latency.results.json` and `grounding-eval.results.json` (14) and requires
+  all to pass — none changed verdict (all 14 passed before and after).
+- **One existing test's expectation changed, on purpose.** The 2026-09-07 Elite sentence (`…from
+  the ~200ms-apart timestamps would be a wide, approximate range only (something like the 150-175
+  SPM neighborhood)…`) used to pass. Its ms figure still passes as the frame interval, but its range
+  now fails: TIMESTAMP_RULES has forbidden any SPM range at every tier since the stride-burst
+  migration, and #208's settled boundary fails a range estimated for this runner, hedged or not.
+- `stride-burst-latency.live.ts` is untouched — it still flags ANY SPM figure in a burst result and
+  shares only `SPM_UNIT` with the grader.
+
 ## 2026-09-21 (production deploy — age band + guardian consent live)
 
 - **Docs-only entry recording the production deploy** of PR #238's 13–17 parent-or-guardian

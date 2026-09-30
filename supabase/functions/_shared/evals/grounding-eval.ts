@@ -38,8 +38,10 @@
  *     `overall` conjured from nothing is caught).
  *   - "respects the tier dial" == Free emits zero flags and zero drills, and one sentence per
  *     pillar.
- *   - "no false precision" (#112) == regexes for a point SPM figure, a GCT in ms, a vertical
- *     oscillation in cm.
+ *   - "no false precision" (#112) == a clause-level classifier (#208) that finds every SPM, ms
+ *     and cm figure, attributes each SPM figure to this runner / runners at large / a
+ *     prescription, and fails only the ones claimed about this runner — plus any GCT in ms or
+ *     vertical oscillation in cm.
  *
  * ── THE ONE PLACE A NAIVE GRADER WOULD BE WRONG (read before touching `checkNoFalsePrecision`) ──
  *
@@ -934,219 +936,383 @@ export function meanSentences(result: PaceResult): string {
 }
 
 /**
- * ISSUE #112 — FALSE PRECISION, forbidden AT EVERY TIER including Elite.
+ * ISSUE #112 — FALSE PRECISION, forbidden AT EVERY TIER including Elite. Redesigned by #208.
  *
- * SCOPE IS THE WHOLE TRICK HERE. This runs over `feedback` and `flags[].detail` — the fields where
- * a claim ABOUT THIS RUNNER lives — and NOT over `drills[].instructions`, which the prompt tells
- * the model to quote from `drills.md`, and which certifiably contain "Raise by ~2 SPM every 2
- * weeks" and "feet ~30 cm back". A grader that scanned the drill text would fail the model for
- * doing exactly what it was told, and the grader would be the bug. See the file header.
+ * SCOPE IS HALF THE TRICK. This runs over `feedback` and `flags[].detail` — the fields where a
+ * claim ABOUT THIS RUNNER lives — and NOT over `drills[].instructions`, which the prompt tells the
+ * model to quote from `drills.md`, and which certifiably contain "Raise by ~2 SPM every 2 weeks"
+ * and "feet ~30 cm back". A grader that scanned the drill text would fail the model for doing
+ * exactly what it was told, and the grader would be the bug. See the file header.
  *
- * The three forbidden things, from `analyze-form-prompt.ts`'s TIMESTAMP_RULES:
- *   - a single precise cadence figure ("your cadence is 164 SPM"), and — since the stride-burst
- *     migration tightened `STRIDE_BURST_VIDEO_RULES` — a steps-per-minute RANGE offered as this
- *     runner's rate as well (a prescribed DELTA, "raise it by 5-10 SPM", stays legitimate);
- *   - any ground-contact-time figure in milliseconds;
- *   - any vertical-oscillation figure in centimetres.
+ * ATTRIBUTION IS THE OTHER HALF. The rule is "never claim a number about THIS runner that the
+ * evidence does not support" (`analyze-form-prompt.ts`'s TIMESTAMP_RULES), and the same figure can
+ * be a violation or a legitimate sentence depending only on WHO it is about. So the grader is a
+ * small clause-level classifier, not a lattice of lookaheads (#208: six regex rounds on the
+ * stride-burst PR each surfaced a new case instead of converging). Each field is split into
+ * sentences, the numeric figures in a sentence are found FIRST and masked (so a typographic dash
+ * inside "160–170 SPM" can never be mistaken for a clause break), the masked sentence is split
+ * into clauses, and each figure is then judged by its clause's subject:
  *
- * NOTE (live run 5): this check FIRED on a real response that wrote "200ms" into Elasticity's
- * feedback. Whether that is a true #112 violation or a legitimate reference to the FRAME INTERVAL
- * (the manifest really does say ~200 ms) was never resolved — the worktree was destroyed before it
- * could be read. RESOLVE IT BEFORE TRUSTING THIS CHECK: if the model was citing the frame spacing
- * rather than measuring ground contact, the regex needs to exempt that, and the prompt may want to
- * say so explicitly. If it really did state a ground-contact time in ms, this is a genuine prompt
- * finding and #112's rule is being violated at Pro.
+ *   subject          | a steps-per-minute figure or range is...
+ *   -----------------+------------------------------------------------------------------------
+ *   this runner      | FAIL, hedged or not ("your cadence is 164 SPM", "across the burst you are
+ *                    | running at 168 spm", "this burst looks closer to roughly 158 spm")
+ *   general norm     | PASS, even with a second-person word in a modifier ("most runners at your
+ *                    | level sit around 165 to 180 steps per minute")
+ *   prescription     | PASS, relative or absolute ("raise it 5-10 SPM", "aim for about 170 spm")
+ *                    | — the captain ruled an absolute target is prescription, not a claim
+ *   unattributed     | FAIL when hedged ("Roughly 160–170 SPM — approximate": a hedge with no
+ *                    | other subject is an estimate of this runner's rate); otherwise WARN, the
+ *                    | fall-through a human reads ("180 SPM is not a universal target")
+ *
+ * A clause's subject is the EARLIEST runner or general-population marker in it, so a modifier
+ * ("at your level", "like you") never outranks the noun phrase it modifies, and a marker after a
+ * comparison word ("than most runners", "like most runners") is not a subject at all. A clause
+ * with no marker of its own inherits the previous clause's subject in the same sentence — which is
+ * how "For most recreational runners, cadence sits around 165 to 180" stays a norm, and why a
+ * clause that names its own subject ("…; this burst looks closer to…") can never be sheltered by
+ * the norm before it. A prescription verb ("aim for", "work toward", "should") governs only the
+ * figures after it in its own clause. A DELTA ("raise it by 5-10 SPM", "10 to 15 steps per minute
+ * more") is a change, not a rate, whoever it is about.
+ *
+ * GCT in ms and vertical oscillation in cm are NOT subject-scoped: TIMESTAMP_RULES forbids ANY
+ * such figure at every tier. What IS scoped is what a millisecond figure measures: the model's own
+ * refusals cite the burst's FRAME SPACING or WINDOW ("at ~100 ms (approximate, unreliable)
+ * intervals", "from ~700ms of footage"), which is obedience, not a ground-contact claim. A ms
+ * figure that is qualified as an interval/window passes; one in a sentence about ground contact
+ * fails; any other ms figure warns.
+ *
+ * DELIBERATELY NARROWER THAN THE STRIDE-BURST HARNESS. `stride-burst-latency.live.ts` flags ANY SPM
+ * number in a burst result, because `STRIDE_BURST_VIDEO_RULES` forbids the figure outright for that
+ * one media shape. This grader runs over EVERY media kind and every tier, where a certified norm
+ * and a prescription are both legitimate, so it judges attribution instead. The two scopes are not
+ * a duplication to be unified — unifying them breaks one of the two. Only `SPM_UNIT` is shared.
+ *
+ * The regression corpus for every rule above — the 11 edge cases the six regex rounds surfaced and
+ * the gaps they left live — is the table in `grounding-eval.deno.test.ts`. Change a rule here and
+ * measure it against all of it at once.
  */
-/** "SPM", "steps per minute", "steps/min", "steps a minute". Exported because the stride-burst
- * latency harness scans for the same UNITS — but deliberately not for the same CLAIM; see
- * `findSpmRangeClaims`. */
-export const SPM_UNIT = String.raw`(?:spm\b|steps\s*(?:per|a|\/)\s*min(?:ute)?s?\b)`;
-const HEDGE = String.raw`(?:about|around|roughly|approximately|~)`;
-/** `\b` before `~` never matches after a space, so the tilde needs its own alternative — and `~`
- * is this repo's house notation for an approximate figure, the form a model is most likely to
- * echo. */
-const HEDGE_PREFIX = String.raw`(?:\b(?:about|around|roughly|approximately)\s*|~\s*)`;
-const SPAN = String.raw`\d{2,3}\s*(?:[-–—]|\bto\b|\band\b)\s*\d{2,3}`;
 
-/**
- * A DELTA is not a RATE. "Raise it by 5-10 SPM" and "about 10 to 15 steps per minute more than you
- * run now" are the certified prescription (`pace_framework.md`'s 5-10%-above-self-selected
- * guidance) — the model has stated no rate for this runner and must not be failed for obeying.
- * Only an adjacent delta marker counts, so "Your cadence is 164 SPM, which is below the ideal
- * range" is NOT excused: the "below" there is a clause away, not attached to the figure.
- */
-export function stripPrescriptiveCadence(text: string): string {
-  const magnitude = String.raw`\d{1,3}(?:\s*(?:[-–—]|\bto\b)\s*\d{1,3})?`;
-  return text
-    .replace(
-      new RegExp(
-        String.raw`\b(?:by|raise|raising|lift|lifting|increase|increasing|add|adding|up)\s+(?:it\s+|them\s+|your\s+\w+\s+)?(?:${HEDGE}\s*)?${magnitude}\s*${SPM_UNIT}`,
-        'gi'
-      ),
-      ' '
-    )
-    .replace(
-      new RegExp(
-        String.raw`\b${magnitude}\s*${SPM_UNIT}\s+(?:more|higher|faster|lower|slower|fewer|extra|above|below|than|beyond)\b`,
-        'gi'
-      ),
-      ' '
-    );
+/** "SPM", "steps per minute", "steps/min", "steps a minute". Exported because the stride-burst
+ * latency harness scans for the same UNITS — but deliberately not for the same CLAIM; see above. */
+export const SPM_UNIT = String.raw`(?:spm\b|steps\s*(?:per|a|\/)\s*min(?:ute)?s?\b)`;
+
+/** Who a clause's numbers are about. */
+export type ClaimSubject = 'runner' | 'general' | 'prescription' | 'unattributed';
+
+/** One numeric figure found in runner-facing prose, and how the classifier judged it. */
+export interface NumericFigure {
+  /** The figure as written ("160–170 SPM", "~200ms", "12 cm"). */
+  text: string;
+  kind: 'spm' | 'ms' | 'cm';
+  /** The subject the figure was attributed to. Only decides the verdict for `spm`. */
+  subject: ClaimSubject;
+  verdict: 'fail' | 'warn' | 'pass';
+  /** Why — one short phrase, printed in the check's detail. */
+  reason: string;
+  /** The clause the figure sits in, with the figure restored, so a reader can judge the judgement. */
+  clause: string;
+}
+
+const NUM = String.raw`\d{1,3}`;
+/** A range separator. The dashes are INSIDE a figure, which is why figures are masked before any
+ * clause is split — #208's round-7 gap was "160–170" being cut in two by the clause splitter. */
+const RANGE_SEP = String.raw`\s*(?:[-–—]|\bto\b|\band\b)\s*`;
+const HEDGE_WORD = String.raw`(?:about|around|roughly|approximately|approx\.?|near|nearly|close\s+to|closer\s+to|something\s+like|somewhere\s+(?:around|near|between)|in\s+the\s+region\s+of|on\s+the\s+order\s+of|between|from)`;
+const CADENCE_NOUN = String.raw`(?:cadence|step\s+rate|stride\s+rate|turnover)`;
+
+/** A point or range with a steps-per-minute unit ("164 SPM", "160 to 170 steps/min"). */
+const SPM_FIGURE = new RegExp(
+  String.raw`\b${NUM}(?:\s*${SPM_UNIT})?(?:${RANGE_SEP}${NUM})?\s*${SPM_UNIT}`,
+  'gi'
+);
+/** The same figure without a unit, recognisable only by the cadence noun it is the value of
+ * ("your cadence is 164", "their cadence sits at roughly 160-170"). */
+const UNITLESS_CADENCE_FIGURE = new RegExp(
+  String.raw`(?<=\b${CADENCE_NOUN}\s+(?:is|was|of|at|sits\s+(?:at|around|near)|comes\s+out\s+at|measures|lands\s+at|(?:appears|looks|seems)\s+(?:to\s+be|like))\s+(?:${HEDGE_WORD}\s+|~\s*)?)${NUM}(?:${RANGE_SEP}${NUM})?\b(?!\s*(?:%|percent|°|degrees?\b|ms\b|milli|cm\b|centi|frames?\b|seconds?\b|s\b|\.\d))`,
+  'gi'
+);
+const MS_FIGURE = /\b\d{1,4}(?:\.\d+)?(?:\s*[-–—]\s*\d{1,4})?\s*(?:ms|milliseconds?)\b/gi;
+const CM_FIGURE = /\b\d{1,3}(?:\.\d+)?(?:\s*[-–—]\s*\d{1,3})?\s*(?:cm|centimet(?:re|er)s?)\b/gi;
+
+/** A hedge immediately before the figure, or an "approximate" tag immediately after it. */
+const HEDGED_BEFORE = new RegExp(String.raw`(?:\b${HEDGE_WORD}\s+(?:the\s+)?|~\s*)$`, 'i');
+const HEDGED_AFTER = /^\s*(?:\(|—|–|-|,)?\s*(?:approx\w*|roughly|estimated|or\s+so|-?ish)\b/i;
+
+/** A DELTA is not a RATE: "raise it by 5-10 SPM", "10 to 15 steps per minute more than you run
+ * now" are the certified 5-10%-above-self-selected guidance (`pace_framework.md`). Only an
+ * ADJACENT delta marker counts, so "Your cadence is 164 SPM, which is below the ideal range" is not
+ * excused: the "below" there is a clause away, not attached to the figure. */
+const DELTA_BEFORE =
+  /\b(?:by|raise|raising|lift|lifting|increase|increasing|add|adding|up|bump|nudge|extra|another)\s+(?:(?:it|them|your\s+\w+(?:\s+rate)?)\s+)?(?:by\s+)?(?:(?:about|around|roughly|approximately|only|just)\s+|~\s*)?$/i;
+const DELTA_AFTER =
+  /^\s*(?:more|higher|faster|quicker|lower|slower|fewer|extra|above|below|than|beyond|up|down)\b/i;
+/** No running cadence is under 40 steps a minute, so a figure that small is a change magnitude
+ * ("an extra 5-10 SPM") whatever words surround it. */
+const MAX_DELTA_MAGNITUDE = 40;
+
+/** One regex from a list of alternatives, so each marker's vocabulary reads as a list. */
+function anyOf(alternatives: string[], flags: string): RegExp {
+  return new RegExp(alternatives.map((a) => `(?:${a})`).join('|'), flags);
+}
+
+/** A millisecond figure that measures the FRAME SPACING or the WINDOW — the model citing its own
+ * evidence, usually to refuse to measure — rather than anything the runner's body did. Read from
+ * the text right after the figure (a parenthetical aside may sit between) or right before it. */
+const INTERVAL_AFTER = new RegExp(
+  String.raw`^\s*(?:\([^)]{0,40}\)\s*)?-?\s*(?:apart|intervals?|spacing|spaced|gaps?|window|burst|span|frames?|samples?|between\s+(?:frames|captures|samples)|of\s+(?:footage|video|clip|film|capture|recording|motion|running))\b`,
+  'i'
+);
+const INTERVAL_BEFORE = anyOf(
+  [
+    // "frames ~200 ms apart", "frames taken every 100 ms"
+    String.raw`\b(?:frames?|timestamps?|captures?|samples?)\s+(?:(?:are|were|is|sit|sits|come|spaced|taken|roughly|about|around|every|at|only)\s+){0,3}~?\s*$`,
+    // "a spacing of about 200 ms", "a window of 700 ms", "the burst is ~700 ms"
+    String.raw`\b(?:spacing|interval|gap|window|span|burst|clip|footage|video|recording)\s+(?:(?:of|is|was)\s+)?(?:(?:about|around|roughly|approximately|only|just)\s+)?~?\s*$`,
+    String.raw`\bevery\s+(?:(?:about|around|roughly)\s+)?~?\s*$`,
+  ],
+  'i'
+);
+const GCT_TERMS = anyOf(
+  [
+    String.raw`ground[-\s]?contact`,
+    String.raw`contact\s+time`,
+    String.raw`on\s+the\s+ground`,
+    String.raw`ground\s+time`,
+    String.raw`stance(?:\s+time|\s+phase)?`,
+    String.raw`\bGCT\b`,
+    String.raw`touchdown\s+(?:time|duration)`,
+  ],
+  'i'
+);
+
+/** THIS runner. `g` because `firstSubjectMarker` walks every hit to skip comparison objects. */
+const RUNNER_MARKER = anyOf(
+  [
+    // second person — how every pillar's feedback addresses the runner
+    String.raw`\b(?:you|you're|you've|you'd|your|yours|yourself)\b`,
+    // the runner in the third person
+    String.raw`\b(?:the|this)\s+runner(?:'s)?\b`,
+    String.raw`\b(?:their|his|her)\s+${CADENCE_NOUN}\b`,
+    // the analysed evidence itself: a figure read off "this burst" is a figure about this runner
+    String.raw`\b(?:this|the|these|those)\s+(?:burst|clip|video|footage|frames?|sequence|analysis|capture|recording|sample)\b`,
+    String.raw`\bhere\b`,
+    // the model reporting its own estimate
+    String.raw`\bI\s+(?:\w+\s+)?(?:estimate|count|measure|calculate|make\s+it|put\s+it|read\s+it)\b`,
+  ],
+  'gi'
+);
+/** Runners at large: a quantified or generic plural, or the research that describes them. */
+const GENERAL_MARKER = anyOf(
+  [
+    String.raw`\b(?:most|many|some|other|average|typical|recreational|competitive|elite|beginner|experienced|all|trained|novice|healthy|distance)\s+(?:\w+\s+){0,2}?(?:runners?|athletes?|people)\b`,
+    String.raw`\b(?:runners|athletes|people)\b`,
+    String.raw`\b(?:research|studies|the\s+literature)\b`,
+  ],
+  'gi'
+);
+/** A marker right after a comparison word names what the subject is compared WITH, not the
+ * subject: "quicker than most runners", "you, like most runners, …", "runners like you". */
+const COMPARISON_BEFORE = /\b(?:like|than|unlike|versus|vs\.?|compared\s+(?:with|to)|relative\s+to)\s+$/i;
+/** Prescription: a target or a change the runner is told to work toward. Governs only the figures
+ * AFTER it in its clause, so "You are at 164 spm and should aim for 170 spm" still fails on 164. */
+const PRESCRIPTION_MARKER = anyOf(
+  [
+    String.raw`\b(?:aim|aiming|shoot|shooting|go|going)\s+(?:for|at)\b`,
+    String.raw`\btarget(?:s|ing|ed)?\b`,
+    String.raw`\bgoal\b`,
+    // "work toward", "build up to", "bring your cadence up to"
+    String.raw`\b(?:work|working|build|building|move|moving|progress|progressing|climb|climbing|nudge|nudging|bring|bringing|raise|raising|lift|lifting|increase|increasing|push|pushing|bump|bumping|ease|easing)\b(?:\s+\S+){0,3}?\s+(?:up\s+)?(?:to|toward|towards|into)\b`,
+    String.raw`\btry(?:ing)?\s+(?:\w+\s+){0,2}?at\b`,
+    String.raw`\bmetronome\b`,
+    String.raw`\bshould\b`,
+  ],
+  'i'
+);
+
+/** Sentence ends, but not a decimal point ("1.5 cm"). */
+const SENTENCE_END = /[.!?](?!\d)|\n/;
+/** Clause boundaries, applied to a sentence whose figures are already masked. A coordinating
+ * conjunction only starts a clause when a new subject follows it ("…170-180 spm and you look…"). */
+const CLAUSE_BREAK = anyOf(
+  [
+    String.raw`[;,:()—–]`,
+    String.raw`\s-\s`,
+    String.raw`\s(?=(?:but|whereas|although|though|yet|while)\s)`,
+    String.raw`\s(?=(?:and|so|then)\s+(?:you|your|this|these|the\s+runner|I|most|many)\b)`,
+  ],
+  'i'
+);
+
+/** Placeholders the masked sentence carries in place of each figure. Control characters never
+ * appear in model prose and never match a clause break or a marker. */
+const MASK = /\u0001(\d+)\u0002/g;
+
+interface RawFigure {
+  start: number;
+  end: number;
+  text: string;
+  kind: NumericFigure['kind'];
+}
+
+function findFigures(sentence: string): RawFigure[] {
+  const found: RawFigure[] = [];
+  const collect = (pattern: RegExp, kind: NumericFigure['kind']) => {
+    for (const m of sentence.matchAll(pattern)) {
+      const start = m.index ?? 0;
+      found.push({ start, end: start + m[0].length, text: m[0], kind });
+    }
+  };
+  collect(SPM_FIGURE, 'spm');
+  collect(UNITLESS_CADENCE_FIGURE, 'spm');
+  collect(MS_FIGURE, 'ms');
+  collect(CM_FIGURE, 'cm');
+  // Earliest first, longest first at a tie; drop anything overlapping a figure already kept.
+  found.sort((a, b) => a.start - b.start || b.end - a.end);
+  const kept: RawFigure[] = [];
+  for (const f of found) {
+    if (kept.length === 0 || f.start >= kept[kept.length - 1].end) kept.push(f);
+  }
+  return kept;
+}
+
+function firstSubjectMarker(clause: string, pattern: RegExp): number {
+  for (const m of clause.matchAll(pattern)) {
+    const at = m.index ?? 0;
+    if (!COMPARISON_BEFORE.test(clause.slice(0, at))) return at;
+  }
+  return Infinity;
+}
+
+/** The EARLIEST runner or general marker wins, so a modifier ("most runners at your level") never
+ * outranks the noun phrase it modifies. `null` when the clause names neither. */
+function clauseSubject(clause: string): 'runner' | 'general' | null {
+  const runner = firstSubjectMarker(clause, RUNNER_MARKER);
+  const general = firstSubjectMarker(clause, GENERAL_MARKER);
+  if (runner === Infinity && general === Infinity) return null;
+  return runner < general ? 'runner' : 'general';
+}
+
+type Judgement = Pick<NumericFigure, 'verdict' | 'reason'>;
+
+function judgeSpm(figure: RawFigure, sentence: string, subject: ClaimSubject): Judgement {
+  const before = sentence.slice(0, figure.start);
+  const after = sentence.slice(figure.end);
+  const values = (figure.text.match(/\d+/g) ?? []).map(Number);
+  if (
+    DELTA_BEFORE.test(before) ||
+    DELTA_AFTER.test(after) ||
+    values.every((v) => v < MAX_DELTA_MAGNITUDE)
+  ) {
+    return { verdict: 'pass', reason: 'a prescribed change, not a rate' };
+  }
+  switch (subject) {
+    case 'runner':
+      return { verdict: 'fail', reason: 'attributed to this runner' };
+    case 'general':
+      return { verdict: 'pass', reason: 'a norm about runners at large' };
+    case 'prescription':
+      return { verdict: 'pass', reason: 'prescriptive advice' };
+    case 'unattributed':
+      return HEDGED_BEFORE.test(before) || HEDGED_AFTER.test(after)
+        ? { verdict: 'fail', reason: "a hedged estimate with no other subject, i.e. this runner's rate" }
+        : { verdict: 'warn', reason: 'unattributed; legitimate only as a quoted norm' };
+  }
+}
+
+function judgeMs(figure: RawFigure, sentence: string): Judgement {
+  const before = sentence.slice(0, figure.start);
+  if (INTERVAL_BEFORE.test(before) || INTERVAL_AFTER.test(sentence.slice(figure.end))) {
+    return { verdict: 'pass', reason: 'the frame spacing or window, not a ground-contact time' };
+  }
+  return GCT_TERMS.test(sentence)
+    ? { verdict: 'fail', reason: 'a ground-contact time in ms' }
+    : { verdict: 'warn', reason: 'a millisecond figure that is neither a frame interval nor named' };
 }
 
 /**
- * A general norm stated about runners at large ("most recreational runners land around 165 to 180
- * steps per minute, but that is not a target for you") is NOT a claim about this runner, and
- * `pace_framework.md`'s 180-SPM myth discussion is exactly the thing a good answer paraphrases.
- * Only the BARE forms consult this: a figure attributed possessively to the runner stays a
- * violation even when the same sentence also mentions runners in general.
+ * The classifier. Every numeric figure in `text` (one runner-facing field), with the subject its
+ * clause attributes it to and the verdict that subject earns. Pure, and exported so the
+ * regression corpus can assert per-figure rather than only per-result.
  */
-const GENERAL_SUBJECT =
-  /\b(?:most|many|some|other|average|typical|recreational|competitive|elite|beginner|experienced|all)\s+(?:\w+\s+){0,2}?(?:runners?|athletes?|people)\b/i;
+export function classifyNumericClaims(text: string): NumericFigure[] {
+  const out: NumericFigure[] = [];
+  for (const sentence of text.split(SENTENCE_END)) {
+    const figures = findFigures(sentence);
+    if (figures.length === 0) continue;
 
-/** Second-person address is how every pillar's feedback speaks to the runner. */
-const RUNNER_REFERENCE = /\b(?:you|your|you're|yours|yourself|the runner|this runner)\b/i;
+    let masked = '';
+    let cursor = 0;
+    figures.forEach((f, i) => {
+      masked += sentence.slice(cursor, f.start) + `\u0001${i}\u0002`;
+      cursor = f.end;
+    });
+    masked += sentence.slice(cursor);
+    const restore = (s: string) => s.replace(MASK, (_, i) => figures[Number(i)].text).trim();
 
-/**
- * A bare figure only counts when the CLAUSE it sits in has no subject other than the runner.
- * Exempting the whole sentence let "Most runners sit near 170-180 spm; you look closer to roughly
- * 160 spm" hide a real claim behind a norm it happens to share a sentence with. The norm's subject
- * carries forward across clauses ("For most recreational runners, cadence sits around 165 to 180
- * steps per minute") until a clause addresses the runner, which takes the subject back.
- */
-function bareClaimsOutsideNorms(text: string, pattern: RegExp): string[] {
-  const claims: string[] = [];
-  for (const sentence of text.split(/[.!?\n]+/)) {
-    let normSubjectCarries = false;
-    for (const clause of sentence.split(/[;,—–]+/)) {
-      const exempt: boolean =
-        !RUNNER_REFERENCE.test(clause) && (GENERAL_SUBJECT.test(clause) || normSubjectCarries);
-      normSubjectCarries = exempt;
-      if (!exempt) claims.push(...(clause.match(pattern) ?? []));
+    let carried: ClaimSubject = 'unattributed';
+    for (const clause of masked.split(CLAUSE_BREAK)) {
+      const own = clauseSubject(clause);
+      const subjectHere: ClaimSubject = own ?? carried;
+      let segmentStart = 0;
+      for (const m of clause.matchAll(MASK)) {
+        const at = m.index ?? 0;
+        const figure = figures[Number(m[1])];
+        const prescribed = PRESCRIPTION_MARKER.test(clause.slice(segmentStart, at));
+        segmentStart = at + m[0].length;
+        const subject: ClaimSubject = prescribed ? 'prescription' : subjectHere;
+        const judged =
+          figure.kind === 'spm'
+            ? judgeSpm(figure, sentence, subject)
+            : figure.kind === 'ms'
+              ? judgeMs(figure, sentence)
+              : { verdict: 'fail' as const, reason: 'a vertical-oscillation figure in cm' };
+        out.push({ text: figure.text, kind: figure.kind, subject, ...judged, clause: restore(clause) });
+      }
+      // A clause that names nobody but prescribes hands that on ("Aim for a quicker rhythm, around
+      // 170 spm"); one that names nobody at all hands on whatever it inherited.
+      carried = own ?? (PRESCRIPTION_MARKER.test(clause) ? 'prescription' : carried);
     }
   }
-  return claims;
-}
-
-/**
- * A cadence figure claimed as THIS RUNNER's rate, as a point value — either attributed by the
- * possessive/copular form ("your cadence is 164", "their cadence sits at 168") or standing bare
- * and hedged as their rate ("Roughly 165 SPM — approximate"). Neither fires on the certified norm
- * "180 SPM is not a universal target", which a model may legitimately quote to REJECT it, nor on a
- * norm about runners at large.
- */
-export function findAttributedCadencePoints(text: string): string[] {
-  const point = new RegExp(
-    String.raw`\b(?:your|their|his|her|the runner'?s)\s+cadence\s+(?:is|was|of|sits at|comes out at|measures|appears to be|looks like)\s*(?:${HEDGE})?\s*(\d{2,3})`,
-    'gi'
-  );
-  const hedgedPoint = new RegExp(String.raw`${HEDGE_PREFIX}\d{2,3}\s*${SPM_UNIT}`, 'gi');
-  return [...(text.match(point) ?? []), ...bareClaimsOutsideNorms(text, hedgedPoint)];
-}
-
-/**
- * A steps-per-minute RANGE offered as this runner's rate — either attributed ("your cadence looks
- * to sit around 160 to 170 steps per minute", "your cadence sits between 160 and 170 steps per
- * minute") or asserted bare and hedged ("roughly 160-170 SPM", "from 160 to 170 SPM").
- *
- * DELIBERATELY NARROWER THAN THE HARNESS. `stride-burst-latency.live.ts` flags ANY SPM number in a
- * burst result, because `STRIDE_BURST_VIDEO_RULES` forbids the figure outright for that one media
- * shape. This grader runs over EVERY media kind and every tier, where a certified norm and a
- * prescribed delta are both legitimate, so it judges attribution instead. The two scopes are not
- * a duplication to be unified — unifying them breaks one of the two.
- * This used to be exempt: TIMESTAMP_RULES once offered a hedged range as the correct way to
- * answer. The stride-burst migration removed that licence — a ~700ms burst spans a third to a half
- * of a step interval, so a footfall rate resolves only to ±30-50% and no range derived from it is
- * honest. A general norm stated about runners at large, and any delta, are not this — the bare
- * hedged form is scoped by `bareClaimsOutsideNorms` so it cannot fire on either.
- */
-export function findSpmRangeClaims(text: string): string[] {
-  const attributedRange = new RegExp(
-    String.raw`\b(?:your|their|his|her|the runner'?s)\s+(?:cadence|step\s+rate)\b[^.!?\n]{0,40}?\b${SPAN}\s*${SPM_UNIT}`,
-    'gi'
-  );
-  const hedgedRange = new RegExp(
-    String.raw`(?:${HEDGE_PREFIX}|\b(?:between|from)\s*)${SPAN}\s*${SPM_UNIT}`,
-    'gi'
-  );
-  return [...(text.match(attributedRange) ?? []), ...bareClaimsOutsideNorms(text, hedgedRange)];
+  return out;
 }
 
 export function checkNoFalsePrecision(result: PaceResult): Check {
-  const raw = pillarEntries(result)
-    .flatMap(([, p]) => [p.feedback ?? '', ...p.flags.map((f) => f.detail)])
-    .join('\n');
-  const claims = stripPrescriptiveCadence(raw);
+  const figures = pillarEntries(result)
+    .flatMap(([, p]) => [p.feedback ?? '', ...p.flags.map((f) => f.detail ?? '')])
+    .flatMap(classifyNumericClaims);
+  const describe = (f: NumericFigure) => `"${f.text}" (${f.reason}) in "${f.clause}"`;
 
-  const violations: string[] = [];
-
-  // GCT in ms — SCOPED TO THE CLAIM, not to the unit, exactly as the cadence check below is
-  // scoped to the possessive/copular form. This used to be a bare `/\d+\s*ms/`, and the live run
-  // of 2026-09-07 showed what that costs: it failed an Elite response for the phrase "any
-  // steps-per-minute figure I could estimate from the ~200ms-apart timestamps would be a wide,
-  // approximate range only ... treat that number as a rough sense of pace, not a measurement".
-  // That sentence is the prompt's TIMESTAMP_RULES being obeyed almost verbatim — the model was
-  // describing the FRAME SPACING it was handed in the manifest, hedging it, and refusing to
-  // measure. Failing it is the over-tight content validation CLAUDE.md names as a known Echo V1
-  // mistake, and a grader that cries wolf on obedience is worse than no grader: it trains a reader
-  // to skip the red.
-  //
-  // What IS forbidden is a figure attributed to the RUNNER's time on the ground. So a millisecond
-  // figure only counts when a ground-contact term sits near it.
-  const GCT_TERMS = /ground[-\s]?contact|contact\s+time|time\s+on\s+the\s+ground|ground\s+time|stance\s+time|\bGCT\b/i;
-  const GCT_CONTEXT_CHARS = 60;
-  const msFigures = [...claims.matchAll(/\d+(?:\.\d+)?\s*(?:ms\b|milliseconds?\b)/gi)];
-  const gct = msFigures
-    .filter((match) => {
-      const at = match.index ?? 0;
-      const window = claims.slice(
-        Math.max(0, at - GCT_CONTEXT_CHARS),
-        at + match[0].length + GCT_CONTEXT_CHARS
-      );
-      return GCT_TERMS.test(window);
-    })
-    .map((match) => match[0]);
-  if (gct.length > 0) violations.push(`ground-contact time in ms: ${JSON.stringify(gct)}`);
-
-  // Vertical oscillation in cm.
-  const vo = claims.match(/\d+(?:\.\d+)?\s*(?:cm\b|centimet(?:re|er)s?\b)/gi);
-  if (vo) violations.push(`vertical oscillation in cm: ${JSON.stringify(vo)}`);
-
-  const attributed = findAttributedCadencePoints(claims);
-  if (attributed.length > 0) {
-    violations.push(`a point cadence figure for this runner: ${JSON.stringify(attributed)}`);
-  }
-
-  const range = findSpmRangeClaims(claims);
-  if (range.length > 0) violations.push(`a steps-per-minute range: ${JSON.stringify(range)}`);
-
-  if (violations.length > 0) {
+  const failures = figures.filter((f) => f.verdict === 'fail');
+  if (failures.length > 0) {
     return {
       id: 'no-false-precision',
       status: 'fail',
       detail:
-        `FALSE PRECISION (#112) — forbidden at every tier: ${violations.join('; ')}. ` +
+        `FALSE PRECISION (#112) — forbidden at every tier: ${failures.map(describe).join('; ')}. ` +
         'The frame timestamps are REQUESTED, not measured; a figure derived from them is a rhythm ' +
         'the runner does not have.',
     };
   }
 
-  // Not a failure, but worth an eye: any other bare 3-digit SPM mention.
-  const looseSpm = claims.match(/\b\d{3}\s*(?:spm|steps per minute)\b/gi);
-  if (looseSpm) {
+  const warnings = figures.filter((f) => f.verdict === 'warn');
+  if (warnings.length > 0) {
     return {
       id: 'no-false-precision',
       status: 'warn',
       detail:
-        `No forbidden claim, but a 3-digit SPM figure appears: ${JSON.stringify(looseSpm)}. ` +
+        `No forbidden claim, but worth an eye: ${warnings.map(describe).join('; ')}. ` +
         'Legitimate if it is the certified "180 SPM is not a universal target" norm; check it is.',
     };
   }
 
+  const exempt = figures.filter((f) => f.verdict === 'pass');
   return {
     id: 'no-false-precision',
     status: 'pass',
-    detail: 'No point cadence figure, no GCT in ms, no vertical oscillation in cm.',
+    detail:
+      'No cadence figure attributed to this runner, no GCT in ms, no vertical oscillation in cm.' +
+      (exempt.length > 0 ? ` Exempt: ${exempt.map(describe).join('; ')}.` : ''),
   };
 }
 

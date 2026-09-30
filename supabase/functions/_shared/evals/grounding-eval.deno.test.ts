@@ -41,6 +41,7 @@ import {
   checkNoUnsupportedPillar,
   checkPillarSafety,
   checkTierVerbosity,
+  classifyNumericClaims,
   freeTierCeiling,
   gradeCase,
   isCertified,
@@ -640,27 +641,39 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
 
 Deno.test('THE GRADER IS NOT THE BUG (2): describing the FRAME SPACING in ms is obedience, not a GCT claim', () => {
   // VERBATIM from the live run of 2026-09-07, `stride-video-elite`. The bare `/\d+ *ms/` this
-  // check used to carry failed this sentence — and this sentence is TIMESTAMP_RULES being obeyed
-  // almost to the letter: the model named the frame spacing it was handed in the manifest, hedged
-  // it with "~", gave a wide range instead of a point value, said the timestamps are not
-  // guaranteed evenly spaced, and told the runner to treat it as a rough sense rather than a
-  // measurement. A grader that reds an answer that good trains its reader to skip the red.
-  const obedient = honestPhotoResult();
-  obedient.pillars.cadence = pillar({
-    score: 60,
-    band: 'mid',
-    feedback:
-      'I want to be explicit that any steps-per-minute figure I could estimate from the ' +
-      "~200ms-apart timestamps would be a wide, approximate range only (something like the " +
-      "150-175 SPM neighborhood) and the timestamps themselves aren't guaranteed to be evenly " +
-      'spaced — so treat that number as a rough sense of pace, not a measurement.',
-  });
+  // check used to carry failed this sentence for "~200ms-apart" — and that half of it is
+  // TIMESTAMP_RULES being obeyed: the model named the frame spacing it was handed in the manifest
+  // and refused to treat it as a clock. A grader that reds that trains its reader to skip the red.
+  //
+  // The OTHER half has changed status since (#208). On 2026-09-07 TIMESTAMP_RULES still licensed
+  // a wide, labelled-approximate range, so "something like the 150-175 SPM neighborhood" was
+  // obedience too. The stride-burst migration withdrew that licence at every tier ("any
+  // steps-per-minute RANGE as well"), and the settled boundary is that a range estimated for this
+  // runner fails hedged or not. So the same sentence now fails — on the RANGE, never on the ms.
+  const text =
+    'I want to be explicit that any steps-per-minute figure I could estimate from the ' +
+    "~200ms-apart timestamps would be a wide, approximate range only (something like the " +
+    "150-175 SPM neighborhood) and the timestamps themselves aren't guaranteed to be evenly " +
+    'spaced — so treat that number as a rough sense of pace, not a measurement.';
+  const figures = classifyNumericClaims(text);
 
+  const ms = figures.find((f) => f.kind === 'ms');
+  assert(
+    ms?.verdict === 'pass',
+    'The grader judged the FRAME INTERVAL ("~200ms-apart") as a ground-contact time. A millisecond ' +
+      `figure describing the frame spacing is not a GCT claim. Got: ${JSON.stringify(ms)}`
+  );
+  assert(
+    figures.some((f) => f.kind === 'spm' && f.verdict === 'fail'),
+    `A range estimated for this runner must fail since the stride-burst migration. Got: ${JSON.stringify(figures)}`
+  );
+
+  const obedient = honestPhotoResult();
+  obedient.pillars.cadence = pillar({ score: 60, band: 'mid', feedback: text });
   const check = checkNoFalsePrecision(obedient);
   assert(
-    !failed(check),
-    'The grader FAILED a model that obeyed TIMESTAMP_RULES. A millisecond figure describing the ' +
-      `FRAME INTERVAL is not a ground-contact-time claim. Got: ${check.detail}`
+    failed(check) && !check.detail.includes('ground-contact'),
+    `The result must fail on the range and ONLY on the range. Got: ${check.detail}`
   );
 });
 
@@ -682,6 +695,151 @@ Deno.test('a REAL ground-contact-time figure in ms is still caught', () => {
       `A real GCT claim slipped past the grader: "${feedback}" -> ${check.status} (${check.detail})`
     );
   }
+});
+
+/**
+ * #208 — THE REGRESSION CORPUS for `checkNoFalsePrecision`, one row per case, measured all at once.
+ *
+ * The grader went through six regex rounds on the stride-burst PR, each surfacing a new case rather
+ * than converging; the redesign is a clause-level classifier, and this table is the contract it is
+ * held to. Every edge case the six rounds surfaced, every gap they left live, and the real model
+ * refusals that tripped the old GCT regex are here. `fails` names exactly which figures must fail —
+ * "same number, different subject" is the whole point, so a row can pass on one figure and fail on
+ * another in the same sentence.
+ *
+ * Changing a row's `expect` is changing the honesty rule, not fixing a test: the boundary is settled
+ * in #208 (attributed → fail; norm → pass; prescription, relative or absolute → pass; GCT ms / VO cm
+ * → fail at every tier).
+ */
+interface CorpusRow {
+  origin: string;
+  text: string;
+  expect: Check['status'];
+  /** Exactly the figures that must fail, as written. Omitted when nothing may fail. */
+  fails?: string[];
+}
+
+const FALSE_PRECISION_CORPUS: CorpusRow[] = [
+  // ── The 11 edge cases the six regex rounds surfaced ──────────────────────────────────────
+  { origin: '#208 case 1: a range is not exempt from the point rule', text: 'Your cadence is roughly 160-170 SPM across the burst.', expect: 'fail', fails: ['160-170 SPM'] },
+  { origin: '#208 case 2: a prescribed delta is not a rate', text: 'Raise it by 5-10 SPM and let the foot land closer underneath you.', expect: 'pass' },
+  { origin: '#208 case 2: a prescribed delta is not a rate', text: 'Lift your step rate about 5 to 10 percent — for most runners that is 10 to 15 steps per minute more than they run now.', expect: 'pass' },
+  { origin: '#208 case 3: prose ranges', text: 'Your cadence across those frames sits between 160 and 170 steps per minute.', expect: 'fail', fails: ['160 and 170 steps per minute'] },
+  { origin: '#208 case 3: prose ranges', text: 'Your cadence runs from 160 to 170 SPM.', expect: 'fail', fails: ['160 to 170 SPM'] },
+  { origin: '#208 case 4: a hedge alone does not make a norm a claim', text: 'Most recreational runners land somewhere around 165 to 180 steps per minute, but that is not a target for you — what matters is where your foot lands.', expect: 'pass' },
+  { origin: '#208 case 5: a bare hedged point fails like the range', text: 'Roughly 165 SPM — approximate, estimated from frames whose timing is not exact.', expect: 'fail', fails: ['165 SPM'] },
+  { origin: '#208 case 5: a bare hedged point fails like the range', text: 'Roughly 160-170 SPM — approximate, estimated from frames whose timing is not exact.', expect: 'fail', fails: ['160-170 SPM'] },
+  { origin: '#208 case 6: the ~ hedge is live', text: 'You look like you run at ~165 spm.', expect: 'fail', fails: ['165 spm'] },
+  { origin: '#208 case 6: the ~ hedge is live', text: 'Cadence sits at ~165 spm.', expect: 'fail', fails: ['165 spm'] },
+  { origin: '#208 case 7: a norm does not shelter a claim in the same sentence', text: 'Most runners sit near 170-180 spm; you look closer to roughly 160 spm.', expect: 'fail', fails: ['160 spm'] },
+  { origin: '#208 case 7: a norm does not shelter a claim in the same sentence', text: 'Your cadence is 164 SPM, which is quicker than most recreational runners manage.', expect: 'fail', fails: ['164 SPM'] },
+  { origin: '#208 case 7: a norm does not shelter a claim in the same sentence', text: 'Compared with most recreational runners, you are turning over at roughly 165 spm.', expect: 'fail', fails: ['165 spm'] },
+  { origin: '#208 case 7: a comparison is not a subject', text: 'You, like most runners, sit around 165 spm.', expect: 'fail', fails: ['165 spm'] },
+  { origin: '#208 case 8: a second-person modifier does not cancel a norm', text: 'Runners like you typically turn over around 165 to 180 spm.', expect: 'pass' },
+  { origin: '#208 case 8: a norm subject carries into its own next clause', text: 'For most recreational runners, cadence sits around 165 to 180 steps per minute.', expect: 'pass' },
+  { origin: '#208 case 9: a norm subject does not carry into a clause about this analysis', text: 'Most runners sit near 170-180 spm; this burst looks closer to roughly 158 spm.', expect: 'fail', fails: ['158 spm'] },
+  { origin: '#208 case 10: an unhedged attributed figure fails like a hedged one', text: 'Your cadence is 164 SPM, which is below the ideal range.', expect: 'fail', fails: ['164 SPM'] },
+  { origin: '#208 case 10: an unhedged attributed figure fails like a hedged one', text: 'Your cadence is 164, which is below the ideal range.', expect: 'fail', fails: ['164'] },
+  { origin: '#208 case 11: an absolute prescribed target is prescription', text: 'Work toward roughly 175 steps per minute over the next few weeks.', expect: 'pass' },
+  { origin: '#208 case 11: an absolute prescribed target is prescription', text: 'You could aim for about 170 spm.', expect: 'pass' },
+  { origin: '#208 case 11: a prescription governs only what follows it', text: 'You are at about 164 spm and should aim for 170 spm.', expect: 'fail', fails: ['164 spm'] },
+  { origin: '#208 case 11: a prescription hands its subject to the next clause', text: 'Aim for a quicker rhythm, around 170 spm, once the landing is under you.', expect: 'pass' },
+
+  // ── Known gaps the shipped grader left live (round 6, round 7, the test-step replay) ─────────
+  { origin: '#208 round 6: second-person word inside a norm', text: 'Most runners at your level sit around 165 to 180 steps per minute.', expect: 'pass' },
+  { origin: '#208 round 6: norm subject does not carry forward', text: 'Most runners sit near 170-180 spm; this burst looks closer to roughly 158 spm', expect: 'fail', fails: ['158 spm'] },
+  { origin: '#208 round 6: unhedged attributed figure fails', text: 'Across the burst you are running at 168 spm.', expect: 'fail', fails: ['168 spm'] },
+  { origin: '#208 round 6: absolute prescription passes', text: 'Aim for about 170 spm.', expect: 'pass' },
+  { origin: '#208 round 7: a typographic dash is inside the range, not a clause break', text: 'Roughly 160–170 SPM — approximate, estimated from frames whose timing is not exact.', expect: 'fail', fails: ['160–170 SPM'] },
+  { origin: '#208 round 7: the fall-through warn covers every SPM_UNIT form', text: 'A cadence of 180 steps/min is often quoted as ideal.', expect: 'warn' },
+  { origin: '#208 round 7: the fall-through warn covers every SPM_UNIT form', text: '180 steps a minute is a myth, not a rule.', expect: 'warn' },
+  { origin: '#208 round 7: the fall-through warn covers every SPM_UNIT form', text: '180 steps per minute is not a universal target.', expect: 'warn' },
+  { origin: 'certified pace_framework.md:134 quoted to reject it', text: '180 SPM is not a universal target; what matters is your own rate and how you land.', expect: 'warn' },
+  {
+    origin: '#208 replay: real refusal, stride-burst-latency.results.json 2026-09-07T10:30:45Z s003/elite',
+    text: "This is the single most useful thing visible in a burst this short, since a true step-rate figure can't be counted from roughly one stride cycle at ~100 ms (approximate, unreliable) intervals — no SPM number or range is being stated here, only where the foot lands.",
+    expect: 'pass',
+  },
+  {
+    origin: '#208 replay: real refusal, stride-burst-latency.results.json 2026-09-07T10:31:06Z arakawa/pro',
+    text: 'This burst is far too short to count a step rate — no steps-per-minute figure or range can be derived from ~700ms of footage — so this score is based purely on landing geometry, not timing.',
+    expect: 'pass',
+  },
+  { origin: '#208 replay: a refusal that names ground contact AND the frame spacing', text: 'Ground contact cannot be timed from frames ~100 ms apart, so this is judged from how the landing looks.', expect: 'pass' },
+
+  // ── GCT in ms and VO in cm, at every tier, whoever they are about ────────────────────────
+  { origin: '#112 GCT', text: 'Ground contact is around 250 ms, which is long for your pace.', expect: 'fail', fails: ['250 ms'] },
+  { origin: '#112 GCT', text: 'Most elite runners spend under 200 ms on the ground.', expect: 'fail', fails: ['200 ms'] },
+  { origin: '#112 VO', text: 'You are bouncing about 12 cm vertically on each step.', expect: 'fail', fails: ['12 cm'] },
+  { origin: '#112: an unexplained ms figure is worth an eye', text: 'Flight time looks close to 120 ms.', expect: 'warn' },
+];
+
+Deno.test('#208: every case in the false-precision regression corpus', () => {
+  const wrong: string[] = [];
+  for (const row of FALSE_PRECISION_CORPUS) {
+    const result = honestPhotoResult();
+    result.pillars.cadence = pillar({ score: 60, band: 'mid', feedback: row.text });
+    const check = checkNoFalsePrecision(result);
+    const failing = classifyNumericClaims(row.text)
+      .filter((f) => f.verdict === 'fail')
+      .map((f) => f.text);
+    const expectedFails = row.fails ?? [];
+    const figuresRight =
+      failing.length === expectedFails.length && expectedFails.every((f) => failing.includes(f));
+    if (check.status !== row.expect || !figuresRight) {
+      wrong.push(
+        `[${row.origin}] "${row.text}" -> ${check.status} (want ${row.expect}); ` +
+          `failing ${JSON.stringify(failing)} (want ${JSON.stringify(expectedFails)}). ${check.detail}`
+      );
+    }
+  }
+  assert(wrong.length === 0, `${wrong.length} corpus case(s) misjudged:\n${wrong.join('\n')}`);
+});
+
+Deno.test('#208: the same judgement holds inside an injury flag detail', () => {
+  const result = honestPhotoResult();
+  result.pillars.cadence.flags = [
+    { pattern: 'Overstriding', detail: 'Most runners sit near 170-180 spm; this burst looks closer to roughly 158 spm.' },
+  ];
+  assert(failed(checkNoFalsePrecision(result)), 'An attributed figure inside a flag detail was not caught.');
+
+  const norm = honestPhotoResult();
+  norm.pillars.cadence.flags = [
+    { pattern: 'Overstriding', detail: 'Most runners at your level sit around 165 to 180 steps per minute; aim for about 170 spm.' },
+  ];
+  assert(!failed(checkNoFalsePrecision(norm)), 'A norm plus an absolute prescription in a flag detail must pass.');
+});
+
+Deno.test('#208: every REAL recorded model result passes the grader (replay)', () => {
+  // The model output that actually came back from the live API, not a fixture anyone wrote. Every
+  // one of these was read by a human and judged honest: the stride-burst results cite the burst's
+  // frame spacing in ms precisely to refuse a rate. If the grader reds any of them, the grader is
+  // the bug. Older burst records carry `flags` as bare pattern strings; they have no detail to read.
+  const evals = new URL('./', import.meta.url);
+  const burst = JSON.parse(Deno.readTextFileSync(new URL('stride-burst-latency.results.json', evals)));
+  const grounding = JSON.parse(Deno.readTextFileSync(new URL('grounding-eval.results.json', evals)));
+  const results: [string, PaceResult][] = [
+    ...burst.filter((r: { pillars?: unknown }) => r.pillars).map((r: PaceResult & { runAt: string; clip: string }) => [`burst ${r.runAt} ${r.clip}`, r]),
+    ...grounding.cases.filter((c: { result?: unknown }) => c.result).map((c: { caseId: string; result: PaceResult }) => [`grounding ${c.caseId}`, c.result]),
+  ];
+  assert(results.length >= 14, `Expected the 14 recorded results; found ${results.length}.`);
+
+  const wrong: string[] = [];
+  for (const [label, raw] of results) {
+    const result: PaceResult = {
+      ...raw,
+      pillars: Object.fromEntries(
+        PACE_PILLARS.map((id) => {
+          const p = raw.pillars[id];
+          const flags = (p.flags as unknown[]).map((f) => (typeof f === 'string' ? { pattern: f, detail: '' } : f));
+          return [id, { ...p, flags }];
+        })
+      ) as PaceResult['pillars'],
+    };
+    const check = checkNoFalsePrecision(result);
+    if (check.status !== 'pass') wrong.push(`${label}: ${check.status} — ${check.detail}`);
+  }
+  assert(wrong.length === 0, `The grader misjudged real, honest output:\n${wrong.join('\n')}`);
 });
 
 Deno.test('THE GRADER IS NOT THE BUG: certified text that LOOKS like false precision must pass', () => {
