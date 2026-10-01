@@ -3777,7 +3777,8 @@ independently to avoid coupling two parallel worktrees' files — a candidate fo
 not forced here). Its entrypoint, `supabase/functions/sweep-orphaned-media/`, is deployed and, as
 of `20260806090000_sweep_orphaned_media_cron.sql` (decision `orphan-sweep-scheduling-mechanism`),
 **scheduled**: a `pg_cron` job (`sweep-orphaned-media-daily`, `0 9 * * *` UTC, `cron.job` id 2)
-calls it once a day via `pg_net.http_post`, authenticating with the `X-Cron-Secret` shared secret
+calls it once a day via `pg_net.http_post` (pg_net has been installed with `schema extensions`
+since issue #205; its objects live in `net` either way), authenticating with the `X-Cron-Secret` shared secret
 pulled from **Supabase Vault** (`vault.decrypted_secrets`, secret name
 `sweep_orphaned_media_cron_secret`) — the value is never in git, never in the migration file, and
 was provisioned ad hoc directly against the live project, matching what's set as the edge
