@@ -1078,11 +1078,11 @@ milestone "done" criteria.
 
     | `copy.ts` lines | Keys | Deck marker |
     |---|---|---|
-    | 425 | `home.quota.blockedFor` | copy-deck.md:140, "NEW key (2026-09-07), not yet certified". |
-    | 504–510, 532 | `analyzing.error.previousAttemptFailed.*`, `analyzing.error.cta.startNew` (issue #128) | copy-deck.md:256, "NEW, NOT YET CERTIFIED". |
-    | 568 | `result.pillar.notAssessed.singleFrameFromVideo` | copy-deck.md:306, "NEW key (2026-09-06), not yet certified". |
-    | 1354–1357 | `upload.error.unsupportedFootage.*` (issue #199) | copy-deck.md:231, "a draft until certified". |
-    | 1417–1425 | `analysisPause.*` (the anti-farm cooldown) | copy-deck.md:273, "NEW, NOT YET CERTIFIED". |
+    | 425 | `home.quota.blockedFor` | copy-deck.md:144, "NEW key (2026-09-07), not yet certified". |
+    | 504–510, 532 | `analyzing.error.previousAttemptFailed.*`, `analyzing.error.cta.startNew` (issue #128) | copy-deck.md:260, "NEW, NOT YET CERTIFIED". |
+    | 568 | `result.pillar.notAssessed.singleFrameFromVideo` | copy-deck.md:310, "NEW key (2026-09-06), not yet certified". |
+    | 1354–1357 | `upload.error.unsupportedFootage.*` (issue #199) | copy-deck.md:235, "a draft until certified". |
+    | 1417–1425 | `analysisPause.*` (the anti-farm cooldown) | copy-deck.md:277, "NEW, NOT YET CERTIFIED". |
 
     **(c) Open question for the captain — not on the list above, because no marker puts them
     there:**
