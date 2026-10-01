@@ -3225,7 +3225,8 @@ Three files, the same three-way split as `analysis/index.ts` (#57):
     (`reauthenticateWithGoogle`); an unrecognized provider gets an honest "we can't confirm it's
     you, sign out and back in" message. Exactly one retry loop — a retry that ALSO comes back
     `reauth_required` (clock skew, a second concurrent stale request) falls through to the ordinary
-    failure copy rather than prompting a second time. New, uncertified `Copy.settings.reauth.*`.
+    failure copy rather than prompting a second time. New `Copy.settings.reauth.*` copy (certification
+    status: `docs/status.md` Known Issue #34).
 
 **Still open** (see `docs/status.md` Known Issue #22): the #59 half that runs against a real local
 Supabase (Postgres *and* Storage — the property under test is that two different systems agree,
@@ -3882,9 +3883,10 @@ quota authority. This is the exact trap `lib/subscription.ts`'s own header names
 Echo V1 once mistakenly believed enforcement lived in a file shaped like this one (it lived in the
 edge function, same as here). Registered inside `app/_layout.tsx`'s signed-in
 `Stack.Protected` block.
-New, uncertified purchase pending/success/failure copy (`paywall.alertDismiss`, `paywall.plan.*`,
+New purchase pending/success/failure copy (`paywall.alertDismiss`, `paywall.plan.*`,
 `paywall.purchase.*`) — the deck's Screen 10 table only ever specced the static tier cards and the
 two 402-gate banners, never what happens during/after tapping Upgrade.
+Copy certification status: `docs/status.md` Known Issue #34.
 
 ## Current — Home quota (issues #54/#15, 2026-07-13)
 
@@ -3894,8 +3896,8 @@ server-side — is **deleted**. New `lib/quota.ts` calls `GET /functions/v1/quot
 Home's pure quota→copy/CTA mapping as unit-tested logic rather than inlined JSX. Exhausted-quota
 CTAs (`"Upgrade to analyze"` / `"Upgrade for more"`) now open the real Paywall route. Also renders
 issue #6's anti-farm `blocked` state (`pace_quota_status` can report `blocked: true` independently
-of `remaining`), which the old mirror had no way to represent — new, uncertified
-`home.quota.blocked` copy, since the deck never specced this state.
+of `remaining`), which the old mirror had no way to represent — new
+`home.quota.blocked` copy, since the deck never specced this state. Copy certification status: `docs/status.md` Known Issue #34.
 
 ## Current — Past Analyses (issues #55/#12, 2026-07-13)
 
@@ -3921,11 +3923,11 @@ with the error state. Every successful refresh still mints fresh short-TTL signe
 authenticated user swap discards the prior account's cached rows and thumbnails outright and a late
 in-flight fetch from the old user cannot land on the new user's screen.
 
-New, uncertified `history.item.a11yLabelNotAssessed`, `history.item.deleteCta`,
-`history.delete.error.*`, and `history.error.*` — states the deck never specced. The Elite Compare
-screen (`app/compare.tsx`, `lib/compare.ts`, issue #60) was built after #55 but stayed unreachable
-from navigation until the 2026-08-07 comprehensive audit added a "Compare two analyses" entry
-point here (`Copy.history.compare`) once at least two stored results exist — see
+New `history.item.a11yLabelNotAssessed`, `history.item.deleteCta`, `history.delete.error.*`, and
+`history.error.*` — states the deck never specced. Copy certification status:
+`docs/status.md` Known Issue #34. The Elite Compare screen (`app/compare.tsx`, `lib/compare.ts`,
+issue #60) was built after #55 but stayed unreachable from navigation until the 2026-08-07
+comprehensive audit added a "Compare two analyses" entry point here (`Copy.history.compare`) once at least two stored results exist — see
 `docs/change_log.md`'s 2026-08-07 entry. Compare still re-checks Elite entitlement itself
 server-side rather than trusting this entry point.
 
@@ -4024,8 +4026,8 @@ precisely the moment it's needed. Fixed: `lib/session-provider.tsx` now tracks a
 `update-password.tsx` commits the new password), and both `Stack.Protected` guards in
 `app/_layout.tsx` now read `!!session && !isPasswordRecovery` / `!session || isPasswordRecovery`.
 
-New, uncertified `Copy.auth.reset.*` — not in the copy deck, needs review. See
-`docs/design/copy-deck.md`'s new-copy section.
+New `Copy.auth.reset.*` copy — see `docs/design/copy-deck.md`'s new-copy section. Copy
+certification status: `docs/status.md` Known Issue #34.
 
 ## Current — first EAS simulator build (issue #84, 2026-07-25)
 
