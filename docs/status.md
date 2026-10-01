@@ -2166,6 +2166,44 @@ milestone "done" criteria.
     **Open follow-up 3 — the Terms are still unpublished.** Unchanged by this work; the agreement
     line's "Terms" is still the page's underline, not a link (`app/(auth)/sign-in.tsx` header).
 
+53. **RESOLVED 2026-10-01 — `pg_net` moved out of `public` (issue #205); its `net` privileges are
+    a dated waiver, pending the captain's choice of waiver or support ticket.**
+    `20261001120000_pg_net_extensions_schema.sql` re-created pg_net with `schema extensions`,
+    applied with `supabase db push --linked` at 2026-10-01 10:14Z (ledger 38/38). pg_net 0.20.3 is
+    not relocatable, so it was a drop plus a create, the procedure Supabase documents. The only
+    loss was pg_net's 6-hour response log (one row: that morning's 09:00 sweep response, id 59,
+    `200 purge`, 0 candidates) and its request-id sequence, which restarted at 1. The advisor's
+    `extension_in_public` WARN is gone (`observed_at` 2026-10-01T10:14:44Z). Nothing moved
+    physically: every pg_net object was and is in `net` (28 members, before and after). The
+    privilege matrix for `anon`, `authenticated`, `authenticator`, `service_role`, `postgres` and
+    `supabase_functions_admin` is identical before and after. `sweep-orphaned-media-daily` (jobid
+    2) was not touched (`md5(command)` `8141ab40f0004e47cdb3e57b858e9496` unchanged), and a manual
+    dry-run call through the same statement returned `200 dry_run` (request id 1;
+    `function_edge_logs` `POST | 200`, user agent `pg_net/0.20.3`). The first scheduled run after
+    the move is 2026-10-02 09:00Z; confirm it with `cron.job_run_details` for jobid 2 and the
+    newest `net._http_response` row (`200`, `purge`).
+
+    **Waiver (2026-10-01, recorded current state — not the captain's final decision).** `anon`,
+    `authenticated` (and every role, via PUBLIC) hold USAGE on `net`, EXECUTE on every `net.*`
+    function, and ALL on `net.http_request_queue`/`net._http_response`. Those grants come from
+    pg_net's own install script (`grant … to PUBLIC`) and Supabase's `issue_pg_net_access` event
+    trigger, both made by `supabase_admin`. `postgres` cannot revoke a grant it did not make; the
+    REVOKE warns and does nothing, the same trap as Known Issue #18. The event trigger would also
+    re-grant on any re-create. The grants are not reachable: `net` is not PostgREST-exposed
+    (`Accept-Profile: net` → `406 PGRST106`, re-checked 2026-10-01), no client role gets a direct
+    connection, and no exposed function calls pg_net. Re-verify with
+    `has_schema_privilege('anon','net','USAGE')` plus the PGRST106 probe whenever the API's
+    exposed schemas change. **Still open to the captain:** the stronger option is a Supabase
+    support ticket asking them to revoke as `supabase_admin`. That would be re-granted on any
+    pg_net re-create or upgrade, so it would need re-filing after each.
+
+    **Rollback** (not expected to be needed; nothing in the project reads `extnamespace`): ship
+    `supabase/rollbacks/20261001120000_pg_net_back_to_public.sql` as a NEW forward migration
+    through `db push` — never delete ledger rows or use `apply_migration`. It is lossy in exactly
+    the same way as the forward move (drops `net._http_response` rows written since, resets the
+    request-id sequence) and re-raises the advisor WARN. If the sweep misbehaves instead, try
+    `select net.worker_restart(); select net.wait_until_running();` first.
+
 ## Next action
 
 **RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the

@@ -5,6 +5,29 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-10-01 (production deploy — pg_net moved out of `public`, #205)
+
+- **`20261001120000_pg_net_extensions_schema.sql` re-creates pg_net with `schema extensions`**,
+  clearing the live security advisor's `extension_in_public` WARN. pg_net 0.20.3 is not
+  relocatable, so it is `drop extension` + `create extension pg_net schema extensions`
+  (Supabase's documented procedure), guarded to fail loudly on a non-empty request queue and
+  bounded by a 10 s `lock_timeout` for the 09:00 UTC sweep. Only `pg_extension.extnamespace`
+  changed; all 28 member objects were and are in `net`. Applied with `supabase db push --linked`
+  at 10:14Z; ledger 38/38.
+- **Verified live:** extension `0.20.3` in `extensions`, owner `supabase_admin`; 28 members in
+  `net`; cron jobid 2 untouched (`md5` unchanged); the pg_net worker is up; the `net` privilege
+  matrix is identical before and after; a dry-run call through the job's statement returned
+  `200 dry_run` (request id 1, edge log `POST | 200`).
+- **Lost, as planned:** pg_net's 6-hour response log (one row, that morning's sweep response) and
+  the request-id sequence position.
+- **Not done by migration, on purpose:** revoking `anon`/`authenticated` access to `net`. Those
+  grants were made by `supabase_admin`, so a REVOKE run as `postgres` warns and changes nothing.
+  Recorded as a dated waiver in `docs/status.md` Known Issue #53; the support-ticket alternative is
+  still the captain's call. Rollback text is in `supabase/rollbacks/` (not a migration).
+- New tests: `pg-net-extensions-schema-sql.deno.test.ts` (PGlite: the queue guard, `lock_timeout`
+  reset, no-`net` environment) and `pg_net_extensions_schema.test.ts` (no SET SCHEMA, no CASCADE,
+  no GRANT/REVOKE, no cron edit, the original install left untouched).
+
 ## 2026-10-01 (eval grader `no-false-precision` redesigned, #208)
 
 - **`checkNoFalsePrecision` (`supabase/functions/_shared/evals/grounding-eval.ts`) is now a
