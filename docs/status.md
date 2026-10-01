@@ -2225,7 +2225,9 @@ still standing between here and a public/TestFlight release:
 - **Known Issue #24/#34** — uncertified copy: five blocks marked in `constants/copy.ts` (auth
   field-validation errors, sign-up CAPTCHA errors, the pillar-detail modal, the History delete
   a11y labels, Settings) plus five deck-marked keys. Known Issue #34 has the inventory and how to
-  re-derive it. Paywall, history, reauth and password-reset copy were certified 2026-07-13.
+  re-derive it. Paywall, history, reauth and password-reset copy were certified 2026-07-13, but
+  the 2026-09-12 tone pass has since rewritten that wording in `constants/copy.ts`, so what ships
+  is not what was certified — see Known Issue #34 (c).
 - [`docs/blocked-on-apple.md`](blocked-on-apple.md) — everything gated on the Apple Developer
   Program (the TestFlight pipeline, Sign in with Apple).
 - **The Expo SDK 54 -> 57 upgrade MERGED to `main` 2026-09-05 as PR #198** (this bullet used to say
