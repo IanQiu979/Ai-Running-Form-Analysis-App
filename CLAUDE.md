@@ -18,8 +18,8 @@ Storage + Edge Functions). AI: Claude (`claude-sonnet-5`), called only from the 
 edge function, never from the client. The app, its migrations, and eight edge functions exist;
 seven are live on the Supabase project — the sign-up → analysis → result path ran end to end against
 it on 2026-07-26 (issue #128), and `signup-with-captcha` (Known Issue #12) followed on 2026-08-03.
-The eighth, `record-age-band`, ships with the 2026-09-20 age-band migration and is not deployed
-yet (`docs/status.md` Known Issue #52; deploy order in `docs/auth-config-runbook.md` § 3).
+The eighth, `record-age-band`, ships with the 2026-09-20 age-band migration; its deploy is
+recorded in `docs/status.md` Known Issue #52 and `docs/change_log.md` (2026-09-21).
 Route tree, `lib/` layout, the `analyze-form` flow, the API table
 (which owns per-endpoint deployment status), and the DB schema all live in
 [`docs/architecture.md`](docs/architecture.md); current milestone and live-state detail is in
@@ -63,16 +63,14 @@ this project; Expo Go on the **Play Store tracks the newest SDK too, and will re
 the moment Expo ships SDK 58** — Android needs a dev build.
 
 **Deploying to the live Supabase project (`vputdomdlknvthnzritt`) is CLI-only.** Migrations ship
-with `supabase db push --linked` (after `supabase link --project-ref …` in your worktree; it needs
-the database password via `SUPABASE_DB_PASSWORD`, which lives in no repo file), functions with
+with `supabase db push --linked` (after `supabase link --project-ref …` in your worktree; as of
+CLI 2.109.1 it connects through the CLI's temporary login role, no `SUPABASE_DB_PASSWORD` needed), functions with
 `supabase functions deploy <name> --project-ref … --use-api` (no Docker here). **Never apply a repo
 migration with the Supabase MCP `apply_migration` tool** — it stamps `now()` as the version and
 strips comments, so the ledger drifts from the file names while the DDL is live (issue #201, repaired
-2026-09-19; `docs/status.md` Known Issue #49 has the sequence). **Before your NEXT `supabase db push
---linked`, run `supabase migration repair --linked --status reverted 20260807090000` first** — the
-2026-09-20 override-family deletion removed that migration file from the repo, but production's
-ledger still has a row for it (`docs/status.md` Known Issue #49), and `db push` refuses to proceed
-against a ledger row with no matching local file until it is reverted. `~/.local/bin/supabase` is a shim:
+2026-09-19; `docs/status.md` Known Issue #49 has the sequence). The one-time
+`20260807090000` ledger repair is done — see `docs/auth-config-runbook.md` § 3 and
+`docs/status.md` Known Issue #49. `~/.local/bin/supabase` is a shim:
 `db push`/`functions deploy` fail with "Could not find the `supabase-go` binary" until
 `SUPABASE_GO_BINARY=~/.local/share/supabase/supabase-go` is exported. `supabase db query --linked`
 runs read-only verification SQL through the Management API with no password.
