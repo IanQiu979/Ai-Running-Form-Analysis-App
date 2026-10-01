@@ -769,18 +769,19 @@ milestone "done" criteria.
       import — the two were checked against each other and agree (`purge_failed` / `rows_failed` /
       `auth_delete_failed`, with `reauth_required` handled as its own 401 on both sides). Swapping the
       mirror for a real import is still a worthwhile cleanup, not a correctness gap.
-24. **NEW — the Settings screen ships UNCERTIFIED copy (issue #53, 2026-07-13).** `constants/copy.ts`
-    gained a clearly-delimited block of strings that are **not in `docs/design/copy-deck.md`** and
-    have not been through `ux-copywriter` or Ian: two distinct sign-out failure alerts (the string
+24. **OPEN — the Settings screen ships UNCERTIFIED copy (issue #53, 2026-07-13).** `constants/copy.ts`
+    gained a clearly-delimited block (now lines 840–1000) of strings that are **not in
+    `docs/design/copy-deck.md`** and have not been certified by Ian: the email row's empty state,
+    the plan row's loading/error/retry strings, two distinct sign-out failure alerts (the string
     issue #27 explicitly said had to be written — a security audit, finding F3, found there are
     genuinely two of them, not one — see Known Issue #23's sibling note in `lib/sign-out.ts`), the
-    delete-account failure alert and its separate orphans-remaining success alert (finding F2), the
-    consent-withdrawal confirmation, and two screen-reader-only Retry labels (the "policy not
-    published yet" line was in this list until 2026-09-19, when the captain certified the
-    `settings.privacyPolicy.label` row as a link to the published policy and the line was removed —
-    issue #204 tracks the rest). They were written to the deck's own rules (name the outcome, never claim a state
-    that isn't true, no jargon) but they are drafts. Review them, then mirror the approved wording
-    into copy-deck.md § Screen 11 the way #36's and #56's NEW keys were.
+    delete-account pending state, failure alert and its separate orphans-remaining success alert
+    (finding F2), and the whole consent row (status lines, withdraw confirm and failure, give
+    consent again). The one exception inside the block is `settings.privacyPolicy.label`, which
+    the captain certified 2026-09-19 as a link to the published policy. `fbe2615` (issue #138)
+    left this block uncertified on purpose. The exact key list is in Known Issue #34's inventory,
+    which is the single list of uncertified copy. Review, then mirror the approved wording into
+    copy-deck.md § Screen 11 the way #36's and #56's NEW keys were.
 25. **RESOLVED 2026-07-26 — `analyze-form` IS deployed, and the client binding is real.** Both of
     the deploy steps this entry was waiting on ran on 2026-07-26 (issue #128):
     `supabase functions deploy analyze-form` and `supabase secrets set ANTHROPIC_API_KEY=…`. Verified
@@ -1047,40 +1048,59 @@ milestone "done" criteria.
     live property. Whoever applies these should re-verify each one's own header for
     apply-ordering dependencies between them (`20260713153000` explicitly assumes
     `20260713152000` applies first, for instance) before running `supabase db push`.
-34. **NEW — this batch adds five more blocks of UNCERTIFIED copy across four screens
-    (2026-07-13), none reviewed by `ux-copywriter` or Ian.** Joins Known Issue #24's precedent
-    (the Settings screen's own uncertified block from issue #53) rather than replacing it — read
-    both together for the full uncertified-copy surface:
-    - ~~`consent.upload.age.checkbox` and the whole `consent.upload.subject.*` namespace (issue
-      #94)~~ — DELETED 2026-09-20 with the per-upload gate. Their replacement carries the same
-      Art. 9 weight and is the highest-stakes block in this list: `auth.consent.healthProcessing`,
-      `auth.consent.futureUploads.checkbox`, `auth.ageGate.consentReminder` and
-      `auth.error.futureUploadsConsentRequired` (the sign-up / Google first-use consent, wording
-      per the captain's 2026-09-20 decisions but not certified as copy), plus
-      `settings.consent.status.none`, `settings.consent.restore.*` and
-      `sourcePicker.error.consentWithdrawn.*`.
-    - `Copy.settings.reauth.*` (issue #124) — the delete-account step-up reauthentication copy.
-    - `paywall.alertDismiss`, `paywall.plan.*`, `paywall.purchase.*` (issue #52) — the dummy
-      purchase's pending/success/failure states; the deck's Screen 10 never specced them.
-    - `history.item.a11yLabelNotAssessed`, `history.item.deleteCta`, `history.delete.error.*`,
-      `history.error.*` (issue #55) — states the deck's Screen 8 table never specced.
-    - `Copy.auth.reset.*` (issue #81) — the whole password-reset request/update flow; no
-      "forgot password" flow exists anywhere in the deck to lift from.
-    - **ADDED 2026-07-26 (issue #128 review round):** `analyzing.error.previousAttemptFailed.title`
-      / `.body` and `analyzing.error.cta.startNew` — the released-reservation dead end shown for the
-      server's 409 `previous_attempt_failed` and for issue #64's reconciled `released` phase, plus
-      its "Start a new analysis" action. Deliberately drops the "try again" line the `failed`/
-      `timeout` copy carries, because a Retry there re-submits the same idempotency key and can only
-      return the same released row. Wording mirrors the server's own message; not in the deck.
-    - **ADDED 2026-09-06 (issue #199):** `Copy.upload.error.unsupportedFootage.title` / `.body` —
-      the non-retryable state for `lib/frames.ts`'s `InsufficientFramesError` (too few distinct
-      frames survived the stride burst). Now mirrored into `docs/design/copy-deck.md`'s Screen 5
-      table, marked a draft until certified like the rest of this list.
-    All six are written to the deck's own stated voice rules (plain, calm, name the outcome, no
-    jargon, never claim a state that isn't true) but are drafts. `docs/design/copy-deck.md` now
-    marks all six with a delimited "NEW — awaiting certification" note, following issue #95's
-    established precedent for backfilling settled copy — except these are explicitly NOT settled
-    yet. Review and certify before any of these five screens ships to real users.
+34. **OPEN — the uncertified-copy inventory (the single list; Known Issue #24 and issue #204
+    point here). Re-derived from the code on 2026-10-01; line numbers are `constants/copy.ts` as
+    of the commit that last touched this entry.** The 2026-07-13 version of this entry listed the
+    #94/#124/#52/#55/#81 blocks as uncertified; the captain certified all of them that same day
+    (commit `fbe2615`, issue #138), and #94's keys have since been deleted. Do not re-raise them.
+
+    **How this list is derived — re-derive it, do not trust it.** Run
+    `grep -nE "copy-certified|Needs review|NOT YET CERTIFIED|not yet certified|draft until certified" constants/copy.ts docs/design/copy-deck.md`,
+    then read each hit to its block's `start`/`end` delimiters (a marker can wrap: the hit at
+    `copy.ts:579` belongs to the block that opens at 578). A block is listed in (a) only if
+    `constants/copy.ts` itself marks it NOT copy-certified, and in (b) only if `copy.ts` is silent
+    but `docs/design/copy-deck.md` marks it not yet certified. A bare "NEW — not in the deck" note
+    is NOT a certification marker and does not put a key on this list; keys carrying only that
+    note are the open question in (c). Only the captain's certification removes a marker.
+
+    **(a) Marked NOT copy-certified in `constants/copy.ts` (five blocks):**
+
+    | Lines | Block | Keys | Marker |
+    |---|---|---|---|
+    | 227–241 | issue #17 — auth field-validation errors | `auth.error.emailRequired`, `.emailInvalid`, `.passwordRequired` | "NOT in docs/design/copy-deck.md, NOT copy-certified." `fbe2615` named this block as deliberately left uncertified. |
+    | 291–297 | issue #12 — sign-up CAPTCHA errors | `auth.error.captchaLoadFailed`, `.captchaExpired`, `.captchaInvalid` | "NOT in docs/design/copy-deck.md, NOT copy-certified." |
+    | 578–600 | pillar-detail modal | `result.pillar.flagsLabel`, `.drillsLabel`, `.safetyLabel`, `.detail.a11yLabel`, `.detail.a11yHint`, `.detail.close` | "NOT in docs/design/copy-deck.md, NOT copy-certified." |
+    | 670–678 | issue #62 — per-row delete a11y labels (screen-reader only) | `history.item.deleteA11yLabel`, `.deleteA11yLabelNotAssessed` | "NOT in docs/design/copy-deck.md, NOT copy-certified (a11y announcement text, never rendered visually)." |
+    | 840–1000 | issue #53 — Settings states the deck never specced | `settings.alertDismiss`, `settings.account.*`, `settings.plan.*`, `settings.signOutError.*`, `settings.deleteAccountState.*`, `settings.consent.*` (status, withdraw, restore) | "NOT in the copy deck, NOT copy-certified. Needs review." One carve-out inside the block: `settings.privacyPolicy.label` (993–998) is captain-certified 2026-09-19. `fbe2615` named this block as deliberately left uncertified. |
+
+    **(b) Not marked in `constants/copy.ts`, but marked not yet certified in
+    `docs/design/copy-deck.md`:**
+
+    | `copy.ts` lines | Keys | Deck marker |
+    |---|---|---|
+    | 425 | `home.quota.blockedFor` | copy-deck.md:144, "NEW key (2026-09-07), not yet certified". |
+    | 504–510, 532 | `analyzing.error.previousAttemptFailed.*`, `analyzing.error.cta.startNew` (issue #128) | copy-deck.md:260, "NEW, NOT YET CERTIFIED". |
+    | 568 | `result.pillar.notAssessed.singleFrameFromVideo` | copy-deck.md:310, "NEW key (2026-09-06), not yet certified". |
+    | 1354–1357 | `upload.error.unsupportedFootage.*` (issue #199) | copy-deck.md:235, "a draft until certified". |
+    | 1417–1425 | `analysisPause.*` (the anti-farm cooldown) | copy-deck.md:277, "NEW, NOT YET CERTIFIED". |
+
+    **(c) Open question for the captain — not on the list above, because no marker puts them
+    there:**
+    - The sign-up consent strings (`auth.consent.healthProcessing`, `auth.consent.futureUploads.checkbox`,
+      `auth.ageGate.consentReminder`, `auth.error.futureUploadsConsentRequired`) and
+      `sourcePicker.error.consentWithdrawn.*`. This entry previously called them "per the
+      captain's 2026-09-20 decisions but not certified as copy"; `copy.ts` carries no
+      not-certified marker on any of them, so whether they are certified is unrecorded.
+    - Keys marked only "NEW — not in the deck", with no certification statement in either file:
+      e.g. `home.quota.zeroPillarCooldown`, `home.empty.body`, `home.pending.released.*`,
+      `analyzing.error.unauthorized.*`, `analyzing.error.zeroPillarCooldown.*`, the `result.error.*`
+      and `result.cta.tryAnother` keys, the issue #60 Compare keys, and the issue #36
+      `sourcePicker.error.*` / `upload.error.*` / `upload.ready.*` keys.
+    - The 2026-09-12 tone pass rewrote every string in `copy.ts`, including the blocks certified on
+      2026-07-13, so their current wording is not the wording the captain signed.
+
+    Counsel review of the consent mechanism (`docs/privacy-checklist-m7.md`) is a separate,
+    still-open item; certifying the wording does not close it.
 35. **RESOLVED 2026-07-26 — every authenticated edge function returned `401` because
     `getPublishableKey()` misparsed the platform's key env var. Found while verifying issue #128;
     fixed in the same batch.** `quota-status`, `analyze-form`, `purchase-tier`, and `delete-account`
@@ -2202,8 +2222,12 @@ still standing between here and a public/TestFlight release:
   are not yet a clean pass: #230 (sign-up CTA) was a harness artefact, fixed in the flow
   2026-09-20, and the capture→analyze leg is skipped on a simulator (#232 is fixed in-app, but
   the Simulator has no camera and no fixture clip is checked in).
-- **Known Issue #24/#34** — several blocks of uncertified copy across Settings, consent, paywall,
-  history, and password-reset screens still need `ux-copywriter`/Ian review.
+- **Known Issue #24/#34** — uncertified copy: five blocks marked in `constants/copy.ts` (auth
+  field-validation errors, sign-up CAPTCHA errors, the pillar-detail modal, the History delete
+  a11y labels, Settings) plus five deck-marked keys. Known Issue #34 has the inventory and how to
+  re-derive it. Paywall, history, reauth and password-reset copy were certified 2026-07-13, but
+  the 2026-09-12 tone pass has since rewritten that wording in `constants/copy.ts`, so what ships
+  is not what was certified — see Known Issue #34 (c).
 - [`docs/blocked-on-apple.md`](blocked-on-apple.md) — everything gated on the Apple Developer
   Program (the TestFlight pipeline, Sign in with Apple).
 - **The Expo SDK 54 -> 57 upgrade MERGED to `main` 2026-09-05 as PR #198** (this bullet used to say
