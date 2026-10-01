@@ -85,10 +85,11 @@ rather than re-typing — keeps the voice from drifting screen to screen.
 There was previously no way back into an email account for a user who forgot their password —
 `auth.error.invalidCredentials`'s note above records that the earlier "…or reset your password"
 clause was deliberately trimmed (issue #18) because no such flow existed yet. It now does. These
-keys were written to this deck's own voice rules (plain, calm, name the outcome, no jargon) but
-have **not** been reviewed by `ux-copywriter` or Ian — mirrored here from `constants/copy.ts`
-verbatim, not reworded, per this doc's role as the source of truth once a key is settled. Treat as
-a draft until certified.
+keys were written to this deck's own voice rules (plain, calm, name the outcome, no jargon) and
+mirrored here from `constants/copy.ts` verbatim. Ian certified them on 2026-07-13 (commit
+`fbe2615`, issue #138); the note
+this paragraph carried until 2026-10-01, calling them unreviewed drafts, predated that
+certification.
 
 | Key | String | Shows when |
 |---|---|---|
@@ -400,8 +401,10 @@ This deck's Screen 10 table above only ever specced the three static tier cards 
 402-triggered gate banners — it never covered what happens DURING or AFTER tapping an "Upgrade"
 CTA: no pending/success/failure copy existed for the dummy purchase at all. Written to this deck's
 own voice rules (plain, calm, name the outcome, never claim a state that isn't true, no jargon)
-but **not** reviewed by `ux-copywriter` or Ian — mirrored here verbatim from `constants/copy.ts`,
-a draft until certified.
+and mirrored here verbatim from `constants/copy.ts`. Ian certified them on 2026-07-13 (commit
+`fbe2615`, issue #138); the note
+this paragraph carried until 2026-10-01, calling them unreviewed drafts, predated that
+certification.
 
 | Key | String | Shows when |
 |---|---|---|
@@ -452,8 +455,10 @@ valid session, before it runs the purge (server-side gate — see `_shared/delet
 "REAUTHENTICATION FRESHNESS" section). These strings cover the step-up flow that satisfies it: a
 password re-entry prompt for email/password accounts, a heads-up before re-running Google sign-in
 for OAuth accounts, and honest failure copy for the cases neither can resolve. Written to this
-deck's own rules (name the outcome, no jargon, don't blame the user) but **not** reviewed by
-`ux-copywriter` or Ian — mirrored here verbatim from `constants/copy.ts`, a draft until certified.
+deck's own rules (name the outcome, no jargon, don't blame the user) and mirrored here verbatim
+from `constants/copy.ts`. Ian certified them on 2026-07-13 (commit `fbe2615`, issue #138); the note
+this paragraph carried until 2026-10-01, calling them unreviewed drafts, predated that
+certification.
 
 | Key | String | Shows when |
 |---|---|---|
