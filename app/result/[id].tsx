@@ -16,7 +16,8 @@
  * is what ships them empty or full.
  *
  * `readAnalysisRow` (`lib/analysis-result.ts`) is the pure, tested half of the state machine
- * below; this file is the thin I/O glue around it (Supabase fetch + hero-frame signed URL),
+ * below; this file is the thin I/O glue around it (Supabase fetch + one owner-scoped signed-URL
+ * batch for every stored frame),
  * which is why the logic worth proving lives in `lib/`, not here (screens aren't unit-tested by
  * convention).
  *
@@ -26,7 +27,7 @@
  * annotation marks (`components/annotation-lines.tsx`) were removed 2026-09-20 (captain's phone
  * test: "completely removed") — the component and its tests are gone, not just unmounted. When
  * there is no image the page's placeholder gradient takes the frame's place and the vignette
- * still draws over it; while a signed URL is in flight the same box holds a quiet spinner, so the
+ * still draws over it; while the frame batch is in flight the same box holds a quiet spinner, so the
  * readout below never jumps when the image lands.
  *
  * MOTION (issue #61): `justAnalyzed` is read straight off the route params and forwarded to
@@ -51,6 +52,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedRef } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
 
+import { AnalyzedFramesStrip } from '@/components/analyzed-frames-strip';
 import { DuotoneFrame } from '@/components/duotone-frame';
 import { PartialResultBanner } from '@/components/partial-result-banner';
 import { PaceReadout } from '@/components/pace-readout';
@@ -65,15 +67,15 @@ import {
   takePendingAnalysisResult,
   type PendingAnalysisResult,
 } from '@/lib/pending-analysis-result';
+import {
+  buildPendingAnalysisFrameSlots,
+  signAnalysisFrames,
+  type AnalysisFrameSlot,
+} from '@/lib/result-frames';
+import { useSession } from '@/lib/session-provider';
 import { supabase } from '@/lib/supabase';
 import { useAnnounce } from '@/lib/use-announce';
 import type { PaceAnalysisOutcome } from '@shared/pace';
-
-// The private frame bucket (`supabase/migrations/20260711150500_media_storage_bucket.sql`) —
-// there are no public URLs, only owner-scoped signed reads (CLAUDE.md § Secrets & env).
-const MEDIA_BUCKET = 'media';
-// "~1h, regenerated on open" per docs/architecture.md's "Current — media pipeline".
-const HERO_SIGNED_URL_TTL_SECONDS = 60 * 60;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -102,11 +104,14 @@ type ScreenState =
   | { status: 'unavailable' }
   | {
       status: 'ready';
+      /** A result is scoped to both route and authenticated owner. A stale async completion from
+       * another account or analysis never gets one render under the new identity. */
+      contentKey: string;
       outcome: PaceAnalysisOutcome;
-      heroUri: string | null;
-      /** True only while a `heroPath` exists and its signed-URL resolution is still in flight —
-       * distinguished from "resolved to null" (no image at all) so the hero box can hold a
-       * spinner for an image on its way in and the placeholder gradient for one that never comes. */
+      frameSlots: AnalysisFrameSlot[];
+      /** True only while at least one stored frame's signed URL is still in flight — distinguished
+       * from "resolved with no ready frame" so the hero box can hold a spinner during the batch
+       * and the placeholder gradient once no usable image remains. */
       heroPending: boolean;
       /** M3 (v23-ux-audit-r1): threaded through to `<PartialResultBanner>` so its copy can say
        * "photo" instead of always "clip". */
@@ -116,16 +121,17 @@ type ScreenState =
 /** Mirrors `app/(tabs)/index.tsx`'s own `ActiveFlag` pattern: minted per fetch attempt, flipped
  * off on unmount/re-fetch, so a slow or stale request can never overwrite a newer one's state. */
 type ActiveFlag = { active: boolean };
+type HandoffClaim = { contentKey: string; value: PendingAnalysisResult };
 
 /**
  * Ends a row lookup that produced no readable analysis (review r7-4).
  *
- * WITH a handoff, the failure only means there is no hero frame to add — the result itself is
- * already on screen and stays there, because the server computed it and sent it to us. WITHOUT
+ * WITH a handoff, the failure only means there are no stored frames to add — the result itself
+ * is already on screen and stays there, because the server computed it and sent it to us. WITHOUT
  * one, the fallback is unchanged: the screen says it could not load or could not find the
  * analysis, which is still the whole truth for a re-open from Past Analyses.
  */
-function settleWithoutHero(
+function settleWithoutStoredFrames(
   handoff: PendingAnalysisResult | null,
   setState: (updater: (current: ScreenState) => ScreenState) => void,
   fallback: ScreenState
@@ -135,20 +141,8 @@ function settleWithoutHero(
     return;
   }
   setState((current) =>
-    current.status === 'ready' ? { ...current, heroUri: null, heroPending: false } : current
+    current.status === 'ready' ? { ...current, frameSlots: [], heroPending: false } : current
   );
-}
-
-async function resolveHeroImageUri(path: string): Promise<string | null> {
-  try {
-    const { data, error } = await supabase.storage.from(MEDIA_BUCKET).createSignedUrl(path, HERO_SIGNED_URL_TTL_SECONDS);
-    if (error || !data?.signedUrl) return null;
-    return data.signedUrl;
-  } catch {
-    // Best-effort only: a hero image that fails to resolve is a "no image" state, not a reason
-    // to fail the whole result — the PACE readout itself is still real and still renders.
-    return null;
-  }
 }
 
 export default function ResultScreen() {
@@ -156,6 +150,9 @@ export default function ResultScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string | string[]; justAnalyzed?: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const { session } = useSession();
+  const userId = session?.user.id;
+  const contentKey = typeof id === 'string' && userId ? `${userId}:${id}` : null;
   // Motion-consult.md item 3's own example param name and value, verbatim — see this file's
   // header. Read once per mount; a later re-render (e.g. the hero image resolving) never flips it.
   const justAnalyzed = (Array.isArray(params.justAnalyzed) ? params.justAnalyzed[0] : params.justAnalyzed) === '1';
@@ -169,9 +166,14 @@ export default function ResultScreen() {
   // effect — the very first `load()` has to already know whether it has an answer in hand), and
   // one-shot at the source, so a later Retry or a re-open never replays it. `null` for every
   // ordinary open from Past Analyses, which reads the persisted row exactly as it always has.
-  const handoffRef = useRef<PendingAnalysisResult | null | undefined>(undefined);
+  const handoffRef = useRef<HandoffClaim | null | undefined>(undefined);
   if (handoffRef.current === undefined) {
-    handoffRef.current = justAnalyzed && typeof id === 'string' ? takePendingAnalysisResult(id) : null;
+    if (!justAnalyzed || typeof id !== 'string') {
+      handoffRef.current = null;
+    } else if (contentKey) {
+      const value = takePendingAnalysisResult(id);
+      handoffRef.current = value ? { contentKey, value } : null;
+    }
   }
   // Issue #11: the loading/error captions below carry `accessibilityLiveRegion="polite"`, which
   // is Android-only — this is the iOS complement, same pattern as app/(tabs)/index.tsx.
@@ -187,23 +189,27 @@ export default function ResultScreen() {
 
   const load = useCallback(
     async (active: ActiveFlag) => {
-      if (!id || !UUID_PATTERN.test(id)) {
+      if (!id || !UUID_PATTERN.test(id) || !userId) {
         if (active.active) setState({ status: 'unavailable' });
         return;
       }
+      const nextContentKey = `${userId}:${id}`;
 
       // THE SERVER'S OWN ANSWER FIRST, when we have it. A zero-pillars-assessed 200 returns a
       // complete, honest all-null readout for a reservation that was RELEASED rather than settled
       // — nobody is charged for a result carrying nothing (cd8bf97 / PR #194) — so there is no
       // readable row behind that id, and rendering the fetch's verdict would turn a real answer
       // into "we couldn't find this analysis." The row lookup below still runs, but from here it
-      // can only ADD the hero frame; it can no longer take the result away.
-      const handoff = handoffRef.current ?? null;
+      // can only ADD stored frames; it can no longer take the result away (except when the row
+      // itself proves this analysis was soft-deleted — handled explicitly below).
+      const handoffClaim = handoffRef.current;
+      const handoff = handoffClaim?.contentKey === nextContentKey ? handoffClaim.value : null;
       if (handoff) {
         setState({
           status: 'ready',
+          contentKey: nextContentKey,
           outcome: handoff.outcome,
-          heroUri: null,
+          frameSlots: [],
           heroPending: true,
           mediaType: handoff.mediaType,
         });
@@ -220,12 +226,12 @@ export default function ResultScreen() {
           .maybeSingle();
 
         if (error) {
-          if (active.active) settleWithoutHero(handoff, setState, { status: 'loadFailed' });
+          if (active.active) settleWithoutStoredFrames(handoff, setState, { status: 'loadFailed' });
           return;
         }
         row = data;
       } catch {
-        if (active.active) settleWithoutHero(handoff, setState, { status: 'loadFailed' });
+        if (active.active) settleWithoutStoredFrames(handoff, setState, { status: 'loadFailed' });
         return;
       }
 
@@ -233,39 +239,56 @@ export default function ResultScreen() {
       if (!active.active) return;
 
       if (read.kind === 'notFound') {
-        settleWithoutHero(handoff, setState, { status: 'unavailable' });
+        settleWithoutStoredFrames(handoff, setState, { status: 'unavailable' });
         return;
       }
       if (read.kind === 'invalid') {
         // Structurally malformed stored data is at least as "nothing to show" as a missing row —
         // collapsed into the same copy rather than a separate, more alarming message (the fetch
         // itself succeeded; the payload just isn't a valid PaceAnalysisOutcome).
-        settleWithoutHero(handoff, setState, { status: 'unavailable' });
+        settleWithoutStoredFrames(handoff, setState, { status: 'unavailable' });
+        return;
+      }
+      if (read.kind === 'deleted') {
+        // A soft-deleted row always wins over the ephemeral handoff. Neither its result nor its
+        // media may remain visible, and no path from it may reach the signer.
+        setState({ status: 'unavailable' });
         return;
       }
 
-      const heroPath = read.mediaPaths[0];
+      const pendingFrameSlots = buildPendingAnalysisFrameSlots(read.mediaPaths, userId, id);
       setState({
         // The persisted row and the handoff describe the same analysis; the handoff wins only
         // where there is no row to read. Preferring the row for a delivered analysis keeps a
         // fresh open and a re-open from Past Analyses rendering byte-identical content.
         status: 'ready',
+        contentKey: nextContentKey,
         outcome: read.outcome,
-        heroUri: null,
-        heroPending: !!heroPath,
+        frameSlots: pendingFrameSlots,
+        heroPending: pendingFrameSlots.length > 0,
         mediaType: read.mediaType,
       });
 
-      if (heroPath) {
-        const heroUri = await resolveHeroImageUri(heroPath);
-        if (active.active) {
-          setState((current) =>
-            current.status === 'ready' ? { ...current, heroUri, heroPending: false } : current
-          );
-        }
+      if (pendingFrameSlots.length === 0) return;
+
+      let frameSlots: AnalysisFrameSlot[];
+      try {
+        frameSlots = await signAnalysisFrames(read.mediaPaths, userId, id);
+      } catch {
+        // The library normally converts per-path and batch failures to unavailable slots. Keep
+        // this final boundary defensive too: a thrown transport error must not collapse the row,
+        // reorder frames, or take the PACE result away.
+        frameSlots = pendingFrameSlots.map(({ path }) => ({ path, uri: null, status: 'unavailable' }));
+      }
+      if (active.active) {
+        setState((current) =>
+          current.status === 'ready' && current.contentKey === nextContentKey
+            ? { ...current, frameSlots, heroPending: false }
+            : current
+        );
       }
     },
-    [id]
+    [id, userId]
   );
 
   useEffect(() => {
@@ -293,7 +316,7 @@ export default function ResultScreen() {
   // device, so there is no top inset anywhere on this screen.
   const bottomInset = Math.max(insets.bottom, Layout.canvas.safeBottom);
 
-  if (state.status === 'loading') {
+  if (state.status === 'loading' || (state.status === 'ready' && state.contentKey !== contentKey)) {
     return (
       <View style={styles.screen}>
         <View
@@ -333,7 +356,10 @@ export default function ResultScreen() {
     );
   }
 
-  const { outcome, heroUri, heroPending, mediaType } = state;
+  const { outcome, frameSlots, heroPending, mediaType } = state;
+  const heroUri = frameSlots.find(
+    (slot): slot is Extract<AnalysisFrameSlot, { status: 'ready' }> => slot.status === 'ready'
+  )?.uri ?? null;
   const assessedCount = countAssessedPillars(outcome.result);
 
   return (
@@ -341,7 +367,7 @@ export default function ResultScreen() {
       <Animated.ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
         {/* THE HERO — the page's 3:4 box, first on the screen and edge to edge. Two layers in
             the page's order: the frame (or, with no image, the placeholder gradient; or, while
-            the signed URL is in flight, a spinner in the same box) and the vignette. One box for
+            the signed-URL batch is in flight, a spinner in the same box) and the vignette. One box for
             all three cases, so the readout below is laid out once and never shoved down when the
             image lands. */}
         <View style={styles.hero}>
@@ -408,6 +434,8 @@ export default function ResultScreen() {
                 for the bars to wait on beyond the readout's own first layout. */}
             <PaceReadout result={outcome.result} firstReveal={justAnalyzed} revealReady />
           </SquareCard>
+
+          <AnalyzedFramesStrip slots={frameSlots} />
 
           <ResultDisclaimer />
 

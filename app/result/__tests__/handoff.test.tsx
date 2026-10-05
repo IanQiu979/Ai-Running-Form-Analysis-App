@@ -42,6 +42,9 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('@/lib/use-announce', () => ({ useAnnounce: jest.fn() }));
+jest.mock('@/lib/session-provider', () => ({
+  useSession: () => ({ session: { user: { id: '6fefdccb-3a78-4f56-9b88-9624520fdc74' } } }),
+}));
 
 // The row lookup finds nothing — which is precisely what a released zero-pillar reservation looks
 // like from here.

@@ -117,6 +117,16 @@ export function RecordIcon({ color = Ink.ink, size = 24, testID }: IconProps) {
   );
 }
 
+/** The full-screen frame viewer's Close control: two crossed strokes. 20 pt. */
+export function CloseIcon({ color = Ink.ink, size = 20, testID }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke={color} strokeWidth={1.4} testID={testID} {...HIDDEN}>
+      <Line x1="4" y1="4" x2="16" y2="16" />
+      <Line x1="16" y1="4" x2="4" y2="16" />
+    </Svg>
+  );
+}
+
 /** The tick inside a checked consent box: a 10 x 8 polyline in `onAccent` on the `ink` fill. */
 export function CheckIcon({ color = Ink.onAccent, size = 10, testID }: IconProps) {
   const height = (size * 8) / 10;

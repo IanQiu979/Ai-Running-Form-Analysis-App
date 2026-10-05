@@ -202,13 +202,11 @@ export async function fetchHistoryList(): Promise<HistoryListItem[]> {
 // -------------------------------------------------------------------------------------------
 
 /** The private frame bucket (`supabase/migrations/20260711150500_media_storage_bucket.sql`) —
- * same bucket name `app/result/[id].tsx` uses for its own hero-frame signed URL. */
+ * also used by `lib/result-frames.ts` for the result screen's hero and "Frames analyzed" strip. */
 export const MEDIA_BUCKET = 'media';
 
-/** "~1h, regenerated on open" per `docs/architecture.md` "Current — media pipeline" — matches
- * `app/result/[id].tsx`'s `HERO_SIGNED_URL_TTL_SECONDS` exactly; kept as this file's own named
- * constant rather than importing that screen's local one, since a screen's own constants aren't
- * meant to be a shared module (that file doesn't export it). */
+/** "~1h, regenerated on open" per `docs/architecture.md` "Current — media pipeline" — shared with
+ * `lib/result-frames.ts`, so a History thumbnail and a result-screen frame expire alike. */
 export const FRAME_STRIP_SIGNED_URL_TTL_SECONDS = 60 * 60;
 
 /** One entry of `storage.createSignedUrls`' batch response — see `parseSignedUrlBatch` below. */
@@ -238,7 +236,7 @@ export function parseSignedUrlBatch(results: SignedUrlBatchEntry[] | null | unde
 
 /**
  * Signs every path in `mediaPaths` for short-TTL display as one row's frame strip. Best-effort
- * only, same reasoning `app/result/[id].tsx`'s own `resolveHeroImageUri` documents for itself: a
+ * only, same reasoning `lib/result-frames.ts`'s `signAnalysisFrames` documents for itself: a
  * frame strip that fails to resolve is a "no thumbnail" state for that one row, never a reason to
  * fail the whole list. Never throws.
  */

@@ -609,6 +609,14 @@ export const Copy = {
       // only the frame itself, not marks that no longer draw.
       altText: 'Running frame from your submission.',
     },
+    // NEW keys, not in the deck. The result screen now shows the exact stored frames the model
+    // analyzed. The per-frame template is shared by the thumbnail and full-screen viewer so a
+    // frame keeps one spoken position as the user opens and swipes through the ordered set.
+    frames: {
+      title: 'Frames analyzed',
+      frameA11yLabel: 'Frame {n} of {total}',
+      close: 'Close',
+    },
     partial: {
       banner: {
         title: 'Partial read',
