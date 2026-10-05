@@ -9,14 +9,12 @@
  * word, a bar and one line of coaching prose; the risk flags and drills a Pro/Elite pillar carries
  * are read here, at length, under their own labels.
  *
- * WHAT THIS DOES NOT DO: it renders exactly the `PacePillarResult` it is handed — the same
- * score/band/safety/feedback/flags/drills/notAssessedReason fields `<PillarRow>` already renders,
- * just with room to read them. It never fabricates additional explanatory copy the `@shared/pace`
- * contract doesn't carry, and it upholds the same rule `pace-readout.tsx`'s own header states:
- * `score: null` renders NO numeral, ever — only the honest not-assessed reason. Business logic
- * (tier, quota, which fields a Free vs. Pro/Elite result carries) stays out of this file too — it
- * renders whichever `flags`/`drills` arrays it's given, and never an empty "Risk flags"/"Drills"
- * label.
+ * DETAIL PROSE: for an assessed pillar this panel prefers the model's fuller `analysis`; an older
+ * stored result without that additive field falls back to its concise `feedback`. A not-assessed
+ * pillar never renders `analysis`, even if malformed legacy/model data contains it. The existing
+ * feedback note may still explain why it could not be assessed. Business logic (tier, quota,
+ * which fields a Free vs. Pro/Elite result carries) stays out of this file — it renders whichever
+ * `flags`/`drills` arrays it is given, and never an empty "Risk flags"/"Drills" label.
  *
  * ACCESSIBILITY: unlike the not-assessed reason inside `<PillarRow>` (which is deliberately hidden
  * from the a11y tree — `accessibilityElementsHidden` — because the row's own header already speaks
@@ -52,6 +50,9 @@ export function PillarDetailModal({ visible, onDismiss, pillarId, pillar }: Prop
   const insets = useSafeAreaInsets();
   const label = pillarLabel(pillarId);
   const hasFlagsOrDrills = pillar.flags.length > 0 || pillar.drills.length > 0;
+  const assessed = pillar.score !== null && pillar.band !== null;
+  const hasAnalysis = typeof pillar.analysis === 'string' && pillar.analysis.trim().length > 0;
+  const detailAnalysis = assessed && hasAnalysis ? pillar.analysis : pillar.feedback;
   // THE SAME READ `<PillarRow>` makes — one helper, one structured field (`pillar.safety`), so
   // the row and this panel cannot disagree about the warning. Never parsed out of `feedback`.
   const note = safetyNote(pillar);
@@ -133,9 +134,9 @@ export function PillarDetailModal({ visible, onDismiss, pillarId, pillar }: Prop
               </View>
             ) : null}
 
-            {pillar.feedback ? (
-              <Text testID={`pillar-detail-feedback-${pillarId}`} style={[Type.body, styles.ink2]}>
-                {pillar.feedback}
+            {detailAnalysis ? (
+              <Text testID={`pillar-detail-analysis-${pillarId}`} style={[Type.body, styles.ink2]}>
+                {detailAnalysis}
               </Text>
             ) : null}
 

@@ -118,6 +118,7 @@ Deno.test('never fabricates: an unreadable pillar assessment comes back null, no
   assertEquals(cadence.score, null, 'THE bug: a missing pillar must never be given a number');
   assertEquals(cadence.band, null);
   assertEquals(cadence.feedback, null, 'and never "No feedback available"');
+  assertEquals(cadence.analysis, null, 'and never retains analysis from an unreadable pillar');
   assertEquals(cadence.flags, []);
   assertEquals(cadence.drills, []);
 });
@@ -219,6 +220,41 @@ Deno.test('structural not strict: a complete response validates and is returned 
   assertEquals(attempt.result.pillars.posture.score, 80);
   assertEquals(attempt.result.overall.score, 76, "the model's own overall is kept, not recomputed");
   assertEquals(attempt.usage.output_tokens, 1_200);
+});
+
+Deno.test('structural not strict: assessed analysis is optional and passes through verbatim when present', () => {
+  const legacy = readAttempt(toolResponse(fullToolInput()));
+  assert(legacy.result, 'the pre-analysis stored shape must remain valid');
+
+  const input = fullToolInput();
+  const analysis =
+    'Observed: the pelvis stays level. Why it matters: this supports stable loading. Change: keep the same quiet trunk cue.';
+  (input.pillars as Record<string, Record<string, unknown>>).posture.analysis = analysis;
+
+  const enriched = readAttempt(toolResponse(input));
+  assert(enriched.result, 'a string analysis must validate structurally');
+  assertEquals(enriched.result.pillars.posture.analysis, analysis);
+});
+
+Deno.test('structural not strict: analysis prose quality is not runtime-validated', () => {
+  const input = fullToolInput();
+  (input.pillars as Record<string, Record<string, unknown>>).posture.analysis = '';
+
+  const attempt = readAttempt(toolResponse(input));
+
+  assert(attempt.result, 'an analysis string must be accepted without sentence-count or quality checks');
+  assertEquals(attempt.result.pillars.posture.analysis, '');
+});
+
+Deno.test('structural not strict: a present non-string, non-null analysis drops that pillar', () => {
+  const input = fullToolInput();
+  (input.pillars as Record<string, Record<string, unknown>>).posture.analysis = { prose: 'wrong carrier' };
+
+  const attempt = readAttempt(toolResponse(input));
+
+  assertEquals(attempt.result, null);
+  assertEquals(attempt.salvage?.result.pillars.posture.analysis, null);
+  assertEquals(attempt.salvage?.result.pillars.posture.score, null);
 });
 
 Deno.test('structural not strict: a photo response with two honestly-null pillars is a FULL success', () => {
@@ -439,7 +475,7 @@ Deno.test('the schema and the TypeScript type cannot drift: one shape, two carri
     const pillar = schema.$defs.pillar;
     assertEquals(
       pillar.required.sort(),
-      ['band', 'drills', 'feedback', 'flags', 'safety', 'score'],
+      ['analysis', 'band', 'drills', 'feedback', 'flags', 'safety', 'score'],
       "the shared pillar definition's required keys drifted from PacePillarResult"
     );
     assertEquals(
@@ -754,6 +790,22 @@ Deno.test('a PRESENT pillar that declared something but no usable safety still f
   const pillars = input.pillars as Record<string, Record<string, unknown>>;
   delete pillars.cadence.safety;
   pillars.cadence.score = 'not a number';
+
+  const attempt = readAttempt(toolResponse(input));
+
+  assertEquals(attempt.failure, 'invalid_safety');
+  assertEquals(attempt.salvage, null);
+});
+
+Deno.test('an analysis-only pillar without safety still fails closed', () => {
+  // `analysis` is runner-specific prose just like `feedback`. If a malformed response drops every
+  // older pillar field but retains the new detail prose, treating it like an empty slot would let
+  // salvage silently discard a stop-running warning that belonged beside that prose.
+  const input = fullToolInput();
+  (input.pillars as Record<string, unknown>).cadence = {
+    analysis:
+      'Observed: the runner visibly favours one side. Why it matters: that can signal a problem. Change: stop and get it checked.',
+  };
 
   const attempt = readAttempt(toolResponse(input));
 

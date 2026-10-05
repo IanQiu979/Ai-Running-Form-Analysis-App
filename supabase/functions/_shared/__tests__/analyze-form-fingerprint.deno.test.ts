@@ -37,6 +37,7 @@ Deno.test('analysis identity is stable, lowercase SHA-256, and carries the delib
 
   assertEquals(first, second);
   assertEquals(first.analyzer_revision, ANALYZE_FORM_ANALYZER_REVISION);
+  assertEquals(first.analyzer_revision, 'analyze-form/2026-10-05-v1');
   assertMatch(first.input_fingerprint, /^[a-f0-9]{64}$/);
 });
 

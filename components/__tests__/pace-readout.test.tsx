@@ -26,6 +26,7 @@ import {
   proTierVideoResult,
   safetySignalPhotoResult,
   NOT_ASSESSED_SAFETY_NOTE_FIXTURE,
+  CADENCE_ANALYSIS_FIXTURE,
   SAFETY_NOTE_FIXTURE,
 } from '@/lib/pace-fixtures';
 import { pillarDetailA11yLabel, pillarLabel } from '@/lib/pace-readout';
@@ -281,8 +282,13 @@ describe("the per-pillar info button opens that pillar's detail modal", () => {
     expect(screen.queryByTestId('pillar-detail-modal-posture')).toBeNull();
   });
 
-  it("opens that pillar's modal, with its own score/feedback, when the info button is pressed", async () => {
+  it("keeps concise feedback in the row, then opens that pillar's fuller analysis", async () => {
     await render(<PaceReadout result={proTierVideoResult} />);
+
+    expect(screen.getByTestId('pillar-feedback-cadence').props.children).toBe(
+      'Foot is landing well ahead of the hips with a near-straight knee — the clearest fix available here.'
+    );
+    expect(screen.queryByText(CADENCE_ANALYSIS_FIXTURE)).toBeNull();
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('pillar-detail-button-cadence'));
@@ -290,9 +296,7 @@ describe("the per-pillar info button opens that pillar's detail modal", () => {
 
     expect(screen.getByTestId('pillar-detail-modal-cadence')).toBeTruthy();
     expect(screen.getByTestId('pillar-detail-score-cadence').props.children).toBe(44);
-    expect(screen.getByTestId('pillar-detail-feedback-cadence').props.children).toBe(
-      'Foot is landing well ahead of the hips with a near-straight knee — the clearest fix available here.'
-    );
+    expect(screen.getByTestId('pillar-detail-analysis-cadence').props.children).toBe(CADENCE_ANALYSIS_FIXTURE);
     // A different pillar's modal never mounts as a side effect of opening this one.
     expect(screen.queryByTestId('pillar-detail-modal-posture')).toBeNull();
   });

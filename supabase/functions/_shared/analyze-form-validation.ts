@@ -276,13 +276,15 @@ export function deriveOverall(pillars: Record<PacePillarId, PacePillarResult>): 
  * this pillar is missing is that the model's own output for it was unreadable. Asserting 'angle'
  * would be a small, plausible-sounding lie about the runner's video, which is the same species of
  * dishonesty as a fabricated score. Saying nothing is the honest option, and `pace.ts` makes the
- * field optional precisely so that saying nothing is representable. `feedback: null` for the same
- * reason: the UI renders its own "not assessed" copy (#56, `result.pillar.notAssessed.*`), and
- * "No feedback available" — V1's actual string — is not something we will write again. */
+ * field optional precisely so that saying nothing is representable. `feedback: null` and
+ * `analysis: null` for the same reason: the UI renders its own "not assessed" copy (#56,
+ * `result.pillar.notAssessed.*`), and "No feedback available" — V1's actual string — is not
+ * something we will write again. */
 const DROPPED_PILLAR: PacePillarResult = {
   score: null,
   band: null,
   feedback: null,
+  analysis: null,
   flags: [],
   drills: [],
 };
@@ -495,6 +497,7 @@ const PILLAR_CONTENT_KEYS = [
   'score',
   'band',
   'feedback',
+  'analysis',
   'notAssessedReason',
   'flags',
   'drills',

@@ -564,7 +564,10 @@ pure/client split as `ai-guard.ts`. 46 Deno tests.
   second call. It is *structurally* incapable of buying certainty: the not-assessed rules, the
   medical boundary, the #112 timestamp rules, and the input-channel rules are assembled **outside**
   the dial (`INVARIANT_RULES`) and are byte-identical for Free, Pro, and Elite. A test asserts every
-  certainty rule appears at all three tiers. Higher tier ⇒ more words, never more confidence.
+  certainty rule appears at all three tiers. Every assessed pillar gets an exactly one-sentence
+  `feedback` overview plus `analysis` covering observation, why it matters for this runner, and
+  what to change: exactly 3 sentences on Free, 5–7 on Pro, and 7–9 on Elite. Higher tier ⇒ more
+  words, never more confidence; flags and drills remain paid-only.
 - **Issue #112 is handled at the prompt layer, and #199 widened what it has to cover.** The wire
   field retains its compatibility name `requestedTimestampMs`, but every rendered value is called
   an approximate **client-reported timestamp**, carries `~`, and every interval is
@@ -601,10 +604,10 @@ pure/client split as `ai-guard.ts`. 46 Deno tests.
   in the shipped bundle byte-for-byte, so a future re-certification that rewords them fails the
   build instead of leaving an amendment aimed at a sentence that no longer exists.
 - **The uncertainty must reach the runner, not just the model.** Any Cadence/Elasticity judgement
-  that leans on the frame timing has to carry the hedge into the user-visible `feedback` ("the
+  that leans on the frame timing has to carry the hedge into both user-visible prose fields ("the
   torso looks to settle a little between these frames — approximate, estimated from frames whose
-  timing is not exact"; since 2026-09-07 an SPM range is no longer an available hedge). The runner sees
-  only `score`, `band`, and `feedback`; a hedge the model keeps to itself is not a hedge.
+  timing is not exact"; since 2026-09-07 an SPM range is no longer an available hedge). A hedge the
+  model keeps to itself is not a hedge.
 - **The note-conditional certified guidance is neutralised at the prompt layer**, not by editing
   certified text (that needs Ian's review — GitHub issues #39/#40). No note field ships (Known Issue #10), so the
   prompt states plainly that there is no runner's note, no history, no reported symptoms, and that
@@ -617,10 +620,13 @@ pure/client split as `ai-guard.ts`. 46 Deno tests.
   guarantee than asking a model to remember it, since a static footer cannot be omitted, reworded,
   or hallucinated. The model's half is the *boundary* (never diagnose, never name a condition, never
   prescribe treatment), which is unconditional at every tier, plus an explicit instruction **not** to
-  re-emit the disclaimer text (it would double-render). **Stop-running safety signals override the
+  re-emit the disclaimer text in `feedback` or `analysis` (it would double-render); the
+  false-precision and disclaimer-echo evals scan both fields. **Stop-running safety signals override the
   tier dial** and reach Free on the pillar's `safety` field (rendered as its own notice by the
   client, #212), since Free's `flags` is always `[]`.
-- **The output contract IS `PaceResult`.** `submit_pace_analysis`, `strict: true`, forced. A test
+- **The output contract IS `PaceResult`.** New model output requires nullable `analysis` on every
+  pillar; `PacePillarResult.analysis?: string | null` remains optional at runtime so old JSONB
+  still validates. A test
   round-trips schema-shaped responses (fully assessed, the photo case with Cadence/Elasticity `null`,
   and the all-null case) through `isPaceResult` — so #45 can never reject a perfectly obedient
   model. The schema encodes Anthropic's documented strict-mode limits (no `minimum`/`maximum` — the
@@ -646,7 +652,7 @@ pure/client split as `ai-guard.ts`. 46 Deno tests.
   more tokens for the same text** — so the familiar ~3.5–4 chars/token rule of thumb silently
   under-counts. At ~2.7 chars/token the Elite worst case is **~21.5k** tokens, so `6000` was
   under-reserving every call by ~3.5x — the wrong direction to be wrong in on an account with a
-  hard ceiling and auto-reload off. Now `24000`, with a test that re-measures the assembled prompt
+  hard ceiling and auto-reload off. Now `25500`, with a test that re-measures the assembled prompt
   at the Sonnet-5 ratio and fails if it outgrows the constant again. Still conservative: it prices
   all input as uncached even though the knowledge + tools prefix is `cache_control: ephemeral` (a
   0.1x read in steady state). #44 should pin it exactly with the free `count_tokens` endpoint
@@ -656,6 +662,12 @@ pure/client split as `ai-guard.ts`. 46 Deno tests.
   sends `max_tokens = MAX_OUTPUT_TOKENS_BY_TIER[tier]` — the exact number `estimateTokensForCall`
   reserves as `outputTokens`. So billed output ≤ reserved output, thinking included. A test asserts
   the two never drift apart, because that equality is the whole guarantee.
+- **The deeper analysis changes expected usage, not the guardrails.** Added prompt/schema input is
+  estimated at +662 / +616 / +615 tokens for Free / Pro / Elite. With approximately 180–300 /
+  240–400 / 300–500 added output tokens, the estimated marginal cost per successful result at the
+  configured $3/M input and $15/M output list rates is about $0.0047–0.0065 / $0.0054–0.0078 /
+  $0.0063–0.0093. The 4k / 6k / 8k output ceilings, daily spend cap, quota, auth, and consent gates
+  are unchanged.
 
 ## Current — Deno build/test contract, `pace.ts` location & knowledge bundling (issue #90, done 2026-07-12)
 
@@ -1213,7 +1225,9 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   dashed posture line and landing marker) was removed 2026-09-20 (captain's phone test: "completely
   removed"); the component and its tests are deleted, not just unmounted. The readout is the
   Overall block plus four nested `SquareCard` pillar rows with a 2 px
-  score bar; **flags and drills render only in the detail modal**. On a fresh analysis the bars
+  score bar. The row keeps the one-sentence `feedback` overview; the detail modal prefers the
+  assessed pillar's fuller `analysis` and falls back to `feedback` for legacy stored results.
+  **Flags and drills render only in the detail modal**. On a fresh analysis the bars
   fill with `Motion.curve.move` over `Motion.duration.rise`, staggered `Motion.stagger.item`;
   everything else is static. `components/aperture.tsx` and `pace-reveal.tsx` are deleted. The
   "Current — capture screens" and "Current — Past Analyses" sections above describe behaviour
@@ -3391,6 +3405,10 @@ not inspection: a real upload produced a `delivered` `public.analyses` row with 
 and one frame in the private bucket (`docs/status.md` Known Issue #25). This section supersedes "Original design — `analyze-form` edge
 function flow" above wherever the two disagree.
 
+The 2026-10-05 deeper-analysis revision described below is code-complete but **not deployed**. It
+needs no database migration; handoff is `export SUPABASE_GO_BINARY=~/.local/share/supabase/supabase-go`, then
+`supabase functions deploy analyze-form --project-ref vputdomdlknvthnzritt --use-api`, plus the normal app release for the detail-modal client change.
+
 **File split** (the same three-way shape `analysis/` and `quota-status/` already use):
 
 | File | Role | Tested |
@@ -3486,7 +3504,7 @@ and is never merely prompt-guided:
   one frame — Free's only allowance until issue #89, 2026-09-19; a Free video is now the same
   5-frame burst as Pro and keeps all four pillars) has Cadence and
   Elasticity forced to not-assessed, discarding EVERYTHING the model claimed about them — score,
-  band, feedback prose, flags, drills — closing exactly the hallucinated-cadence failure mode the
+  band, overview feedback, detail analysis, flags, drills — closing exactly the hallucinated-cadence failure mode the
   old sample shipped, this time for real model output too, not just the canned one. The reason
   recorded is `'needsVideo'` for a photo and `'singleFrameFromVideo'` when exactly one frame of a
   submitted video reached this analysis. That server-authored reason states the observable fact,
@@ -3505,12 +3523,12 @@ and is never merely prompt-guided:
   VoiceOver node) ABOVE the coaching, and nothing at all for `none` or no declaration. Until #212
   the server composed `"note\n\ncoaching"` into `feedback` in `normalizeForEvidenceAndTier`, and the
   row drew that one string as one paragraph in one tone — the warning led the coaching and was
-  indistinguishable from it. `feedback` is now coaching only; the prompt tells the model the note
-  lives in `safety.note` and must not be repeated in `feedback`. No keyword matching is involved in
+  indistinguishable from it. `feedback` and `analysis` are now coaching only; the prompt tells the
+  model the note lives in `safety.note` and must not be repeated in either prose field. No keyword matching is involved in
   either direction, supportable coaching is never deleted because a warning fired, and the field is
-  never tier-gated. `ANALYZE_FORM_ANALYZER_REVISION` was bumped to `2026-09-16-v1` for the wire
-  change, so no pinned pre-#212 verdict (there were none in production) can replay the composed
-  string.
+  never tier-gated. `ANALYZE_FORM_ANALYZER_REVISION` is now
+  `analyze-form/2026-10-05-v1`, so a canonical pre-change verdict cannot replay without the fuller
+  analysis field.
 - **ABSENT IS INVALID ON A PILLAR THAT DECLARED ANYTHING, and that is what makes the sentence above
   true.** `PACE_RESULT_SCHEMA` marks `safety` `required`, but a schema is a request to the model,
   not a guarantee we may lean on — so `analyze-form-validation.ts` refuses to call a response
@@ -3543,8 +3561,14 @@ and is never merely prompt-guided:
 - **The prompt states two separate facts**, never one merged one: what the runner SENT (photo or
   video, their own upload) and what REACHED the model (how many frames). One attached frame always
   gets the one-instant rules, whatever produced it.
-- **Free additionally strips flags/drills from every pillar**, assessed or not (`pace.ts`'s
-  `PacePillarResult` doc comment marks these paid-tier content).
+- **Assessed `analysis` reaches every tier; flags/drills do not.** Free keeps the fuller analysis
+  but strips flags/drills from every pillar, assessed or not (`pace.ts` marks those as paid-tier
+  content). Every not-assessed pillar is server-normalized to `analysis: null`, including
+  multi-frame paid results.
+- **Validation/retry/fallback semantics did not change for the new prose field.** Sentence depth is
+  prompt guidance, not runtime prose validation. Legacy results without `analysis` remain valid;
+  a pillar dropped by honest-partial salvage receives `analysis: null` alongside its null score,
+  band, and feedback. Retry eligibility and the partial-result threshold are unchanged.
 - **`overall` is recomputed ONLY when a pillar was actually normalized** (a one-frame submission, or
   Free's flag/drill strip), via the same `deriveOverall()` the honest-partial fallback path already
   used — because the model's own `overall` was then computed over pillars that no longer exist. A

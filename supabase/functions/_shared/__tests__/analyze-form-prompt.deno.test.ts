@@ -219,7 +219,9 @@ Deno.test('the tier dial changes the prompt (one prompt, one parameter — not t
 
   // Free: no flags, no drills.
   assertIncludes(free, 'TIER: FREE', 'Free prompt does not identify its tier.');
-  assertIncludes(free, 'ONE sentence per pillar', 'Free is missing its one-line-per-pillar rule.');
+  assertIncludes(free, '`feedback`: exactly ONE useful, grounded sentence for every assessed pillar', 'Free is missing its concise overview rule.');
+  assertIncludes(free, '`analysis`: exactly 3 sentences for every assessed pillar', 'Free is missing its three-sentence detail analysis.');
+  assertIncludes(free, 'Do not name paid-only flags or drills in `analysis`', 'Free analysis may leak named paid-only content.');
   assert(
     free.includes('`drills`: ALWAYS the empty array'),
     'Free must be told drills are paid-tier content and to emit [].'
@@ -227,12 +229,15 @@ Deno.test('the tier dial changes the prompt (one prompt, one parameter — not t
 
   // Pro: flags + drills.
   assertIncludes(pro, 'TIER: PRO', 'Pro prompt does not identify its tier.');
-  assertIncludes(pro, '2-4 sentences per pillar', 'Pro is missing its feedback depth.');
+  assertIncludes(pro, '`feedback`: exactly ONE useful, grounded sentence for every assessed pillar', 'Pro is missing its concise overview rule.');
+  assertIncludes(pro, '`analysis`: 5-7 sentences for every assessed pillar', 'Pro is missing its detail-analysis depth.');
   assertIncludes(pro, '1-2 drills from drills.md', 'Pro is missing its drill prescription rule.');
 
   // Elite: Pro + a small depth bump, explicitly not more certainty.
   assertIncludes(elite, 'TIER: ELITE', 'Elite prompt does not identify its tier.');
-  assertIncludes(elite, '3-5 sentences per pillar', 'Elite is missing its depth bump.');
+  assertIncludes(elite, '`feedback`: exactly ONE useful, grounded sentence for every assessed pillar', 'Elite is missing its concise overview rule.');
+  assertIncludes(elite, '`analysis`: 7-9 sentences for every assessed pillar', 'Elite is missing its detail-analysis depth bump.');
+  assertIncludes(elite, 'execution nuance and relevant cross-pillar links', 'Elite analysis is missing its deeper execution/cross-pillar target.');
   assertIncludes(
     elite,
     'no extra certainty',
@@ -253,9 +258,11 @@ Deno.test('the Pro -> Elite gap is deliberately tiny: more prose, ZERO new entit
   assertIncludes(elite, '`drills`: same 1-2 per issue as Pro', 'Elite must not grant more drills.');
   assertIncludes(elite, 'no extra certainty', 'Elite must be told the bump is not certainty.');
 
-  // 2. The only difference is a one-sentence bump in feedback depth.
-  assertIncludes(pro, '2-4 sentences per pillar', 'Pro depth changed; update this test.');
-  assertIncludes(elite, '3-5 sentences per pillar', 'Elite depth changed; update this test.');
+  // 2. The only entitlement difference is a two-sentence bump in detail-analysis depth.
+  assertIncludes(pro, '`analysis`: 5-7 sentences', 'Pro depth changed; update this test.');
+  assertIncludes(elite, '`analysis`: 7-9 sentences', 'Elite depth changed; update this test.');
+  assertIncludes(pro, '`feedback`: exactly ONE useful, grounded sentence', 'Pro overview must stay concise.');
+  assertIncludes(elite, '`feedback`: exactly ONE useful, grounded sentence', 'Elite overview must stay concise.');
 
   // 3. And a ballooning guard: Elite's instruction stays in the same weight class as Pro's. If a
   //    future edit makes Elite a substantially bigger ask, that is a product change, not a tweak.
@@ -283,6 +290,7 @@ Deno.test('THE INVARIANT: the tier dial can never buy certainty — only depth',
     'A single precise cadence figure',
     'Any ground-contact-time figure in milliseconds',
     'Any vertical-oscillation figure in centimetres',
+    'These false-precision prohibitions apply to both `feedback` and `analysis`',
     // The #112 amendment to pace_framework.md's timing clauses, and the runner-visible hedge.
     'READ "known" AS "KNOWN APPROXIMATELY"',
     'THESE FRAMES ARE NOT RELIABLY EVENLY SPACED',
@@ -387,6 +395,30 @@ Deno.test('`feedback` may never be empty — at any tier, including an all-null 
           prompt,
           rule,
           `Tier "${tier}" (${input.media}) is missing the never-empty-feedback rule.`
+        );
+      }
+    }
+  }
+});
+
+Deno.test('`analysis` is the grounded detail field, and is null exactly when a pillar is not assessed', () => {
+  const analysisRules = [
+    '`analysis` gives the proper detail-panel analysis for every assessed pillar',
+    'what was observed in these frames',
+    'why it matters for this runner',
+    'what to change',
+    '`analysis: null` whenever `score` is null',
+    '`analysis` must be a non-empty string whenever `score` is non-null',
+  ];
+
+  for (const tier of TIERS) {
+    for (const input of [videoInput(tier), photoInput(tier)]) {
+      const prompt = fullPromptText(input);
+      for (const rule of analysisRules) {
+        assertIncludes(
+          prompt,
+          rule,
+          `Tier "${tier}" (${input.media}) is missing the assessed/not-assessed analysis contract.`
         );
       }
     }
@@ -533,7 +565,11 @@ Deno.test('stop-running safety signals reach Free, overriding the paid-tier flag
     'The safety override is not stated as unconditional.'
   );
   assertIncludes(free, '`safety.note` IS WHERE THE WARNING LIVES', 'The prompt does not name `safety.note` as the warning\'s home.');
-  assertIncludes(free, 'Do NOT repeat the warning in `feedback`', 'The prompt still lets the warning be doubled into `feedback`.');
+  assertIncludes(
+    free,
+    'Do NOT repeat the warning in `feedback` or `analysis`',
+    'The prompt still lets the warning be doubled into runner-facing coaching.'
+  );
 });
 
 // -------------------------------------------------------------------------------------------
@@ -775,10 +811,10 @@ Deno.test('pace_framework.md\'s timing clauses are NEUTRALISED at the prompt lay
   }
 });
 
-Deno.test('the uncertainty must reach the RUNNER — hedged in `feedback`, not just in the head', () => {
+Deno.test('the uncertainty must reach the RUNNER — hedged in both runner-facing text fields', () => {
   // #112's requirement (b): the model must SAY SO in its output. A model that privately widens its
   // confidence and then writes "your cadence is low" has produced the same confident, fluent,
-  // unfalsifiable claim the issue is about — the runner sees score/band/feedback and nothing else.
+  // unfalsifiable claim the issue is about — the runner sees the result fields, not hidden reasoning.
   for (const tier of TIERS) {
     const prompt = fullPromptText(videoInput(tier));
 
@@ -789,8 +825,8 @@ Deno.test('the uncertainty must reach the RUNNER — hedged in `feedback`, not j
     );
     assertIncludes(
       prompt,
-      'must carry that uncertainty in the `feedback` the runner',
-      `Tier "${tier}" does not name \`feedback\` as where the hedge goes.`
+      'must carry that uncertainty in both `feedback` and `analysis`',
+      `Tier "${tier}" does not require the hedge in both runner-facing text fields.`
     );
     // The worked example — the format the hedge should take. Two examples beat five hundred words.
     assertIncludes(
@@ -1076,7 +1112,7 @@ Deno.test('THE COMPILED-GRAMMAR CEILING: the pillar is ONE $defs node, never fou
   );
 });
 
-Deno.test('the tool schema mirrors PaceResult exactly — same pillars, same fields, same bands', () => {
+Deno.test('the new-output schema requires PaceResult fields, including nullable `analysis`', () => {
   const schema = PACE_ANALYSIS_TOOL.input_schema as {
     properties: {
       pillars: { properties: Record<string, unknown>; required: string[] };
@@ -1119,13 +1155,26 @@ Deno.test('the tool schema mirrors PaceResult exactly — same pillars, same fie
   {
     const pillarSchema = schema.$defs.pillar as {
       required: string[];
-      properties: { band: { anyOf: [{ enum: string[] }, unknown] } };
+      properties: {
+        analysis: { anyOf: [{ type: string }, { type: string }]; description: string };
+        band: { anyOf: [{ enum: string[] }, unknown] };
+      };
     };
     const pillar = 'the shared $defs.pillar definition';
     assert(
       JSON.stringify(pillarSchema.required.slice().sort()) ===
-        JSON.stringify(['band', 'drills', 'feedback', 'flags', 'safety', 'score']),
+        JSON.stringify(['analysis', 'band', 'drills', 'feedback', 'flags', 'safety', 'score']),
       `Pillar "${pillar}" does not require exactly PacePillarResult's fields.`
+    );
+    assert(
+      JSON.stringify(pillarSchema.properties.analysis.anyOf) ===
+        JSON.stringify([{ type: 'string' }, { type: 'null' }]),
+      `Pillar "${pillar}" must require analysis while allowing null for a not-assessed pillar.`
+    );
+    assertIncludes(
+      pillarSchema.properties.analysis.description,
+      'null exactly when score is null',
+      `Pillar "${pillar}" does not couple analysis nullability to assessment status.`
     );
     assert(
       JSON.stringify(pillarSchema.properties.band.anyOf[0].enum) === JSON.stringify([...SCORE_BAND_VALUES]),
@@ -1150,6 +1199,7 @@ Deno.test('ROUND TRIP: a response built to the tool schema satisfies isPaceResul
         score: 72,
         band: 'good',
         feedback: 'Lean comes from the ankles, not the waist.',
+        analysis: 'The runner stays tall. This supports efficient alignment. Keep the lean at the ankles.',
         flags: [],
         drills: [{ name: 'Posture Reset', instructions: 'Drop the shoulders, level the head.' }],
       },
@@ -1157,6 +1207,7 @@ Deno.test('ROUND TRIP: a response built to the tool schema satisfies isPaceResul
         score: 61,
         band: 'mid',
         feedback: 'Hands drift across the midline.',
+        analysis: 'The hands cross the midline. This adds rotation. Drive the elbows straight back.',
         flags: [{ pattern: 'Crossing-midline arms', detail: 'Associated with rotational load.' }],
         drills: [{ name: 'Arm-Swing Box Drill', instructions: 'Elbows drive straight back.' }],
       },
@@ -1164,6 +1215,7 @@ Deno.test('ROUND TRIP: a response built to the tool schema satisfies isPaceResul
         score: 44,
         band: 'low',
         feedback: 'Foot lands well ahead of the hips with a near-straight knee.',
+        analysis: 'The foot lands ahead of the hips. This adds braking. Aim to land closer underneath.',
         flags: [{ pattern: 'Overstriding', detail: 'Associated with amplified braking force.' }],
         drills: [{ name: 'Metronome Runs', instructions: '+2-3 SPM above baseline.' }],
       },
@@ -1171,6 +1223,7 @@ Deno.test('ROUND TRIP: a response built to the tool schema satisfies isPaceResul
         score: 55,
         band: 'mid',
         feedback: 'Contact looks heavy; the torso rises a long way between frames.',
+        analysis: 'Contact looks heavy. The torso rises markedly. Use a quieter, springier landing cue.',
         flags: [],
         drills: [{ name: 'Pogo Hops', instructions: 'Quick, rhythmic bounce. The floor is hot.' }],
       },
@@ -1184,12 +1237,13 @@ Deno.test('ROUND TRIP: a response built to the tool schema satisfies isPaceResul
   // rejected it, the product's most common honest answer would be a hard failure.
   const photoResult: PaceResult = {
     pillars: {
-      posture: { score: 78, band: 'good', feedback: 'Tall and stable.', flags: [], drills: [] },
-      armSwing: { score: 65, band: 'mid', feedback: 'Elbows a touch high.', flags: [], drills: [] },
+      posture: { score: 78, band: 'good', feedback: 'Tall and stable.', analysis: 'Tall posture stays stable. That supports alignment. Keep the head level.', flags: [], drills: [] },
+      armSwing: { score: 65, band: 'mid', feedback: 'Elbows a touch high.', analysis: 'The elbows sit high. That can add tension. Let the shoulders drop.', flags: [], drills: [] },
       cadence: {
         score: null,
         band: null,
         feedback: 'Not assessed — a photo cannot show step rate. A short video would unlock this.',
+        analysis: null,
         notAssessedReason: 'needsVideo',
         flags: [],
         drills: [],
@@ -1198,6 +1252,7 @@ Deno.test('ROUND TRIP: a response built to the tool schema satisfies isPaceResul
         score: null,
         band: null,
         feedback: 'Not assessed — bounce and contact quality are motion over time.',
+        analysis: null,
         notAssessedReason: 'needsVideo',
         flags: [],
         drills: [],
@@ -1212,6 +1267,7 @@ Deno.test('ROUND TRIP: a response built to the tool schema satisfies isPaceResul
     score: null,
     band: null,
     feedback: 'Not assessed — the runner is not visible from a usable angle.',
+    analysis: null,
     notAssessedReason: 'angle',
     flags: [],
     drills: [],
@@ -1228,10 +1284,34 @@ Deno.test('ROUND TRIP: a response built to the tool schema satisfies isPaceResul
   assert(isPaceResult(nothingAssessed), 'The all-null result failed isPaceResult.');
 });
 
+Deno.test('BACKWARD COMPATIBILITY: an old stored result without `analysis` still satisfies isPaceResult', () => {
+  // The generated schema requires `analysis` on NEW model output, but persisted analyses predate
+  // the field. Runtime validation must keep accepting that legacy shape so opening Past Analyses
+  // cannot turn an old successful result into an error.
+  const legacyPillar = {
+    score: 78,
+    band: 'good',
+    feedback: 'Tall and stable.',
+    flags: [],
+    drills: [],
+  } as const;
+  const oldShape = {
+    pillars: {
+      posture: legacyPillar,
+      armSwing: legacyPillar,
+      cadence: legacyPillar,
+      elasticity: legacyPillar,
+    },
+    overall: { score: 78, band: 'good' },
+  };
+
+  assert(isPaceResult(oldShape), 'A legacy stored result without `analysis` failed isPaceResult.');
+});
+
 Deno.test('the schema obeys Anthropic\'s structured-output limits (or strict mode 400s)', () => {
   // These limits are documented, load-bearing, and invisible until the API rejects the request.
   // Encoding them as a test means a future edit to the schema fails here instead of in prod.
-  let unionCount = 0;
+  let rootUnionCount = 0;
 
   walkSchema(PACE_ANALYSIS_TOOL.input_schema, (node) => {
     if (node.type === 'object') {
@@ -1241,7 +1321,7 @@ Deno.test('the schema obeys Anthropic\'s structured-output limits (or strict mod
       );
     }
     if (Array.isArray(node.anyOf)) {
-      unionCount += 1;
+      rootUnionCount += 1;
     }
     for (const unsupported of ['minimum', 'maximum', 'multipleOf', 'minLength', 'maxLength', 'pattern']) {
       assert(
@@ -1252,9 +1332,23 @@ Deno.test('the schema obeys Anthropic\'s structured-output limits (or strict mod
     }
   });
 
+  const schema = PACE_ANALYSIS_TOOL.input_schema as {
+    $defs: { pillar: Record<string, unknown> };
+  };
+  let pillarUnionCount = 0;
+  walkSchema(schema.$defs.pillar, (node) => {
+    if (Array.isArray(node.anyOf)) pillarUnionCount += 1;
+  });
+  const effectiveUnionCount = rootUnionCount + pillarUnionCount * PACE_PILLARS.length;
+
   assert(
-    unionCount <= 16,
-    `The schema uses ${unionCount} anyOf unions; Anthropic caps a request at 16. Make a nullable ` +
+    effectiveUnionCount === 14,
+    `The schema should use 14 effective anyOf unions (score, band and analysis x 4 pillars, ` +
+      `plus overall score/band); found ${effectiveUnionCount}.`
+  );
+  assert(
+    effectiveUnionCount <= 16,
+    `The schema uses ${effectiveUnionCount} effective anyOf unions; Anthropic caps a request at 16. Make a nullable ` +
       'field non-nullable (feedback already is) before adding another.'
   );
 });

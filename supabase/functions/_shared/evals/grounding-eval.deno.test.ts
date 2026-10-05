@@ -36,6 +36,7 @@ import {
   checkGroundedDrills,
   checkGroundedFlags,
   checkKnowledgeInPrompt,
+  checkNoDisclaimerEcho,
   checkNoFabricatedScore,
   checkNoFalsePrecision,
   checkNoUnsupportedPillar,
@@ -469,6 +470,22 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
   gct.pillars.elasticity.feedback = 'Ground contact is around 250 ms, which is long for your pace.';
   assert(failed(checkNoFalsePrecision(gct)), 'A ground-contact time in milliseconds was not caught.');
 
+  const gctInAnalysis = honestPhotoResult();
+  gctInAnalysis.pillars.elasticity.analysis =
+    'Observed: ground contact is around 250 ms. Why it matters: that is long. Change: leave the ground sooner.';
+  assert(
+    failed(checkNoFalsePrecision(gctInAnalysis)),
+    'A ground-contact time in milliseconds inside the longer analysis was not caught.'
+  );
+
+  const refusalInAnalysis = honestPhotoResult();
+  refusalInAnalysis.pillars.elasticity.analysis =
+    'The frames are spaced roughly 175 ms apart, so this clip cannot support a ground-contact-time measurement.';
+  assert(
+    !failed(checkNoFalsePrecision(refusalInAnalysis)),
+    'A legitimate frame-interval refusal inside analysis must not be mistaken for a GCT claim.'
+  );
+
   const vo = honestPhotoResult();
   vo.pillars.elasticity.feedback = 'You are bouncing about 12 cm vertically on each step.';
   assert(failed(checkNoFalsePrecision(vo)), 'A vertical oscillation in centimetres was not caught.');
@@ -637,6 +654,14 @@ Deno.test('#112: false precision the approximate timestamps cannot support is ca
     !failed(checkNoFalsePrecision(delta)),
     'A prescribed SPM delta is not a rate claim and must pass.'
   );
+});
+
+Deno.test('the disclaimer echo check covers the longer analysis field', () => {
+  const result = honestPhotoResult();
+  result.pillars.posture.analysis =
+    'Observed: the trunk stays tall. This is not medical advice. Keep the same relaxed posture.';
+
+  assert(checkNoDisclaimerEcho(result).status === 'warn', 'A disclaimer echoed in analysis was not caught.');
 });
 
 Deno.test('THE GRADER IS NOT THE BUG (2): describing the FRAME SPACING in ms is obedience, not a GCT claim', () => {

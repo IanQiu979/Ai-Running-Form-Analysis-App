@@ -42,17 +42,17 @@
  *    `TIMESTAMP_RULES` and `formatFrameManifest()`: intervals are always labelled approximate,
  *    the model is told the error bar, precise SPM/GCT/VO figures are forbidden at EVERY tier, and
  *    any Cadence/Elasticity judgement that leans on the timing must carry that uncertainty into
- *    the user-visible `feedback` — a hedge the runner never sees is not a hedge. The field is
- *    named `requestedTimestampMs` so a future caller cannot casually mistake it for a measured
- *    one. And because `pace_framework.md` is CERTIFIED CONTENT that itself conditions on timing
- *    ("only if frame timestamps are known", "across evenly-spaced frames"), the last block of
+ *    the user-visible `feedback` and `analysis` — a hedge the runner never sees is not a hedge.
+ *    The field is named `requestedTimestampMs` so a future caller cannot casually mistake it for
+ *    a measured one. And because `pace_framework.md` is CERTIFIED CONTENT that itself conditions
+ *    on timing ("only if frame timestamps are known", "across evenly-spaced frames"), the last block of
  *    `TIMESTAMP_RULES` AMENDS HOW THOSE TWO CLAUSES ARE READ instead of editing the certified file
  *    — the same prompt-layer mechanism `INPUT_CHANNEL_RULES` uses for #40's runner's-note clauses.
  *
- * 4. THE OUTPUT CONTRACT. A strict, forced tool call whose `input_schema` is exactly
- *    `PaceResult` from `./pace.ts` (#43) — the same shape the app renders and `settle_analysis`
- *    persists. There is no second definition of the result shape anywhere, and no adapter: what
- *    the model emits IS a `PaceResult`, checked by `isPaceResult` on the way out (#45).
+ * 4. THE OUTPUT CONTRACT. Structured output requires the complete newly generated `PaceResult`
+ *    shape from `./pace.ts` (#43). The runtime type keeps `analysis` optional only so legacy
+ *    stored rows remain readable; every new model response must include it. There is no adapter:
+ *    what the model emits IS a `PaceResult`, checked by `isPaceResult` on the way out (#45).
  *
  * MODEL BEHAVIOUR THIS FILE PINS DOWN (verified against Anthropic's docs 2026-07-12, not
  * recalled — every one of these is a silent 400 or a silent quality regression if you get it
@@ -262,7 +262,8 @@ const BAND_DESCRIPTION =
   '.';
 
 /**
- * JSON Schema for one pillar. Mirrors `PacePillarResult` exactly.
+ * JSON Schema for one newly generated pillar. It requires `analysis`; `PacePillarResult` keeps
+ * that field optional only for backward compatibility with stored rows created before this field.
  *
  * ONE DEFINITION, REFERENCED FOUR TIMES — see `PACE_RESULT_SCHEMA`'s `$defs` block below. This
  * used to be inlined per pillar with a `The ${label} pillar.` description; that description is
@@ -284,8 +285,8 @@ const BAND_DESCRIPTION =
  *     here. It lives in the description, and `isPaceResult`'s `isScoreInRange` enforces it at
  *     runtime. Shape is guaranteed by the schema; range is guaranteed by code.
  *   - `additionalProperties: false` is required on every object.
- *   - Union-typed (`anyOf`) params are capped at 16 per request. This schema uses 10 (score and
- *     band x 4 pillars, plus overall's two) — `feedback` is deliberately a plain required
+ *   - Union-typed (`anyOf`) params are capped at 16 per request. This schema uses 14 (score, band,
+ *     and analysis x 4 pillars, plus overall's two) — `feedback` is deliberately a plain required
  *     `string` rather than `string | null`, which is both within `PacePillarResult`'s type
  *     (`string` satisfies `string | null`) and better product behaviour: a not-assessed pillar
  *     should still say WHY, and what shot would fix it.
@@ -305,9 +306,18 @@ function pillarSchema(): Record<string, unknown> {
       feedback: {
         type: 'string',
         description:
-          'Coaching feedback for this pillar, tied to what is actually visible in the frames. ' +
-          'Length is set by the tier instruction in the prompt. When score is null, use this to ' +
-          'say plainly that it could not be assessed and what shot would fix it.',
+          'A concise overview tied to what is actually visible in the frames: exactly one useful, ' +
+          'grounded sentence when score is non-null. When score is null, use one sentence to say ' +
+          'plainly that the pillar could not be assessed and what shot would fix it.',
+      },
+      analysis: {
+        anyOf: [{ type: 'string' }, { type: 'null' }],
+        description:
+          'The fuller detail-panel analysis, grounded only in the certified PACE framework and ' +
+          'these frames. A non-empty string when score is non-null, covering what was observed, ' +
+          'why it matters for this runner, and what to change at the tier-requested depth; null ' +
+          'exactly when score is null. Sentence-count targets are prompt guidance, not runtime ' +
+          'content validation.',
       },
       notAssessedReason: {
         type: 'string',
@@ -323,7 +333,8 @@ function pillarSchema(): Record<string, unknown> {
         description:
           "This pillar's stop-running declaration. It is the ONE place the warning lives: the app " +
           'renders `note` as its own labelled notice above the coaching, so do not repeat it in ' +
-          '`feedback`, and it survives when the server strips claims a single frame cannot support.',
+          '`feedback` or `analysis`, and it survives when the server strips claims a single frame ' +
+          'cannot support.',
         properties: {
           signal: {
             type: 'string',
@@ -393,7 +404,7 @@ function pillarSchema(): Record<string, unknown> {
         },
       },
     },
-    required: ['score', 'band', 'feedback', 'safety', 'flags', 'drills'],
+    required: ['score', 'band', 'feedback', 'analysis', 'safety', 'flags', 'drills'],
     additionalProperties: false,
   };
 }
@@ -411,9 +422,9 @@ const PILLAR_SCHEMA_DEF_NAME = 'pillar';
 const PILLAR_SCHEMA_REF = `#/$defs/${PILLAR_SCHEMA_DEF_NAME}`;
 
 /**
- * THE OUTPUT CONTRACT, as one JSON Schema: exactly `PaceResult` from `./pace.ts` (#43) — the
- * identical shape the app renders and `analyses.result` stores. There is no parallel definition
- * and no adapter.
+ * THE OUTPUT CONTRACT, as one JSON Schema: the complete new-output form of `PaceResult` from
+ * `./pace.ts` (#43). It is intentionally stricter than legacy-row validation only in requiring
+ * `analysis`; there is no parallel application type and no adapter.
  *
  * ONE definition, TWO possible carriers. It is sent as `output_config.format.schema` (structured
  * outputs — the default, see `buildAnalyzeFormRequest`) and, when a caller opts in with
@@ -520,7 +531,12 @@ export const TIER_VERBOSITY: Record<PaceTier, TierVerbosity> = {
   free: {
     depth: [
       'TIER: FREE.',
-      '- `feedback`: exactly ONE sentence per pillar. The single most useful thing you can see.',
+      '- `feedback`: exactly ONE useful, grounded sentence for every assessed pillar. This is the',
+      '  concise overview: lead with the single most useful thing visible in these frames.',
+      '- `analysis`: exactly 3 sentences for every assessed pillar: what was observed in these',
+      '  frames, why it matters for this runner, and what to change. Keep it compact and grounded.',
+      '  Do not name paid-only flags or drills in `analysis`, and do not reproduce a certified',
+      '  flag heading or drill name that belongs in the paid `flags` or `drills` fields.',
       '- `flags`: ALWAYS the empty array `[]` for every pillar. Injury-risk flags are paid-tier',
       '  content. (The one exception is the stop-running safety signal — see SAFETY below, which',
       '  overrides this and every other verbosity instruction.)',
@@ -532,7 +548,11 @@ export const TIER_VERBOSITY: Record<PaceTier, TierVerbosity> = {
   pro: {
     depth: [
       'TIER: PRO.',
-      '- `feedback`: 2-4 sentences per pillar — what you see, why it matters, and the fix.',
+      '- `feedback`: exactly ONE useful, grounded sentence for every assessed pillar. This is the',
+      '  concise overview, not the detail analysis.',
+      '- `analysis`: 5-7 sentences for every assessed pillar. Cover what was observed in these',
+      '  frames, why it matters for this runner, and what to change, with enough detail to explain',
+      '  the cue and how to apply it. Ground every claim in the certified PACE framework.',
       '- `flags`: raise every injury-risk flag from injury_flags.md whose marker you can actually',
       '  SEE in these frames, on the pillar it belongs to. [] if you see none — an empty array is',
       '  a fine and common answer, and much better than a stretched one.',
@@ -545,8 +565,12 @@ export const TIER_VERBOSITY: Record<PaceTier, TierVerbosity> = {
       'TIER: ELITE.',
       '- Everything Pro gets, judged to exactly the same standard. The step up from Pro is small,',
       '  and it is purely depth of cueing — no extra certainty, no extra flags, no extra drills.',
-      '- `feedback`: 3-5 sentences per pillar. Spend the extra room on the HOW: the specific cue,',
-      '  what it should feel like, and how this pillar is feeding the others.',
+      '- `feedback`: exactly ONE useful, grounded sentence for every assessed pillar. This is the',
+      '  same concise overview as every other tier.',
+      '- `analysis`: 7-9 sentences for every assessed pillar. Cover what was observed in these',
+      '  frames, why it matters for this runner, and what to change; spend the extra room on',
+      '  execution nuance and relevant cross-pillar links, including the specific cue and what it',
+      '  should feel like. Ground every claim in the certified PACE framework.',
       '- `flags`: same rule as Pro. A higher tier does not lower the bar for raising one.',
       '- `drills`: same 1-2 per issue as Pro, with a little more detail on execution.',
     ].join('\n'),
@@ -567,7 +591,8 @@ export const TIER_VERBOSITY: Record<PaceTier, TierVerbosity> = {
  * which is a far stronger guarantee than asking a model to remember it, because a static footer
  * cannot be omitted, reworded, or hallucinated. The model's half of that contract is what is
  * below: never diagnose, never prescribe treatment, never claim a condition is present, and do
- * NOT re-emit the disclaimer text into `feedback` (it would double-render under the footer).
+ * NOT re-emit the disclaimer text into `feedback` or `analysis` (it would double-render under the
+ * footer).
  */
 const SAFETY_RULES = [
   'SAFETY AND THE MEDICAL BOUNDARY (absolute; identical at every tier):',
@@ -581,11 +606,11 @@ const SAFETY_RULES = [
   '  plain-language sentence in `note`, telling the runner to get it looked at before running on',
   '  it. It is never withheld because a tier is cheap.',
   '- `safety.note` IS WHERE THE WARNING LIVES. The app renders it as its own labelled notice',
-  '  ABOVE that pillar\'s `feedback`, on every surface, so it is never buried under form feedback.',
-  '  Do NOT repeat the warning in `feedback` — that would show it twice. `feedback` stays coaching',
-  '  about form. The `safety` field is also what carries the warning through the server\'s strip of',
-  '  claims a single frame cannot support: a stop-running signal written ONLY into `feedback` can',
-  '  be lost; one declared here cannot.',
+  '  ABOVE that pillar\'s coaching, on every surface, so it is never buried under form feedback.',
+  '  Do NOT repeat the warning in `feedback` or `analysis` — that would show it twice. Both fields',
+  '  stay coaching about form. The `safety` field is also what carries the warning through the',
+  '  server\'s strip of claims a single frame cannot support: a stop-running signal written ONLY',
+  '  into runner-facing prose can be lost; one declared here cannot.',
   '- `signal: "none"` (with an empty `note`) is the normal answer and is required whenever no',
   '  stop-running signal is visible. Never declare a signal to be safe: a false alarm on every',
   '  result is how a real one stops being read.',
@@ -606,13 +631,17 @@ const NOT_ASSESSED_RULES = [
   '- `score` and `band` are null TOGETHER or non-null TOGETHER. Never one without the other.',
   '- A not-assessed pillar still gets `feedback`: say plainly that it could not be assessed and',
   '  what shot would fix it (usually: "film side-on, full body, level camera, ~10 m away, in',
-  '  good light"). Its `flags` and `drills` are `[]`.',
+  '  good light"). Its `analysis` is `null`, and its `flags` and `drills` are `[]`.',
   '- `feedback` is NEVER an empty string, and never whitespace only, for ANY pillar at ANY tier.',
   '  There is always something to say: if you scored the pillar, say what you saw; if you could',
   '  not, say why not and what shot would fix it. Returning nothing is not a way to stay honest —',
   '  a silent pillar renders as a blank space the runner cannot interpret, which is strictly worse',
   '  than "I could not see this from these frames". This holds even when EVERY pillar is',
   '  not-assessed, which is exactly when a pillar is most likely to be left silent.',
+  '- `analysis` gives the proper detail-panel analysis for every assessed pillar: what was',
+  '  observed in these frames, why it matters for this runner, and what to change. Set',
+  '  `analysis: null` whenever `score` is null; `analysis` must be a non-empty string whenever',
+  '  `score` is non-null. Never invent detail to avoid returning null.',
   '- Assess ONLY what is actually visible. Camera angle, framing, lighting, or crop can all make',
   '  a pillar unscoreable — that is an `angle` reason, not an invitation to guess. A side-on',
   '  (sagittal) view is required for Posture, Cadence, and Elasticity.',
@@ -668,11 +697,11 @@ const TIMESTAMP_RULES = [
   '    and springy; knee and ankle give that reloads; how far the torso rises between frames).',
   '    None of that needs a clock.',
   '  * Treat any interval-derived quantity as a WIDE, EXPLICITLY APPROXIMATE estimate, and say in',
-  '    the `feedback` that it is approximate. Widen your confidence accordingly — if the timing',
-  '    is the only thing pointing at a fault, that is not enough to call the fault.',
+  '    both `feedback` and `analysis` that it is approximate. Widen your confidence accordingly —',
+  '    if the timing is the only thing pointing at a fault, that is not enough to call the fault.',
   '  * SAY IT IN THE OUTPUT, NOT JUST IN YOUR HEAD. Any Cadence or Elasticity judgement that leans',
-  '    on the frame timing AT ALL must carry that uncertainty in the `feedback` the runner',
-  '    actually reads — they never see your reasoning, only `score`, `band`, and `feedback`. Name',
+  '    on the frame timing AT ALL must carry that uncertainty in both `feedback` and `analysis`',
+  '    that the runner actually reads — they never see your reasoning. Name',
   '    it plainly: "the torso looks to rise noticeably between the landing and flight frames —',
   '    approximate, estimated from frames whose timing is not exact". A hedge you kept to yourself is',
   '    not a hedge; it is just a confident number with a private doubt attached.',
@@ -685,6 +714,8 @@ const TIMESTAMP_RULES = [
   '    you are inferring lightness vs heaviness, not measuring. Say it that way.',
   '  * Any vertical-oscillation figure in centimetres. Same reason: describe the bounce, do not',
   '    measure it.',
+  '- These false-precision prohibitions apply to both `feedback` and `analysis`. A longer detail',
+  '  panel must explain the visible evidence more fully, never turn an inference into a measure.',
   '- If you cannot support a Cadence or Elasticity judgement from the visible geometry, the',
   '  honest answer is `score: null` — not a number propped up by timings you cannot trust.',
   '',
@@ -1043,7 +1074,7 @@ function buildOutputContract(input: AnalyzeFormPromptInput): string {
     '',
     'Work through the frames against the certified framework: Posture, then Arm swing, then',
     'Cadence, then Elasticity. Score only what you can see. Name, in the priority pillar\'s',
-    'feedback, the one pillar whose fix would most improve the others, and lead the runner there',
+    '`feedback`, the one pillar whose fix would most improve the others, and lead the runner there',
     '(pace_framework.md: "How the four pillars work together").',
     '',
     TIER_VERBOSITY[input.tier].depth,
@@ -1056,9 +1087,13 @@ function buildOutputContract(input: AnalyzeFormPromptInput): string {
     'your entire response — no prose before or after it, no markdown fence. The schema is the',
     'contract:',
     '- `pillars`: all four (`posture`, `armSwing`, `cadence`, `elasticity`), always all four,',
-    '  every one with `score`, `band`, `feedback`, `flags`, `drills`.',
+    '  every one with `score`, `band`, `feedback`, `analysis`, `safety`, `flags`, `drills`.',
     '- `score`: an integer 0-100, or `null` if you could not assess it. `band` is null exactly',
     '  when `score` is null. Add `notAssessedReason` whenever `score` is null.',
+    '- `feedback`: exactly one useful, grounded overview sentence for each assessed pillar.',
+    '- `analysis`: the tier-depth detail covering observation, why it matters for this runner,',
+    '  and what to change. It is a non-empty string when `score` is non-null, and null exactly',
+    '  when `score` is null.',
     `- Bands: ${SCORE_BAND_VALUES.map((b) => `${SCORE_BAND_RUBRIC[b].range} -> "${b}" (${SCORE_BAND_RUBRIC[b].label})`)
       .reverse()
       .join('; ')}.`,
