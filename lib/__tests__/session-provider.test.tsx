@@ -49,6 +49,11 @@ jest.mock('expo-linking', () => ({
 
 const mockGetSession = supabase.auth.getSession as jest.Mock;
 const mockOnAuthStateChange = supabase.auth.onAuthStateChange as jest.Mock;
+const mockClearSettingsSnapshot = jest.fn();
+
+jest.mock('../settings-cache', () => ({
+  clearSettingsSnapshot: (...args: unknown[]) => mockClearSettingsSnapshot(...args),
+}), { virtual: true });
 
 /** Minimal stand-in for a real `Session` — this suite only ever reads identity off it. */
 function fakeSession(userId = 'user-1'): Session {
@@ -64,6 +69,7 @@ function wrapper({ children }: PropsWithChildren) {
 }
 
 beforeEach(() => {
+  mockClearSettingsSnapshot.mockReset();
   mockGetSession.mockResolvedValue({ data: { session: null } });
   mockOnAuthStateChange.mockImplementation((listener: typeof emit) => {
     emit = listener;
@@ -112,6 +118,49 @@ describe('SessionProvider auth-state routing', () => {
     });
 
     expect(result.current.session).toBeNull();
+  });
+
+  it('clears the signed-out user\'s settings snapshot', async () => {
+    const { result } = await renderHook(() => useSession(), { wrapper });
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('outgoing-user'));
+    });
+    mockClearSettingsSnapshot.mockClear();
+
+    await act(async () => {
+      emit('SIGNED_OUT', null);
+    });
+
+    expect(mockClearSettingsSnapshot).toHaveBeenCalledWith('outgoing-user');
+  });
+
+  it('clears the outgoing settings snapshot when an auth event switches users directly', async () => {
+    const { result } = await renderHook(() => useSession(), { wrapper });
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('user-a'));
+    });
+    mockClearSettingsSnapshot.mockClear();
+
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('user-b'));
+    });
+
+    expect(result.current.session?.user.id).toBe('user-b');
+    expect(mockClearSettingsSnapshot).toHaveBeenCalledWith('user-a');
+  });
+
+  it('keeps the settings snapshot for an auth event from the same user', async () => {
+    const { result } = await renderHook(() => useSession(), { wrapper });
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('same-user'));
+    });
+    mockClearSettingsSnapshot.mockClear();
+
+    await act(async () => {
+      emit('TOKEN_REFRESHED', fakeSession('same-user'));
+    });
+
+    expect(mockClearSettingsSnapshot).not.toHaveBeenCalled();
   });
 
   // Issue #81: a recovery session IS a session, so `!!session` alone would throw the user into

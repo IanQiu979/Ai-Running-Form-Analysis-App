@@ -88,6 +88,12 @@ import {
 } from '@/lib/delete-account';
 import { describeQuota } from '@/lib/quota';
 import { useSession } from '@/lib/session-provider';
+import {
+  clearSettingsSnapshot,
+  getSettingsSnapshot,
+  getSettingsSnapshotGeneration,
+  updateSettingsSnapshot,
+} from '@/lib/settings-cache';
 import { signOut, type SignOutResult } from '@/lib/sign-out';
 import { formatRenewalDate, getQuotaStatus, type QuotaStatus, type SubscriptionTier } from '@/lib/subscription';
 import { useAnnounce } from '@/lib/use-announce';
@@ -99,6 +105,8 @@ import { useAnnounce } from '@/lib/use-announce';
  *  caption and the renewal date, and all three come off this one object. */
 type PlanState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; quota: QuotaStatus };
 
+type UserPlanState = { userId: string | undefined; value: PlanState };
+
 /** `readSignupConsentState` reads BOTH sign-up keys with the same any-withdrawn rule the capture /
  *  age-band-gate self-heal applies, so "Give consent" is offered in exactly the states capture
  *  refuses to proceed in. It THROWS on any query failure and deliberately does not guess
@@ -107,6 +115,8 @@ type PlanState = { status: 'loading' } | { status: 'error' } | { status: 'ready'
  *  or its grant was dropped) is not one that withdrew, must not read as if it had, and is healed
  *  silently by capture / the age-band gate rather than asked here. */
 type ConsentState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; state: ConsentRecordState };
+
+type UserConsentState = { userId: string | undefined; value: ConsentState };
 
 /**
  * Every dialog this screen can have up, one at a time. The confirms and the Google prompt carry no
@@ -123,6 +133,8 @@ type Dialog =
   | { kind: 'notice'; title: string; body: string; onDismiss?: () => void }
   | null;
 
+type UserDialog = { userId: string | undefined; value: Dialog };
+
 const TIER_LABEL: Record<SubscriptionTier, string> = {
   free: Copy.tier.free,
   pro: Copy.tier.pro,
@@ -131,6 +143,16 @@ const TIER_LABEL: Record<SubscriptionTier, string> = {
 
 const PRESSED_OPACITY = 0.6;
 const DISABLED_OPACITY = 0.4;
+
+function planStateForUser(userId: string | undefined): PlanState {
+  const cachedPlan = userId ? getSettingsSnapshot(userId)?.plan : undefined;
+  return cachedPlan ? { status: 'ready', quota: cachedPlan } : { status: 'loading' };
+}
+
+function consentStateForUser(userId: string | undefined): ConsentState {
+  const cachedConsent = userId ? getSettingsSnapshot(userId)?.consent : undefined;
+  return cachedConsent ? { status: 'ready', state: cachedConsent } : { status: 'loading' };
+}
 
 // --- The page's row grammar ---------------------------------------------------------------------
 
@@ -192,13 +214,21 @@ export default function SettingsScreen() {
   const userId = session?.user.id;
   const email = session?.user.email;
 
-  const [plan, setPlan] = useState<PlanState>({ status: 'loading' });
-  const [consent, setConsent] = useState<ConsentState>({ status: 'loading' });
+  const [userPlan, setUserPlan] = useState<UserPlanState>(() => ({ userId, value: planStateForUser(userId) }));
+  const [userConsent, setUserConsent] = useState<UserConsentState>(() => ({
+    userId,
+    value: consentStateForUser(userId),
+  }));
+  const plan = userPlan.userId === userId ? userPlan.value : planStateForUser(userId);
+  const consent = userConsent.userId === userId ? userConsent.value : consentStateForUser(userId);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isWithdrawing, setIsWithdrawing] = useState(false);
-  const [isRestoringConsent, setIsRestoringConsent] = useState(false);
-  const [dialog, setDialog] = useState<Dialog>(null);
+  const [withdrawingUsers, setWithdrawingUsers] = useState<ReadonlySet<string>>(() => new Set());
+  const [restoringConsentUsers, setRestoringConsentUsers] = useState<ReadonlySet<string>>(() => new Set());
+  const [userDialog, setUserDialog] = useState<UserDialog>(() => ({ userId, value: null }));
+  const isWithdrawing = userId ? withdrawingUsers.has(userId) : false;
+  const isRestoringConsent = userId ? restoringConsentUsers.has(userId) : false;
+  const dialog = userDialog.userId === userId ? userDialog.value : null;
   // Issue #124's step-up reauthentication flow. `passwordReauthVisible` gates the password modal
   // (email/password accounts only — Google's reauth is a dialog + browser flow, no modal needed).
   // `isReauthenticating` is scoped to the modal's own Confirm-button busy state; the outer
@@ -238,6 +268,13 @@ export default function SettingsScreen() {
   // no-op at best and a warning at worst, so every async handler checks this first — the same
   // guard `components/age-band-gate.tsx` uses, for the same reason.
   const isMountedRef = useRef(true);
+  const userIdRef = useRef(userId);
+  const planRequestRef = useRef(0);
+  const consentRequestRef = useRef(0);
+  const consentMutationVersionRef = useRef(0);
+  const planRetryUsersRef = useRef(new Set<string>());
+  const consentRetryUsersRef = useRef(new Set<string>());
+  userIdRef.current = userId;
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -246,30 +283,96 @@ export default function SettingsScreen() {
   }, []);
 
   const fetchPlan = useCallback(async () => {
-    if (!userId) return;
-    setPlan({ status: 'loading' });
+    const requestUserId = userId;
+    const requestId = ++planRequestRef.current;
+    if (!requestUserId) return;
+    const snapshotGeneration = getSettingsSnapshotGeneration(requestUserId);
 
     // Read the same server-authoritative status Home and Paywall use, rather than deriving tier
     // from `subscriptions` locally.
     const result = await getQuotaStatus();
-    if (!isMountedRef.current) return;
-    setPlan(result.ok ? { status: 'ready', quota: result.data } : { status: 'error' });
+    if (
+      !isMountedRef.current ||
+      userIdRef.current !== requestUserId ||
+      planRequestRef.current !== requestId ||
+      getSettingsSnapshotGeneration(requestUserId) !== snapshotGeneration
+    ) {
+      return;
+    }
+
+    if (result.ok) {
+      if (updateSettingsSnapshot(requestUserId, { plan: result.data }, snapshotGeneration)) {
+        setUserPlan({ userId: requestUserId, value: { status: 'ready', quota: result.data } });
+      }
+      return;
+    }
+
+    if (!getSettingsSnapshot(requestUserId)?.plan) {
+      setUserPlan({ userId: requestUserId, value: { status: 'error' } });
+    }
   }, [userId]);
 
   const fetchConsent = useCallback(async () => {
-    setConsent({ status: 'loading' });
+    const requestUserId = userId;
+    const requestId = ++consentRequestRef.current;
+    const mutationVersion = consentMutationVersionRef.current;
+    if (!requestUserId) return;
+    const snapshotGeneration = getSettingsSnapshotGeneration(requestUserId);
+
     try {
       const state = await readSignupConsentState();
-      if (!isMountedRef.current) return;
-      setConsent({ status: 'ready', state });
+      if (
+        !isMountedRef.current ||
+        userIdRef.current !== requestUserId ||
+        consentRequestRef.current !== requestId ||
+        consentMutationVersionRef.current !== mutationVersion ||
+        getSettingsSnapshotGeneration(requestUserId) !== snapshotGeneration
+      ) {
+        return;
+      }
+      if (updateSettingsSnapshot(requestUserId, { consent: state }, snapshotGeneration)) {
+        setUserConsent({ userId: requestUserId, value: { status: 'ready', state } });
+      }
     } catch {
       // Fail closed and SAY SO. Rendering "withdrawn" here would be indistinguishable from a user
       // who genuinely never consented, which hides the outage — the exact bug class lib/consent.ts
       // was written to avoid.
-      if (!isMountedRef.current) return;
-      setConsent({ status: 'error' });
+      if (
+        !isMountedRef.current ||
+        userIdRef.current !== requestUserId ||
+        consentRequestRef.current !== requestId ||
+        consentMutationVersionRef.current !== mutationVersion ||
+        getSettingsSnapshotGeneration(requestUserId) !== snapshotGeneration
+      ) {
+        return;
+      }
+      if (!getSettingsSnapshot(requestUserId)?.consent) {
+        setUserConsent({ userId: requestUserId, value: { status: 'error' } });
+      }
     }
-  }, []);
+  }, [userId]);
+
+  function retryPlan() {
+    if (!userId || planRetryUsersRef.current.has(userId)) return;
+    planRetryUsersRef.current.add(userId);
+    if (!getSettingsSnapshot(userId)?.plan) {
+      setUserPlan({ userId, value: { status: 'loading' } });
+    }
+    void fetchPlan().finally(() => {
+      planRetryUsersRef.current.delete(userId);
+    });
+  }
+
+  function retryConsent() {
+    if (!userId || consentRetryUsersRef.current.has(userId)) return;
+    consentRetryUsersRef.current.add(userId);
+    if (!getSettingsSnapshot(userId)?.consent) {
+      setUserConsent({ userId, value: { status: 'loading' } });
+    }
+    void fetchConsent().finally(() => {
+      consentRetryUsersRef.current.delete(userId);
+    });
+  }
 
   useEffect(() => {
     void fetchPlan();
@@ -280,6 +383,10 @@ export default function SettingsScreen() {
   }, [fetchConsent]);
 
   const isBusy = isSigningOut || isDeleting || isWithdrawing || isRestoringConsent;
+
+  function setDialog(value: Dialog) {
+    setUserDialog({ userId, value });
+  }
 
   function closeDialog() {
     setDialog(null);
@@ -485,6 +592,10 @@ export default function SettingsScreen() {
    * to compile here rather than silently taking the "no news" `deleted` path.
    */
   function handleDeleteAccountSuccess(outcome: DeleteAccountSuccessOutcome) {
+    planRequestRef.current += 1;
+    consentRequestRef.current += 1;
+    consentMutationVersionRef.current += 1;
+    if (userId) clearSettingsSnapshot(userId);
     switch (outcome) {
       case 'deleted':
         // We ignore the sign-out result on purpose: a failed *global* revoke is moot when the
@@ -551,7 +662,10 @@ export default function SettingsScreen() {
 
   async function handleWithdrawConsent() {
     if (isBusy) return;
-    setIsWithdrawing(true);
+    const mutationUserId = userId;
+    if (!mutationUserId) return;
+    const snapshotGeneration = getSettingsSnapshotGeneration(mutationUserId);
+    setWithdrawingUsers((current) => new Set(current).add(mutationUserId));
 
     try {
       // Symmetric with the sign-up grant and `handleRestoreConsent`: one tick granted both keys,
@@ -560,15 +674,35 @@ export default function SettingsScreen() {
         withdrawConsent(UPLOAD_HEALTH_CONSENT),
         withdrawConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
       ]);
-      if (!isMountedRef.current) return;
-      setConsent({ status: 'ready', state: 'withdrawn' });
+      if (
+        !isMountedRef.current ||
+        userIdRef.current !== mutationUserId ||
+        getSettingsSnapshotGeneration(mutationUserId) !== snapshotGeneration
+      ) {
+        return;
+      }
+      consentMutationVersionRef.current += 1;
+      updateSettingsSnapshot(mutationUserId, { consent: 'withdrawn' }, snapshotGeneration);
+      setUserConsent({ userId: mutationUserId, value: { status: 'ready', state: 'withdrawn' } });
     } catch {
-      if (!isMountedRef.current) return;
+      if (
+        !isMountedRef.current ||
+        userIdRef.current !== mutationUserId ||
+        getSettingsSnapshotGeneration(mutationUserId) !== snapshotGeneration
+      ) {
+        return;
+      }
       // Two writes may half-land, so the copy asks for a retry rather than flipping the status
       // to "withdrawn" on writes we cannot prove landed.
       showNotice(Copy.settings.consent.withdraw.error.title, Copy.settings.consent.withdraw.error.body);
     } finally {
-      if (isMountedRef.current) setIsWithdrawing(false);
+      if (isMountedRef.current) {
+        setWithdrawingUsers((current) => {
+          const next = new Set(current);
+          next.delete(mutationUserId);
+          return next;
+        });
+      }
     }
   }
 
@@ -577,20 +711,43 @@ export default function SettingsScreen() {
   // the user here, where the card's summary restates the disclosure being consented to.
   async function handleRestoreConsent() {
     if (isBusy) return;
-    setIsRestoringConsent(true);
+    const mutationUserId = userId;
+    if (!mutationUserId) return;
+    const snapshotGeneration = getSettingsSnapshotGeneration(mutationUserId);
+    setRestoringConsentUsers((current) => new Set(current).add(mutationUserId));
 
     try {
       await Promise.all([
         grantConsent(UPLOAD_HEALTH_CONSENT),
         grantConsent(FUTURE_UPLOADS_ATTESTATION_CONSENT),
       ]);
-      if (!isMountedRef.current) return;
-      setConsent({ status: 'ready', state: 'granted' });
+      if (
+        !isMountedRef.current ||
+        userIdRef.current !== mutationUserId ||
+        getSettingsSnapshotGeneration(mutationUserId) !== snapshotGeneration
+      ) {
+        return;
+      }
+      consentMutationVersionRef.current += 1;
+      updateSettingsSnapshot(mutationUserId, { consent: 'granted' }, snapshotGeneration);
+      setUserConsent({ userId: mutationUserId, value: { status: 'ready', state: 'granted' } });
     } catch {
-      if (!isMountedRef.current) return;
+      if (
+        !isMountedRef.current ||
+        userIdRef.current !== mutationUserId ||
+        getSettingsSnapshotGeneration(mutationUserId) !== snapshotGeneration
+      ) {
+        return;
+      }
       showNotice(Copy.settings.consent.restore.error.title, Copy.settings.consent.restore.error.body);
     } finally {
-      if (isMountedRef.current) setIsRestoringConsent(false);
+      if (isMountedRef.current) {
+        setRestoringConsentUsers((current) => {
+          const next = new Set(current);
+          next.delete(mutationUserId);
+          return next;
+        });
+      }
     }
   }
 
@@ -823,9 +980,7 @@ export default function SettingsScreen() {
                 <RowAction
                   label={Copy.settings.plan.retry}
                   accessibilityLabel={Copy.settings.plan.retryA11yLabel}
-                  onPress={() => {
-                    void fetchPlan();
-                  }}
+                  onPress={retryPlan}
                 />
               </Row>
             )}
@@ -855,9 +1010,7 @@ export default function SettingsScreen() {
                   <RowAction
                     label={Copy.settings.consent.status.retry}
                     accessibilityLabel={Copy.settings.consent.status.retryA11yLabel}
-                    onPress={() => {
-                      void fetchConsent();
-                    }}
+                    onPress={retryConsent}
                   />
                 </View>
               )}

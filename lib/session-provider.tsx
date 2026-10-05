@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from 'react';
@@ -16,6 +17,7 @@ import { startAppStateSync } from './app-state';
 import { createSessionFromUrl } from './auth';
 import { mapAuthError } from './auth-errors';
 import { onSessionRestoreFailure } from './secure-storage';
+import { clearSettingsSnapshot } from './settings-cache';
 import { supabase } from './supabase';
 
 type SessionContextValue = {
@@ -95,6 +97,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [deepLinkAuthError, setDeepLinkAuthError] = useState<string | null>(null);
   const [corruptedSessionError, setCorruptedSessionError] = useState<string | null>(null);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const currentSessionRef = useRef<Session | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -111,6 +114,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       .getSession()
       .then(({ data }) => {
         if (!isMounted) return;
+        currentSessionRef.current = data.session;
         setSession(data.session);
         setIsLoading(false);
       })
@@ -120,6 +124,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         // isReady gate). Signed-out is the safe fallback; onAuthStateChange below still
         // fires normally if a session shows up later.
         if (isMounted) {
+          currentSessionRef.current = null;
           setSession(null);
           setIsLoading(false);
         }
@@ -129,6 +134,12 @@ export function SessionProvider({ children }: PropsWithChildren) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!isMounted) return;
+      const outgoingUserId = currentSessionRef.current?.user.id;
+      const incomingUserId = newSession?.user.id;
+      if (outgoingUserId && (event === 'SIGNED_OUT' || (incomingUserId && incomingUserId !== outgoingUserId))) {
+        clearSettingsSnapshot(outgoingUserId);
+      }
+      currentSessionRef.current = newSession;
       // Issue #81. PASSWORD_RECOVERY fires when the emailed recovery link's exchange lands a
       // session. That session is only good for one thing — setting a new password — so it is
       // flagged rather than treated as a normal sign-in (see isPasswordRecovery's doc above).

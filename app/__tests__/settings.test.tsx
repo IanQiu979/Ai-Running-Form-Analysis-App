@@ -34,7 +34,9 @@ jest.mock('@/lib/supabase', () => ({
   supabase: { functions: { invoke: jest.fn() }, from: jest.fn(), storage: { from: jest.fn() } },
 }));
 
-const mockSession = { user: { id: 'user-1', email: 'ian@example.com' } };
+let mockSession: { user: { id: string; email: string } } | null = {
+  user: { id: 'user-1', email: 'ian@example.com' },
+};
 jest.mock('@/lib/session-provider', () => ({
   useSession: () => ({ session: mockSession }),
 }));
@@ -79,9 +81,15 @@ import SettingsScreen from '../settings';
 import { PRIVACY_POLICY_URL } from '@/constants/links';
 // eslint-disable-next-line import/first
 import { Ink } from '@/constants/v23-theme';
+// eslint-disable-next-line import/first
+import {
+  clearSettingsSnapshot,
+  getSettingsSnapshot,
+  updateSettingsSnapshot,
+} from '@/lib/settings-cache';
 
 const PRO_QUOTA = {
-  tier: 'pro',
+  tier: 'pro' as const,
   used: 2,
   limit: 5,
   remaining: 3,
@@ -96,7 +104,7 @@ const PRO_QUOTA = {
 
 const FREE_QUOTA = {
   ...PRO_QUOTA,
-  tier: 'free',
+  tier: 'free' as const,
   used: 0,
   limit: 1,
   remaining: 1,
@@ -120,6 +128,7 @@ const press = async (node: ReturnType<typeof screen.getByText>) => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSession = { user: { id: 'user-1', email: 'ian@example.com' } };
   mockGetQuotaStatus.mockResolvedValue({ ok: true, data: PRO_QUOTA });
   mockReadSignupConsentState.mockResolvedValue('granted');
   mockWithdrawConsent.mockResolvedValue(undefined);
@@ -128,6 +137,11 @@ beforeEach(() => {
   mockSignOut.mockResolvedValue({ ok: true });
   mockSubmitDelete.mockResolvedValue({ ok: false, error: { error: 'x', code: 'unknown' } });
   mockGetReauthProvider.mockReturnValue('password');
+});
+
+afterEach(() => {
+  clearSettingsSnapshot('user-1');
+  clearSettingsSnapshot('user-2');
 });
 
 describe('SettingsScreen rows (V23-12)', () => {
@@ -282,6 +296,378 @@ describe('SettingsScreen rows (V23-12)', () => {
     expect(style.borderColor).toBe(Ink.danger);
     expect(style.marginTop).toBe('auto');
   });
+});
+
+describe('SettingsScreen session settings cache', () => {
+  it('shows cached plan and consent on a second mount while both refreshes are unresolved', async () => {
+    const firstVisit = await render(<SettingsScreen />);
+    await waitFor(() => expect(screen.getByText('Pro')).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy());
+    await firstVisit.unmount();
+
+    let resolvePlan: (value: unknown) => void = () => {};
+    let resolveConsent: (value: unknown) => void = () => {};
+    mockGetQuotaStatus.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePlan = resolve;
+      })
+    );
+    mockReadSignupConsentState.mockReturnValue(
+      new Promise((resolve) => {
+        resolveConsent = resolve;
+      })
+    );
+
+    const screenInstance = await render(<SettingsScreen />);
+
+    expect(screen.queryByTestId('settings-plan-loading')).toBeNull();
+    expect(screen.queryByTestId('settings-consent-loading')).toBeNull();
+    expect(screen.getByText('Pro')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
+
+    await screenInstance.unmount();
+    await act(async () => {
+      resolvePlan({ ok: true, data: PRO_QUOTA });
+      resolveConsent('granted');
+    });
+  });
+
+  it('replaces cached plan and consent when the server refresh returns newer values', async () => {
+    updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'granted' });
+    mockGetQuotaStatus.mockResolvedValue({ ok: true, data: FREE_QUOTA });
+    mockReadSignupConsentState.mockResolvedValue('withdrawn');
+
+    await render(<SettingsScreen />);
+
+    await waitFor(() => expect(screen.getByText('Free')).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Give consent' })).toBeTruthy());
+    expect(getSettingsSnapshot('user-1')).toEqual({ plan: FREE_QUOTA, consent: 'withdrawn' });
+  });
+
+  it('drops the outgoing user\'s cached settings when the mounted screen switches users', async () => {
+    updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'granted' });
+    updateSettingsSnapshot('user-2', { plan: FREE_QUOTA, consent: 'withdrawn' });
+    let resolvePlan: (value: unknown) => void = () => {};
+    let resolveConsent: (value: unknown) => void = () => {};
+    mockGetQuotaStatus.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePlan = resolve;
+      })
+    );
+    mockReadSignupConsentState.mockReturnValue(
+      new Promise((resolve) => {
+        resolveConsent = resolve;
+      })
+    );
+
+    const screenInstance = await render(<SettingsScreen />);
+    expect(screen.getByText('Pro')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
+
+    mockSession = { user: { id: 'user-2', email: 'other@example.com' } };
+    await screenInstance.rerender(<SettingsScreen />);
+
+    expect(screen.getByText('Free')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Give consent' })).toBeTruthy();
+    expect(screen.queryByText('Pro')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
+
+    await screenInstance.unmount();
+    await act(async () => {
+      resolvePlan({ ok: true, data: FREE_QUOTA });
+      resolveConsent('withdrawn');
+    });
+  });
+
+  it('leaves the incoming user able to give consent when an outgoing withdrawal is still pending', async () => {
+    updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'granted' });
+    updateSettingsSnapshot('user-2', { plan: FREE_QUOTA, consent: 'withdrawn' });
+    let resolveConsentRefresh: (value: unknown) => void = () => {};
+    let resolveWithdrawal: () => void = () => {};
+    mockReadSignupConsentState.mockReturnValue(
+      new Promise((resolve) => {
+        resolveConsentRefresh = resolve;
+      })
+    );
+    mockWithdrawConsent.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveWithdrawal = resolve;
+      })
+    );
+
+    const screenInstance = await render(<SettingsScreen />);
+    await press(screen.getByRole('button', { name: 'Withdraw consent' }));
+    await press(screen.getByTestId('settings-dialog-primary'));
+
+    mockSession = { user: { id: 'user-2', email: 'other@example.com' } };
+    await screenInstance.rerender(<SettingsScreen />);
+
+    const giveConsent = screen.getByRole('button', { name: 'Give consent' });
+    expect(giveConsent.props.accessibilityState.disabled).toBe(false);
+    expect(giveConsent.props.accessibilityState.busy).toBe(false);
+
+    await screenInstance.unmount();
+    await act(async () => {
+      resolveWithdrawal();
+      resolveConsentRefresh('withdrawn');
+    });
+  });
+
+  it('leaves the incoming user able to withdraw consent when an outgoing grant is still pending', async () => {
+    updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'withdrawn' });
+    updateSettingsSnapshot('user-2', { plan: FREE_QUOTA, consent: 'granted' });
+    let resolveConsentRefresh: (value: unknown) => void = () => {};
+    let resolveGrant: () => void = () => {};
+    mockReadSignupConsentState.mockReturnValue(
+      new Promise((resolve) => {
+        resolveConsentRefresh = resolve;
+      })
+    );
+    mockGrantConsent.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveGrant = resolve;
+      })
+    );
+
+    const screenInstance = await render(<SettingsScreen />);
+    await press(screen.getByRole('button', { name: 'Give consent' }));
+
+    mockSession = { user: { id: 'user-2', email: 'other@example.com' } };
+    await screenInstance.rerender(<SettingsScreen />);
+
+    const withdrawConsent = screen.getByRole('button', { name: 'Withdraw consent' });
+    expect(withdrawConsent.props.accessibilityState.disabled).toBe(false);
+    expect(withdrawConsent.props.accessibilityState.busy).toBe(false);
+
+    await screenInstance.unmount();
+    await act(async () => {
+      resolveGrant();
+      resolveConsentRefresh('granted');
+    });
+  });
+
+  it('keeps cached plan and consent visible when their refreshes fail', async () => {
+    updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'granted' });
+    let resolvePlan: (value: unknown) => void = () => {};
+    let rejectConsent: (reason: unknown) => void = () => {};
+    mockGetQuotaStatus.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePlan = resolve;
+      })
+    );
+    mockReadSignupConsentState.mockReturnValue(
+      new Promise((_, reject) => {
+        rejectConsent = reject;
+      })
+    );
+
+    await render(<SettingsScreen />);
+
+    await act(async () => {
+      resolvePlan({ ok: false, error: { code: 'unknown', message: 'offline' } });
+      rejectConsent(new Error('offline'));
+    });
+    expect(screen.getByText('Pro')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
+    expect(screen.queryByText('Plan could not be loaded.')).toBeNull();
+    expect(screen.queryByText('Consent status could not be loaded.')).toBeNull();
+  });
+
+  it('keeps the existing loading and error states when no cached settings exist', async () => {
+    clearSettingsSnapshot('user-1');
+    let resolvePlan: (value: unknown) => void = () => {};
+    let rejectConsent: (reason: unknown) => void = () => {};
+    mockGetQuotaStatus.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePlan = resolve;
+      })
+    );
+    mockReadSignupConsentState.mockReturnValue(
+      new Promise((_, reject) => {
+        rejectConsent = reject;
+      })
+    );
+
+    await render(<SettingsScreen />);
+
+    expect(screen.getByTestId('settings-plan-loading')).toBeTruthy();
+    expect(screen.getByTestId('settings-consent-loading')).toBeTruthy();
+    await act(async () => {
+      resolvePlan({ ok: false, error: { code: 'unknown', message: 'offline' } });
+      rejectConsent(new Error('offline'));
+    });
+    await waitFor(() => expect(screen.getByText('Plan could not be loaded.')).toBeTruthy());
+    expect(screen.getByText('Consent status could not be loaded.')).toBeTruthy();
+  });
+
+  it('returns the plan row to loading and removes Retry while a retry is in flight', async () => {
+    clearSettingsSnapshot('user-1');
+    let resolveRetry: (value: unknown) => void = () => {};
+    mockGetQuotaStatus.mockResolvedValueOnce({ ok: false, error: { code: 'unknown', message: 'offline' } });
+    mockGetQuotaStatus.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRetry = resolve;
+      })
+    );
+
+    await render(<SettingsScreen />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry loading plan' })).toBeTruthy());
+
+    await press(screen.getByRole('button', { name: 'Retry loading plan' }));
+
+    expect(screen.getByTestId('settings-plan-loading')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry loading plan' })).toBeNull();
+
+    await act(async () => {
+      resolveRetry({ ok: true, data: PRO_QUOTA });
+    });
+  });
+
+  it('returns the consent row to loading and removes Retry while a retry is in flight', async () => {
+    clearSettingsSnapshot('user-1');
+    let resolveRetry: (value: unknown) => void = () => {};
+    mockReadSignupConsentState.mockRejectedValueOnce(new Error('offline'));
+    mockReadSignupConsentState.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRetry = resolve;
+      })
+    );
+
+    await render(<SettingsScreen />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Retry loading consent status' })).toBeTruthy()
+    );
+
+    await press(screen.getByRole('button', { name: 'Retry loading consent status' }));
+
+    expect(screen.getByTestId('settings-consent-loading')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry loading consent status' })).toBeNull();
+
+    await act(async () => {
+      resolveRetry('granted');
+    });
+  });
+
+  it('updates the cached consent immediately after a successful withdrawal', async () => {
+    updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'granted' });
+    await renderSettled();
+
+    await press(screen.getByRole('button', { name: 'Withdraw consent' }));
+    await press(screen.getByTestId('settings-dialog-primary'));
+
+    await waitFor(() => expect(getSettingsSnapshot('user-1')?.consent).toBe('withdrawn'));
+  });
+
+  it('updates the cached consent immediately after a successful grant', async () => {
+    updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'withdrawn' });
+    mockReadSignupConsentState.mockResolvedValue('withdrawn');
+    await renderSettled();
+
+    await press(screen.getByRole('button', { name: 'Give consent' }));
+
+    await waitFor(() => expect(getSettingsSnapshot('user-1')?.consent).toBe('granted'));
+  });
+
+  it('does not let a stale consent refresh undo a completed withdrawal', async () => {
+    updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'granted' });
+    let resolveConsent: (value: unknown) => void = () => {};
+    mockReadSignupConsentState.mockReturnValue(
+      new Promise((resolve) => {
+        resolveConsent = resolve;
+      })
+    );
+
+    await render(<SettingsScreen />);
+    await press(screen.getByRole('button', { name: 'Withdraw consent' }));
+    await press(screen.getByTestId('settings-dialog-primary'));
+    await waitFor(() => expect(getSettingsSnapshot('user-1')?.consent).toBe('withdrawn'));
+
+    await act(async () => {
+      resolveConsent('granted');
+    });
+
+    expect(getSettingsSnapshot('user-1')?.consent).toBe('withdrawn');
+    expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Give consent' })).toBeTruthy();
+  });
+
+  it('does not let a stale consent refresh undo a completed grant', async () => {
+    updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'withdrawn' });
+    let resolveConsent: (value: unknown) => void = () => {};
+    mockReadSignupConsentState.mockReturnValue(
+      new Promise((resolve) => {
+        resolveConsent = resolve;
+      })
+    );
+
+    await render(<SettingsScreen />);
+    await press(screen.getByRole('button', { name: 'Give consent' }));
+    await waitFor(() => expect(getSettingsSnapshot('user-1')?.consent).toBe('granted'));
+
+    await act(async () => {
+      resolveConsent('withdrawn');
+    });
+
+    expect(getSettingsSnapshot('user-1')?.consent).toBe('granted');
+    expect(screen.queryByRole('button', { name: 'Give consent' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeTruthy();
+  });
+
+  it('replaces cached granted consent when the server refresh reports none', async () => {
+    updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'granted' });
+    mockReadSignupConsentState.mockResolvedValue('none');
+
+    await render(<SettingsScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText('Consent is recorded when you first upload or record.')).toBeTruthy()
+    );
+    expect(getSettingsSnapshot('user-1')?.consent).toBe('none');
+    expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull();
+  });
+
+  it('does not restore a deleted user\'s cache when their earlier refresh resolves', async () => {
+    updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'granted' });
+    let resolvePlan: (value: unknown) => void = () => {};
+    let resolveConsent: (value: unknown) => void = () => {};
+    mockGetQuotaStatus.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePlan = resolve;
+      })
+    );
+    mockReadSignupConsentState.mockReturnValue(
+      new Promise((resolve) => {
+        resolveConsent = resolve;
+      })
+    );
+    mockSubmitDelete.mockResolvedValue({ ok: true, data: { outcome: 'deleted' } });
+
+    await render(<SettingsScreen />);
+    await press(screen.getByRole('button', { name: 'Delete account' }));
+    await press(screen.getByRole('button', { name: 'Delete account and data' }));
+    await waitFor(() => expect(getSettingsSnapshot('user-1')).toBeUndefined());
+
+    await act(async () => {
+      resolvePlan({ ok: true, data: FREE_QUOTA });
+      resolveConsent('withdrawn');
+    });
+
+    expect(getSettingsSnapshot('user-1')).toBeUndefined();
+  });
+
+  it.each(['deleted', 'orphansRemaining'] as const)(
+    'clears cached settings after the account is successfully deleted (%s)',
+    async (outcome) => {
+      updateSettingsSnapshot('user-1', { plan: PRO_QUOTA, consent: 'granted' });
+      mockSubmitDelete.mockResolvedValue({ ok: true, data: { outcome } });
+      await renderSettled();
+
+      await press(screen.getByRole('button', { name: 'Delete account' }));
+      await press(screen.getByRole('button', { name: 'Delete account and data' }));
+
+      await waitFor(() => expect(getSettingsSnapshot('user-1')).toBeUndefined());
+    }
+  );
 });
 
 describe('SettingsScreen dialogs (every Alert is now a <ConfirmDialog>)', () => {
