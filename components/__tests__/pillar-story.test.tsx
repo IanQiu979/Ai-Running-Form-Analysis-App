@@ -1,8 +1,10 @@
 /**
- * Locks for `<PillarStory>` (2026-09-20): one section per pillar in `PACE_PILLARS` order after
- * the intro, each a screen tall; the tap hint above the first box only; one box open at a time,
- * with the section's description stepping aside for the open card; the sign-up entry at the end
- * of the last section. Rendered with reduced motion where content must be visible — every item
+ * Locks for the pillars story (2026-09-20, split 2026-10-05): `<StoryIntro>` is one section a
+ * screen tall carrying the intro's three lines; `<PillarStory>` is one section per pillar in
+ * `PACE_PILLARS` order and nothing else (the intro left it for the entry scroll), each a screen
+ * tall; the tap hint above the first box only; one box open at a time, with the section's
+ * description stepping aside for the open card; the way back to Get started at the end of the
+ * last section. Rendered with reduced motion where content must be visible — every item
  * mounts at the first frame of its rise and Reanimated never advances it under Jest (CLAUDE.md
  * § Testing). A press's re-render lands asynchronously under Reanimated's animated components,
  * so every state change below is awaited with `waitFor`.
@@ -10,7 +12,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
-import { PillarStory, STORY_SECTION_COUNT } from '../pillar-story';
+import { PILLAR_SECTION_COUNT, PillarStory, StoryIntro } from '../pillar-story';
 import { Copy } from '@/constants/copy';
 import { Motion } from '@/constants/v23-theme';
 import { PACE_PILLARS } from '@shared/pace';
@@ -25,29 +27,30 @@ const hidden = { includeHiddenElements: true } as const;
 const H = 800;
 
 function renderStory(props: Partial<React.ComponentProps<typeof PillarStory>> = {}) {
-  const onSignUp = jest.fn();
+  const onBack = jest.fn();
   const utils = render(
-    <PillarStory
-      sectionHeight={H}
-      revealedCount={STORY_SECTION_COUNT}
-      reduceMotion
-      onSignUp={onSignUp}
-      {...props}
-    />
+    <PillarStory sectionHeight={H} revealedCount={PILLAR_SECTION_COUNT} reduceMotion onBack={onBack} {...props} />
   );
-  return { onSignUp, utils };
+  return { onBack, utils };
 }
 
 describe('pillar story — sections', () => {
-  it('renders the intro and one section per pillar, in order, each a section tall', async () => {
-    await renderStory().utils;
+  it('renders the intro as one section a section tall, with its three lines', async () => {
+    await render(<StoryIntro sectionHeight={H} revealed reduceMotion />);
 
-    expect(STORY_SECTION_COUNT).toBe(1 + PACE_PILLARS.length);
     const intro = screen.getByTestId('story-section-intro');
     expect(StyleSheet.flatten(intro.props.style).height).toBe(H);
     expect(screen.getByRole('header', { name: Copy.entry.details.title })).toBeTruthy();
     expect(screen.getByText(Copy.entry.details.lede)).toBeTruthy();
     expect(screen.getByText(Copy.entry.details.reads)).toBeTruthy();
+  });
+
+  it('renders one section per pillar, in order, each a section tall, and no intro', async () => {
+    await renderStory().utils;
+
+    expect(PILLAR_SECTION_COUNT).toBe(PACE_PILLARS.length);
+    expect(screen.queryByTestId('story-section-intro')).toBeNull();
+    expect(screen.queryByText(Copy.entry.details.title)).toBeNull();
 
     for (const id of PACE_PILLARS) {
       const section = screen.getByTestId(`story-section-${id}`);
@@ -58,9 +61,9 @@ describe('pillar story — sections', () => {
       expect(screen.queryByText(pillars[id].metric)).toBeNull();
     }
 
-    // Sections are siblings in pillar order after the intro.
+    // Sections are siblings in pillar order.
     const ids = screen.getAllByTestId(/^story-section-/).map((node) => node.props.testID);
-    expect(ids).toEqual(['story-section-intro', ...PACE_PILLARS.map((id) => `story-section-${id}`)]);
+    expect(ids).toEqual(PACE_PILLARS.map((id) => `story-section-${id}`));
   });
 
   it('shows the tap hint above the first pillar box only', async () => {
@@ -78,22 +81,22 @@ describe('pillar story — sections', () => {
     }
   });
 
-  it('ends the last section with the sign-up entry and nothing else carries one', async () => {
-    const { onSignUp } = renderStory();
-    await waitFor(() => expect(screen.getByTestId('entry-sign-up')).toBeTruthy());
+  it('ends the last section with the way back to Get started and nothing else carries one', async () => {
+    const { onBack } = renderStory();
+    await waitFor(() => expect(screen.getByTestId('pillars-back-to-start')).toBeTruthy());
 
-    expect(screen.getAllByRole('button', { name: Copy.entry.details.cue })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: Copy.entry.pillars.backToStart })).toHaveLength(1);
     const last = within(screen.getByTestId(`story-section-${PACE_PILLARS[PACE_PILLARS.length - 1]}`));
-    expect(last.getByTestId('entry-sign-up')).toBeTruthy();
-    // Nothing above the last section carries the entry.
+    expect(last.getByTestId('pillars-back-to-start')).toBeTruthy();
+    // Nothing above the last section carries it.
     for (const id of PACE_PILLARS.slice(0, -1)) {
-      expect(within(screen.getByTestId(`story-section-${id}`)).queryByTestId('entry-sign-up')).toBeNull();
+      expect(within(screen.getByTestId(`story-section-${id}`)).queryByTestId('pillars-back-to-start')).toBeNull();
     }
 
     await act(async () => {
-      fireEvent.press(screen.getByRole('button', { name: Copy.entry.details.cue }));
+      fireEvent.press(screen.getByRole('button', { name: Copy.entry.pillars.backToStart }));
     });
-    expect(onSignUp).toHaveBeenCalledTimes(1);
+    expect(onBack).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -142,12 +145,19 @@ describe('pillar story — reveal', () => {
     await renderStory({ reduceMotion: false, revealedCount: 0 }).utils;
 
     // Present in the tree at opacity 0 and 12 pt low — see the file header.
-    const title = screen.getByText(Copy.entry.details.title, hidden);
-    expect(title).toBeTruthy();
     const box = screen.getByTestId('pillar-box-elasticity', hidden);
     const slot = box.parent;
     expect(slot).not.toBeNull();
     const style = StyleSheet.flatten(slot!.props.style);
+    expect(style.opacity).toBe(0);
+    expect(style.transform).toEqual([{ translateY: Motion.pageShift }]);
+  });
+
+  it('holds the intro at the first frame of its rise until it is reached', async () => {
+    await render(<StoryIntro sectionHeight={H} revealed={false} reduceMotion={false} />);
+
+    const slot = screen.getByText(Copy.entry.details.title, hidden).parent!;
+    const style = StyleSheet.flatten(slot.props.style);
     expect(style.opacity).toBe(0);
     expect(style.transform).toEqual([{ translateY: Motion.pageShift }]);
   });

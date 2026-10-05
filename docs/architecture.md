@@ -21,17 +21,19 @@ app/
                           # 2026-09-13 it also loads the V23-01 families (Barlow Condensed /
                           # Inter Tight) and fades every root transition over 250 ms; the
                           # once-per-install FirstRunIntro overlay it used to mount is deleted.
-  (auth)/_layout.tsx      # unprotected stack — the V23 entry flow in walk order, welcome →
+  (auth)/_layout.tsx      # unprotected stack — welcome (the entry flow), pillars (optional),
                           # sign-in, plus the two password-reset screens (the 2026-09-13 details
-                          # route is gone since 2026-09-20; its content is the story below)
-  (auth)/welcome.tsx        # the entry flow (2026-09-20): one paged scroll — the V23-02 hero
-                          # (line-drawn runner, "Scroll down" cue at 4 s), then the pillars story
-                          # (components/pillar-story.tsx), then the sign-up entry. See "Current —
+                          # route is gone since 2026-09-20)
+  (auth)/welcome.tsx        # the entry flow (2026-10-05): one snapping scroll — the V23-02 hero
+                          # (line-drawn runner, "Scroll down" cue at 4 s), the story's intro, then
+                          # the Get started form itself (components/auth-form.tsx). See "Current —
                           # V23 entry flow" below.
-  (auth)/sign-in.tsx      # combined sign-in/sign-up (email + Google; no Apple yet, gate #7),
-                          # rebuilt to V23-06 on 2026-09-13; sign-up mode carries the age choice
-                          # (components/age-band-choice.tsx, 2026-09-20) plus a Terms + Privacy
-                          # checkbox. See "Current — auth flow" below.
+  (auth)/pillars.tsx      # the optional pillar introductions (2026-10-05): the four pillar
+                          # sections in their own paged view, opened from Get started's link
+  (auth)/sign-in.tsx      # the same Get started form as a standalone route (2026-10-05), for
+                          # everything that navigates to it (?mode=signIn, password reset). The
+                          # form — email + Google, the age choice, consent — is
+                          # components/auth-form.tsx. See "Current — auth flow" below.
   (tabs)/_layout.tsx      # protected tabs (Home, History); mounts components/v23-tab-bar.tsx
                           # through the navigator's `tabBar` slot — floating, at the same place
                           # on both tabs (since 2026-10-05). See "Current — V23
@@ -84,9 +86,13 @@ components/              # result-disclaimer.tsx (2026-07-12, issue #68) and, si
                           # PACE callouts, evaluated once per frame on the UI thread from the pure
                           # geometry/timeline in lib/stride-hero.ts. Replaces the deleted
                           # stride-wireframe-hero.tsx (below).
-  pillar-story.tsx        # the entry flow's story (2026-09-20): an intro then one screen-height
-                          # section per pillar, each revealed once by the scroll; the tap hint;
-                          # the sign-up entry at the end. Replaces the V23-03 details grid.
+  pillar-story.tsx        # the story (2026-09-20, split 2026-10-05): <StoryIntro> for the entry
+                          # scroll, <PillarStory> (one screen-height section per pillar, the tap
+                          # hint, the way back at the end) for the pillars route, and the shared
+                          # <StorySection>/<Reveal>. Replaces the V23-03 details grid.
+  auth-form.tsx           # V23-06's Get started form (2026-10-05): sign-up/sign-in state, gates
+                          # and auth calls; the sign-up rows wait for a field's focus. Hosted by
+                          # (auth)/welcome and (auth)/sign-in.
   pillar-box.tsx          # V23-04 (2026-09-13): one P/A/C/E square, closed or open, with the
                           # 320 ms height-clip expand — one per story section since 2026-09-20.
   laser-sweep.tsx         # V23-05 (2026-09-13): the Analyzing screen's glowing 2 pt line
@@ -229,15 +235,18 @@ itself.
 
 ```
 app/
-  (auth)/welcome           # current (2026-09-20) — the signed-out group's initial route and the
-                          # whole entry flow: the V23-02 hero, the pillars story and the sign-up
-                          # entry in one paged scroll. A cold signed-out launch and every sign-out
-                          # land here; "Scroll down" appears at 4 s and the only tap is "Get
-                          # started" at the end, which pushes sign-in. See "Current — V23 entry
-                          # flow" below. (The 2026-09-13 `(auth)/details` route is deleted.)
-  (auth)/sign-in           # current — sign-up folds into the same screen, no separate route;
-                          # rebuilt to V23-06 on 2026-09-13 (sign-up is the default mode, and a
-                          # consent checkbox gates Create account alongside the captcha token)
+  (auth)/welcome           # current (2026-10-05) — the signed-out group's initial route and the
+                          # whole entry flow: the V23-02 hero, the story's intro and the Get
+                          # started form in one snapping scroll. A cold signed-out launch and every
+                          # sign-out land here; "Scroll down" appears at 4 s and nothing is tapped
+                          # until the form. See "Current — V23 entry flow" below. (The 2026-09-13
+                          # `(auth)/details` route is deleted.)
+  (auth)/pillars           # current (2026-10-05) — the optional pillar introductions, pushed from
+                          # the form's "About the four pillars"; Back returns to it
+  (auth)/sign-in           # current — the same form as a standalone route; sign-up folds into
+                          # it, no separate route; rebuilt to V23-06 on 2026-09-13 (sign-up is the
+                          # default mode, and a consent checkbox gates Create account alongside
+                          # the captcha token)
   (auth)/reset-password    # current (issue #81, 2026-07-13) — request a password-reset email;
                           # see "Current — password reset" below
   (auth)/update-password   # current (issue #81, 2026-07-13) — consumes the emailed recovery
@@ -1033,6 +1042,27 @@ above is still what those screens are built on and both font sets load at startu
 - **Two primitives on those tokens:** `components/ui/square-button.tsx` (primary / secondary /
   link, 56 pt, square, `busy` spinner at the same height) and `components/ui/text-field.tsx`
   (56 pt input; `error` turns the border `danger` and draws the message beneath it).
+- **2026-10-05 reshape (captain's device test) — read this first; the bullets below describe the
+  2026-09-20 flow it changed.** The entry scroll is hero → the story's intro → the Get started
+  form, every step a scroll and the same reveal on each; there is no "Get started" link and no
+  push to `/sign-in` from it. The four pillar sections moved to the optional `app/(auth)/pillars.tsx`
+  (same `<PillarStory>` sections, paged, tappable; Back and an end-of-story "Get started" both
+  `router.back()`), opened by "About the four pillars" on the sign-up form. The form is
+  `components/auth-form.tsx`, hosted by `welcome` (as its last section) and by `sign-in` (as a
+  standalone route). The scroll snaps to the three section tops (`snapToOffsets`,
+  `disableIntervalMomentum`, `decelerationRate="fast"`) rather than `pagingEnabled`, and is free
+  past the top of Get started (`snapToEnd={false}`) so the grown form can be read to its end;
+  `automaticallyAdjustKeyboardInsets` insets the content for the keyboard and lifts the focused
+  field (a programmatic scroll never snaps, so focus never pages away). While a keyboard is up the
+  snap points are dropped entirely — RN's iOS snapping clamps a drag to `contentSize − viewport`
+  and ignores `contentInset.bottom`, so with them set the form's end could not be dragged above
+  the keyboard. A layout shrink while a field is focused is ignored so the sections never
+  re-measure under the keyboard. Get started
+  is `minHeight` one section, top-aligned so the focused field does not move when the rows below
+  it appear. The empty sign-up form draws only the title, two fields and the actions; the age
+  choice, the Terms line, the health-data / future-uploads row and the Turnstile step appear
+  together on the first field focus and stay (visual only — every gate still reads the ticks).
+  The eyebrow is gone. `docs/change_log.md` 2026-10-05 has the full list.
 - **The signed-out group walks hero → story → sign-in, and since 2026-09-20 the first two are one
   scroll.** `app/(auth)/_layout.tsx` declares `welcome` / `sign-in` (plus the two password-reset
   screens; `welcome` is the initial route — never `index`, see `docs/change_log.md` 2026-09-13;

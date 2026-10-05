@@ -45,31 +45,33 @@ appId: com.ian.paceanalysisai
 # accessibility-tree bridge itself intermittently failing to resolve, not something a bigger
 # number fixes — if you hit this, it's the driver, not this flow or the app under test.
 #
-# The V23 entry flow (2026-09-20): a cold signed-out launch lands on the hero (app/(auth)/welcome),
-# which is the first section of ONE paged scroll — hero, the pillars story (one pillar per
-# screen), then the sign-up entry at the end. Nothing is tapped until that entry. The "Scroll down"
-# cue is not mounted, and the scroll is locked, until the hero's 3.2 s timeline has held (~4 s) —
-# hence the wait on the cue's presence before scrolling, or the swipes land on a locked scroll and
-# do nothing. The entry is five paged swipes down; `scrollUntilVisible` pages until it is on
-# screen rather than counting them.
+# The V23 entry flow (2026-10-05): a cold signed-out launch lands on the hero (app/(auth)/welcome),
+# which is the first section of ONE snapping scroll — hero, the story's intro, then the Get
+# started form itself (the four pillar screens moved to an optional view, app/(auth)/pillars, and
+# the old "Get started" link — `entry-sign-up` — is gone). Nothing is tapped until the form. The
+# "Scroll down" cue is not mounted, and the scroll is locked, until the hero's 3.2 s timeline has
+# held (~4 s) — hence the wait on the cue's presence before scrolling, or the swipes land on a
+# locked scroll and do nothing. The form is two snapped swipes down; `scrollUntilVisible` swipes
+# until its submit button is on screen rather than counting them.
 - extendedWaitUntil:
     visible:
       id: "entry-hero-cue"
     timeout: 45000
 - scrollUntilVisible:
     element:
-      id: "entry-sign-up"
+      id: "auth-email-submit"
     direction: DOWN
     timeout: 45000
-- tapOn:
-    id: "entry-sign-up"
 
-# The screen opens in sign-up mode (V23-06's first artboard) — no mode toggle needed; the footer
-# reads "Already have an account? Sign in" and is left alone.
+# The form opens in sign-up mode (V23-06's first artboard) — no mode toggle needed; the footer
+# reads "Already have an account? Sign in" and is left alone. Since 2026-10-05 the empty form draws
+# only its title, the two fields and the actions: the age choice, the consent rows and the
+# verification widget appear the moment a field takes focus (components/auth-form.tsx), which the
+# `tapOn: "Email"` below does.
 - assertVisible: "Get started"
 
 # No testID on these two TextInputs today — matched by their placeholder text, which doubles as
-# their accessibilityLabel (app/(auth)/sign-in.tsx). See the HANDOFF block in ../../README.md:
+# their accessibilityLabel (components/auth-form.tsx). See the HANDOFF block in ../../README.md:
 # `auth-email-input` / `auth-password-input` testIDs would make this more robust than a text
 # match, but aren't required for this to work.
 - tapOn: "Email"
@@ -105,8 +107,7 @@ appId: com.ian.paceanalysisai
 # Drop the keyboard before touching anything else. With `keyboardShouldPersistTaps="handled"` the
 # consent checkbox and the widget leave it up, and a keyboard-shrunk viewport is exactly what put
 # the CTA out of reach under the panel. A tap on the title — plain Text, not a responder — hands
-# the touch to the ScrollView, which blurs the field; the form then re-centres with every control
-# visible on an iPhone 17. Reproduced 2026-09-20: the same tap on a gap in the form cleared the
+# the touch to the ScrollView, which blurs the field and drops the keyboard's content inset. Reproduced 2026-09-20: the same tap on a gap in the form cleared the
 # keyboard window and put "Create account" back on screen.
 - tapOn: "Get started"
 

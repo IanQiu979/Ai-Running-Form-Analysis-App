@@ -75,6 +75,8 @@ beforeEach(() => {
 describe('sign-up form: the age choice', () => {
   it('draws both options and the eligibility line, and no attestation until 13–17 is picked', async () => {
     const view = await render(<SignInScreen />);
+    // The sign-up rows are drawn once a field takes focus (2026-10-05, components/auth-form.tsx).
+    await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
 
     expect(view.getByTestId('signup-age-18-plus').props.accessibilityState.checked).toBe(false);
@@ -92,6 +94,8 @@ describe('sign-up form: the age choice', () => {
 
   it('13–17 keeps the button disabled until the attestation is ticked, even with consent and a token', async () => {
     const view = await render(<SignInScreen />);
+    // The sign-up rows are drawn once a field takes focus (2026-10-05, components/auth-form.tsx).
+    await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
 
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
@@ -107,6 +111,8 @@ describe('sign-up form: the age choice', () => {
 
   it('18 or older needs no attestation: consent and a token are enough', async () => {
     const view = await render(<SignInScreen />);
+    // The sign-up rows are drawn once a field takes focus (2026-10-05, components/auth-form.tsx).
+    await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
 
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
@@ -120,6 +126,8 @@ describe('sign-up form: the age choice', () => {
 
   it('switching away from 13–17 drops the attestation, so it must be re-affirmed', async () => {
     const view = await render(<SignInScreen />);
+    // The sign-up rows are drawn once a field takes focus (2026-10-05, components/auth-form.tsx).
+    await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
 
     await fireEvent.press(view.getByTestId('signup-age-13-17'));
@@ -139,6 +147,8 @@ describe('sign-up form: the age choice', () => {
 
   it('a return-key submit with no age picked is refused locally, before any network call', async () => {
     const view = await render(<SignInScreen />);
+    // The sign-up rows are drawn once a field takes focus (2026-10-05, components/auth-form.tsx).
+    await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
     await fireEvent.press(view.getByTestId('signup-consent'));
@@ -154,6 +164,8 @@ describe('sign-up form: the age choice', () => {
 
   it('a return-key submit as 13–17 without the attestation is refused locally, by name', async () => {
     const view = await render(<SignInScreen />);
+    // The sign-up rows are drawn once a field takes focus (2026-10-05, components/auth-form.tsx).
+    await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
     await fireEvent.press(view.getByTestId('signup-consent'));
@@ -170,6 +182,8 @@ describe('sign-up form: the age choice', () => {
 
   it('is not drawn in sign-in mode', async () => {
     const view = await render(<SignInScreen />);
+    // The sign-up rows are drawn once a field takes focus (2026-10-05, components/auth-form.tsx).
+    await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
     await fireEvent.press(view.getByRole('button', { name: Copy.auth.signIn.switchLink }));
     await waitFor(() => expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy());
     expect(view.queryByTestId('signup-age-18-plus')).toBeNull();

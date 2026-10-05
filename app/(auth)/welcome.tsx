@@ -1,10 +1,10 @@
 /**
- * The signed-out entry flow — V23-02 Hero, then the pillars story, then sign-up — as ONE PAGED
- * SCROLL (2026-09-20, the captain's device-test decision). Nothing here is tapped until the
- * final action: the hero is the first screen-height section, scrolling down reveals the story
- * (`components/pillar-story.tsx`, one pillar per section) and the last section ends with the
- * sign-up entry. This replaced the 2026-09-13 flow's two "Continue" taps and its separate
- * `(auth)/details` route.
+ * The signed-out entry flow — V23-02 Hero, the story's intro, then Get started — as ONE SCROLL
+ * of screen-height sections. 2026-09-20 made hero and story one paged scroll ending in a "Get
+ * started" link; 2026-10-05 (the captain's next device test) took the four pillar sections out
+ * of it ("not necessary, wastes the user's time") and replaced the link with the form itself:
+ * hero -> intro -> Get started, every step a scroll, the same reveal on each. The pillar
+ * introductions are now optional, one tap away from Get started (`app/(auth)/pillars.tsx`).
  *
  * THE HERO is unchanged: no heading, no logo, nothing but the drawn runner
  * (`components/stride-hero.tsx`) on the theme sheet's black until its 3.2 s timeline settles.
@@ -12,22 +12,33 @@
  * THE CUE. 0.8 s after the timeline settles (`HERO_CUE_T` = 4 s from mount) "Scroll down" fades
  * in at the bottom safe area over `Motion.duration.storyFade`, with a one-line chevron beneath it
  * pulsing 1 -> 0.4 -> 1 opacity every 1.4 s. Until then it does not exist AND the scroll is
- * locked, so the story cannot be dragged over the still-drawing runner (spec §0) and the cue
+ * locked, so the intro cannot be dragged over the still-drawing runner (spec §0) and the cue
  * never sits over moving content. The cue is a hint, not a control — the scroll is the action.
  *
- * THE SCROLL is paged: every section is exactly the viewport tall (measured from the scroll
- * view's own layout, the window's height until then), so a swipe lands on one section at a
- * time. Its offset is read on the JS thread and folded through `lib/entry-story.ts` into how
- * many sections have scrolled far enough to arrive; that count only ever grows, and the story
- * reveals each section's items once from it.
+ * THE SCROLL SNAPS, one section per swipe, to the top of each of the three sections (every
+ * section is the viewport tall, measured from the scroll view's own layout, the window's height
+ * until then). It is NOT `pagingEnabled`, because the last section is a form that outgrows the
+ * viewport the moment its sign-up rows appear, and must ride above the keyboard: past the top of
+ * Get started the scroll is free (`snapToEnd={false}`), so the form can be read to its end and
+ * a focused field can be lifted clear of the keyboard (`automaticallyAdjustKeyboardInsets`, which
+ * insets the content rather than resizing the view — a resize would re-measure every section).
+ * A programmatic scroll never snaps, so focusing a field never pages away. WHILE A KEYBOARD IS UP
+ * THERE ARE NO SNAP POINTS AT ALL: React Native's iOS snapping clamps every drag to the content's
+ * height less the viewport and ignores the keyboard's inset, so with snap points set the bottom
+ * of the form — the consent rows and Create account — could never be dragged out from under the
+ * keyboard (seen on a 667 pt simulator, 2026-10-05). The scroll is a plain inset-aware scroll
+ * until the keyboard goes, then snaps again. Its offset is read
+ * on the JS thread and folded through `lib/entry-story.ts` into how many sections have scrolled
+ * far enough to arrive; that count only ever grows, and each section reveals its items once.
  *
  * REDUCED MOTION. The hero shows its end frame, the cue is visible at once with a still
- * chevron, the scroll is free from the first frame, and the story renders in place.
+ * chevron, the scroll is free from the first frame, and every section renders in place.
  */
-import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Keyboard,
   ScrollView,
+  TextInput,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -47,10 +58,11 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Polyline } from 'react-native-svg';
 
-import { PillarStory } from '@/components/pillar-story';
+import { AuthForm } from '@/components/auth-form';
+import { Reveal, StoryIntro } from '@/components/pillar-story';
 import { StrideHero } from '@/components/stride-hero';
 import { Copy } from '@/constants/copy';
-import { Ink, Layout, Motion, Type } from '@/constants/v23-theme';
+import { Ink, Layout, Motion, Space, Type } from '@/constants/v23-theme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { revealedSectionCount } from '@/lib/entry-story';
 
@@ -62,8 +74,11 @@ const CHEVRON = { width: 14, height: 8, points: '1,1 7,7 13,1' } as const;
 /** The chevron's pulse: 1 -> 0.4 -> 1 over 1.4 s, ease-in-out each way. */
 const PULSE_MS = 1400;
 const PULSE_LOW = 0.4;
-/** The hero is the scroll's one section before the story. */
-const HERO_SECTIONS = 1;
+/** The scroll's sections, in order: the hero, the story's intro, Get started. */
+const SECTION = { hero: 0, intro: 1, getStarted: 2 } as const;
+/** The form's column: the design canvas less its gutters, centred on anything wider — the
+ *  story's column, so the intro and the form share one measure. */
+const FORM_WIDTH = Layout.canvas.width - 2 * Layout.gutter;
 /** Scroll events at frame rate: the reveal count is what needs them, and it only re-renders
  *  when it changes. */
 const SCROLL_THROTTLE_MS = 16;
@@ -78,12 +93,18 @@ export default function HeroScreen() {
   // One section's height: the scroll view's measured height, the window's until it reports.
   const [sectionHeight, setSectionHeight] = useState(window.height);
   // How many sections (the hero first) have scrolled far enough to arrive. Never decreases.
-  const [revealedCount, setRevealedCount] = useState(HERO_SECTIONS);
+  const [revealedCount, setRevealedCount] = useState(SECTION.hero + 1);
 
   const onHold = useCallback(() => setCueReady(true), []);
+  const keyboardShown = useKeyboardShown();
 
   function measure(event: LayoutChangeEvent) {
     const next = event.nativeEvent.layout.height;
+    // A keyboard that resizes the window (Android's adjustResize) shrinks this view while a
+    // field has focus; re-measuring then would shrink every section under the user's thumb and
+    // move every snap point. The app is portrait-only, so a shrink with a field focused is
+    // always the keyboard.
+    if (next < sectionHeight && TextInput.State.currentlyFocusedInput() != null) return;
     if (next > 0 && next !== sectionHeight) setSectionHeight(next);
   }
 
@@ -100,7 +121,16 @@ export default function HeroScreen() {
         onScroll={onScroll}
         scrollEventThrottle={SCROLL_THROTTLE_MS}
         scrollEnabled={cueReady}
-        pagingEnabled
+        snapToOffsets={
+          keyboardShown
+            ? undefined
+            : [SECTION.hero, SECTION.intro, SECTION.getStarted].map((index) => index * sectionHeight)
+        }
+        snapToEnd={false}
+        decelerationRate="fast"
+        disableIntervalMomentum
+        automaticallyAdjustKeyboardInsets
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         testID="entry-scroll">
         <View style={{ height: sectionHeight }} testID="entry-hero-section">
@@ -112,13 +142,65 @@ export default function HeroScreen() {
           />
           {cueReady && <ScrollCue reduceMotion={reduceMotion} />}
         </View>
-        <PillarStory
+        <StoryIntro
           sectionHeight={sectionHeight}
-          revealedCount={revealedCount - HERO_SECTIONS}
+          revealed={revealedCount > SECTION.intro}
           reduceMotion={reduceMotion}
-          onSignUp={() => router.push('/sign-in')}
+        />
+        <GetStartedSection
+          sectionHeight={sectionHeight}
+          revealed={revealedCount > SECTION.getStarted}
+          reduceMotion={reduceMotion}
         />
       </ScrollView>
+    </View>
+  );
+}
+
+/** Whether a keyboard is on screen or on its way: iOS sends the `Will` events first, Android only
+ *  the `Did` ones, so both are heard. */
+function useKeyboardShown() {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const subscriptions = [
+      Keyboard.addListener('keyboardWillShow', () => setShown(true)),
+      Keyboard.addListener('keyboardDidShow', () => setShown(true)),
+      Keyboard.addListener('keyboardWillHide', () => setShown(false)),
+      Keyboard.addListener('keyboardDidHide', () => setShown(false)),
+    ];
+    return () => subscriptions.forEach((subscription) => subscription.remove());
+  }, []);
+  return shown;
+}
+
+/** Get started: the form (`components/auth-form.tsx`), arriving with the story's rise. At least
+ *  a section tall so the snap to its top fills the screen, and free to grow past that once the
+ *  sign-up rows appear. Top-aligned, not centred like the story's sections: centring would move
+ *  the field the user just focused when the rows below it appear. */
+function GetStartedSection({
+  sectionHeight,
+  revealed,
+  reduceMotion,
+}: {
+  sectionHeight: number;
+  revealed: boolean;
+  reduceMotion: boolean;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      style={[
+        styles.getStarted,
+        {
+          minHeight: sectionHeight,
+          paddingTop: Math.max(insets.top, Layout.canvas.safeTop) + Space.xxl,
+          paddingBottom: Math.max(insets.bottom, Layout.canvas.safeBottom),
+        },
+      ]}
+      testID="entry-get-started">
+      <Reveal order={0} revealed={revealed} reduceMotion={reduceMotion} style={styles.form}>
+        <AuthForm testID="entry-get-started-form" />
+      </Reveal>
     </View>
   );
 }
@@ -191,5 +273,13 @@ const styles = StyleSheet.create({
   },
   cueLabel: {
     color: Ink.ink,
+  },
+  getStarted: {
+    paddingHorizontal: Layout.gutter,
+  },
+  form: {
+    width: '100%',
+    maxWidth: FORM_WIDTH,
+    alignSelf: 'center',
   },
 });
