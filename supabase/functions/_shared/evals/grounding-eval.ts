@@ -938,8 +938,8 @@ export function meanSentences(result: PaceResult): string {
 /**
  * ISSUE #112 — FALSE PRECISION, forbidden AT EVERY TIER including Elite. Redesigned by #208.
  *
- * SCOPE IS HALF THE TRICK. This runs over `feedback` and `flags[].detail` — the fields where a
- * claim ABOUT THIS RUNNER lives — and NOT over `drills[].instructions`, which the prompt tells the
+ * SCOPE IS HALF THE TRICK. This runs over `feedback`, `analysis` and `flags[].detail` — the fields
+ * where a claim ABOUT THIS RUNNER lives — and NOT over `drills[].instructions`, which the prompt tells the
  * model to quote from `drills.md`, and which certifiably contain "Raise by ~2 SPM every 2 weeks"
  * and "feet ~30 cm back". A grader that scanned the drill text would fail the model for doing
  * exactly what it was told, and the grader would be the bug. See the file header.

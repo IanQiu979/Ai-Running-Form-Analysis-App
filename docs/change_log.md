@@ -33,8 +33,9 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
   spend cap, quota enforcement, and auth/consent gates are unchanged.
 - `ANALYZE_FORM_ANALYZER_REVISION` is now `analyze-form/2026-10-05-v1`, preventing a canonical
   pre-change verdict from replaying without the new detail content. No database migration is
-  needed and no deployment was performed. Deploy handoff: `supabase functions deploy analyze-form
-  --use-api`; the client change that reads `analysis` ships through the normal app release path.
+  needed and no deployment was performed. Deploy handoff: `export
+  SUPABASE_GO_BINARY=~/.local/share/supabase/supabase-go`, then `supabase functions deploy
+  analyze-form --project-ref vputdomdlknvthnzritt --use-api`; the client change that reads `analysis` ships through the normal app release path.
 
 ## 2026-10-05 (entry flow: pillars optional, Get started reached by scrolling, a quieter form)
 

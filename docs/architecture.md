@@ -3406,8 +3406,8 @@ and one frame in the private bucket (`docs/status.md` Known Issue #25). This sec
 function flow" above wherever the two disagree.
 
 The 2026-10-05 deeper-analysis revision described below is code-complete but **not deployed**. It
-needs no database migration; handoff is `supabase functions deploy analyze-form --use-api`, plus
-the normal app release for the detail-modal client change.
+needs no database migration; handoff is `export SUPABASE_GO_BINARY=~/.local/share/supabase/supabase-go`, then
+`supabase functions deploy analyze-form --project-ref vputdomdlknvthnzritt --use-api`, plus the normal app release for the detail-modal client change.
 
 **File split** (the same three-way shape `analysis/` and `quota-status/` already use):
 
