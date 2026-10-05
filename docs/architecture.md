@@ -390,6 +390,11 @@ lib/
                           # subscriptions+analyses count query. Also holds Home's pure
                           # quota -> copy/CTA mapping. See "Current — Home quota (issues #54/
                           # #15)" below.
+  result-frames.ts         # current (2026-10-05) — the result screen's frame slots: validates
+                          # media_paths against the canonical owner/analysis frame names, then
+                          # signs them in one short-TTL batch, keeping row order and turning any
+                          # failure into an 'unavailable' slot. Never throws. See "Current — V23
+                          # lane 2" -> Result below.
   history.ts               # current (issue #55, 2026-07-13) — Past Analyses list fetch, per-row
                           # interpretation, and short-TTL signed-URL frame-strip minting for
                           # app/(tabs)/history.tsx; mirrors lib/analysis-result.ts's split for the
@@ -1239,7 +1244,20 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   Overall block plus four nested `SquareCard` pillar rows with a 2 px
   score bar. The row keeps the one-sentence `feedback` overview; the detail modal prefers the
   assessed pillar's fuller `analysis` and falls back to `feedback` for legacy stored results.
-  **Flags and drills render only in the detail modal**. On a fresh analysis the bars
+  **Flags and drills render only in the detail modal**. Below the readout and above the
+  disclaimer, `components/analyzed-frames-strip.tsx` (2026-10-05) shows **"Frames analyzed"**: one
+  44 pt square thumbnail per stored frame, in `media_paths` order, each labelled "Frame N of M".
+  Tapping a ready frame opens a full-screen paged `Modal` (swipe between frames, a Close control;
+  `animationType` is `'none'` under reduced motion). `lib/result-frames.ts` signs every frame in one
+  `createSignedUrls` batch (1h TTL, shared with `lib/history.ts`); only the canonical server
+  names `{user_id}/{analysis_id}/frame-01..08.jpg` for the signed-in owner are ever sent to
+  Storage, and a per-frame, batch or thrown failure leaves that slot as a quiet placeholder rather
+  than failing the result. The hero is the first frame that signed. A row with no frames renders no
+  strip at all, and a soft-deleted row (`readAnalysisRow` now returns `'deleted'`) shows neither
+  result nor media, even over a fresh handoff. Every `expo-image` surface uses `cachePolicy="none"`,
+  so no frame is copied into the image cache. The screen's ready state is keyed by
+  `{userId}:{analysisId}`, so a slow load never renders under a different account or route.
+  On a fresh analysis the bars
   fill with `Motion.curve.move` over `Motion.duration.rise`, staggered `Motion.stagger.item`;
   everything else is static. `components/aperture.tsx` and `pace-reveal.tsx` are deleted. The
   "Current — capture screens" and "Current — Past Analyses" sections above describe behaviour
@@ -1957,7 +1975,8 @@ function was told to upload media it never receives).
   and a throwing `onProgress` callback cannot make the remaining cleanup release the current
   thumbnail twice. `lib/__tests__/frames.test.ts` locks both native-resource paths.
 - Past Analyses shows the stored frames as a frame strip via short-TTL (~1h, regenerated on
-  open) signed URLs.
+  open) signed URLs. The result screen does the same for its hero and its "Frames analyzed"
+  strip (`lib/result-frames.ts`, 2026-10-05), with no image caching.
 - Caps: max clip length 15s; max upload 50MB pre-compress; frames downscaled to ≤1568px long
   edge at JPEG q≈0.7 via `expo-image-manipulator`, targeting ~150–350KB/frame; total request
   body ≤5MB, enforced client-side and re-checked server-side.

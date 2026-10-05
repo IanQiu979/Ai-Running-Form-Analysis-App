@@ -21,6 +21,7 @@ export interface AnalysisRow {
 
 export type AnalysisReadState =
   | { kind: 'notFound' }
+  | { kind: 'deleted' }
   | { kind: 'invalid' }
   | { kind: 'ready'; outcome: PaceAnalysisOutcome; mediaPaths: string[]; mediaType: 'photo' | 'video' };
 
@@ -28,11 +29,8 @@ export type AnalysisReadState =
  * Interprets one raw row (or `null`, meaning the query found nothing — a bad id, or a row RLS
  * excluded because it belongs to someone else) into a screen-renderable state.
  *
- * Four raw situations all collapse into the SAME `'notFound'` state, deliberately:
+ * Three raw situations collapse into the SAME `'notFound'` state, deliberately:
  *   - the row plain doesn't exist, or RLS hid it (`row === null`);
- *   - the row is soft-deleted (`deleted_at` set — `result`/`media_paths` are redacted to
- *     null/`'{}'` by the DB itself the moment that happens, see
- *     `20260712040000_analyses_quota_soft_delete.sql`'s redact trigger);
  *   - the row is still mid-flight (`status === 'reserved'`) — nothing has been persisted to
  *     `result` yet, because only `settle_analysis` (on delivery) or a fallback delivery writes
  *     it; the wait-for-a-still-running-analysis UX belongs to the Analyzing screen (a separate,
@@ -42,7 +40,12 @@ export type AnalysisReadState =
  *     reasoning: `result` was never written for a clean failure (`docs/architecture.md`
  *     "Original design — analyze-form edge function flow" step 9: "on a second failure ... else a clean
  *     failure", and only a delivered fallback reaches `status: 'delivered'`).
- * From the caller's point of view all four read identically: "there is nothing to show here."
+ * From the caller's point of view all three read identically: "there is nothing to show here."
+ *
+ * A soft-deleted row is distinct (`'deleted'`) so the caller can explicitly avoid resolving
+ * any media if a stale or unexpectedly unredacted row reaches the client. The database normally
+ * redacts `result`/`media_paths` the moment `deleted_at` is set, but sensitive media gets this
+ * second client-side guard as well.
  *
  * A row that IS `status: 'delivered'` but whose `result`/`is_fallback` pair fails
  * `isPaceAnalysisOutcome`'s structural check returns `'invalid'` instead — a defensive state for
@@ -50,7 +53,13 @@ export type AnalysisReadState =
  * result.
  */
 export function readAnalysisRow(row: AnalysisRow | null): AnalysisReadState {
-  if (!row || row.deleted_at !== null || row.status !== 'delivered') {
+  if (!row) {
+    return { kind: 'notFound' };
+  }
+  if (row.deleted_at !== null) {
+    return { kind: 'deleted' };
+  }
+  if (row.status !== 'delivered') {
     return { kind: 'notFound' };
   }
 

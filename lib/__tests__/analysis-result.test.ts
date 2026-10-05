@@ -37,9 +37,16 @@ it('treats a missing row (bad id, or RLS hid someone else\'s) as notFound', () =
   expect(readAnalysisRow(null)).toEqual({ kind: 'notFound' });
 });
 
-it('treats a soft-deleted row as notFound, even if result/media_paths were somehow still present', () => {
+it('distinguishes a soft-deleted row from a missing row so callers never resolve its media', () => {
   const state = readAnalysisRow(baseRow({ deleted_at: '2026-07-12T00:00:00Z' }));
-  expect(state).toEqual({ kind: 'notFound' });
+  expect(state).toEqual({ kind: 'deleted' });
+});
+
+it('reports deletion before lifecycle status when a soft-deleted row is also released', () => {
+  const state = readAnalysisRow(
+    baseRow({ status: 'released', result: null, deleted_at: '2026-07-12T00:00:00Z' })
+  );
+  expect(state).toEqual({ kind: 'deleted' });
 });
 
 it('treats a still-reserved (mid-flight) row as notFound — the Analyzing screen owns that wait', () => {

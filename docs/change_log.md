@@ -5,6 +5,26 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-10-05 (result screen shows the frames the analysis used)
+
+- **`app/result/[id].tsx` now has a "Frames analyzed" strip** below the readout and above the
+  disclaimer (`components/analyzed-frames-strip.tsx`): one small square thumbnail per stored frame,
+  in the order the server stored them, each labelled "Frame N of M". Tapping a frame opens it full
+  screen; the user swipes between frames and closes with a Close control. Reduced motion removes
+  the viewer's fade. Loading frames show a spinner placeholder and a frame that fails to sign or
+  load shows an empty placeholder in its slot. A result with no stored frames shows no strip.
+- **Signing moved to `lib/result-frames.ts`.** One `createSignedUrls` batch (1h TTL, the same
+  bucket and TTL constants as `lib/history.ts`) replaces the hero's single `createSignedUrl` call;
+  the hero is now the first frame that signed. Only the canonical
+  `{user_id}/{analysis_id}/frame-01..08.jpg` names for the signed-in owner are sent to Storage —
+  any other stored path becomes an unavailable slot and is never signed. No public URL is built
+  and the client still never writes to the bucket. Every frame image uses `cachePolicy="none"`.
+- **A soft-deleted analysis now shows nothing.** `readAnalysisRow` returns a distinct `'deleted'`
+  state and the screen renders "not found" even when it holds a fresh handoff for that id, so no
+  result or frame from a deleted row stays on screen. The screen's ready state is keyed by the
+  signed-in user and analysis id, so a stale load cannot render under another account or route.
+- Client-only change: no migration, no edge function change, no deployment.
+
 ## 2026-10-05 (deeper per-pillar analysis, code-complete and not deployed)
 
 - **Every newly generated assessed pillar now has two prose layers.** `feedback` stays an exactly
