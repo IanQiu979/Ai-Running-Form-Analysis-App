@@ -183,8 +183,9 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
 - **Two token files ship side by side; every screen with a V23 page is on `constants/v23-theme.ts`
   (2026-09-14).** That file is the V23-01 theme sheet — dark only, flat `Ink`/`Font`/`Type`/
   `Space`/`Layout`/`Motion`/`Chrome` exports, square corners, no wash, no glass, no score bands —
-  and it is what the entry flow (`app/(auth)/welcome` with `components/pillar-story.tsx`, and
-  `sign-in`), `app/analyzing.tsx` and, since lane 2, Home, Result, History, Capture, Paywall and
+  and it is what the entry flow (`app/(auth)/welcome`, `pillars` and `sign-in`, with
+  `components/pillar-story.tsx` and `components/auth-form.tsx`), `app/analyzing.tsx` and, since
+  lane 2, Home, Result, History, Capture, Paywall and
   Settings are built on. Its
   primitives are `<SquareButton>`, `<TextField>`, `<SquareCard>`, `<SquareIconButton>`, `<TopBar>`,
   `<ConfirmDialog>` (every confirm/notice on those screens — never a native `Alert`), the traced

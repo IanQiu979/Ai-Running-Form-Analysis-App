@@ -117,6 +117,8 @@ async function fillSignUpForm() {
   // async chain mid-flight past teardown; scoping every query to one render removes that whole
   // class of ordering flake.
   const view = await render(<SignInScreen />);
+  // The sign-up rows are drawn once a field takes focus (2026-10-05, components/auth-form.tsx).
+  await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
   const { getByRole, getByTestId, getByPlaceholderText } = view;
 
   // Sign-up is the default mode (V23-06), so the widget is mounted on the first render.
@@ -179,6 +181,8 @@ describe('sign-in screen: the future-uploads local gate', () => {
   // future-uploads attestation must be ticked before the submit handler ever contacts a server.
   it('refuses to submit and reports futureUploadsConsentRequired when the box is unticked', async () => {
     const view = await render(<SignInScreen />);
+    // The sign-up rows are drawn once a field takes focus (2026-10-05, components/auth-form.tsx).
+    await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
     const { getByTestId, getByPlaceholderText, findByText } = view;
 
     await waitFor(() => expect(getByTestId('mock-turnstile-token')).toBeTruthy());

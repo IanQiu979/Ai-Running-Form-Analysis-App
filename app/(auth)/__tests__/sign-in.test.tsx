@@ -7,6 +7,7 @@
  * surfaces `Copy.auth.error.captchaExpired` on screen, in signUp mode, without a real WebView.
  */
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
 
 import { Copy } from '@/constants/copy';
 
@@ -17,8 +18,12 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockSearchParams,
 }));
 
+/** What the mocked session context serves as `corruptedSessionError` — none unless a test sets it. */
+let mockCorruptedSessionError: string | null = null;
+
 beforeEach(() => {
   mockSearchParams = {};
+  mockCorruptedSessionError = null;
 });
 
 jest.mock('react-native-safe-area-context', () =>
@@ -47,7 +52,7 @@ jest.mock('@/lib/session-provider', () => ({
   useSession: () => ({
     deepLinkAuthError: null,
     clearDeepLinkAuthError: jest.fn(),
-    corruptedSessionError: null,
+    corruptedSessionError: mockCorruptedSessionError,
     clearCorruptedSessionError: jest.fn(),
   }),
 }));
@@ -107,9 +112,21 @@ delete process.env.EXPO_PUBLIC_TURNSTILE_HOSTNAME;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const SignInScreen = require('../sign-in').default;
 
+/**
+ * Since 2026-10-05 the sign-up rows — the age choice, the Terms line, the health-data row and the
+ * verification step — are drawn only once a field has taken focus (`components/auth-form.tsx`).
+ * Every test here that is about those rows rather than about WHEN they appear renders the screen
+ * and focuses the email field first; the reveal itself is locked in its own `describe` below.
+ */
+async function renderRevealed() {
+  const view = await render(<SignInScreen />);
+  await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
+  return view;
+}
+
 describe('sign-in screen: Turnstile expiry', () => {
   it('shows the expiry error message when the challenge expires in signUp mode', async () => {
-    const view = await render(<SignInScreen />);
+    const view = await renderRevealed();
 
     // Sign-up is the default mode (V23-06's first artboard), so the widget is mounted on the
     // first render — no mode toggle needed. `waitFor` because the screen's 250 ms mount
@@ -126,7 +143,7 @@ describe('sign-in screen: Turnstile expiry', () => {
   });
 
   it('re-disables the submit button after expiry even if a token had been issued', async () => {
-    const view = await render(<SignInScreen />);
+    const view = await renderRevealed();
 
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
 
@@ -160,7 +177,7 @@ describe('sign-in screen: Turnstile expiry', () => {
  */
 describe('sign-in screen: the consent checkbox gates sign-up', () => {
   it('stays disabled with a token and an age but no consent, and enables once all three are present', async () => {
-    const view = await render(<SignInScreen />);
+    const view = await renderRevealed();
 
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
@@ -181,7 +198,7 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
   });
 
   it('stays disabled with consent but no token', async () => {
-    const view = await render(<SignInScreen />);
+    const view = await renderRevealed();
 
     await waitFor(() => expect(view.getByTestId('signup-consent')).toBeTruthy());
     await fireEvent.press(view.getByTestId('signup-consent'));
@@ -209,7 +226,7 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
   it('refuses a return-key submit without consent, before any network call', async () => {
     const { signUpWithCaptcha } = jest.requireMock('@/lib/signup-with-captcha');
     const { checkPasswordBreached } = jest.requireMock('@/lib/hibp');
-    const view = await render(<SignInScreen />);
+    const view = await renderRevealed();
 
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
@@ -227,7 +244,7 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
   // nobody to report it. The round trip must drop it: consent survives, but "Create account"
   // stays disabled until the widget re-solves.
   it('drops a held captcha token across a sign-in round trip, so the button re-disables', async () => {
-    const view = await render(<SignInScreen />);
+    const view = await renderRevealed();
 
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
     await fireEvent.press(view.getByTestId('mock-turnstile-token'));
@@ -262,9 +279,14 @@ describe('sign-in screen: the consent checkbox gates sign-up', () => {
     const { signInWithGoogle } = jest.requireMock('@/lib/auth');
     const view = await render(<SignInScreen />);
 
+    // Nothing is focused, so the consent rows are not drawn yet; the refusal draws them, so the
+    // message names a box the user can see.
+    expect(view.queryByTestId('signup-consent')).toBeNull();
     await fireEvent.press(view.getByRole('button', { name: Copy.auth.cta.google }));
 
     await waitFor(() => expect(view.getByText(Copy.auth.error.consentRequired)).toBeTruthy());
+    expect(view.getByTestId('signup-consent')).toBeTruthy();
+    expect(view.getByTestId('signup-future-uploads-consent')).toBeTruthy();
     expect(signInWithGoogle).not.toHaveBeenCalled();
   });
 });
@@ -289,7 +311,7 @@ describe('sign-in screen: the mode search param', () => {
 
   it('keeps the sign-up default for any other value', async () => {
     mockSearchParams = { mode: 'signUp?' };
-    const view = await render(<SignInScreen />);
+    const view = await renderRevealed();
 
     await waitFor(() =>
       expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeTruthy()
@@ -348,7 +370,7 @@ describe('sign-in screen: Continue with Google needs consent in sign-in mode too
 
   it('carries a tick given in sign-up mode across the footer toggle', async () => {
     const { signInWithGoogle } = jest.requireMock('@/lib/auth');
-    const view = await render(<SignInScreen />);
+    const view = await renderRevealed();
 
     await waitFor(() => expect(view.getByTestId('signup-consent')).toBeTruthy());
     await fireEvent.press(view.getByTestId('signup-consent'));
@@ -365,18 +387,19 @@ describe('sign-in screen: Continue with Google needs consent in sign-in mode too
 });
 
 /**
- * Regression lock for the sign-in screen's control reachability. Every control mounts up front
- * — nothing is gated behind a scroll event or the 250 ms mount entrance — both with and without
- * reduced motion. (The low-poly mark and its scroll-reveal wiring were removed on 2026-09-01;
- * the V23-06 rebuild kept the lock.)
+ * Regression lock for the sign-in screen's control reachability. Every control mounts as soon as
+ * the form asks for it — nothing is gated behind a scroll event or the 250 ms mount entrance —
+ * both with and without reduced motion. (The low-poly mark and its scroll-reveal wiring were
+ * removed on 2026-09-01; the V23-06 rebuild kept the lock. Since 2026-10-05 the sign-up rows wait
+ * for a field's focus, which is a tap the user makes, not an animation they wait for.)
  */
 describe('sign-in screen: control reachability', () => {
   beforeEach(() => {
     mockUseReducedMotion.mockReturnValue(false);
   });
 
-  it('mounts every control up front, not gated behind a scroll event', async () => {
-    const view = await render(<SignInScreen />);
+  it('mounts every control once a field is focused, not gated behind a scroll event', async () => {
+    const view = await renderRevealed();
 
     await waitFor(() => {
       expect(view.getByRole('button', { name: Copy.auth.cta.google })).toBeTruthy();
@@ -389,7 +412,7 @@ describe('sign-in screen: control reachability', () => {
 
   it('keeps every control reachable with reduced motion on', async () => {
     mockUseReducedMotion.mockReturnValue(true);
-    const view = await render(<SignInScreen />);
+    const view = await renderRevealed();
 
     expect(view.getByRole('button', { name: Copy.auth.cta.google })).toBeEnabled();
     expect(view.getByRole('button', { name: Copy.auth.signIn.switchLink })).toBeEnabled();
@@ -433,12 +456,193 @@ describe('sign-in screen: control reachability', () => {
  */
 describe('sign-in screen: Turnstile configuration handed to the widget', () => {
   it('gives the widget both the site key and a base URL with a real hostname', async () => {
-    const view = await render(<SignInScreen />);
+    const view = await renderRevealed();
 
     await waitFor(() => expect(view.getByText('mock-turnstile-widget')).toBeTruthy());
 
     expect(mockTurnstileProps.siteKey).toBe('test-site-key');
     // Derived from EXPO_PUBLIC_SUPABASE_URL, since no EXPO_PUBLIC_TURNSTILE_HOSTNAME is set.
     expect(mockTurnstileProps.baseUrl).toBe('https://project-ref.supabase.co/');
+  });
+});
+
+/**
+ * Captain's device test, 2026-10-05: "too much words". The empty sign-up form draws its title,
+ * the two fields and the actions; the age choice, the Terms line, the health-data row and the
+ * verification step appear together the first time either field takes focus, and stay. Sign-in
+ * mode is unchanged. Hiding is visual only — the gates below still refuse exactly as before.
+ */
+describe('sign-in screen: the sign-up rows wait for a field to take focus', () => {
+  const rowIDs = ['signup-age-18-plus', 'signup-age-13-17', 'signup-consent', 'signup-future-uploads-consent'];
+
+  it('draws none of them on the empty form, and no eyebrow', async () => {
+    const view = await render(<SignInScreen />);
+
+    await waitFor(() => expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeTruthy());
+    for (const id of rowIDs) expect(view.queryByTestId(id)).toBeNull();
+    expect(view.queryByRole('checkbox')).toBeNull();
+    expect(view.queryByText(Copy.auth.ageBand.legend)).toBeNull();
+    expect(view.queryByText(Copy.auth.consent.healthProcessing, { exact: false })).toBeNull();
+    expect(view.queryByText('mock-turnstile-widget')).toBeNull();
+    // What the empty form does draw: the title, both fields and the actions.
+    expect(view.getByRole('header', { name: Copy.auth.title })).toBeTruthy();
+    expect(view.getByPlaceholderText(Copy.auth.email.placeholder)).toBeTruthy();
+    expect(view.getByPlaceholderText(Copy.auth.password.placeholder)).toBeTruthy();
+    expect(view.getByRole('button', { name: Copy.auth.cta.google })).toBeTruthy();
+    expect(view.queryByText('Run better tomorrow')).toBeNull();
+  });
+
+  it.each([
+    ['email', Copy.auth.email.placeholder],
+    ['password', Copy.auth.password.placeholder],
+  ])('draws all of them together when the %s field takes focus, and keeps them after blur', async (_, placeholder) => {
+    const view = await render(<SignInScreen />);
+
+    await fireEvent(view.getByPlaceholderText(placeholder), 'focus');
+    await waitFor(() => {
+      for (const id of rowIDs) expect(view.getByTestId(id)).toBeTruthy();
+    });
+    expect(view.getByText('mock-turnstile-widget')).toBeTruthy();
+
+    await fireEvent(view.getByPlaceholderText(placeholder), 'blur');
+    for (const id of rowIDs) expect(view.getByTestId(id)).toBeTruthy();
+  });
+
+  it('keeps the rows on screen across a sign-in round trip once drawn', async () => {
+    const view = await renderRevealed();
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.signIn.switchLink }));
+    await waitFor(() => expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy());
+    // Sign-in mode is unchanged: no rows unless Google asks for them.
+    for (const id of rowIDs) expect(view.queryByTestId(id)).toBeNull();
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.signUp.switchLink }));
+    await waitFor(() => {
+      for (const id of rowIDs) expect(view.getByTestId(id)).toBeTruthy();
+    });
+  });
+
+  it('does not draw the consent rows when a field takes focus in sign-in mode', async () => {
+    mockSearchParams = { mode: 'signIn' };
+    const view = await render(<SignInScreen />);
+
+    await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
+
+    await waitFor(() => expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy());
+    expect(view.queryByRole('checkbox')).toBeNull();
+    expect(view.queryByText('mock-turnstile-widget')).toBeNull();
+  });
+
+  it.each([
+    ['the age choice', 'signup-age-18-plus', Copy.auth.error.ageBandRequired],
+    ['the Terms consent', 'signup-consent', Copy.auth.error.consentRequired],
+    ['the health-data / future-uploads consent', 'signup-future-uploads-consent', Copy.auth.error.futureUploadsConsentRequired],
+  ])('refuses a return-key submit without %s, before any network call', async (_, skip, message) => {
+    const { signUpWithCaptcha } = jest.requireMock('@/lib/signup-with-captcha');
+    const { checkPasswordBreached } = jest.requireMock('@/lib/hibp');
+    signUpWithCaptcha.mockClear();
+    checkPasswordBreached.mockClear();
+    const view = await renderRevealed();
+
+    await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
+    await fireEvent.press(view.getByTestId('mock-turnstile-token'));
+    for (const id of ['signup-age-18-plus', 'signup-consent', 'signup-future-uploads-consent']) {
+      if (id !== skip) await fireEvent.press(view.getByTestId(id));
+    }
+    await fireEvent.changeText(view.getByPlaceholderText(Copy.auth.email.placeholder), 'runner@example.com');
+    await fireEvent.changeText(view.getByPlaceholderText(Copy.auth.password.placeholder), 'aRealStrongPassw0rd!9x');
+
+    await waitFor(() => expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled());
+    await fireEvent(view.getByPlaceholderText(Copy.auth.password.placeholder), 'submitEditing');
+
+    await waitFor(() => expect(view.getByText(message)).toBeTruthy());
+    expect(checkPasswordBreached).not.toHaveBeenCalled();
+    expect(signUpWithCaptcha).not.toHaveBeenCalled();
+  });
+
+  it('keeps the button disabled for a 13–17 choice until the guardian attestation is ticked', async () => {
+    const view = await renderRevealed();
+
+    await fireEvent.press(view.getByTestId('mock-turnstile-token'));
+    await fireEvent.press(view.getByTestId('signup-age-13-17'));
+    await fireEvent.press(view.getByTestId('signup-consent'));
+    await fireEvent.press(view.getByTestId('signup-future-uploads-consent'));
+    await waitFor(() => expect(view.getByTestId('signup-age-guardian-consent')).toBeTruthy());
+    expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeDisabled();
+
+    await fireEvent.press(view.getByTestId('signup-age-guardian-consent'));
+    await waitFor(() => expect(view.getByRole('button', { name: Copy.auth.signUp.submit })).toBeEnabled());
+  });
+});
+
+/**
+ * The optional pillar introductions (2026-10-05): an understated link on the sign-up form opens
+ * them; a returning user signing in is not shown it.
+ */
+describe('sign-in screen: a fresh captcha token keeps a refusal on screen', () => {
+  // The widget mounts with the sign-up rows, and a refusal is one of the things that draws them,
+  // so the widget's first token routinely lands right after a refusal. It must not erase it.
+  it('keeps the Google consent refusal after the newly mounted widget issues its token', async () => {
+    const view = await render(<SignInScreen />);
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.cta.google }));
+    await waitFor(() => expect(view.getByText(Copy.auth.error.consentRequired)).toBeTruthy());
+
+    await fireEvent.press(view.getByTestId('mock-turnstile-token'));
+    expect(view.getByText(Copy.auth.error.consentRequired)).toBeTruthy();
+  });
+
+  it('still clears the widget\'s own expiry message when a fresh token arrives', async () => {
+    const view = await renderRevealed();
+
+    await waitFor(() => expect(view.getByTestId('mock-turnstile-expire')).toBeTruthy());
+    await fireEvent.press(view.getByTestId('mock-turnstile-expire'));
+    await waitFor(() => expect(view.getByText(Copy.auth.error.captchaExpired)).toBeTruthy());
+
+    await fireEvent.press(view.getByTestId('mock-turnstile-token'));
+    await waitFor(() => expect(view.queryByText(Copy.auth.error.captchaExpired)).toBeNull());
+  });
+});
+
+describe('sign-in screen: the pillar introductions link', () => {
+  it('opens the pillar introductions in sign-up mode, and is absent in sign-in mode', async () => {
+    const { router } = jest.requireMock('expo-router');
+    router.push.mockClear();
+    const view = await render(<SignInScreen />);
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.entry.pillars.open }));
+    expect(router.push).toHaveBeenCalledWith('/pillars');
+
+    await fireEvent.press(view.getByRole('button', { name: Copy.auth.signIn.switchLink }));
+    await waitFor(() => expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy());
+    expect(view.queryByRole('button', { name: Copy.entry.pillars.open })).toBeNull();
+  });
+});
+
+describe('sign-in screen: layout and error announcement', () => {
+  const originalOS = Platform.OS;
+
+  afterEach(() => {
+    Platform.OS = originalOS;
+    jest.restoreAllMocks();
+  });
+
+  it('top-aligns the form, so revealing the sign-up rows never moves the focused field', async () => {
+    const view = await render(<SignInScreen />);
+
+    const content = StyleSheet.flatten(view.getByTestId('sign-in-scroll').props.contentContainerStyle);
+    expect(content.justifyContent ?? 'flex-start').toBe('flex-start');
+    expect(content.paddingTop).toBeGreaterThan(0);
+  });
+
+  it('still announces a session error at once, as a polite live region', async () => {
+    Platform.OS = 'ios';
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    mockCorruptedSessionError = 'Your session could not be restored.';
+
+    const view = await render(<SignInScreen />);
+
+    expect(announce).toHaveBeenCalledWith('Your session could not be restored.');
+    expect(view.getByText('Your session could not be restored.').props.accessibilityLiveRegion).toBe('polite');
   });
 });

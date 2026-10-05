@@ -67,6 +67,8 @@ describe('sign-in screen: a 13–17 sign-up with the attestation', () => {
     (applySignupSession as jest.Mock).mockResolvedValue(undefined);
 
     const view = await render(<SignInScreen />);
+    // The sign-up rows are drawn once a field takes focus (2026-10-05, components/auth-form.tsx).
+    await fireEvent(view.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
     await waitFor(() => expect(view.getByTestId('mock-turnstile-token')).toBeTruthy());
 
     await fireEvent.changeText(view.getByPlaceholderText(Copy.auth.email.placeholder), 'runner@example.com');

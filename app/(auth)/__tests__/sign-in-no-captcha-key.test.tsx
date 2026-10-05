@@ -102,8 +102,11 @@ const SignInScreen = require('../sign-in').default;
 describe('sign-in screen: EXPO_PUBLIC_TURNSTILE_SITE_KEY unset', () => {
   it('explains why sign-up is unavailable instead of rendering nothing', async () => {
     await render(<SignInScreen />);
+    // Sign-up is the default mode (V23-06). Since 2026-10-05 the notice is drawn where the
+    // verification step would be — with the sign-up rows, once a field takes focus.
+    expect(screen.queryByTestId('signup-unavailable-notice')).toBeNull();
+    await fireEvent(screen.getByPlaceholderText(Copy.auth.email.placeholder), 'focus');
 
-    // Sign-up is the default mode (V23-06), so the notice is mounted on the first render.
     // `waitFor` is required — the screen's mount entrance defers the commit past the same tick.
     await waitFor(() => expect(screen.getByTestId('signup-unavailable-notice')).toBeTruthy());
     expect(screen.getByText(Copy.auth.signUp.unavailable.title)).toBeTruthy();

@@ -5,6 +5,64 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-10-05 (entry flow: pillars optional, Get started reached by scrolling, a quieter form)
+
+Three findings from the captain's 2026-10-03 iPhone test, approach approved 2026-10-05. App-only:
+no schema, edge-function, consent-key or server-check change.
+
+- **The entry scroll is hero -> intro -> Get started.** The four pillar sections ("not necessary,
+  wastes the user's time") left `app/(auth)/welcome.tsx`; the story's intro stays. Get started is
+  no longer a "Get started" link that pushes `/sign-in` — it is the form itself, the scroll's last
+  section, reached by scrolling and arriving with the same `v23rise` reveal as the intro. The
+  scroll snaps to the three section tops (`snapToOffsets` + `disableIntervalMomentum`) instead of
+  `pagingEnabled`, and runs free past the top of Get started (`snapToEnd={false}`), because the
+  form outgrows the viewport once its sign-up rows appear and must ride above the keyboard:
+  `automaticallyAdjustKeyboardInsets` insets the content (never resizes the view, which would
+  re-measure every section) and lifts a focused field clear of the keyboard, and a programmatic
+  scroll never snaps, so focusing a field never pages away. While a keyboard is up the scroll has
+  no snap points at all: React Native's iOS snapping clamps every drag to the content height less
+  the viewport and ignores the keyboard inset, which on a 667 pt simulator left the consent rows
+  and Create account stuck under the keyboard. A layout shrink while a field is focused
+  (Android's adjustResize) is ignored for the same reason. Checked on an iPhone SE (3rd gen)
+  simulator through Maestro: hero -> intro -> Get started snaps, focusing either field reveals the
+  rows without paging away, iOS 26's Strong Password panel leaves the password field visible, the
+  whole form scrolls clear of the keyboard, and the pillars view opens, pages and returns.
+- **The pillar introductions are optional** — a new `app/(auth)/pillars.tsx` route, opened from an
+  understated "About the four pillars" link on the sign-up form, with the same paged sections,
+  reveal and tappable boxes as before. Back (top bar) and "Get started" (end of the last pillar)
+  both `router.back()`, so the form keeps what was typed; a deep link with nothing beneath falls
+  through to `/welcome`. `components/pillar-story.tsx` now exports `<StoryIntro>` (main scroll) and
+  `<PillarStory>` (the four pillars only) separately, plus `<StorySection>` / `<Reveal>`.
+- **The Get started form is one component, `components/auth-form.tsx`,** drawn in the entry
+  scroll and by the standalone `/sign-in` route, which now only hosts it (scroll, keyboard
+  avoidance, page rise) and still serves update-password's `?mode=signIn`, reset-password's way
+  back and every other navigation to it. Auth paths and every gate are unchanged. `/sign-in` is
+  now top-aligned like Get started, so the rows appearing on focus never move the focused field.
+- **A session or deep-link error is not announced off screen.** The form is mounted on every
+  signed-out launch, so `AuthForm` takes `announceErrors` (default true, so `/sign-in` is
+  unchanged): the entry scroll passes it only once Get started is reached (or at once under
+  reduced motion), gating both `useAnnounce` and the error's live region, and an error already on
+  screen is announced the moment it turns true. The visible text is unchanged.
+- **The empty sign-up form draws only its title, two fields and the actions.** The age choice
+  (with the 13–17 guardian attestation), the Terms + Privacy line, the health-data /
+  future-uploads row and the Turnstile step (or its no-key notice) appear together the first
+  time either field takes focus, and stay. "Continue with Google" still reveals the consent rows
+  when it refuses (`consentRevealed`), in both modes; sign-in mode is unchanged. Hiding is visual
+  only: the submit button and the return-key handler refuse exactly as before, and each local
+  refusal also draws the rows it names. Because the widget now mounts with the rows — often
+  right after a refusal drew them — a fresh token clears only the widget's own messages
+  (`captchaExpired` / `captchaLoadFailed`), so "Agree to the Terms…" is not wiped a second after
+  it appears.
+- **Copy cut (non-legal only).** `Copy.auth.eyebrow` ("Run better tomorrow") is gone;
+  `Copy.auth.signUp.unavailable.body` is one sentence; `Copy.entry.details.cue` became
+  `Copy.entry.pillars.{open, back, backToStart}`. Every consent, upload, age and guardian
+  sentence keeps its exact wording.
+- Tests: `app/(auth)/__tests__/entry-hero.test.tsx` rewritten for the three-section scroll (no
+  pillar section, Get started revealed by scroll, snap props, keyboard-shrink guard, pillars
+  link); new `pillars.test.tsx`; the sign-up suites focus a field before touching the rows, and
+  `sign-in.test.tsx` gains the reveal-on-focus and per-requirement refusal locks. Maestro flows
+  scroll to `auth-email-submit` instead of tapping the removed `entry-sign-up`.
+
 ## 2026-10-05 (result disclaimer folds; History's tab bar floats where Home's does)
 
 Two fixes from the captain's 2026-10-03 iPhone test, approach approved 2026-10-05.

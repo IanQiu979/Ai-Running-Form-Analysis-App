@@ -1,24 +1,26 @@
 /**
  * The pillars story — the signed-out entry flow's words, rebuilt on 2026-09-20 (captain's
- * device-test decision) as ONE PILLAR PER SCREEN-HEIGHT SECTION, revealed by scrolling. It
- * replaces the V23-03 details page's 2 x 2 grid and its "Continue" tap: the hero
- * (`app/(auth)/welcome.tsx`) is the first section of one paged scroll, this story is the rest,
- * and the only tap in the whole flow is the sign-up entry at the very end.
+ * device-test decision) as ONE PILLAR PER SCREEN-HEIGHT SECTION, revealed by scrolling, and
+ * split on 2026-10-05 (the captain's next device test: the four pillar screens "waste the
+ * user's time" at the start). Two pieces, used in two places:
  *
- * SECTIONS, in order, each exactly `sectionHeight` tall so the page snap lands on one at a
- * time: an intro (the page's Display title, its H2 sentence and its one paragraph), then the
- * four pillars in `PACE_PILLARS` order. A pillar section is the pillar's box (V23-04,
- * `components/pillar-box.tsx`) large and centred with its one-line description beneath; the
- * first carries the "Tap a pillar for details" hint above its box, and the last ends with the
- * sign-up entry. A section holds at most three type sizes.
+ *   - `<StoryIntro>` — the page's Display title, its H2 sentence and its one paragraph. It stays
+ *     in the main entry scroll (`app/(auth)/welcome.tsx`): hero -> intro -> Get started.
+ *   - `<PillarStory>` — the four pillars in `PACE_PILLARS` order, now OPTIONAL: an understated
+ *     link on Get started opens them in their own paged view (`app/(auth)/pillars.tsx`). A
+ *     pillar section is the pillar's box (V23-04, `components/pillar-box.tsx`) large and centred
+ *     with its one-line description beneath; the first carries the "Tap a pillar for details"
+ *     hint above its box, and the last ends with the way back to Get started.
+ *
+ * Every section is exactly `sectionHeight` tall so the page snap lands on one at a time, and
+ * holds at most three type sizes. `<StorySection>` and `<Reveal>` are exported so the entry
+ * scroll's Get started section arrives with the same rise.
  *
  * REVEAL. Every item mounts at the first frame of `v23rise` (opacity 0, 12 pt low) and rises
  * once its section has scrolled far enough into view — `lib/entry-story.ts` decides when, the
- * screen counts, and `revealedCount` is the result: the number of story sections, from the
- * intro, whose arrival has begun. Items in a section rise on the arrive curve over
- * `Motion.duration.storyRise`, staggered `Motion.stagger.story` in reading order — slower and
- * further apart than the old grid's 600 / 60 ms, which is the calm the captain asked for. A
- * revealed section stays revealed. Reduced motion renders everything in place.
+ * screen counts. Items in a section rise on the arrive curve over `Motion.duration.storyRise`,
+ * staggered `Motion.stagger.story` in reading order. A revealed section stays revealed. Reduced
+ * motion renders everything in place.
  *
  * ONE BOX OPEN AT A TIME. The box's own open card (name, description, metric and range, with a
  * close control) is the pillar's details, expanding in place; the section's description line
@@ -36,8 +38,8 @@ import { Copy } from '@/constants/copy';
 import { Ink, Layout, Motion, Space, Type } from '@/constants/v23-theme';
 import { PACE_PILLARS, type PacePillarId } from '@shared/pace';
 
-/** The intro plus one section per pillar. */
-export const STORY_SECTION_COUNT = 1 + PACE_PILLARS.length;
+/** One section per pillar. */
+export const PILLAR_SECTION_COUNT = PACE_PILLARS.length;
 
 /** The closed box's side, as a share of the section height: large, and still clear of the
  *  hint above and the description beneath on a 667 pt phone. Capped by the column's width. */
@@ -48,33 +50,29 @@ const COLUMN_WIDTH = Layout.canvas.width - 2 * Layout.gutter;
 type PillarStoryProps = {
   /** One section's height — the scroll viewport's, measured by the screen. */
   sectionHeight: number;
-  /** How many story sections, from the intro, have had their reveal reached. */
+  /** How many pillar sections, from the first, have had their reveal reached. */
   revealedCount: number;
   reduceMotion: boolean;
-  onSignUp: () => void;
+  /** The way back to Get started, at the end of the last pillar section. */
+  onBack: () => void;
 };
 
-export function PillarStory({ sectionHeight, revealedCount, reduceMotion, onSignUp }: PillarStoryProps) {
+export function PillarStory({ sectionHeight, revealedCount, reduceMotion, onBack }: PillarStoryProps) {
   const [open, setOpen] = useState<PacePillarId | null>(null);
 
   return (
     <>
-      <IntroSection
-        sectionHeight={sectionHeight}
-        revealed={revealedCount > 0}
-        reduceMotion={reduceMotion}
-      />
       {PACE_PILLARS.map((id, index) => (
         <PillarSection
           key={id}
           id={id}
           sectionHeight={sectionHeight}
-          revealed={revealedCount > index + 1}
+          revealed={revealedCount > index}
           reduceMotion={reduceMotion}
           hint={index === 0}
           open={open === id}
           onToggle={() => setOpen((current) => (current === id ? null : id))}
-          onSignUp={index === PACE_PILLARS.length - 1 ? onSignUp : undefined}
+          onBack={index === PACE_PILLARS.length - 1 ? onBack : undefined}
         />
       ))}
     </>
@@ -87,9 +85,10 @@ type SectionProps = {
   reduceMotion: boolean;
 };
 
-function IntroSection({ sectionHeight, revealed, reduceMotion }: SectionProps) {
+/** The story's intro: the first section after the hero in the entry scroll. */
+export function StoryIntro({ sectionHeight, revealed, reduceMotion }: SectionProps) {
   return (
-    <Section sectionHeight={sectionHeight} testID="story-section-intro">
+    <StorySection sectionHeight={sectionHeight} testID="story-section-intro">
       <Reveal order={0} revealed={revealed} reduceMotion={reduceMotion}>
         <Text style={styles.title} accessibilityRole="header">
           {Copy.entry.details.title}
@@ -101,7 +100,7 @@ function IntroSection({ sectionHeight, revealed, reduceMotion }: SectionProps) {
       <Reveal order={2} revealed={revealed} reduceMotion={reduceMotion}>
         <Text style={styles.reads}>{Copy.entry.details.reads}</Text>
       </Reveal>
-    </Section>
+    </StorySection>
   );
 }
 
@@ -111,8 +110,8 @@ type PillarSectionProps = SectionProps & {
   hint: boolean;
   open: boolean;
   onToggle: () => void;
-  /** Present on the last pillar section only: the sign-up entry at its end. */
-  onSignUp?: () => void;
+  /** Present on the last pillar section only: the way back to Get started at its end. */
+  onBack?: () => void;
 };
 
 function PillarSection({
@@ -123,23 +122,28 @@ function PillarSection({
   hint,
   open,
   onToggle,
-  onSignUp,
+  onBack,
 }: PillarSectionProps) {
   const copy = Copy.entry.details.pillar[id];
   const boxSide = Math.min(COLUMN_WIDTH, Math.round(sectionHeight * BOX_HEIGHT_FRACTION));
-  // Reading order: the hint (when there is one), the box, the description, the entry.
+  // Reading order: the hint (when there is one), the box, the description, the way back.
   const boxOrder = hint ? 1 : 0;
   const descOrder = boxOrder + 1;
   const entryOrder = descOrder + 1;
 
   return (
-    <Section
+    <StorySection
       sectionHeight={sectionHeight}
       testID={`story-section-${id}`}
       footer={
-        onSignUp && (
+        onBack && (
           <Reveal order={entryOrder} revealed={revealed} reduceMotion={reduceMotion} style={styles.entry}>
-            <SquareButton variant="link" label={Copy.entry.details.cue} onPress={onSignUp} testID="entry-sign-up" />
+            <SquareButton
+              variant="link"
+              label={Copy.entry.pillars.backToStart}
+              onPress={onBack}
+              testID="pillars-back-to-start"
+            />
           </Reveal>
         )
       }>
@@ -163,7 +167,7 @@ function PillarSection({
           <Text style={styles.desc}>{copy.desc}</Text>
         </Reveal>
       )}
-    </Section>
+    </StorySection>
   );
 }
 
@@ -177,7 +181,7 @@ type SectionShellProps = {
 
 /** One screen-height section: the live safe areas (never less than the design's), the gutter,
  *  and a centred column that holds its items in the middle of the height. */
-function Section({ sectionHeight, testID, children, footer }: SectionShellProps) {
+export function StorySection({ sectionHeight, testID, children, footer }: SectionShellProps) {
   const insets = useSafeAreaInsets();
   return (
     <View
@@ -208,7 +212,7 @@ type RevealProps = {
 /** One item's `v23rise`, held at its first frame until the section is revealed, then run once.
  *  An item that mounts into an already-revealed section (the description line returning after
  *  its card closes) lands in place — the arrival belongs to the scroll, not to a remount. */
-function Reveal({ order, revealed, reduceMotion, style, children }: RevealProps) {
+export function Reveal({ order, revealed, reduceMotion, style, children }: RevealProps) {
   const progress = useSharedValue(reduceMotion || revealed ? 1 : 0);
 
   useEffect(() => {

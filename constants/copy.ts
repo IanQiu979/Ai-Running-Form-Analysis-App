@@ -25,9 +25,10 @@ export const Copy = {
   // THE ENTRY FLOW (2026-09-13, the V23 redesign — pages V23-02 Hero and V23-03 Details, with
   // V23-04's pillar boxes). NOT in docs/design/copy-deck.md; the wording is the captain-approved
   // Claude Design pages', lifted verbatim. Since 2026-09-20 the hero and the story are ONE
-  // scroll (`app/(auth)/welcome.tsx`, with `components/pillar-story.tsx`) that ends at
-  // `app/(auth)/sign-in.tsx`; the two cues below are that decision's — "Scroll down" on the
-  // hero, and the sign-up entry at the story's end. No "Continue" remains in the entry flow.
+  // scroll (`app/(auth)/welcome.tsx`); since 2026-10-05 (captain's device test) that scroll is
+  // hero -> intro -> Get started, and the four pillar sections moved to an optional view
+  // (`app/(auth)/pillars.tsx`) opened from a link on Get started. "Scroll down" is the hero's
+  // cue; no "Continue" remains in the entry flow.
   // ---------------------------------------------------------------------------------------
   entry: {
     hero: {
@@ -83,16 +84,20 @@ export const Copy = {
         },
       },
       close: 'Close',
-      // The sign-up entry at the end of the last pillar section; it pushes the sign-up screen,
-      // whose title is the same words.
-      cue: 'Get started',
+    },
+    // The optional pillar introductions (2026-10-05): an understated link on Get started opens
+    // them (`app/(auth)/pillars.tsx`), and the view has two ways back — the top bar's Back and
+    // a link at the end of the last pillar that reads as the section it returns to.
+    pillars: {
+      open: 'About the four pillars',
+      back: 'Back',
+      backToStart: 'Get started',
     },
   },
   auth: {
-    // V23-06 (2026-09-13): the page's eyebrow and Display title. The old wordmark / value-prop /
-    // "about" scroll content came off this screen with the redesign — the hero and the pillars
-    // story (`Copy.entry`) carry what the app does now.
-    eyebrow: 'Run better tomorrow',
+    // V23-06's Display title. The page's eyebrow ("Run better tomorrow") came off on 2026-10-05
+    // with the captain's copy cut — the form carries its title, two fields and its actions, and
+    // nothing else until a field is focused.
     title: 'Get started',
     cta: {
       google: 'Continue with Google',
@@ -219,7 +224,7 @@ export const Copy = {
       // and the adjacent card from proximity and a screen-reader user cannot.
       unavailable: {
         title: 'Account creation is unavailable',
-        body: 'This build cannot run the verification step new accounts require. Existing accounts can still sign in.',
+        body: 'Existing accounts can still sign in.',
         a11yHint: 'Disabled. Account creation is unavailable in this build.',
       },
     },
