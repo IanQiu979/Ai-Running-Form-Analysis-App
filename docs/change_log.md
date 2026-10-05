@@ -5,6 +5,34 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-10-05 (one cache policy for every stored frame)
+
+- **Every stored frame now renders under one cache policy** (`lib/private-frame-image.ts`, drawn
+  only through `components/private-frame-image.tsx`): signed `media` URLs only, and expo-image
+  `cachePolicy: 'none'`, so no frame is kept in memory or on disk. History's thumbnails used
+  expo-image's default disk cache before this change. The "Frames analyzed" strip and its viewer
+  move onto the same component, with no change in behavior.
+- **The result hero no longer writes frames to disk.** It drew through a `react-native-svg`
+  `<Image>`, which loads through React Native's image pipeline (`NSURLCache` on iOS, Fresco's
+  disk cache on Android) with no way to opt out. It now draws through expo-image under the same
+  policy. The greyscale grade comes from a neutral `mixBlendMode: 'saturation'` layer instead of
+  an SVG colour-matrix filter. Android below API 29 has no blend modes, so the layer is not
+  mounted there and the hero shows in colour under the same dark wash.
+- **expo-image's caches are purged** once per launch, which removes thumbnails earlier builds
+  cached on disk. They are also purged on sign-out, on a direct user switch, and when account
+  deletion succeeds. A purge that expo-image reports as not done is retried once on the next
+  foreground. Hero copies that earlier builds left in `NSURLCache` or Fresco's cache are out of
+  its reach and are tracked as `docs/status.md` Known Issue #54.
+- **A frame URL must be signed, on the app's own Supabase origin** (`EXPO_PUBLIC_SUPABASE_URL`),
+  with plain path segments only. `jest.setup.js` supplies that origin to the test suite when no
+  `.env` exists.
+- A frame URL that is not a signed `media` link now draws nothing: a placeholder cell in
+  History, an unavailable slot in the strip, and the placeholder gradient in the hero. Compare
+  and Home's recent-analysis card render no frames. The entry flow's hero
+  (`components/stride-hero.tsx`) is a computed line drawing, not user media, and is unchanged.
+- Client-only change: no migration, no edge function change, no deployment. The hero's blend
+  layer has not been checked by eye on a device.
+
 ## 2026-10-05 (result screen shows the frames the analysis used)
 
 - **`app/result/[id].tsx` now has a "Frames analyzed" strip** below the readout and above the

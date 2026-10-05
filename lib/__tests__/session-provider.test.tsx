@@ -39,7 +39,14 @@ jest.mock('../supabase', () => ({
 // The provider's other side-effects are not what this file is about; each is covered by its own
 // suite (`app-state.test.ts`, `auth.test.ts`, `secure-storage.test.ts`). Stubbed to inert so the
 // auth-state plumbing under test is the only thing that can move.
-jest.mock('../app-state', () => ({ startAppStateSync: () => () => {} }));
+const mockForegroundListeners = new Set<() => void>();
+jest.mock('../app-state', () => ({
+  startAppStateSync: () => () => {},
+  onAppForeground: (listener: () => void) => {
+    mockForegroundListeners.add(listener);
+    return () => mockForegroundListeners.delete(listener);
+  },
+}));
 jest.mock('../auth', () => ({ createSessionFromUrl: jest.fn(async () => null) }));
 jest.mock('../secure-storage', () => ({ onSessionRestoreFailure: () => () => {} }));
 jest.mock('expo-linking', () => ({
@@ -54,6 +61,11 @@ const mockClearSettingsSnapshot = jest.fn();
 jest.mock('../settings-cache', () => ({
   clearSettingsSnapshot: (...args: unknown[]) => mockClearSettingsSnapshot(...args),
 }), { virtual: true });
+
+const mockPurgePrivateFrameImageCaches = jest.fn(async () => true);
+jest.mock('../private-frame-image', () => ({
+  purgePrivateFrameImageCaches: () => mockPurgePrivateFrameImageCaches(),
+}));
 
 /** Minimal stand-in for a real `Session` — this suite only ever reads identity off it. */
 function fakeSession(userId = 'user-1'): Session {
@@ -70,6 +82,8 @@ function wrapper({ children }: PropsWithChildren) {
 
 beforeEach(() => {
   mockClearSettingsSnapshot.mockReset();
+  mockPurgePrivateFrameImageCaches.mockReset().mockResolvedValue(true);
+  mockForegroundListeners.clear();
   mockGetSession.mockResolvedValue({ data: { session: null } });
   mockOnAuthStateChange.mockImplementation((listener: typeof emit) => {
     emit = listener;
@@ -161,6 +175,77 @@ describe('SessionProvider auth-state routing', () => {
     });
 
     expect(mockClearSettingsSnapshot).not.toHaveBeenCalled();
+  });
+
+  // `lib/private-frame-image.ts` rule 3: stored body frames never survive in an image cache past
+  // the session that could see them, and a launch clears what an earlier build left behind.
+  describe('private frame image caches', () => {
+    it('purges once at launch', async () => {
+      await renderHook(() => useSession(), { wrapper });
+      expect(mockPurgePrivateFrameImageCaches).toHaveBeenCalledTimes(1);
+    });
+
+    it('purges on SIGNED_OUT', async () => {
+      await renderHook(() => useSession(), { wrapper });
+      await act(async () => {
+        emit('SIGNED_IN', fakeSession('outgoing-user'));
+      });
+      mockPurgePrivateFrameImageCaches.mockClear();
+
+      await act(async () => {
+        emit('SIGNED_OUT', null);
+      });
+
+      expect(mockPurgePrivateFrameImageCaches).toHaveBeenCalledTimes(1);
+    });
+
+    it('purges when an auth event switches users directly', async () => {
+      await renderHook(() => useSession(), { wrapper });
+      await act(async () => {
+        emit('SIGNED_IN', fakeSession('user-a'));
+      });
+      mockPurgePrivateFrameImageCaches.mockClear();
+
+      await act(async () => {
+        emit('SIGNED_IN', fakeSession('user-b'));
+      });
+
+      expect(mockPurgePrivateFrameImageCaches).toHaveBeenCalledTimes(1);
+    });
+
+    // expo-image on Android resolves `false` (did nothing) while no Activity is attached.
+    it('retries once on the next foreground when a clear did nothing', async () => {
+      mockPurgePrivateFrameImageCaches.mockResolvedValueOnce(false);
+      await renderHook(() => useSession(), { wrapper });
+      expect(mockPurgePrivateFrameImageCaches).toHaveBeenCalledTimes(1);
+      expect(mockForegroundListeners.size).toBe(1);
+
+      await act(async () => {
+        for (const listener of [...mockForegroundListeners]) listener();
+      });
+      expect(mockPurgePrivateFrameImageCaches).toHaveBeenCalledTimes(2);
+      expect(mockForegroundListeners.size).toBe(0);
+    });
+
+    it('does not wait on a foreground when the purge succeeded', async () => {
+      await renderHook(() => useSession(), { wrapper });
+      await act(async () => {});
+      expect(mockForegroundListeners.size).toBe(0);
+    });
+
+    it('does not purge on a sign-in or a token refresh for the same user', async () => {
+      await renderHook(() => useSession(), { wrapper });
+      mockPurgePrivateFrameImageCaches.mockClear();
+
+      await act(async () => {
+        emit('SIGNED_IN', fakeSession('same-user'));
+      });
+      await act(async () => {
+        emit('TOKEN_REFRESHED', fakeSession('same-user'));
+      });
+
+      expect(mockPurgePrivateFrameImageCaches).not.toHaveBeenCalled();
+    });
   });
 
   // Issue #81: a recovery session IS a session, so `!!session` alone would throw the user into

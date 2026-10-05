@@ -23,9 +23,9 @@
  *
  * THE HERO (V23-08): the stored frame is the first thing on the screen — full-bleed, edge to
  * edge, reaching the very top of the device with no safe-area inset above it, at the page's 3:4
- * box — graded through `<DuotoneFrame>`, with an inset vignette drawn over it. The drawn
- * annotation marks (`components/annotation-lines.tsx`) were removed 2026-09-20 (captain's phone
- * test: "completely removed") — the component and its tests are gone, not just unmounted. When
+ * box — graded through `<DuotoneFrame>` (no image cache: `lib/private-frame-image.ts`), with an
+ * inset vignette drawn over it. The drawn annotation marks (`components/annotation-lines.tsx`)
+ * were removed 2026-09-20 (captain's phone test: "completely removed") — the component and its tests are gone, not just unmounted. When
  * there is no image the page's placeholder gradient takes the frame's place and the vignette
  * still draws over it; while the frame batch is in flight the same box holds a quiet spinner, so the
  * readout below never jumps when the image lands.
@@ -67,6 +67,7 @@ import {
   takePendingAnalysisResult,
   type PendingAnalysisResult,
 } from '@/lib/pending-analysis-result';
+import { isSignedPrivateFrameUrl } from '@/lib/private-frame-image';
 import {
   buildPendingAnalysisFrameSlots,
   signAnalysisFrames,
@@ -357,8 +358,10 @@ export default function ResultScreen() {
   }
 
   const { outcome, frameSlots, heroPending, mediaType } = state;
+  // Only a signed `media` link may become the hero (`lib/private-frame-image.ts`).
   const heroUri = frameSlots.find(
-    (slot): slot is Extract<AnalysisFrameSlot, { status: 'ready' }> => slot.status === 'ready'
+    (slot): slot is Extract<AnalysisFrameSlot, { status: 'ready' }> =>
+      slot.status === 'ready' && isSignedPrivateFrameUrl(slot.uri)
   )?.uri ?? null;
   const assessedCount = countAssessedPillars(outcome.result);
 

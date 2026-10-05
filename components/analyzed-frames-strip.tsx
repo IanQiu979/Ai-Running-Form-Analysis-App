@@ -6,13 +6,12 @@
  * is signing or unavailable, so the spoken "Frame N of M" labels always describe the server's
  * original analysis order.
  *
- * Stored running frames are sensitive. Both of this component's `expo-image` surfaces opt out
- * of disk and memory caching, so signed URL expiry, sign-out, and deletion leave no durable copy
- * from here. (The result hero and History's thumbnails render the same frames through their own
- * components; this note covers only the strip and its viewer.)
+ * Stored running frames are sensitive. Both of this component's image surfaces draw through
+ * `<PrivateFrameImage>`, which fixes the app's one frame cache policy (`lib/private-frame-image.ts`:
+ * signed URLs only, no memory or disk cache), so signed URL expiry, sign-out, and deletion leave
+ * no durable copy from here. A slot whose URL is not a signed `media` link counts as unavailable.
  */
 import { useMemo, useState } from 'react';
-import { Image } from 'expo-image';
 import {
   ActivityIndicator,
   FlatList,
@@ -26,11 +25,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PrivateFrameImage } from '@/components/private-frame-image';
 import { SquareIconButton } from '@/components/ui/square-icon-button';
 import { CloseIcon } from '@/components/ui/v23-icons';
 import { Copy } from '@/constants/copy';
 import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
+import { isSignedPrivateFrameUrl } from '@/lib/private-frame-image';
 import type { AnalysisFrameSlot } from '@/lib/result-frames';
 
 type Props = {
@@ -70,7 +71,12 @@ export function AnalyzedFramesStrip({ slots, reduceMotion: reduceMotionOverride 
 
   function isReady(index: number, slot: AnalysisFrameSlot): slot is Extract<AnalysisFrameSlot, { status: 'ready' }> {
     const identity = imageIdentity(index, slot);
-    return slot.status === 'ready' && identity !== null && !failedImages.has(identity);
+    return (
+      slot.status === 'ready' &&
+      identity !== null &&
+      !failedImages.has(identity) &&
+      isSignedPrivateFrameUrl(slot.uri)
+    );
   }
 
   return (
@@ -94,12 +100,11 @@ export function AnalyzedFramesStrip({ slots, reduceMotion: reduceMotionOverride 
               onPress={() => setViewerIndex(index)}
               style={({ pressed }) => [styles.thumbnail, pressed && styles.pressed]}>
               {ready ? (
-                <Image
+                <PrivateFrameImage
                   testID={`analyzed-frame-image-${index}`}
-                  source={{ uri: slot.uri }}
+                  uri={slot.uri}
                   style={StyleSheet.absoluteFill}
                   contentFit="cover"
-                  cachePolicy="none"
                   accessible={false}
                   onError={() => markUnavailable(index, slot)}
                 />
@@ -196,12 +201,11 @@ function AnalyzedFrameViewer({
             return (
               <View style={[styles.viewerPage, { width, height: pageHeight ?? windowHeight }]}>
                 {isReady(index, item) ? (
-                  <Image
+                  <PrivateFrameImage
                     testID={`analyzed-frame-viewer-image-${index}`}
-                    source={{ uri: item.uri }}
+                    uri={item.uri}
                     style={StyleSheet.absoluteFill}
                     contentFit="contain"
-                    cachePolicy="none"
                     accessible
                     accessibilityRole="image"
                     accessibilityLabel={label}

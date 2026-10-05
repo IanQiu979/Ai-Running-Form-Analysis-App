@@ -86,6 +86,7 @@ import {
   type DeleteAccountResult,
   type DeleteAccountSuccessOutcome,
 } from '@/lib/delete-account';
+import { purgePrivateFrameImageCaches } from '@/lib/private-frame-image';
 import { describeQuota } from '@/lib/quota';
 import { useSession } from '@/lib/session-provider';
 import {
@@ -596,6 +597,9 @@ export default function SettingsScreen() {
     consentRequestRef.current += 1;
     consentMutationVersionRef.current += 1;
     if (userId) clearSettingsSnapshot(userId);
+    // The account is gone even if the sign-out below fails locally, so its frames leave the
+    // image cache now rather than waiting on SIGNED_OUT (`lib/private-frame-image.ts`, rule 3).
+    void purgePrivateFrameImageCaches();
     switch (outcome) {
       case 'deleted':
         // We ignore the sign-out result on purpose: a failed *global* revoke is moot when the

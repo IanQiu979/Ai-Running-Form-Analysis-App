@@ -9,10 +9,10 @@ jest.mock('react-native-safe-area-context', () =>
 );
 
 const SLOTS: AnalysisFrameSlot[] = [
-  { path: 'user/analysis/frame-001.jpg', uri: 'https://signed.example/frame-001', status: 'ready' },
+  { path: 'user/analysis/frame-001.jpg', uri: 'https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-001.jpg?token=token-001', status: 'ready' },
   { path: 'user/analysis/frame-002.jpg', uri: null, status: 'loading' },
   { path: 'user/analysis/frame-003.jpg', uri: null, status: 'unavailable' },
-  { path: 'user/analysis/frame-004.jpg', uri: 'https://signed.example/frame-004', status: 'ready' },
+  { path: 'user/analysis/frame-004.jpg', uri: 'https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-004.jpg?token=token-004', status: 'ready' },
 ];
 
 describe('AnalyzedFramesStrip', () => {
@@ -22,12 +22,12 @@ describe('AnalyzedFramesStrip', () => {
     expect(screen.getByText('Frames analyzed')).toBeTruthy();
     expect(screen.getAllByTestId(/^analyzed-frame-slot-/)).toHaveLength(4);
     expect(screen.getByTestId('analyzed-frame-image-0').props.source[0]).toEqual({
-      uri: 'https://signed.example/frame-001',
+      uri: 'https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-001.jpg?token=token-001',
     });
     expect(screen.getByTestId('analyzed-frame-loading-1')).toBeTruthy();
     expect(screen.getByTestId('analyzed-frame-unavailable-2')).toBeTruthy();
     expect(screen.getByTestId('analyzed-frame-image-3').props.source[0]).toEqual({
-      uri: 'https://signed.example/frame-004',
+      uri: 'https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-004.jpg?token=token-004',
     });
     expect(screen.getByLabelText('Frame 1 of 4')).toBeTruthy();
     expect(screen.getByLabelText('Frame 4 of 4')).toBeTruthy();
@@ -91,5 +91,23 @@ describe('AnalyzedFramesStrip', () => {
     expect(screen.queryByTestId('analyzed-frame-image-0')).toBeNull();
     expect(screen.getByTestId('analyzed-frame-unavailable-0')).toBeTruthy();
     expect(screen.getAllByTestId(/^analyzed-frame-slot-/)).toHaveLength(4);
+  });
+
+  it('treats a ready slot whose URL is not a signed media link as unavailable', async () => {
+    await render(
+      <AnalyzedFramesStrip
+        slots={[
+          {
+            path: 'user/analysis/frame-001.jpg',
+            uri: 'https://project.supabase.co/storage/v1/object/public/media/user/analysis/frame-001.jpg',
+            status: 'ready',
+          },
+        ]}
+      />
+    );
+
+    expect(screen.queryByTestId('analyzed-frame-image-0')).toBeNull();
+    expect(screen.getByTestId('analyzed-frame-unavailable-0')).toBeTruthy();
+    expect(screen.getByTestId('analyzed-frame-slot-0').props.accessibilityState.disabled).toBe(true);
   });
 });

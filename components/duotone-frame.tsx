@@ -11,24 +11,32 @@
  * full-colour photograph would be the one thing on the screen outside it — so the frame is
  * desaturated to greyscale and then washed with a low-opacity `Ink.bg`, which pulls its shadows
  * toward the page's black. That is the two-tone map the page names: shadows toward `Ink.bg`,
- * highlights left at the photo's own whites. The desaturation is an SVG colour-matrix filter
- * (`FeColorMatrix type="saturate" values="0"`, react-native-svg >= 15.8 renders filters natively
- * on both platforms) over an SVG `Image`; `expo-image` has no filter pipeline, which is why the
- * frame is drawn through SVG here. `GRADE_OPACITY` is the wash's one lever, kept low so the
- * subject stays legible.
+ * highlights left at the photo's own whites. `GRADE_OPACITY` is the wash's one lever, kept low
+ * so the subject stays legible.
+ *
+ * HOW IT DESATURATES (2026-10-05). The frame draws through `<PrivateFrameImage>` — expo-image
+ * under the app's one private-frame cache policy (`lib/private-frame-image.ts`: signed URLs
+ * only, no memory or disk cache). It used to be an SVG `Image` with an `FeColorMatrix` saturate
+ * filter, but react-native-svg loads `href` through React Native's own image pipeline
+ * (`NSURLCache` on iOS, Fresco's disk cache on Android) with no way to opt out, so every hero
+ * frame was written to disk. expo-image has no filter pipeline and React Native's `filter:
+ * grayscale()` is a no-op on iOS by default, so the grey comes from a blend layer instead: a
+ * neutral `Ink.bg` sheet with `mixBlendMode: 'saturation'` takes the saturation of a grey (zero)
+ * and the hue and luminosity of the photo beneath — the photo's own greyscale. What confines the
+ * blend to the photo is the image itself: an opaque JPEG at `contentFit="cover"` fills the whole
+ * box, so the layer never blends with anything else. Android applies blend modes only from API
+ * 29; below that an unsupported blend layer would paint as a solid `Ink.bg` sheet over the photo,
+ * so it is not mounted there and the frame shows in colour under the same wash.
  *
  * The vignette is drawn by the result screen as a sibling over this frame, not by this component:
  * the page draws it over the placeholder gradient too, when there is no image at all, so it
  * belongs to the hero box rather than to the image. (The drawn annotation marks that used to sit
  * here were removed 2026-09-20 — captain's phone test.)
  */
-import { StyleSheet, View } from 'react-native';
-import Svg, { Defs, FeColorMatrix, Filter, Image as SvgImage } from 'react-native-svg';
+import { Platform, StyleSheet, View } from 'react-native';
 
+import { PrivateFrameImage } from '@/components/private-frame-image';
 import { Ink } from '@/constants/v23-theme';
-
-/** The desaturation filter's id — unique on the page so a second `<Defs>` can never collide. */
-const GRADE_FILTER_ID = 'duotone-frame-grade';
 
 /** Heavy enough to unify frame and interface, light enough that skin stays true. */
 const GRADE_OPACITY = 0.14;
@@ -36,8 +44,16 @@ const GRADE_OPACITY = 0.14;
 /** The page's hero box: `aspect-ratio: 3/4` at full width. */
 const FRAME_ASPECT_RATIO = 3 / 4;
 
+/** First Android API level whose views honour `mixBlendMode` (`BlendModeHelper` returns null below). */
+const ANDROID_BLEND_MODE_MIN_API = 29;
+
+/** Whether this device draws the desaturate layer as a blend rather than as an opaque sheet. */
+function supportsBlendModes(): boolean {
+  return Platform.OS !== 'android' || Number(Platform.Version) >= ANDROID_BLEND_MODE_MIN_API;
+}
+
 type DuotoneFrameProps = {
-  /** Local or remote URI of the stored frame. */
+  /** Signed URL of the stored frame (`lib/private-frame-image.ts`). Anything else draws nothing. */
   uri: string;
   /** The hero frame must carry a text alternative (`Copy.result.hero.altText`). */
   accessibilityLabel: string;
@@ -46,28 +62,28 @@ type DuotoneFrameProps = {
 
 export function DuotoneFrame({ uri, accessibilityLabel, testID }: DuotoneFrameProps) {
   return (
-    <View style={styles.container} testID={testID}>
-      <Svg
-        width="100%"
-        height="100%"
+    <View
+      style={styles.container}
+      testID={testID}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={accessibilityLabel}>
+      <PrivateFrameImage
+        uri={uri}
         style={StyleSheet.absoluteFill}
-        accessible
-        accessibilityRole="image"
-        accessibilityLabel={accessibilityLabel}
-        testID={testID ? `${testID}-image` : undefined}>
-        <Defs>
-          <Filter id={GRADE_FILTER_ID}>
-            <FeColorMatrix type="saturate" values="0" />
-          </Filter>
-        </Defs>
-        <SvgImage
-          href={{ uri }}
-          width="100%"
-          height="100%"
-          preserveAspectRatio="xMidYMid slice"
-          filter={`url(#${GRADE_FILTER_ID})`}
+        contentFit="cover"
+        accessible={false}
+        testID={testID ? `${testID}-image` : undefined}
+      />
+      {supportsBlendModes() ? (
+        <View
+          testID={testID ? `${testID}-desaturate` : undefined}
+          style={[StyleSheet.absoluteFill, styles.desaturate]}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
         />
-      </Svg>
+      ) : null}
       <View
         testID={testID ? `${testID}-grade` : undefined}
         style={[StyleSheet.absoluteFill, styles.grade]}
@@ -83,6 +99,12 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     aspectRatio: FRAME_ASPECT_RATIO,
+    overflow: 'hidden',
+  },
+  // Any colour with zero saturation works; `Ink.bg` is a neutral grey (R = G = B).
+  desaturate: {
+    backgroundColor: Ink.bg,
+    mixBlendMode: 'saturation',
   },
   grade: {
     backgroundColor: Ink.bg,

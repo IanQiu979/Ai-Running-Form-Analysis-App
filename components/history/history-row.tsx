@@ -25,9 +25,9 @@
  *
  * NO BUSINESS LOGIC: it renders one `HistoryListItem` and emits two intents (open, delete).
  */
-import { Image } from 'expo-image';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { PrivateFrameImage } from '@/components/private-frame-image';
 import { SquareCard } from '@/components/ui/square-card';
 import { Copy } from '@/constants/copy';
 import { ScoreBandLabel } from '@/constants/theme';
@@ -38,6 +38,7 @@ import {
   formatHistoryItemDeleteA11yLabel,
   type HistoryListItem,
 } from '@/lib/history';
+import { isSignedPrivateFrameUrl } from '@/lib/private-frame-image';
 
 /** The page draws exactly three cells; a fourth stored frame is not shown. */
 const FRAME_DECK_CELLS = 3;
@@ -98,18 +99,19 @@ export function HistoryRow({
 
         <View style={styles.frameDeck} testID={`history-frame-strip-${item.id}`}>
           {cells.map((uri, index) =>
-            uri ? (
-              <Image
+            isSignedPrivateFrameUrl(uri) ? (
+              <PrivateFrameImage
                 key={`${item.id}-${index}`}
-                source={{ uri }}
+                uri={uri}
                 style={[styles.cell, index > 0 && styles.cellOverlap]}
                 contentFit="cover"
                 testID={`history-frame-${item.id}-${index}`}
               />
             ) : (
               // Covers BOTH the "still resolving" moment and the real "no thumbnail" outcome
-              // (short media_paths, or a failed signed-URL attempt) with one placeholder cell —
-              // never a broken image, never a crash (see `lib/history.ts`'s header).
+              // (short media_paths, a failed signed-URL attempt, or a URL that is not a signed
+              // `media` link — `lib/private-frame-image.ts`) with one placeholder cell — never a
+              // broken image, never a crash (see `lib/history.ts`'s header).
               <View
                 key={`${item.id}-${index}`}
                 style={[styles.cell, styles.cellPlaceholder, index > 0 && styles.cellOverlap]}

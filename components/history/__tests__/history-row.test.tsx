@@ -37,7 +37,45 @@ function item(id: string, score: number | null): HistoryListItem {
   };
 }
 
+function signedFrameUrl(n: number): string {
+  return `https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-0${n}.jpg?token=token-${n}`;
+}
+
 describe('<HistoryRow>', () => {
+  // `lib/private-frame-image.ts`: History's thumbnails used expo-image's default (disk) cache
+  // until 2026-10-05; they now share the strip's and the hero's no-cache policy.
+  it('draws signed thumbnails with no image cache', async () => {
+    await render(
+      <HistoryRow
+        item={item('a', 74)}
+        thumbnailUris={[signedFrameUrl(1), signedFrameUrl(2), signedFrameUrl(3)]}
+        isDeleting={false}
+        onPress={() => {}}
+        onDelete={() => {}}
+      />
+    );
+    for (const index of [0, 1, 2]) {
+      const cell = screen.getByTestId(`history-frame-a-${index}`);
+      expect(cell.props.cachePolicy).toBe('none');
+      expect(cell.props.source).toEqual([{ uri: signedFrameUrl(index + 1) }]);
+    }
+  });
+
+  it('draws a placeholder, not an image, for a thumbnail URL that is not a signed media link', async () => {
+    await render(
+      <HistoryRow
+        item={item('a', 74)}
+        thumbnailUris={[signedFrameUrl(1), 'https://project.supabase.co/storage/v1/object/public/media/a.jpg']}
+        isDeleting={false}
+        onPress={() => {}}
+        onDelete={() => {}}
+      />
+    );
+    expect(screen.getByTestId('history-frame-a-0')).toBeTruthy();
+    expect(screen.queryByTestId('history-frame-a-1')).toBeNull();
+    expect(screen.getByTestId('history-frame-placeholder-a-1')).toBeTruthy();
+  });
+
   it('leads with the numeral, the band word and the date, and emits open + delete', async () => {
     const onPress = jest.fn();
     const onDelete = jest.fn();

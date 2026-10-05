@@ -93,9 +93,15 @@ jest.mock('@/lib/session-provider', () => ({
 }));
 
 const mockFetchHistoryList = jest.fn();
+/** A signed `media` URL — the only kind `<PrivateFrameImage>` will draw (`lib/private-frame-image.ts`). */
+function signedFrameUrl(name: string): string {
+  return `https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-${name}.jpg?token=token-${name}`;
+}
 // Four signed URLs on purpose: the row caps its deck at three, and that cap is what this fixture
 // exists to exercise.
-const mockSignFrameStrip = jest.fn(async (_paths: string[]) => ['uri-a', 'uri-b', 'uri-c', 'uri-d']);
+const mockSignFrameStrip = jest.fn(async (_paths: string[]) =>
+  ['a', 'b', 'c', 'd'].map(signedFrameUrl)
+);
 const mockDeleteHistoryAnalysis = jest.fn(async (_id: string) => ({ ok: true as const }));
 
 jest.mock('@/lib/history', () => {
@@ -209,7 +215,7 @@ describe('history render smoke', () => {
   });
 
   it('draws placeholder cells while a strip is still signing or comes back short', async () => {
-    mockSignFrameStrip.mockResolvedValueOnce(['uri-a']);
+    mockSignFrameStrip.mockResolvedValueOnce([signedFrameUrl('a')]);
     mockFetchHistoryList.mockResolvedValue([item('a', 88)]);
     await render(<HistoryScreen />);
     await waitFor(() => expect(screen.getByTestId('history-frame-a-0')).toBeTruthy());

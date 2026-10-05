@@ -136,7 +136,12 @@ runs read-only verification SQL through the Management API with no password.
   (#44) are built against, and as of 2026-07-12 it is **live**: the migration
   (`supabase/migrations/20260712123606_frame_upload_ordering.sql`) was applied to the production
   project via `supabase db push` and verified — `storage.objects` carries zero INSERT and zero
-  DELETE policies, only the owner-scoped SELECT.
+  DELETE policies, only the owner-scoped SELECT. **Render a stored frame only through
+  `<PrivateFrameImage>`** (`components/private-frame-image.tsx`): it fixes the one display policy
+  in `lib/private-frame-image.ts` — signed `media` URLs on the app's own origin, no memory or disk
+  image cache, caches purged at launch and on sign-out. Never draw a frame with a bare
+  `expo-image`, RN `Image` or `react-native-svg` `<Image>` (the latter two write to native disk
+  caches with no opt-out; `docs/status.md` Known Issue #54).
 - **The `storage.objects` grant-all is PERMANENT and cannot be fixed by a migration. Stop trying.**
   Re-verified live 2026-07-13 (issue #100). `20260713153000_grant_hardening.sql` and
   `20260713160000_media_guard_execute_revoke.sql` are both **applied to production** — an earlier

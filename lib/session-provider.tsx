@@ -13,9 +13,10 @@ import {
 
 import { Copy } from '@/constants/copy';
 
-import { startAppStateSync } from './app-state';
+import { onAppForeground, startAppStateSync } from './app-state';
 import { createSessionFromUrl } from './auth';
 import { mapAuthError } from './auth-errors';
+import { purgePrivateFrameImageCaches } from './private-frame-image';
 import { onSessionRestoreFailure } from './secure-storage';
 import { clearSettingsSnapshot } from './settings-cache';
 import { supabase } from './supabase';
@@ -74,6 +75,22 @@ type SessionContextValue = {
   clearPasswordRecovery: () => void;
 };
 
+/**
+ * Purges the private-frame image caches (`lib/private-frame-image.ts`, rule 3) and, if a clear
+ * reports it did nothing — expo-image on Android no-ops while no Activity is attached, which is
+ * exactly the state at a cold launch or a background sign-out — tries once more on the next
+ * foreground. Fire-and-forget: never awaited, never throws.
+ */
+function purgeFrameCachesWithRetry(): void {
+  void purgePrivateFrameImageCaches().then((cleared) => {
+    if (cleared) return;
+    const unsubscribe = onAppForeground(() => {
+      unsubscribe();
+      void purgePrivateFrameImageCaches();
+    });
+  });
+}
+
 const SessionContext = createContext<SessionContextValue | undefined>(undefined);
 
 /**
@@ -101,6 +118,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     let isMounted = true;
+
+    // Once per launch: drop any stored frame an earlier build cached through expo-image's
+    // default disk cache (`lib/private-frame-image.ts`, rule 3). Best-effort, never awaited.
+    purgeFrameCachesWithRetry();
 
     // Registered BEFORE getSession() below runs, not after: getSession()'s own storage read is
     // what can trigger `onSessionRestoreFailure` (lib/secure-storage.ts), and this has to be
@@ -138,6 +159,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
       const incomingUserId = newSession?.user.id;
       if (outgoingUserId && (event === 'SIGNED_OUT' || (incomingUserId && incomingUserId !== outgoingUserId))) {
         clearSettingsSnapshot(outgoingUserId);
+      }
+      // A session ending (sign-out, account deletion) or changing hands must not leave the last
+      // user's frames in an image cache (`lib/private-frame-image.ts`, rule 3).
+      if (event === 'SIGNED_OUT' || (outgoingUserId && incomingUserId && incomingUserId !== outgoingUserId)) {
+        purgeFrameCachesWithRetry();
       }
       currentSessionRef.current = newSession;
       // Issue #81. PASSWORD_RECOVERY fires when the emailed recovery link's exchange lands a
