@@ -83,6 +83,15 @@ const FORM_WIDTH = Layout.canvas.width - 2 * Layout.gutter;
  *  when it changes. */
 const SCROLL_THROTTLE_MS = 16;
 
+/** Whether any text field has focus. react-native-web's `TextInput.State` has no
+ *  `currentlyFocusedInput` (only `currentlyFocusedField`, which native deprecates), so the
+ *  native call alone threw on every web resize. */
+function fieldFocused(): boolean {
+  const state = TextInput.State;
+  if (typeof state.currentlyFocusedInput === 'function') return state.currentlyFocusedInput() != null;
+  return state.currentlyFocusedField?.() != null;
+}
+
 export default function HeroScreen() {
   const reduceMotion = useReducedMotion();
   const window = useWindowDimensions();
@@ -104,7 +113,7 @@ export default function HeroScreen() {
     // field has focus; re-measuring then would shrink every section under the user's thumb and
     // move every snap point. The app is portrait-only, so a shrink with a field focused is
     // always the keyboard.
-    if (next < sectionHeight && TextInput.State.currentlyFocusedInput() != null) return;
+    if (next < sectionHeight && fieldFocused()) return;
     if (next > 0 && next !== sectionHeight) setSectionHeight(next);
   }
 

@@ -284,6 +284,30 @@ describe('entry flow — animated', () => {
     }
   });
 
+  it('keeps the sections on web, whose TextInput.State has only currentlyFocusedField', async () => {
+    // react-native-web ships no currentlyFocusedInput; calling it threw on every shrink.
+    const state = TextInput.State as unknown as Record<string, unknown>;
+    const originalInput = state.currentlyFocusedInput;
+    const originalField = state.currentlyFocusedField;
+    try {
+      state.currentlyFocusedInput = undefined;
+      state.currentlyFocusedField = () => null;
+      await render(<HeroScreen />);
+      await act(async () => layoutScroll(H));
+
+      state.currentlyFocusedField = () => ({});
+      await act(async () => layoutScroll(H - 300));
+      expect(scroll().props.snapToOffsets).toEqual([0, H, 2 * H]);
+
+      state.currentlyFocusedField = () => null;
+      await act(async () => layoutScroll(H - 300));
+      expect(scroll().props.snapToOffsets).toEqual([0, H - 300, 2 * (H - 300)]);
+    } finally {
+      state.currentlyFocusedInput = originalInput;
+      state.currentlyFocusedField = originalField;
+    }
+  });
+
   it('opens the pillar introductions from the link on Get started', async () => {
     await render(<HeroScreen />);
 
