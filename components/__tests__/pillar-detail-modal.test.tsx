@@ -12,7 +12,14 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react-n
 
 import { PillarDetailModal } from '../pillar-detail-modal';
 import { Copy } from '@/constants/copy';
-import { photoResult, proTierVideoResult, safetySignalPhotoResult, SAFETY_NOTE_FIXTURE } from '@/lib/pace-fixtures';
+import {
+  legacyStoredPosturePillar,
+  photoResult,
+  proTierVideoResult,
+  safetySignalPhotoResult,
+  POSTURE_ANALYSIS_FIXTURE,
+  SAFETY_NOTE_FIXTURE,
+} from '@/lib/pace-fixtures';
 
 // The modal pads its column by the live safe-area insets; the package's own jest mock supplies
 // them without a native module.
@@ -22,7 +29,7 @@ jest.mock('react-native-safe-area-context', () =>
 );
 
 describe('an assessed pillar (proTierVideoResult.posture)', () => {
-  it('renders the letter+name heading, score, band, and feedback when visible', async () => {
+  it('renders the letter+name heading, score, band, and fuller analysis when visible', async () => {
     await render(
       <PillarDetailModal
         visible
@@ -42,11 +49,40 @@ describe('an assessed pillar (proTierVideoResult.posture)', () => {
     expect(screen.getByTestId('pillar-detail-score-posture').props.children).toBe(78);
     expect(screen.getByTestId('pillar-detail-band-posture').props.children).toBe('Solid');
     expect(screen.queryByTestId('pillar-detail-not-assessed-posture')).toBeNull();
+    expect(screen.getByTestId('pillar-detail-analysis-posture').props.children).toBe(POSTURE_ANALYSIS_FIXTURE);
     expect(
-      screen.getByText(
-        'Slight forward lean from the ankles, good — head stays level through the stride.'
-      )
-    ).toBeTruthy();
+      screen.queryByText('Slight forward lean from the ankles, good — head stays level through the stride.')
+    ).toBeNull();
+  });
+
+  it('falls back to concise feedback for an older stored pillar with no analysis field', async () => {
+    await render(
+      <PillarDetailModal
+        visible
+        onDismiss={jest.fn()}
+        pillarId="posture"
+        pillar={legacyStoredPosturePillar}
+      />
+    );
+
+    expect(screen.getByTestId('pillar-detail-analysis-posture').props.children).toBe(
+      legacyStoredPosturePillar.feedback
+    );
+  });
+
+  it.each(['', '   '])('falls back to concise feedback when analysis is blank (%j)', async (analysis) => {
+    await render(
+      <PillarDetailModal
+        visible
+        onDismiss={jest.fn()}
+        pillarId="posture"
+        pillar={{ ...legacyStoredPosturePillar, analysis }}
+      />
+    );
+
+    expect(screen.getByTestId('pillar-detail-analysis-posture').props.children).toBe(
+      legacyStoredPosturePillar.feedback
+    );
   });
 
   it('renders the "Risk flags"/"Drills" labeled flags and drills for a pillar that has them (cadence)', async () => {
@@ -186,9 +222,26 @@ describe('a not-assessed pillar never reads as a zero (photoResult.cadence is nu
     expect(reason).not.toContain('not a photo');
     // The prose beside it is the stop-running note the server carried across — a different fact,
     // not a competing account of what was submitted.
-    expect(screen.getByTestId('pillar-detail-feedback-cadence').props.children).toBe(
+    expect(screen.getByTestId('pillar-detail-analysis-cadence').props.children).toBe(
       'Get that ankle looked at before running on it.'
     );
+  });
+
+  it('does not render detailed analysis for an unassessed pillar even if malformed data contains it', async () => {
+    await render(
+      <PillarDetailModal
+        visible
+        onDismiss={jest.fn()}
+        pillarId="cadence"
+        pillar={{
+          ...photoResult.pillars.cadence,
+          analysis: 'Fabricated cadence mechanics that the photo cannot establish.',
+        }}
+      />
+    );
+
+    expect(screen.queryByTestId('pillar-detail-analysis-cadence')).toBeNull();
+    expect(screen.queryByText('Fabricated cadence mechanics that the photo cannot establish.')).toBeNull();
   });
 
   it('never renders the literal string "0" anywhere', async () => {
@@ -240,11 +293,11 @@ describe('a certified stop-running note (safetySignalPhotoResult.posture)', () =
     expect(screen.getByTestId('pillar-detail-safety-note-posture').props.children).toBe(SAFETY_NOTE_FIXTURE);
 
     // The coaching is untouched and separate, and the note comes first in the card.
-    const feedback = screen.getByTestId('pillar-detail-feedback-posture').props.children;
-    expect(feedback).toBe(safetySignalPhotoResult.pillars.posture.feedback);
-    expect(feedback).not.toContain(SAFETY_NOTE_FIXTURE);
+    const analysis = screen.getByTestId('pillar-detail-analysis-posture').props.children;
+    expect(analysis).toBe(safetySignalPhotoResult.pillars.posture.analysis);
+    expect(analysis).not.toContain(SAFETY_NOTE_FIXTURE);
     const card = JSON.stringify(screen.getByTestId('pillar-detail-card-posture').toJSON());
-    expect(card.indexOf(SAFETY_NOTE_FIXTURE)).toBeLessThan(card.indexOf(feedback));
+    expect(card.indexOf(SAFETY_NOTE_FIXTURE)).toBeLessThan(card.indexOf(analysis));
   });
 
   it('renders no notice for a `none` declaration (armSwing)', async () => {

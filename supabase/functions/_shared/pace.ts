@@ -173,10 +173,14 @@ export interface PacePillarResult {
    * `score` is null — see `isValidScoreBandPair`. This file does not check that `band` is the
    * numerically "correct" band for `score`; only that the two are present or absent together. */
   band: ScoreBand | null;
-  /** Coaching feedback for this pillar. Free: one line. Pro/Elite: fuller. Typically null when
-   * the pillar is not assessed, but not structurally required to be — a model that adds a short
-   * explanatory note alongside `score: null` is not a shape violation. */
+  /** Concise overview coaching for this pillar. Typically null when the pillar is not assessed,
+   * but not structurally required to be — a model that adds a short explanatory note alongside
+   * `score: null` is not a shape violation. */
   feedback: string | null;
+  /** Fuller pillar analysis for the detail panel. Required from new generations by the output
+   * schema, but optional here so older stored results still validate; server normalization makes
+   * it null when the pillar is not assessed. */
+  analysis?: string | null;
   /** Present only when `score` is null — why this pillar could not be assessed. */
   notAssessedReason?: PaceNotAssessedReason;
   /** The pillar's stop-running declaration, in the certified vocabulary — see `PaceSafety`.
@@ -345,6 +349,9 @@ function isPacePillarResult(value: unknown): value is PacePillarResult {
     return false;
   }
   if (value.feedback !== null && typeof value.feedback !== 'string') {
+    return false;
+  }
+  if (value.analysis !== undefined && value.analysis !== null && typeof value.analysis !== 'string') {
     return false;
   }
   if (value.notAssessedReason !== undefined && typeof value.notAssessedReason !== 'string') {

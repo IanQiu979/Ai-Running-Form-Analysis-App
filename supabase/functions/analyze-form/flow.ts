@@ -1354,7 +1354,7 @@ const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
  *
  *   - ONE FRAME cannot show stride-to-stride motion. Cadence and Elasticity are forced to an
  *     honest not-assessed, DISCARDING every claim the model made about them — score, band,
- *     feedback prose, flags, drills. That prose is exactly the failure mode the retired sample
+ *     overview feedback, detail analysis, flags, drills. That prose is exactly the failure mode the retired sample
  *     shipped (a hallucinated "mid-170s spm" and a left/right ground-contact comparison neither
  *     pillar's certified knowledge file supports), so none of it survives, however it is phrased.
  *   - A certified non-`none` `safety` declaration is carried STRUCTURALLY, on the pillar's own
@@ -1371,9 +1371,9 @@ const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
  *     compliance is not validation: if the model echoes it anyway, the client would draw the same
  *     sentence twice — the one thing this contract exists to prevent. So on every pillar carrying
  *     a certified signal, `stripEchoedSafetyNote()` removes an exact copy of the note from the
- *     head of `feedback` (its doc comment owns the precise rule: trimmed prefix equality that also
- *     ends at a sentence boundary — no keyword, fuzzy or paraphrase detection, and no other
- *     rewriting of the coaching); if nothing remains, `feedback` becomes `null`. This function may
+ *     head of both `feedback` and `analysis` (its doc comment owns the precise rule: trimmed prefix
+ *     equality that also ends at a sentence boundary — no keyword, fuzzy or paraphrase detection,
+ *     and no other rewriting of the coaching); if nothing remains, that field becomes `null`. This function may
  *     assume the declaration is THERE:
  *     `analyze-form-validation.ts` refuses to call a response
  *     deliverable unless every pillar carries a usable one, so an absent, malformed, ungrounded,
@@ -1393,8 +1393,9 @@ const MOTION_ONLY_PILLARS: readonly string[] = ['cadence', 'elasticity'];
  *     score may not keep flags or drills it cannot support — guarding half of them was never a
  *     guarantee against fabricated confidence.
  *   - FREE never renders flags/drills (`pace.ts`'s `PacePillarResult` doc comment: "Paid-tier
- *     content"). Stripped here on every pillar, not merely omitted from the prompt. `safety` is
- *     NOT tier-gated and is never stripped — it is the one field a cheap tier cannot cost you.
+ *     content"). Stripped here on every pillar, not merely omitted from the prompt. Assessed
+ *     `analysis` remains available; `safety` is NOT tier-gated and is never stripped — those are
+ *     not paid-only coaching entities.
  *
  * `overall` is recomputed — via the same `deriveOverall()` the honest-partial fallback path
  * already uses — ONLY when this function actually changed a pillar. A multi-frame Pro/Elite
@@ -1421,6 +1422,7 @@ function normalizeForEvidenceAndTier(
           score: null,
           band: null,
           feedback: null,
+          analysis: null,
           notAssessedReason: mediaType === 'video' ? 'singleFrameFromVideo' : 'needsVideo',
           safety,
           flags: [],
@@ -1457,9 +1459,17 @@ function normalizeForEvidenceAndTier(
 
   for (const id of PACE_PILLARS) {
     const pillar = pillars[id];
-    const feedback = stripEchoedSafetyNote(pillar);
-    if (feedback !== pillar.feedback) {
-      pillars[id] = { ...pillar, feedback };
+    if (pillar.score === null && pillar.analysis !== null) {
+      pillars[id] = { ...pillar, analysis: null };
+    }
+  }
+
+  for (const id of PACE_PILLARS) {
+    const pillar = pillars[id];
+    const feedback = stripEchoedSafetyNote(pillar.feedback, pillar.safety);
+    const analysis = stripEchoedSafetyNote(pillar.analysis, pillar.safety);
+    if (feedback !== pillar.feedback || analysis !== pillar.analysis) {
+      pillars[id] = { ...pillar, feedback, analysis };
     }
   }
 
@@ -1472,8 +1482,8 @@ function normalizeForEvidenceAndTier(
 
 /**
  * The echo guard described in `normalizeForEvidenceAndTier()`'s doc comment: a certified note the
- * model ALSO wrote at the head of `feedback` is removed from `feedback` once, by trimmed prefix
- * equality, so the client's own notice is the only place the runner reads it.
+ * model ALSO wrote at the head of a runner-facing coaching field is removed from that field once,
+ * by trimmed prefix equality, so the client's own notice is the only place the runner reads it.
  *
  * Prefix equality alone is not enough: an unpunctuated note ("Stop and get it checked") is a
  * prefix of a longer sentence ("Stop and get it checked out before running again."), and cutting
@@ -1487,24 +1497,32 @@ function normalizeForEvidenceAndTier(
  */
 const NOTE_ENDS_A_SENTENCE = /[.!?]["'\u2019\u201d)\]]?$/;
 
-function stripEchoedSafetyNote(pillar: PacePillarResult): string | null {
-  if (typeof pillar.feedback !== 'string' || !hasSafetySignal(pillar.safety)) {
-    return pillar.feedback;
+function stripEchoedSafetyNote(text: string | null, safety: PacePillarResult['safety']): string | null;
+function stripEchoedSafetyNote(
+  text: string | null | undefined,
+  safety: PacePillarResult['safety']
+): string | null | undefined;
+function stripEchoedSafetyNote(
+  text: string | null | undefined,
+  safety: PacePillarResult['safety']
+): string | null | undefined {
+  if (typeof text !== 'string' || !hasSafetySignal(safety)) {
+    return text;
   }
-  const feedback = pillar.feedback.trim();
-  const note = pillar.safety.note.trim();
-  if (feedback === note) {
+  const content = text.trim();
+  const note = safety.note.trim();
+  if (content === note) {
     return null;
   }
-  if (!feedback.startsWith(note)) {
-    return pillar.feedback;
+  if (!content.startsWith(note)) {
+    return text;
   }
-  const next = feedback.charAt(note.length);
+  const next = content.charAt(note.length);
   const atBoundary = next === '\n' || (/\s/.test(next) && NOTE_ENDS_A_SENTENCE.test(note));
   if (!atBoundary) {
-    return pillar.feedback;
+    return text;
   }
-  const remainder = feedback.slice(note.length).trimStart();
+  const remainder = content.slice(note.length).trimStart();
   return remainder.length > 0 ? remainder : null;
 }
 

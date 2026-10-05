@@ -30,14 +30,48 @@ function scored(
   band: PacePillarResult['band'],
   feedback: string,
   flags: PaceInjuryFlag[] = [],
-  drills: PaceDrill[] = []
+  drills: PaceDrill[] = [],
+  analysis?: string
 ): PacePillarResult {
-  return { score, band, feedback, flags, drills };
+  return { score, band, feedback, analysis, flags, drills };
 }
 
 function notAssessed(reason?: PaceNotAssessedReason): PacePillarResult {
   return { score: null, band: null, feedback: null, notAssessedReason: reason, flags: [], drills: [] };
 }
+
+export const POSTURE_ANALYSIS_FIXTURE =
+  'The clip shows a slight forward lean beginning at the ankles while your head stays level rather than reaching forward. That alignment helps direct momentum ahead without folding at the waist or adding avoidable load through the lower back. Keep the tall line through your hips and shoulders, and reset it when fatigue makes your torso tip. In this clip, the stable head position is the part to preserve. Review future side-on clips for the same ankle-led line rather than trying to increase the lean.';
+
+export const ARM_SWING_ANALYSIS_FIXTURE =
+  'Your hands begin in a compact position, then rise toward the chest later in the clip as fatigue builds. That upward drift can add shoulder tension and uses motion that should support balance and rhythm. Let the shoulders soften, keep the elbows comfortably bent, and think about driving the hands back rather than lifting them. The front-to-back path is otherwise controlled, so the priority is reducing the late-clip lift rather than rebuilding the whole action. Check whether the hands stay low and relaxed on a future clip taken at a similar effort.';
+
+export const CADENCE_ANALYSIS_FIXTURE =
+  'The clearest visible pattern is the foot reaching well ahead of the hips with the knee close to straight at landing. That creates a braking action on each step instead of letting the body pass smoothly over the foot. Shorten the reach in front, place the foot nearer beneath you, and use a slightly quicker, relaxed turnover without chasing a specific number. Keep the change comfortable enough that the feet still land quietly and the upper body remains relaxed. A later side-on clip can show whether the landing has moved nearer the hips without inventing a cadence value from this footage.';
+
+export const ELASTICITY_ANALYSIS_FIXTURE =
+  'Your contacts look quiet and springy, with little visible rise and fall between steps. That suggests you are redirecting force forward instead of spending extra energy bouncing upward. Preserve that response by landing softly beneath you and letting the ankle and calf recoil naturally rather than forcing a stiff push-off. The pattern stays consistent across the visible strides, so there is no clear need to add more bounce. Recheck it when tired, when stiffness can replace the relaxed spring shown here.';
+
+const FREE_POSTURE_ANALYSIS_FIXTURE =
+  'The clip shows a slight forward lean from the ankles while your head stays level. That alignment helps direct momentum ahead without folding at the waist. Keep the tall line through your hips and shoulders as fatigue builds.';
+
+const FREE_ARM_SWING_ANALYSIS_FIXTURE =
+  'Your hands begin in a compact position, then rise toward the chest later in the clip. That drift can add shoulder tension and motion that does not support forward rhythm. Let the shoulders soften and think about driving the hands back rather than lifting them.';
+
+const FREE_CADENCE_ANALYSIS_FIXTURE =
+  'The foot reaches ahead of the hips with the knee close to straight at landing. That creates a braking action instead of letting the body pass smoothly over the foot. Shorten the reach in front and use a slightly quicker, relaxed turnover without chasing a specific number.';
+
+const FREE_ELASTICITY_ANALYSIS_FIXTURE =
+  'Your contacts look quiet and springy, with little visible rise and fall between steps. That helps direct energy forward instead of spending it on extra bounce. Keep landing softly beneath you and allow the ankle and calf to recoil naturally.';
+
+/** A pillar from an analysis stored before the optional fuller-analysis field existed. */
+export const legacyStoredPosturePillar: PacePillarResult = {
+  score: 78,
+  band: 'good',
+  feedback: 'Slight forward lean from the ankles, good — head stays level through the stride.',
+  flags: [],
+  drills: [],
+};
 
 /** A full Pro-tier video result — every pillar assessed, feedback + injury flags + drills all
  * present (`docs/design/frontend-design-brief.md` §3: "Pro — fuller per-pillar feedback,
@@ -55,7 +89,8 @@ export const proTierVideoResult: PaceResult = {
           name: 'Posture Reset (in-run cue)',
           instructions: 'Every 5–10 min: drop the shoulders, level the head, re-set the ankle lean.',
         },
-      ]
+      ],
+      POSTURE_ANALYSIS_FIXTURE
     ),
     armSwing: scored(
       64,
@@ -67,7 +102,8 @@ export const proTierVideoResult: PaceResult = {
           name: 'Arm-Swing Box Drill',
           instructions: 'Elbows ~90°, drive front-to-back from the shoulder, nothing crosses the midline. 3×30s.',
         },
-      ]
+      ],
+      ARM_SWING_ANALYSIS_FIXTURE
     ),
     cadence: scored(
       44,
@@ -80,9 +116,10 @@ export const proTierVideoResult: PaceResult = {
             'Foot lands ahead of the centre of mass with an extended knee, amplifying braking force. Associated with shin splints and patellofemoral pain — shorten and quicken the stride.',
         },
       ],
-      [{ name: 'Metronome Runs', instructions: 'Set a metronome +2–3 SPM above baseline, 10 min on / 5 min off, 2–3x.' }]
+      [{ name: 'Metronome Runs', instructions: 'Set a metronome +2–3 SPM above baseline, 10 min on / 5 min off, 2–3x.' }],
+      CADENCE_ANALYSIS_FIXTURE
     ),
-    elasticity: scored(71, 'good', 'Quiet, springy contact — low vertical bounce.'),
+    elasticity: scored(71, 'good', 'Quiet, springy contact — low vertical bounce.', [], [], ELASTICITY_ANALYSIS_FIXTURE),
   },
   overall: { score: 64, band: 'mid' },
 };
@@ -94,10 +131,10 @@ export const proTierVideoResult: PaceResult = {
  * never re-derives "this is a Free result" itself (CLAUDE.md: no business rules in the client). */
 export const freeTierVideoResult: PaceResult = {
   pillars: {
-    posture: scored(78, 'good', 'Good ankle-driven lean, head level.'),
-    armSwing: scored(64, 'mid', 'Hands drift high late in the clip.'),
-    cadence: scored(44, 'low', 'Foot lands well ahead of your hips.'),
-    elasticity: scored(71, 'good', 'Quiet, springy contact.'),
+    posture: scored(78, 'good', 'Good ankle-driven lean, head level.', [], [], FREE_POSTURE_ANALYSIS_FIXTURE),
+    armSwing: scored(64, 'mid', 'Hands drift high late in the clip.', [], [], FREE_ARM_SWING_ANALYSIS_FIXTURE),
+    cadence: scored(44, 'low', 'Foot lands well ahead of your hips.', [], [], FREE_CADENCE_ANALYSIS_FIXTURE),
+    elasticity: scored(71, 'good', 'Quiet, springy contact.', [], [], FREE_ELASTICITY_ANALYSIS_FIXTURE),
   },
   overall: { score: 64, band: 'mid' },
 };
@@ -188,10 +225,13 @@ export const NOT_ASSESSED_SAFETY_NOTE_FIXTURE =
 export const safetySignalPhotoResult: PaceResult = {
   pillars: {
     posture: {
-      ...scored(82, 'good', 'Ankle-driven lean looks close to ideal in this frame.'),
+      ...scored(82, 'good', 'Ankle-driven lean looks close to ideal in this frame.', [], [], POSTURE_ANALYSIS_FIXTURE),
       safety: { signal: 'swellingLimpOrFavouringOneSide', note: SAFETY_NOTE_FIXTURE },
     },
-    armSwing: { ...scored(70, 'good', 'Elbow angle and hand position look compact.'), safety: { signal: 'none', note: '' } },
+    armSwing: {
+      ...scored(70, 'good', 'Elbow angle and hand position look compact.', [], [], ARM_SWING_ANALYSIS_FIXTURE),
+      safety: { signal: 'none', note: '' },
+    },
     cadence: notAssessed('needsVideo'),
     elasticity: {
       ...notAssessed('needsVideo'),

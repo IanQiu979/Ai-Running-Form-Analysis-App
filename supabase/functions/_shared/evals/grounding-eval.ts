@@ -1323,7 +1323,7 @@ export function classifyNumericClaims(text: string): NumericFigure[] {
 
 export function checkNoFalsePrecision(result: PaceResult): Check {
   const figures = pillarEntries(result)
-    .flatMap(([, p]) => [p.feedback ?? '', ...p.flags.map((f) => f.detail ?? '')])
+    .flatMap(([, p]) => [p.feedback ?? '', p.analysis ?? '', ...p.flags.map((f) => f.detail ?? '')])
     .flatMap(classifyNumericClaims);
   const describe = (f: NumericFigure) => `"${f.text}" (${f.reason}) in "${f.clause}"`;
 
@@ -1361,20 +1361,21 @@ export function checkNoFalsePrecision(result: PaceResult): Check {
 }
 
 /** The app renders the "not medical advice" disclaimer as a static footer under EVERY result
- * (#68). A model that writes it into `feedback` too would double it on screen. Warn-level: it is a
- * rendering nit, not a broken promise. */
+ * (#68). A model that writes it into `feedback` or `analysis` too would double it on screen.
+ * Warn-level: it is a rendering nit, not a broken promise. */
 export function checkNoDisclaimerEcho(result: PaceResult): Check {
   const text = pillarEntries(result)
-    .map(([, p]) => p.feedback ?? '')
+    .flatMap(([, p]) => [p.feedback ?? '', p.analysis ?? ''])
     .join('\n');
   if (/not\s+medical\s+advice/i.test(text)) {
     return {
       id: 'no-disclaimer-echo',
       status: 'warn',
-      detail: 'The model wrote the "not medical advice" disclaimer into feedback; the app already renders it (#68).',
+      detail:
+        'The model wrote the "not medical advice" disclaimer into runner-facing coaching; the app already renders it (#68).',
     };
   }
-  return { id: 'no-disclaimer-echo', status: 'pass', detail: 'No disclaimer echoed into feedback.' };
+  return { id: 'no-disclaimer-echo', status: 'pass', detail: 'No disclaimer echoed into runner-facing coaching.' };
 }
 
 // -------------------------------------------------------------------------------------------

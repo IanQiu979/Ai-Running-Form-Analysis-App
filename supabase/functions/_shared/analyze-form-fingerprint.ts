@@ -15,10 +15,9 @@ import type { PaceFrame, PaceFrameMediaType, PaceMediaKind } from './analyze-for
  * validation/normalization, fallback behavior, or safety policy. A bump deliberately permits a
  * fresh verdict; failing to bump would silently reuse a result produced under obsolete semantics.
  */
-// 2026-09-16 (#212): the stop-running note is no longer composed into `feedback`; it travels only
-// on `safety` and the prompt tells the model so. Same verdict content, different wire shape — a
-// pinned verdict from before this date would replay the composed string, so it may not be reused.
-export const ANALYZE_FORM_ANALYZER_REVISION = 'analyze-form/2026-09-16-v1' as const;
+// 2026-10-05: each assessed pillar gains a fuller `analysis` field. A pinned verdict from before
+// this date lacks that detail-panel content, so it may not be reused as the current verdict.
+export const ANALYZE_FORM_ANALYZER_REVISION = 'analyze-form/2026-10-05-v1' as const;
 
 export interface AnalyzeFormIdentity {
   input_fingerprint: string;

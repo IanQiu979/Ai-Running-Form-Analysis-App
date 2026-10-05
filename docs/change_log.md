@@ -5,6 +5,37 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-10-05 (deeper per-pillar analysis, code-complete and not deployed)
+
+- **Every newly generated assessed pillar now has two prose layers.** `feedback` stays an exactly
+  one-sentence overview; new `PacePillarResult.analysis?: string | null` carries the detail-panel
+  explanation. The model schema requires `analysis` on new output, but the runtime field is
+  optional so pre-change JSONB remains valid. `components/pillar-detail-modal.tsx` prefers a
+  non-blank `analysis` for an assessed pillar and falls back to its concise `feedback` for an older
+  stored result; a not-assessed pillar never renders detailed analysis.
+- **Depth changes, entitlement does not.** Every tier receives assessed-pillar analysis covering
+  what was observed, why it matters for this runner, and what to change: exactly 3 sentences on
+  Free, 5–7 on Pro, and 7–9 on Elite. Free still receives no injury-risk `flags` or `drills`;
+  those remain paid-only, while the separate structural safety notice remains available on every
+  tier. The server forces `analysis: null` whenever a pillar is not assessed and strips an echoed
+  safety note from the head of either prose field.
+- **The honesty and failure contracts are unchanged.** False-precision and disclaimer-echo evals
+  now scan both `feedback` and `analysis`, but sentence counts remain prompt targets rather than
+  runtime content validation. Structural validation, the one eligible retry, and honest-partial
+  fallback retain their existing behavior; a dropped pillar now carries `analysis: null` alongside
+  its null score/band/feedback.
+- **Measured marginal cost remains inside the existing guardrails.** The added prompt/schema text
+  is estimated at +662 Free / +616 Pro / +615 Elite input tokens — about
+  $0.001986 / $0.001848 / $0.001845 at $3 per million input tokens. Expected added output is
+  approximately 180–300 / 240–400 / 300–500 tokens respectively; at $15 per million output
+  tokens, the estimated total marginal cost per successful analysis is about $0.0047–0.0065 Free,
+  $0.0054–0.0078 Pro, and $0.0063–0.0093 Elite. The 4k / 6k / 8k `max_tokens` ceilings, daily
+  spend cap, quota enforcement, and auth/consent gates are unchanged.
+- `ANALYZE_FORM_ANALYZER_REVISION` is now `analyze-form/2026-10-05-v1`, preventing a canonical
+  pre-change verdict from replaying without the new detail content. No database migration is
+  needed and no deployment was performed. Deploy handoff: `supabase functions deploy analyze-form
+  --use-api`; the client change that reads `analysis` ships through the normal app release path.
+
 ## 2026-10-05 (entry flow: pillars optional, Get started reached by scrolling, a quieter form)
 
 Three findings from the captain's 2026-10-03 iPhone test, approach approved 2026-10-05. App-only:

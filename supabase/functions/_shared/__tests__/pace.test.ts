@@ -88,6 +88,28 @@ describe('isPaceResult', () => {
     expect(isPaceResult(validResult())).toBe(true);
   });
 
+  it('accepts both the legacy pillar shape and the additive analysis field', () => {
+    const legacy = validResult();
+    const withAnalysis = validResult({
+      posture: assessedPillar({
+        analysis:
+          'Observed: the trunk stays quiet. Why it matters: that supports stable force transfer. Change: keep the same tall posture.',
+      }),
+      armSwing: assessedPillar({ analysis: null }),
+    });
+
+    expect(isPaceResult(legacy)).toBe(true);
+    expect(isPaceResult(withAnalysis)).toBe(true);
+  });
+
+  it.each([42, false, {}, []])('rejects a present analysis field that is neither string nor null (%p)', (analysis) => {
+    const result = validResult({
+      posture: assessedPillar({ analysis: analysis as unknown as string }),
+    });
+
+    expect(isPaceResult(result)).toBe(false);
+  });
+
   // Case 2: the medium-limitation path — a photo legitimately cannot show Cadence/Elasticity.
   // This must validate cleanly with isFallback nowhere in sight; see the file's own doc comment
   // on why "not assessed" here looks identical to a retry-fallback "not assessed".

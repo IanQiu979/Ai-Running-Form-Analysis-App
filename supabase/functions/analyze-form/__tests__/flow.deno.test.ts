@@ -489,8 +489,8 @@ Deno.test('canonical result: reserve receives the exact server-derived identity 
 
   assertEquals(res.status, 200);
   assertEquals(h.rpc.to('reserve_analysis')[0].args.p_analysis_identity, {
-    input_fingerprint: '7b981636f0249235274907d5c6f6ab6636228ad2d6ff23798b69823e0082e893',
-    analyzer_revision: 'analyze-form/2026-09-16-v1',
+    input_fingerprint: 'e81cf6f80daf4d3bc66e8fab1ded3b136b00e949dec335dd6d6677ac9da5e635',
+    analyzer_revision: 'analyze-form/2026-10-05-v1',
   });
 });
 
@@ -2314,6 +2314,7 @@ function adversarialFreePhotoResult(): ModelCallResult {
         score: 78,
         band: 'good',
         feedback: 'Tall through mid-stance.',
+        analysis: 'Observed: tall through mid-stance. Why it matters: stable posture supports force transfer. Change: keep this position.',
         safety: NO_SAFETY_SIGNAL,
         flags: [{ pattern: 'Overstriding', detail: 'Foot lands ahead of the hip.' }],
         drills: [{ name: 'Wall Forward-Lean Drill', instructions: 'Lean from the ankles.' }],
@@ -2322,6 +2323,7 @@ function adversarialFreePhotoResult(): ModelCallResult {
         score: 66,
         band: 'mid',
         feedback: 'Some cross-body swing.',
+        analysis: 'Observed: the hands cross the midline. Why it matters: excess rotation can waste forward motion. Change: drive the elbows back.',
         safety: NO_SAFETY_SIGNAL,
         flags: [],
         drills: [{ name: 'Elbow Drive Drill', instructions: 'Drive elbows straight back.' }],
@@ -2332,6 +2334,7 @@ function adversarialFreePhotoResult(): ModelCallResult {
         score: 62,
         band: 'mid',
         feedback: 'Cadence looks to be in the mid-170s spm, on the low side.',
+        analysis: 'Observed: cadence appears to be 170 spm. Why it matters: turnover shapes landing. Change: raise it.',
         safety: NO_SAFETY_SIGNAL,
         flags: [{ pattern: 'Low cadence', detail: 'Overstriding risk.' }],
         drills: [{ name: 'Metronome Drill', instructions: 'Run to a 180bpm click.' }],
@@ -2341,6 +2344,7 @@ function adversarialFreePhotoResult(): ModelCallResult {
         score: 58,
         band: 'mid',
         feedback: 'Left ground contact runs longer than right.',
+        analysis: 'Observed: ground contact is 250 ms. Why it matters: longer contact can reduce spring. Change: leave the ground sooner.',
         safety: NO_SAFETY_SIGNAL,
         flags: [],
         drills: [],
@@ -2388,10 +2392,11 @@ Deno.test('free tier: one supported result runs reserve -> model -> settle, then
   // THE NORMALIZATION CONTRACT — every field the retired sample fabricated must come back honest,
   // not merely "different": exact values, not a shape check.
   const result = first.body.result as {
-    pillars: Record<string, { score: number | null; band: string | null; notAssessedReason?: string; flags: unknown[]; drills: unknown[] }>;
+    pillars: Record<string, { score: number | null; band: string | null; analysis?: string | null; notAssessedReason?: string; flags: unknown[]; drills: unknown[] }>;
     overall: { score: number | null; band: string | null };
   };
   assertEquals(result.pillars.posture.score, 78, 'a real assessed pillar is not touched');
+  assertEquals(result.pillars.posture.analysis?.startsWith('Observed: tall through mid-stance.'), true);
   assertEquals(result.pillars.posture.flags, [], 'Free strips flags even off a real, assessed pillar');
   assertEquals(result.pillars.posture.drills, [], 'Free strips drills even off a real, assessed pillar');
   assertEquals(result.pillars.armSwing.score, 66);
@@ -2399,11 +2404,13 @@ Deno.test('free tier: one supported result runs reserve -> model -> settle, then
   assertEquals(result.pillars.armSwing.drills, []);
   assertEquals(result.pillars.cadence.score, null, 'a one-frame submission can never carry a cadence figure');
   assertEquals(result.pillars.cadence.band, null);
+  assertEquals(result.pillars.cadence.analysis, null);
   assertEquals(result.pillars.cadence.notAssessedReason, 'needsVideo');
   assertEquals(result.pillars.cadence.flags, []);
   assertEquals(result.pillars.cadence.drills, []);
   assertEquals(result.pillars.elasticity.score, null, 'a one-frame submission can never carry a ground-contact comparison');
   assertEquals(result.pillars.elasticity.band, null);
+  assertEquals(result.pillars.elasticity.analysis, null);
   assertEquals(result.pillars.elasticity.notAssessedReason, 'needsVideo');
   assertEquals(result.pillars.elasticity.flags, []);
   assertEquals(result.pillars.elasticity.drills, []);
@@ -2691,6 +2698,8 @@ Deno.test('#89: a Free 5-frame stride burst keeps all four pillars, drops only p
         cadence: {
           ...scoredPillar(60, 'mid'),
           feedback: 'The foot lands ahead of the hips at contact.',
+          analysis:
+            'Observed: the foot lands ahead of the hips across the stride burst. Why it matters: braking can rise. Change: cue the foot down under you.',
           flags: [{ pattern: 'Overstriding', detail: 'Landing ahead of the hips.' }],
           drills: [{ name: 'Wall drill', instructions: 'Lean from the ankles.' }],
         },
@@ -2709,7 +2718,7 @@ Deno.test('#89: a Free 5-frame stride burst keeps all four pillars, drops only p
   const result = res.body.result as {
     pillars: Record<
       string,
-      { score: number | null; band: string | null; notAssessedReason?: string; flags: unknown[]; drills: unknown[] }
+      { score: number | null; band: string | null; analysis?: string | null; notAssessedReason?: string; flags: unknown[]; drills: unknown[] }
     >;
     overall: { score: number | null; band: string | null };
   };
@@ -2721,6 +2730,11 @@ Deno.test('#89: a Free 5-frame stride burst keeps all four pillars, drops only p
     assertEquals(result.pillars[id].drills, [], `${id}: drills are paid-tier content on Free`);
   }
   assertEquals(result.pillars.cadence.score, 60, 'the burst-scored Cadence is delivered as scored');
+  assertEquals(
+    result.pillars.cadence.analysis,
+    'Observed: the foot lands ahead of the hips across the stride burst. Why it matters: braking can rise. Change: cue the foot down under you.',
+    'Free keeps assessed analysis while paid flags and drills remain stripped'
+  );
   assertEquals(result.pillars.elasticity.score, 90, 'the burst-scored Elasticity is delivered as scored');
   // The rule where it is computed (`deriveOverall`): the mean of ASSESSED pillars only, rounded.
   assertEquals(result.overall, { score: 76, band: 'good' });
@@ -2843,6 +2857,44 @@ Deno.test('a certified safety note is carried STRUCTURALLY, never composed into 
   }
 });
 
+Deno.test('every not-assessed pillar has analysis forced to null, including multi-frame paid results', async () => {
+  const h = harness([
+    ok({
+      pillars: {
+        posture: {
+          score: null,
+          band: null,
+          feedback: 'The camera angle hides the trunk.',
+          analysis: 'Invented detail that must not survive without an assessment.',
+          notAssessedReason: 'angle',
+          safety: NO_SAFETY_SIGNAL,
+          flags: [],
+          drills: [],
+        },
+        armSwing: scoredPillar(72, 'good'),
+        cadence: scoredPillar(60, 'mid'),
+        elasticity: scoredPillar(90, 'strong'),
+      },
+      overall: { score: 74, band: 'good' },
+    }),
+  ]);
+  h.rpc.handlers.reserve_analysis = () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier: 'pro' },
+    error: null,
+  });
+
+  const res = await run(h, VIDEO_BODY);
+
+  assertEquals(res.status, 200);
+  const result = res.body.result as {
+    pillars: Record<string, { analysis?: string | null }>;
+    overall: { score: number | null; band: string | null };
+  };
+  assertEquals(result.pillars.posture.analysis, null);
+  assertEquals(result.overall, { score: 74, band: 'good' }, 'analysis nulling does not rewrite the model overall');
+  assertEquals(h.rpc.to('settle_analysis')[0].args.p_result, result);
+});
+
 Deno.test('a note the model ECHOES at the head of feedback is stripped from feedback, once, and only there', async () => {
   const note = 'The left leg cannot take even weight and you are guarding it. See someone before your next run.';
   const h = harness([
@@ -2850,8 +2902,9 @@ Deno.test('a note the model ECHOES at the head of feedback is stripped from feed
       pillars: {
         posture: pillarWithSafety('swellingLimpOrFavouringOneSide', note, {
           feedback: `${note}\n\n${SAFETY_FIXTURE_COACHING}`,
+          analysis: `${note}\n\nObserved: the supported mechanics remain readable. Why it matters: the coaching stays separate. Change: keep the supported cue.`,
         }),
-        armSwing: pillarWithSafety('sharpOrWorseningPain', note, { feedback: note }),
+        armSwing: pillarWithSafety('sharpOrWorseningPain', note, { feedback: note, analysis: note }),
         cadence: pillarWithSafety('achillesOrHeelCordPain', note, {
           feedback: `  ${note}   \n\n  ${SAFETY_FIXTURE_COACHING}`,
         }),
@@ -2871,14 +2924,19 @@ Deno.test('a note the model ECHOES at the head of feedback is stripped from feed
 
   assertEquals(res.status, 200);
   const result = res.body.result as {
-    pillars: Record<string, { feedback: string | null; safety?: { signal: string; note: string } | null }>;
+    pillars: Record<string, { feedback: string | null; analysis?: string | null; safety?: { signal: string; note: string } | null }>;
   };
 
   // Echo + coaching: the coaching survives alone, the note stays on the structured field.
   assertEquals(result.pillars.posture.feedback, SAFETY_FIXTURE_COACHING);
+  assertEquals(
+    result.pillars.posture.analysis,
+    'Observed: the supported mechanics remain readable. Why it matters: the coaching stays separate. Change: keep the supported cue.'
+  );
   assertEquals(result.pillars.posture.safety, { signal: 'swellingLimpOrFavouringOneSide', note });
   // Echo with nothing after it: no coaching is left, so feedback is null — never an empty string.
   assertEquals(result.pillars.armSwing.feedback, null);
+  assertEquals(result.pillars.armSwing.analysis, null);
   assertEquals(result.pillars.armSwing.safety, { signal: 'sharpOrWorseningPain', note });
   // Surrounding whitespace does not defeat the guard.
   assertEquals(result.pillars.cadence.feedback, SAFETY_FIXTURE_COACHING);
@@ -2889,8 +2947,10 @@ Deno.test('a note the model ECHOES at the head of feedback is stripped from feed
   // And it is what was PERSISTED, not just what was returned.
   const settled = h.rpc.to('settle_analysis')[0].args.p_result as typeof result;
   assertEquals(settled.pillars.posture.feedback, SAFETY_FIXTURE_COACHING);
+  assertEquals(settled.pillars.posture.analysis, result.pillars.posture.analysis);
   assertEquals(settled.pillars.posture.safety?.note, note);
   assertEquals(settled.pillars.armSwing.feedback, null);
+  assertEquals(settled.pillars.armSwing.analysis, null);
   assertEquals(settled.pillars.armSwing.safety?.note, note);
   assertEquals(settled, result);
 });
