@@ -5,6 +5,28 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-10-05 (result disclaimer folds; History's tab bar floats where Home's does)
+
+Two fixes from the captain's 2026-10-03 iPhone test, approach approved 2026-10-05.
+
+- **The result disclaimer is folded by default.** `components/result-disclaimer.tsx` now draws one
+  line — the new key `Copy.result.disclaimer.summary`, "This is not medical advice", beside a down
+  chevron (`ChevronDownIcon`, new in `components/ui/v23-icons.tsx`) — and a tap opens the full
+  `Copy.result.disclaimer.footer` beneath it, wording unchanged; a second tap folds it. It is one
+  button with its `expanded` state announced and its label set to the text it is showing, held to
+  the 44 pt hit target. The open/fold is `Motion.duration.expand` on the `move` curve (a height
+  clip plus a fade, so the Done button slides rather than jumps); reduced motion is instant. It
+  still mounts on every result, every tier (issue #68) — a new `handoff.test.tsx` case renders the
+  screen for each result fixture and finds it folded on all of them.
+- **History's tab bar now floats exactly where Home's does, in every state.** The navigator's
+  renderer (`app/(tabs)/_layout.tsx`'s `FloatingTabBar`) draws the bar on History too, instead of
+  returning `null` there; `app/(tabs)/history.tsx` no longer lays out V23-09's inline bar (as the
+  list footer, or pinned under the loading/error/empty column), so the bar no longer sits higher
+  than Home's or scrolls with the list. History pads its list content and centred column by the
+  bottom inset + the bar's 64 pt + 24 pt of air so the last row clears it. `V23TabBar` loses its
+  now-unused `mode` prop (floating only). The Maestro `clear-history` subflow taps
+  `tab-bar-home` (the navigator's bar) instead of `history-tab-bar-home`.
+
 ## 2026-10-01 (production deploy — pg_net moved out of `public`, #205)
 
 - **`20261001120000_pg_net_extensions_schema.sql` re-creates pg_net with `schema extensions`**,

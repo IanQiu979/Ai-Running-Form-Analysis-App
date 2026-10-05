@@ -33,8 +33,8 @@ app/
                           # (components/age-band-choice.tsx, 2026-09-20) plus a Terms + Privacy
                           # checkbox. See "Current — auth flow" below.
   (tabs)/_layout.tsx      # protected tabs (Home, History); mounts components/v23-tab-bar.tsx
-                          # through the navigator's `tabBar` slot — floating on Home, absent on
-                          # History (which lays the same bar out inline). See "Current — V23
+                          # through the navigator's `tabBar` slot — floating, at the same place
+                          # on both tabs (since 2026-10-05). See "Current — V23
                           # lane 2" below. Also hosts the one-time components/age-band-gate.tsx
                           # overlay for an OAuth-created account with no age band (2026-09-20).
   (tabs)/index.tsx        # Home — V23-07 since 2026-09-14 (recent analysis card, quota card, CTA,
@@ -78,8 +78,8 @@ components/              # result-disclaimer.tsx (2026-07-12, issue #68) and, si
                           # `<DeltaRing>` (`components/compare/delta-ring.tsx`) is deleted;
                           # `components/compare/pace-delta-panel.tsx` now draws a plain
                           # `<SquareCard>` row per pillar instead.
-  v23-tab-bar.tsx         # V23-07/09's tab bar: 64 pt, Home + History cells, floating
-                          # (translucent, blurred) or inline (opaque).
+  v23-tab-bar.tsx         # V23-07's tab bar: 64 pt, Home + History cells, floating
+                          # (translucent, blurred) — the inline variant went 2026-10-05.
   stride-hero.tsx         # V23-02 (2026-09-13): the entry hero's line-drawn runner and its four
                           # PACE callouts, evaluated once per frame on the UI thread from the pure
                           # geometry/timeline in lib/stride-hero.ts. Replaces the deleted
@@ -602,7 +602,9 @@ pure/client split as `ai-guard.ts`. 46 Deno tests.
   every note-conditional clause in the certified files is therefore inactive — otherwise a model
   trying to satisfy them can invent what the runner "reported".
 - **The disclaimer is not model output, deliberately.** It ships as a static footer
-  (`components/result-disclaimer.tsx`, #68) under **every** result, every tier — a stronger
+  (`components/result-disclaimer.tsx`, #68) under **every** result, every tier — folded since
+  2026-10-05 to the one line "This is not medical advice", which opens to the full text on a tap
+  (it still mounts on every result; folding only hides the paragraph) — a stronger
   guarantee than asking a model to remember it, since a static footer cannot be omitted, reworded,
   or hallucinated. The model's half is the *boundary* (never diagnose, never name a condition, never
   prescribe treatment), which is unconditional at every tier, plus an explicit instruction **not** to
@@ -1152,11 +1154,15 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   Home (absolute, bottom edge on the bottom inset, `Chrome.tabBar` over a 16 pt blur, `start`/`end`
   positioned — `components/__tests__/v23-tab-bar.test.tsx` asserts it on the rendered node's
   flattened style, and `app/(tabs)/__tests__/tab-layout.test.tsx` locks the renderer's bottom
-  inset and tab-press contract) and `null` on History, where `app/(tabs)/history.tsx` renders the same
-  `<V23TabBar mode="inline">` as the list footer or pinned under the empty/loading/error column
-  (the empty state is the centred `Type.h1` "No analyses yet" line plus one secondary line — the
-  boxed dashed card went 2026-09-20).
-  Home pads its ticker `Layout.tabBar.height + 30` above the inset so nothing sits under the bar.
+  inset, tab-press contract and identical placement on both tabs). Since 2026-10-05 (captain's
+  device test) the same floating bar sits over History too, in every state — V23-09's inline bar
+  (the list footer, or pinned under the empty/loading/error column) put it higher than Home's and
+  scrolled it with the list, so it went, and `V23TabBar` lost its `mode` prop with it. History
+  draws no bar of its own (the empty state is the centred `Type.h1` "No analyses yet" line plus
+  one secondary line — the boxed dashed card went 2026-09-20).
+  Home pads its ticker `Layout.tabBar.height + 30` above the inset so nothing sits under the bar;
+  History pads its list content and its centred column by the inset `+ Layout.tabBar.height +
+  Space.xl`.
 - **Home** (`app/(tabs)/index.tsx`, `components/home/recent-analysis.tsx`, `components/marquee.tsx`)
   and **History** (`app/(tabs)/history.tsx`, `components/history/history-row.tsx`) lead with the
   overall numeral (`Type.score` on Home, `Type.displayFigure` on a row) and the app's real band
@@ -1484,7 +1490,11 @@ M4/M5 own where they get hosted, and the three #68 checkboxes stay unticked unti
   write to `public.consents` failed. Its affirmative-act rule survives in
   `components/upload-consent-checkbox.tsx` and the sign-up submit gate.
 - **`components/result-disclaimer.tsx`** — the "not medical advice" footer, rendering
-  `result.disclaimer.footer` from the copy deck. 2 tests.
+  `result.disclaimer.footer` from the copy deck. Since 2026-10-05 it is a disclosure button: folded
+  to `result.disclaimer.summary` by default, opening to the unchanged `footer` on a tap and folding
+  on the next (`expanded` announced; `Motion.duration.expand` height-and-fade, instant under
+  reduced motion). Locked by `components/__tests__/result-disclaimer.test.tsx` and, for presence
+  on every result variant, `app/result/__tests__/handoff.test.tsx`.
 - **`constants/copy.ts`** gained the `consent.upload.*` keys (removed again 2026-09-20 with the
   gate; the sign-up wording now lives under `auth.consent.*`).
 - **`@testing-library/react-native`** added as a devDependency — a deliberate, narrow exception

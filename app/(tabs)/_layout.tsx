@@ -3,26 +3,26 @@
  * Explore tab stayed removed rather than left as dead scaffolding). History is a co-equal primary
  * surface with Home, not a rare pushed destination like Settings, so it belongs in the bar.
  *
- * V23 (2026-09-14, lane 2): the bar is now `components/v23-tab-bar.tsx` drawn by this file's own
+ * V23 (2026-09-14, lane 2): the bar is `components/v23-tab-bar.tsx` drawn by this file's own
  * `tabBar` renderer rather than React Navigation's stock `BottomTabBar` restyled through
- * `tabBarStyle`. Two reasons, both on the pages:
+ * `tabBarStyle` — square corners, `line` rule, a 22 pt line glyph over an 11/12 label, none of which
+ * the stock bar's `tabBarIcon`/`tabBarLabelStyle` slots compose the way the page composes them.
  *
- *   1. V23-07 draws the bar FLOATING over Home — absolute, its bottom edge on the bottom safe-area
- *      line, translucent over a backdrop blur — while V23-09 draws it INLINE at the end of
- *      History's scroll ("tab bar sits at the end of the scroll, not floating"). A stock bar is
- *      one or the other for every tab. So the navigator's bar renders on Home only, and History
- *      lays the same component out itself as the last item of its list.
- *   2. Square corners, `line` rule, a 22 pt line glyph over an 11/12 label — none of which the
- *      stock bar's `tabBarIcon`/`tabBarLabelStyle` slots compose the way the page composes them.
+ * ONE BAR, ONE PLACE, ON BOTH TABS (captain's 2026-10-03 device test, approved 2026-10-05).
+ * V23-07 draws the bar FLOATING over Home — absolute, its bottom edge on the bottom safe-area
+ * line, translucent over a backdrop blur. V23-09 drew it inline at the end of History's scroll,
+ * which put it at a different height on every History state and moved it with the list; the
+ * captain wants it where it is on Home. So this renderer now draws the same floating bar on both
+ * tabs — the position is literally one code path — and History pads its own content to clear it.
  *
- * `start`/`end` (not `left`/`right`) still position the floating bar, for the reason
+ * `start`/`end` (not `left`/`right`) position the floating bar, for the reason
  * components/__tests__/v23-tab-bar.test.tsx spells out — the property lives in the bar
  * component's own stylesheet, and that test asserts it on the rendered node. This file's own
- * renderer (bottom inset, History returning null, the tab-press contract) is locked by
+ * renderer (bottom inset, the same placement on both tabs, the tab-press contract) is locked by
  * app/(tabs)/__tests__/tab-layout.test.tsx.
  *
- * Every tab screen pads its own bottom to clear the floating bar (Home) or ends with the inline
- * bar (History); the navigator reserves no layout space for it.
+ * Every tab screen pads its own bottom to clear the floating bar; the navigator reserves no
+ * layout space for it.
  */
 import type { BottomTabBarProps } from 'expo-router/js-tabs';
 import { Tabs } from 'expo-router';
@@ -36,13 +36,11 @@ import { Layout } from '@/constants/v23-theme';
 
 const ROUTE_TO_TAB: Record<string, V23Tab> = { index: 'home', history: 'history' };
 
-/** The navigator's bar: V23-07's floating strip, mounted on Home only. */
+/** The navigator's bar: V23-07's floating strip, at the same place on Home and History. */
 export function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const focused = state.routes[state.index];
   const active = ROUTE_TO_TAB[focused.name] ?? 'home';
-  // History draws the bar inline itself (see this file's header) — nothing floats over it.
-  if (active === 'history') return null;
 
   function go(routeName: string) {
     const route = state.routes.find((candidate) => candidate.name === routeName);
@@ -59,7 +57,6 @@ export function FloatingTabBar({ state, navigation }: BottomTabBarProps) {
     <V23TabBar
       testID="tab-bar"
       active={active}
-      mode="floating"
       onPressHome={() => go('index')}
       onPressHistory={() => go('history')}
       style={{ bottom: Math.max(insets.bottom, Layout.canvas.safeBottom) }}

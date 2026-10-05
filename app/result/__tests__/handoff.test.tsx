@@ -16,7 +16,16 @@
 import { render, screen, waitFor } from '@testing-library/react-native';
 
 import { Copy } from '@/constants/copy';
-import { allNotAssessedResult, photoResult } from '@/lib/pace-fixtures';
+import {
+  allNotAssessedOutcome,
+  allNotAssessedResult,
+  fallbackOutcome,
+  freeTierOutcome,
+  photoOutcome,
+  photoResult,
+  poorFramingPhotoOutcome,
+  proTierOutcome,
+} from '@/lib/pace-fixtures';
 import { setPendingAnalysisResult } from '@/lib/pending-analysis-result';
 
 jest.mock('react-native-safe-area-context', () =>
@@ -127,6 +136,25 @@ it('draws the placeholder gradient and the vignette in the hero box when there i
   expect(screen.queryByTestId('result-hero-pending', HIDDEN)).toBeNull();
   // The readout card, the disclaimer and the Done control follow in the page's order.
   expect(screen.getByTestId('result-readout-card')).toBeTruthy();
-  expect(screen.getByTestId('result-disclaimer-text')).toBeTruthy();
+  expect(screen.getByTestId('result-disclaimer')).toBeTruthy();
   expect(screen.getByTestId('result-done').props.accessibilityLabel).toBe(Copy.result.cta.done);
+});
+
+// Issue #68: the disclaimer is on EVERY result, every tier — folding it (2026-10-05) must not
+// have made it conditional on anything the result carries.
+it.each([
+  ['a Pro video result', proTierOutcome, 'video'],
+  ['a Free video result', freeTierOutcome, 'video'],
+  ['a photo result', photoOutcome, 'photo'],
+  ['a poor-framing photo result', poorFramingPhotoOutcome, 'photo'],
+  ['a fallback result', fallbackOutcome, 'video'],
+  ['a zero-pillar result', allNotAssessedOutcome, 'video'],
+] as const)('renders the folded disclaimer on %s', async (_label, outcome, mediaType) => {
+  setPendingAnalysisResult({ analysisId: ANALYSIS_ID, outcome, mediaType });
+
+  await render(<ResultScreen />);
+
+  await waitFor(() => expect(screen.getByTestId('pace-readout')).toBeTruthy());
+  const disclaimer = screen.getByRole('button', { name: Copy.result.disclaimer.summary });
+  expect(disclaimer.props.accessibilityState).toEqual({ expanded: false });
 });

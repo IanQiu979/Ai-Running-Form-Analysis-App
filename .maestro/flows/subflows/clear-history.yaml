@@ -60,7 +60,8 @@ appId: com.ian.paceanalysisai
     visible: "No analyses yet" # history.empty.title
     timeout: 30000
 
-# History's inline tab bar (testID "history-tab-bar") -> back to Home, where the caller resumes.
+# The floating tab bar (app/(tabs)/_layout.tsx, testID "tab-bar" — the same bar, at the same
+# place, as on Home) -> back to Home, where the caller resumes.
 - tapOn:
-    id: "history-tab-bar-home"
+    id: "tab-bar-home"
 - assertVisible: "Start analysis" # home.cta.analyze
