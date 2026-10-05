@@ -13,3 +13,10 @@ jest.mock('expo-crypto', () => ({
   ...jest.requireActual('expo-crypto'),
   randomUUID: () => require('node:crypto').randomUUID(),
 }));
+
+// `lib/private-frame-image.ts` pins every rendered frame to this app's Supabase origin, read from
+// `EXPO_PUBLIC_SUPABASE_URL`. A worktree or CI run has no `.env`, so give the suite the origin
+// its signed-URL fixtures use. Only filled in when unset, so a real `.env` still wins.
+if (!process.env.EXPO_PUBLIC_SUPABASE_URL) {
+  process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://project.supabase.co';
+}

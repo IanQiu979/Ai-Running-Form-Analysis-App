@@ -98,9 +98,9 @@ beforeEach(() => {
   mockMaybeSingle.mockResolvedValue({ data: analysisRow(), error: null });
   mockBuildPendingAnalysisFrameSlots.mockImplementation((paths) => pendingSlots(paths));
   mockSignAnalysisFrames.mockResolvedValue([
-    { path: MEDIA_PATHS[0], uri: 'https://signed.example/frame-001', status: 'ready' },
+    { path: MEDIA_PATHS[0], uri: 'https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-001.jpg?token=token-001', status: 'ready' },
     { path: MEDIA_PATHS[1], uri: null, status: 'unavailable' },
-    { path: MEDIA_PATHS[2], uri: 'https://signed.example/frame-003', status: 'ready' },
+    { path: MEDIA_PATHS[2], uri: 'https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-003.jpg?token=token-003', status: 'ready' },
   ]);
 });
 
@@ -110,11 +110,11 @@ it('shows every stored frame in source order while a partial batch of signed URL
   await waitFor(() => expect(screen.getByTestId('analyzed-frames-strip')).toBeTruthy());
   expect(screen.getAllByTestId(/^analyzed-frame-slot-/)).toHaveLength(3);
   expect(screen.getByTestId('analyzed-frame-image-0').props.source[0].uri).toBe(
-    'https://signed.example/frame-001'
+    'https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-001.jpg?token=token-001'
   );
   expect(screen.getByTestId('analyzed-frame-unavailable-1')).toBeTruthy();
   expect(screen.getByTestId('analyzed-frame-image-2').props.source[0].uri).toBe(
-    'https://signed.example/frame-003'
+    'https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-003.jpg?token=token-003'
   );
   expect(mockBuildPendingAnalysisFrameSlots).toHaveBeenCalledWith(MEDIA_PATHS, USER_ID, ANALYSIS_ID);
   expect(mockSignAnalysisFrames).toHaveBeenCalledWith(MEDIA_PATHS, USER_ID, ANALYSIS_ID);
@@ -206,20 +206,38 @@ it('uses the first stored frame as the hero once it signs', async () => {
   await render(<ResultScreen />);
 
   await waitFor(() => expect(screen.getByTestId('result-hero-image')).toBeTruthy());
-  expect(screen.getByTestId('result-hero-image').props.nativeID).toBe('https://signed.example/frame-001');
+  expect(screen.getByTestId('result-hero-image').props.nativeID).toBe('https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-001.jpg?token=token-001');
 });
 
 it('falls through to the first frame that signed when the first one is unavailable', async () => {
   mockSignAnalysisFrames.mockResolvedValue([
     { path: MEDIA_PATHS[0], uri: null, status: 'unavailable' },
     { path: MEDIA_PATHS[1], uri: null, status: 'unavailable' },
-    { path: MEDIA_PATHS[2], uri: 'https://signed.example/frame-003', status: 'ready' },
+    { path: MEDIA_PATHS[2], uri: 'https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-003.jpg?token=token-003', status: 'ready' },
   ]);
 
   await render(<ResultScreen />);
 
   await waitFor(() => expect(screen.getByTestId('result-hero-image')).toBeTruthy());
-  expect(screen.getByTestId('result-hero-image').props.nativeID).toBe('https://signed.example/frame-003');
+  expect(screen.getByTestId('result-hero-image').props.nativeID).toBe('https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-003.jpg?token=token-003');
+});
+
+// `lib/private-frame-image.ts`: only a signed `media` link may become the hero.
+it('skips a ready frame whose URL is not a signed media link when picking the hero', async () => {
+  mockSignAnalysisFrames.mockResolvedValue([
+    {
+      path: MEDIA_PATHS[0],
+      uri: 'https://project.supabase.co/storage/v1/object/public/media/user/analysis/frame-001.jpg',
+      status: 'ready',
+    },
+    { path: MEDIA_PATHS[1], uri: null, status: 'unavailable' },
+    { path: MEDIA_PATHS[2], uri: null, status: 'unavailable' },
+  ]);
+
+  await render(<ResultScreen />);
+
+  await waitFor(() => expect(screen.getByTestId('result-hero-placeholder', { includeHiddenElements: true })).toBeTruthy());
+  expect(screen.queryByTestId('result-hero-image')).toBeNull();
 });
 
 it('holds the hero spinner while signing, then the placeholder when no frame signs', async () => {

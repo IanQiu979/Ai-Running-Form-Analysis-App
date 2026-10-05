@@ -2204,6 +2204,25 @@ milestone "done" criteria.
     request-id sequence) and re-raises the advisor WARN. If the sweep misbehaves instead, try
     `select net.worker_restart(); select net.wait_until_running();` first.
 
+54. **OPEN (low) — hero frames that pre-2026-10-05 builds loaded may still sit in a native HTTP or
+    image cache.** From 2026-07-27 (#159) until the shared private-frame cache policy
+    (`lib/private-frame-image.ts`, 2026-10-05), the result hero drew its frame through a
+    `react-native-svg` `<Image>`. That loads through React Native's own pipeline: `RCTImageLoader`
+    and the shared `NSURLCache` on iOS, Fresco's disk cache on Android. Frames are uploaded with
+    storage-js's default `Cache-Control: max-age=3600` (`supabase/functions/analyze-form/deps.ts`
+    sets no `cacheControl`), so those caches could store them. The hero now draws through
+    expo-image with no cache, and `purgePrivateFrameImageCaches()` clears expo-image's caches at
+    launch and on sign-out. Neither reaches `NSURLCache` or Fresco, and there is no JS API that
+    does. Leftover copies stay until the OS or the cache evicts them. They survive sign-out and
+    account deletion. Reading them needs access to the device sandbox. **Scope:** only
+    development builds and Expo Go sessions ever ran that renderer, because no store build has
+    shipped. **To close:** (a) a small native cleanup at launch (`NSURLCache.sharedURLCache
+    removeAllCachedResponses` on iOS, `Fresco.getImagePipeline().clearDiskCaches()` on Android,
+    via a local Expo module) that is verified on a dev build, or (b) record it as accepted because
+    no released build is affected. Separately, uploading frames with `cacheControl: 'no-store'` in
+    `analyze-form` would stop any HTTP cache from keeping them. That needs an edge-function
+    deploy, so it is not in this change.
+
 ## Next action
 
 **RESOLVED/REWRITTEN 2026-07-26 — this section described "Start Phase 2 — Capture (M2)" as the

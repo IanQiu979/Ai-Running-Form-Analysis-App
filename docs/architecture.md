@@ -149,6 +149,8 @@ lib/
   auth.ts
   session-provider.tsx    # session state + the signed-in route guard; also clears the outgoing
                           # user's in-memory Settings snapshot on sign-out or a direct account swap
+                          # and purges the private-frame image caches
+  private-frame-image.ts  # the one cache policy for stored frames (signed URLs, no image cache)
   settings-cache.ts       # per-user, in-memory Settings plan/consent display snapshots; never a
                           # business-rule source — see "Current — the Settings screen" below
   crypto-polyfill.ts
@@ -300,7 +302,13 @@ lib/
   auth.ts                 # current — browser OAuth (Google), PKCE code exchange
   session-provider.tsx    # current — session state + Stack.Protected guard source of truth; clears
                           # the outgoing user's Settings display snapshot on sign-out or direct
-                          # user replacement
+                          # user replacement, and purges expo-image's caches at launch and on
+                          # sign-out / user replacement (lib/private-frame-image.ts)
+  private-frame-image.ts  # current (2026-10-05) — THE one cache policy for drawing stored frames:
+                          # signed `media` URLs only, expo-image cachePolicy 'none', and
+                          # purgePrivateFrameImageCaches(). Rendered only through
+                          # components/private-frame-image.tsx. See "Current — media pipeline"
+                          # -> "Rendering stored frames" below.
   settings-cache.ts       # current (2026-10-05) — per-user in-memory plan/consent display
                           # snapshots for Settings; server reads remain authoritative
   crypto-polyfill.ts      # current — WebCrypto shim; see "Current — auth flow" below
@@ -1236,9 +1244,10 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
 - **Result** (`app/result/[id].tsx`, `components/pace-readout.tsx`, `pillar-detail-modal.tsx`,
   `partial-result-banner.tsx`, `result-disclaimer.tsx`, `duotone-frame.tsx`). The hero box is 3:4
   at full width and reaches the top of the device; `<DuotoneFrame>` draws the signed frame through
-  `react-native-svg`'s `Image` with an `FeColorMatrix type="saturate" values="0"` filter (the
-  page's "duotone grade" — greyscale, shadows washed toward `Ink.bg`) and a radial vignette sits
-  over it. The drawn annotation overlay (`components/annotation-lines.tsx` — a fixed ground rule,
+  `<PrivateFrameImage>` under a neutral `mixBlendMode: 'saturation'` layer (the page's "duotone
+  grade" — greyscale, shadows washed toward `Ink.bg`; not mounted below Android API 29, see
+  "Rendering stored frames" in "Current — media pipeline") and a radial vignette sits over it.
+  The drawn annotation overlay (`components/annotation-lines.tsx` — a fixed ground rule,
   dashed posture line and landing marker) was removed 2026-09-20 (captain's phone test: "completely
   removed"); the component and its tests are deleted, not just unmounted. The readout is the
   Overall block plus four nested `SquareCard` pillar rows with a 2 px
@@ -1254,8 +1263,9 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   Storage, and a per-frame, batch or thrown failure leaves that slot as a quiet placeholder rather
   than failing the result. The hero is the first frame that signed. A row with no frames renders no
   strip at all, and a soft-deleted row (`readAnalysisRow` now returns `'deleted'`) shows neither
-  result nor media, even over a fresh handoff. Every `expo-image` surface uses `cachePolicy="none"`,
-  so no frame is copied into the image cache. The screen's ready state is keyed by
+  result nor media, even over a fresh handoff. Every frame (hero, strip, viewer) draws through
+  `<PrivateFrameImage>` — cache policy in "Rendering stored frames" under "Current — media
+  pipeline". The screen's ready state is keyed by
   `{userId}:{analysisId}`, so a slow load never renders under a different account or route.
   On a fresh analysis the bars
   fill with `Motion.curve.move` over `Motion.duration.rise`, staggered `Motion.stagger.item`;
@@ -1976,7 +1986,40 @@ function was told to upload media it never receives).
   thumbnail twice. `lib/__tests__/frames.test.ts` locks both native-resource paths.
 - Past Analyses shows the stored frames as a frame strip via short-TTL (~1h, regenerated on
   open) signed URLs. The result screen does the same for its hero and its "Frames analyzed"
-  strip (`lib/result-frames.ts`, 2026-10-05), with no image caching.
+  strip (`lib/result-frames.ts`, 2026-10-05).
+- **Rendering stored frames — one cache policy (2026-10-05).** Every surface that draws a stored
+  frame goes through `components/private-frame-image.tsx` (`<PrivateFrameImage>`), whose source
+  and cache policy are fixed by `lib/private-frame-image.ts` and cannot be overridden by a prop:
+  - **Signed URLs only.** A source draws only if it is a Storage signed URL into `media` on the
+    app's own Supabase origin (`…/storage/v1/object/sign/media/…?token=…`). A public or authenticated-object URL, a local
+    file or a data URI draws nothing; History shows a placeholder cell, the strip an unavailable
+    slot, and the result hero the placeholder gradient.
+  - **No image cache.** expo-image `cachePolicy: 'none'` — nothing in memory or on disk. Signed
+    URLs carry a fresh token each time, so a URL-keyed cache could never be re-hit; it would only
+    keep body images on disk under keys that outlive the token, a deleted analysis and a signed-out
+    or deleted account. A revisit re-signs and re-downloads a few small JPEGs instead.
+  - **Purged on exit.** `purgePrivateFrameImageCaches()` empties expo-image's memory and disk
+    caches once per launch (removing frames earlier builds cached through History's
+    default-cached thumbnails), on `SIGNED_OUT` or a direct user switch
+    (`lib/session-provider.tsx`), and on delete-account success (`app/settings.tsx`). Clearing
+    expo-image wholesale is safe because nothing else in the app renders through it.
+  - **Surfaces:** History's three-cell deck (`components/history/history-row.tsx`), the result
+    hero (`components/duotone-frame.tsx`), and the result strip and its viewer
+    (`components/analyzed-frames-strip.tsx`). Compare and Home's recent-analysis card render no
+    frames. The entry flow's hero (`components/stride-hero.tsx`) is a line drawing computed from
+    `lib/stride-hero.ts`, not user media and not an image load, so the policy does not apply to
+    it; the app icon and splash are bundled assets. The result hero moved off a
+    `react-native-svg` `<Image>`, which loads through React Native's image pipeline (`NSURLCache` on iOS, Fresco's disk cache on
+    Android) with no opt-out. It now keeps its greyscale grade with a neutral
+    `mixBlendMode: 'saturation'` layer. Android applies blend modes only from API 29, so below
+    that the layer is not mounted (it would paint as an opaque sheet) and the frame shows in colour
+    under the same wash. Hero copies that older builds left in `NSURLCache` or Fresco are out of
+    expo-image's reach: `docs/status.md` Known Issue #54.
+  - **Origin pinned.** `isSignedPrivateFrameUrl` also requires the URL to start with
+    `EXPO_PUBLIC_SUPABASE_URL` and its path to be plain segments (no `.`/`..`, nothing
+    percent-encoded). `jest.setup.js` supplies that origin to the suite when no `.env` exists.
+    A purge that expo-image reports as not done (Android, no Activity attached) is retried once
+    on the next foreground.
 - Caps: max clip length 15s; max upload 50MB pre-compress; frames downscaled to ≤1568px long
   edge at JPEG q≈0.7 via `expo-image-manipulator`, targeting ~150–350KB/frame; total request
   body ≤5MB, enforced client-side and re-checked server-side.

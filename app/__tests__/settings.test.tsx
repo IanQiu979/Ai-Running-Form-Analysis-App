@@ -63,6 +63,11 @@ jest.mock('@/lib/sign-out', () => ({
   signOut: (...args: unknown[]) => mockSignOut(...args),
 }));
 
+const mockPurgePrivateFrameImageCaches = jest.fn(async () => true);
+jest.mock('@/lib/private-frame-image', () => ({
+  purgePrivateFrameImageCaches: () => mockPurgePrivateFrameImageCaches(),
+}));
+
 const mockSubmitDelete = jest.fn();
 const mockGetReauthProvider = jest.fn();
 const mockReauthWithGoogle = jest.fn();
@@ -668,6 +673,35 @@ describe('SettingsScreen session settings cache', () => {
       await waitFor(() => expect(getSettingsSnapshot('user-1')).toBeUndefined());
     }
   );
+
+  // `lib/private-frame-image.ts` rule 3: the deleted account's frames leave the image cache at
+  // once, even when sign-out waits on the orphans notice or fails locally.
+  it.each(['deleted', 'orphansRemaining'] as const)(
+    'purges the private frame image caches when the account is deleted (%s)',
+    async (outcome) => {
+      mockPurgePrivateFrameImageCaches.mockClear();
+      mockSubmitDelete.mockResolvedValue({ ok: true, data: { outcome } });
+      await renderSettled();
+      expect(mockPurgePrivateFrameImageCaches).not.toHaveBeenCalled();
+
+      await press(screen.getByRole('button', { name: 'Delete account' }));
+      await press(screen.getByRole('button', { name: 'Delete account and data' }));
+
+      await waitFor(() => expect(mockPurgePrivateFrameImageCaches).toHaveBeenCalledTimes(1));
+      if (outcome === 'orphansRemaining') expect(mockSignOut).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not purge the image caches when account deletion fails', async () => {
+    mockPurgePrivateFrameImageCaches.mockClear();
+    mockSubmitDelete.mockResolvedValue({ ok: false, error: { code: 'unknown', error: 'boom' } });
+    await renderSettled();
+
+    await press(screen.getByRole('button', { name: 'Delete account' }));
+    await press(screen.getByRole('button', { name: 'Delete account and data' }));
+
+    expect(mockPurgePrivateFrameImageCaches).not.toHaveBeenCalled();
+  });
 });
 
 describe('SettingsScreen dialogs (every Alert is now a <ConfirmDialog>)', () => {

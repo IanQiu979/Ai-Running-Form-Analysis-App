@@ -1,28 +1,88 @@
 /**
- * Locks the two rules that make DuotoneFrame safe on real bodies: the grade is a low-opacity
- * wash of the page's black, never a hue shift of the subject; and the frame always carries a
- * text alternative. The annotation marks and the vignette are the result screen's own layers
- * now, not this component's, so there is nothing about them to lock here.
+ * Locks the rules that make DuotoneFrame safe on real bodies: the frame draws under the app's one
+ * private-frame cache policy (signed URL, no image cache — `lib/private-frame-image.ts`), never
+ * through react-native-svg's disk-cached image pipeline; the grade is a greyscale blend plus a
+ * low-opacity wash of the page's black, never a hue shift of the subject; and the frame always
+ * carries a text alternative. The annotation marks and the vignette are the result screen's own
+ * layers now, not this component's, so there is nothing about them to lock here.
  */
 import { render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 
 import { DuotoneFrame } from '../duotone-frame';
 import { Ink } from '@/constants/v23-theme';
 
+const SIGNED =
+  'https://project.supabase.co/storage/v1/object/sign/media/user/analysis/frame-01.jpg?token=token-01';
+
 describe('DuotoneFrame', () => {
   it('renders the supplied image', async () => {
-    await render(<DuotoneFrame uri="file:///frame-01.jpg" accessibilityLabel="your running frame" testID="frame" />);
+    await render(<DuotoneFrame uri={SIGNED} accessibilityLabel="your running frame" testID="frame" />);
     expect(screen.getByTestId('frame')).toBeTruthy();
   });
 
   it('carries the text alternative the hero requires', async () => {
-    await render(<DuotoneFrame uri="file:///frame-01.jpg" accessibilityLabel="your running frame" testID="frame" />);
+    await render(<DuotoneFrame uri={SIGNED} accessibilityLabel="your running frame" testID="frame" />);
     expect(screen.getByLabelText('your running frame')).toBeTruthy();
   });
 
-  it('grades toward the page’s black with a light wash rather than recolouring the subject', async () => {
+  it('draws the frame through the private-frame cache policy', async () => {
+    await render(<DuotoneFrame uri={SIGNED} accessibilityLabel="your running frame" testID="frame" />);
+    const image = screen.getByTestId('frame-image', { includeHiddenElements: true });
+    expect(image.props.cachePolicy).toBe('none');
+    expect(image.props.source).toEqual([{ uri: SIGNED }]);
+  });
+
+  it('draws nothing for a frame URL that is not a signed media link', async () => {
     await render(<DuotoneFrame uri="file:///frame-01.jpg" accessibilityLabel="your running frame" testID="frame" />);
+    const image = screen.getByTestId('frame-image', { includeHiddenElements: true });
+    expect(image.props.source ?? []).toEqual([]);
+  });
+
+  it('desaturates with a neutral saturation-blend layer', async () => {
+    await render(<DuotoneFrame uri={SIGNED} accessibilityLabel="your running frame" testID="frame" />);
+    const layer = screen.getByTestId('frame-desaturate', { includeHiddenElements: true });
+    const style = StyleSheet.flatten(layer.props.style);
+    expect(style.mixBlendMode).toBe('saturation');
+    // A saturation blend only greys the photo when the blend colour itself has no saturation.
+    const [r, g, b] = [1, 3, 5].map((i) => style.backgroundColor.slice(i, i + 2));
+    expect(r).toBe(g);
+    expect(g).toBe(b);
+    expect(layer.props.accessibilityElementsHidden).toBe(true);
+  });
+
+  describe('on Android', () => {
+    const originalOS = Platform.OS;
+    const originalVersion = Platform.Version;
+    afterEach(() => {
+      Object.defineProperty(Platform, 'OS', { value: originalOS, configurable: true });
+      Object.defineProperty(Platform, 'Version', { value: originalVersion, configurable: true });
+    });
+
+    function setAndroidApi(version: number) {
+      Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
+      Object.defineProperty(Platform, 'Version', { value: version, configurable: true });
+    }
+
+    // Below API 29 `mixBlendMode` is ignored, so the layer would paint an opaque `Ink.bg` sheet
+    // over the runner instead of greying them.
+    it('does not mount the blend layer below API 29', async () => {
+      setAndroidApi(28);
+      await render(<DuotoneFrame uri={SIGNED} accessibilityLabel="your running frame" testID="frame" />);
+      expect(screen.queryByTestId('frame-desaturate', { includeHiddenElements: true })).toBeNull();
+      expect(screen.getByTestId('frame-image', { includeHiddenElements: true })).toBeTruthy();
+      expect(screen.getByTestId('frame-grade', { includeHiddenElements: true })).toBeTruthy();
+    });
+
+    it('mounts the blend layer from API 29', async () => {
+      setAndroidApi(29);
+      await render(<DuotoneFrame uri={SIGNED} accessibilityLabel="your running frame" testID="frame" />);
+      expect(screen.getByTestId('frame-desaturate', { includeHiddenElements: true })).toBeTruthy();
+    });
+  });
+
+  it('grades toward the page’s black with a light wash rather than recolouring the subject', async () => {
+    await render(<DuotoneFrame uri={SIGNED} accessibilityLabel="your running frame" testID="frame" />);
     const overlay = screen.getByTestId('frame-grade', { includeHiddenElements: true });
     const style = StyleSheet.flatten(overlay.props.style);
     expect(style.backgroundColor).toBe(Ink.bg);
@@ -32,7 +92,7 @@ describe('DuotoneFrame', () => {
   });
 
   it('draws no annotation marks of its own — those are the hero box’s layers', async () => {
-    await render(<DuotoneFrame uri="file:///frame-01.jpg" accessibilityLabel="frame" testID="frame" />);
+    await render(<DuotoneFrame uri={SIGNED} accessibilityLabel="frame" testID="frame" />);
     expect(screen.queryByTestId('frame-annotations-ground', { includeHiddenElements: true })).toBeNull();
   });
 });
