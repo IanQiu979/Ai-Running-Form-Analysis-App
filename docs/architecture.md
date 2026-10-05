@@ -1244,9 +1244,10 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
 - **Result** (`app/result/[id].tsx`, `components/pace-readout.tsx`, `pillar-detail-modal.tsx`,
   `partial-result-banner.tsx`, `result-disclaimer.tsx`, `duotone-frame.tsx`). The hero box is 3:4
   at full width and reaches the top of the device; `<DuotoneFrame>` draws the signed frame through
-  `react-native-svg`'s `Image` with an `FeColorMatrix type="saturate" values="0"` filter (the
-  page's "duotone grade" — greyscale, shadows washed toward `Ink.bg`) and a radial vignette sits
-  over it. The drawn annotation overlay (`components/annotation-lines.tsx` — a fixed ground rule,
+  `<PrivateFrameImage>` under a neutral `mixBlendMode: 'saturation'` layer (the page's "duotone
+  grade" — greyscale, shadows washed toward `Ink.bg`; not mounted below Android API 29, see
+  "Rendering stored frames" in "Current — media pipeline") and a radial vignette sits over it.
+  The drawn annotation overlay (`components/annotation-lines.tsx` — a fixed ground rule,
   dashed posture line and landing marker) was removed 2026-09-20 (captain's phone test: "completely
   removed"); the component and its tests are deleted, not just unmounted. The readout is the
   Overall block plus four nested `SquareCard` pillar rows with a 2 px
@@ -1262,8 +1263,9 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
   Storage, and a per-frame, batch or thrown failure leaves that slot as a quiet placeholder rather
   than failing the result. The hero is the first frame that signed. A row with no frames renders no
   strip at all, and a soft-deleted row (`readAnalysisRow` now returns `'deleted'`) shows neither
-  result nor media, even over a fresh handoff. Every `expo-image` surface uses `cachePolicy="none"`,
-  so no frame is copied into the image cache. The screen's ready state is keyed by
+  result nor media, even over a fresh handoff. Every frame (hero, strip, viewer) draws through
+  `<PrivateFrameImage>` — cache policy in "Rendering stored frames" under "Current — media
+  pipeline". The screen's ready state is keyed by
   `{userId}:{analysisId}`, so a slow load never renders under a different account or route.
   On a fresh analysis the bars
   fill with `Motion.curve.move` over `Motion.duration.rise`, staggered `Motion.stagger.item`;
@@ -2006,8 +2008,8 @@ function was told to upload media it never receives).
     (`components/analyzed-frames-strip.tsx`). Compare and Home's recent-analysis card render no
     frames. The entry flow's hero (`components/stride-hero.tsx`) is a line drawing computed from
     `lib/stride-hero.ts`, not user media and not an image load, so the policy does not apply to
-    it; the app icon and splash are bundled assets. The result hero moved off a `react-native-svg` `<Image>`, which
-    loads through React Native's image pipeline (`NSURLCache` on iOS, Fresco's disk cache on
+    it; the app icon and splash are bundled assets. The result hero moved off a
+    `react-native-svg` `<Image>`, which loads through React Native's image pipeline (`NSURLCache` on iOS, Fresco's disk cache on
     Android) with no opt-out. It now keeps its greyscale grade with a neutral
     `mixBlendMode: 'saturation'` layer. Android applies blend modes only from API 29, so below
     that the layer is not mounted (it would paint as an opaque sheet) and the frame shows in colour
