@@ -85,6 +85,17 @@ export function InfoIcon({ color = Ink.ink2, size = 18, testID }: IconProps) {
   );
 }
 
+/** The result disclaimer's disclosure chevron (2026-10-05). Not traced from a page — the pages
+ *  draw the disclaimer open — so it is drawn in the sheet's own idiom: one 1.4 stroke, no fill.
+ *  Points down; the disclaimer turns it to point up while open. 12 pt, `ink2`. */
+export function ChevronDownIcon({ color = Ink.ink2, size = 12, testID }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 12 12" fill="none" stroke={color} strokeWidth={1.4} testID={testID} {...HIDDEN}>
+      <Polyline points="2,4 6,8 10,4" />
+    </Svg>
+  );
+}
+
 /** The source picker's Upload badge: a landscape with a sun. 24 pt. */
 export function UploadIcon({ color = Ink.ink, size = 24, testID }: IconProps) {
   return (

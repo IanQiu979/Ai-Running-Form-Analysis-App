@@ -42,20 +42,11 @@ describe('<V23TabBar>', () => {
     expect(onPressHome).toHaveBeenCalledTimes(1);
   });
 
-  it('floats by default', async () => {
+  it('floats', async () => {
     await render(<V23TabBar active="history" onPressHome={() => {}} onPressHistory={() => {}} testID="bar" />);
     const floating = StyleSheet.flatten(screen.getByTestId('bar').props.style);
     expect(floating.position).toBe('absolute');
     expect(floating.height).toBe(Layout.tabBar.height);
-  });
-
-  it('lays out inline, opaque, when asked', async () => {
-    await render(
-      <V23TabBar active="history" mode="inline" onPressHome={() => {}} onPressHistory={() => {}} testID="bar" />
-    );
-    const inline = StyleSheet.flatten(screen.getByTestId('bar').props.style);
-    expect(inline.position).toBeUndefined();
-    expect(inline.backgroundColor).toBe(Ink.bgRaised);
   });
 });
 

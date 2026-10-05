@@ -15,15 +15,20 @@
  *     not drawn and a missing one is a placeholder cell, so every row keeps the same silhouette.
  *   - Delete goes through the page's `<ConfirmDialog>`, not a native `Alert`; the row leaves the
  *     list only after the server confirms, and a failed delete raises the one-button notice.
- *   - The inline tab bar is this screen's own (the navigator draws none on this tab), so it must
- *     be present in every state and its Home cell must navigate.
+ *   - The tab bar is NOT this screen's (since 2026-10-05 the navigator floats the same bar over
+ *     History as over Home — app/(tabs)/__tests__/tab-layout.test.tsx locks that placement), so
+ *     no state may draw a bar of its own inside the screen or the list, and every state must pad
+ *     its content clear of the floating one.
  *
  * Every press is wrapped in an awaited `act`: two bare `fireEvent.press` calls in one test leave
  * an act scope open under this Jest setup and the NEXT test renders an empty tree.
  */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
+import { StyleSheet } from 'react-native';
+
 import { Copy } from '@/constants/copy';
+import { Layout, Space } from '@/constants/v23-theme';
 import type { HistoryListItem } from '@/lib/history';
 
 import HistoryScreen from '../history';
@@ -127,6 +132,20 @@ function item(id: string, score: number | null): HistoryListItem {
   };
 }
 
+/** The safe-area mock reports a 0 inset, so the bar stands on the design canvas's 34 pt; content
+ *  stops 24 pt above the bar's top edge. */
+const BAR_CLEARANCE = Layout.canvas.safeBottom + Layout.tabBar.height + Space.xl;
+
+function paddingBottomOf(style: unknown) {
+  return (StyleSheet.flatten(style as never) as Record<string, unknown>).paddingBottom;
+}
+
+/** No state draws a bar of its own — the navigator's floating one is the only bar. */
+function expectNoOwnTabBar() {
+  expect(screen.queryByRole('tablist')).toBeNull();
+  expect(screen.queryByRole('tab', { name: Copy.home.title })).toBeNull();
+}
+
 describe('history render smoke', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -143,7 +162,8 @@ describe('history render smoke', () => {
     await render(<HistoryScreen />);
     expect(screen.getByTestId('history-loading', { includeHiddenElements: true })).toBeTruthy();
     expect(screen.getByText(Copy.history.loading)).toBeTruthy();
-    expect(screen.getByTestId('history-tab-bar')).toBeTruthy();
+    expectNoOwnTabBar();
+    expect(paddingBottomOf(screen.getByTestId('history-center').props.style)).toBe(BAR_CLEARANCE);
   });
 
   it('error', async () => {
@@ -151,7 +171,8 @@ describe('history render smoke', () => {
     await render(<HistoryScreen />);
     await waitFor(() => expect(screen.getByText(Copy.history.error.loadFailed)).toBeTruthy());
     expect(screen.getByText(Copy.history.error.retry)).toBeTruthy();
-    expect(screen.getByTestId('history-tab-bar')).toBeTruthy();
+    expectNoOwnTabBar();
+    expect(paddingBottomOf(screen.getByTestId('history-center').props.style)).toBe(BAR_CLEARANCE);
   });
 
   it('empty', async () => {
@@ -160,7 +181,8 @@ describe('history render smoke', () => {
     await waitFor(() => expect(screen.getByText(Copy.history.empty.title)).toBeTruthy());
     expect(screen.getByText(Copy.history.empty.body)).toBeTruthy();
     expect(screen.getByRole('button', { name: Copy.history.empty.cta })).toBeTruthy();
-    expect(screen.getByTestId('history-tab-bar')).toBeTruthy();
+    expectNoOwnTabBar();
+    expect(paddingBottomOf(screen.getByTestId('history-center').props.style)).toBe(BAR_CLEARANCE);
   });
 
   it('ready: rows, numerals, three-cell frame deck, delete, compare entry point', async () => {
@@ -180,12 +202,10 @@ describe('history render smoke', () => {
     expect(screen.getByTestId('history-frame-strip-a').props.children).toHaveLength(3);
     expect(screen.queryByTestId('history-frame-a-3')).toBeNull();
     expect(screen.queryByTestId('history-frame-placeholder-a-0')).toBeNull();
-    // the inline bar is the list's footer, with History selected.
-    const bar = screen.getByTestId('history-tab-bar');
-    expect(bar).toBeTruthy();
-    expect(screen.getByRole('tab', { name: Copy.history.title }).props.accessibilityState).toEqual({
-      selected: true,
-    });
+    // no bar in the list (it used to be the footer); the list's end clears the floating one.
+    expectNoOwnTabBar();
+    const list = screen.getByTestId('history-list');
+    expect(paddingBottomOf(list.props.contentContainerStyle)).toBe(BAR_CLEARANCE);
   });
 
   it('draws placeholder cells while a strip is still signing or comes back short', async () => {
@@ -196,18 +216,6 @@ describe('history render smoke', () => {
     expect(screen.getByTestId('history-frame-placeholder-a-1')).toBeTruthy();
     expect(screen.getByTestId('history-frame-placeholder-a-2')).toBeTruthy();
     expect(screen.getByTestId('history-frame-strip-a').props.children).toHaveLength(3);
-  });
-
-  it('routes the inline bar Home cell to the root route', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { router } = require('expo-router');
-    mockFetchHistoryList.mockResolvedValue([]);
-    await render(<HistoryScreen />);
-    await waitFor(() => expect(screen.getByTestId('history-tab-bar')).toBeTruthy());
-    await act(async () => {
-      fireEvent.press(screen.getByRole('tab', { name: Copy.home.title }));
-    });
-    expect(router.navigate).toHaveBeenCalledWith('/');
   });
 
   it('delete: confirms through the dialog, removes the row only after the server confirms', async () => {

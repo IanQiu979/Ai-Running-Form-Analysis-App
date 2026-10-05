@@ -1,7 +1,7 @@
 /**
- * The navigator's `tabBar` renderer (`app/(tabs)/_layout.tsx`): V23-07's floating strip on Home,
- * nothing on History (which lays the bar out inline itself), its bottom edge on the live safe-area
- * inset and never under the design canvas's 34 pt.
+ * The navigator's `tabBar` renderer (`app/(tabs)/_layout.tsx`): V23-07's floating strip, at the
+ * SAME place on Home and on History (captain's 2026-10-03 device test), its bottom edge on the
+ * live safe-area inset and never under the design canvas's 34 pt.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import type { BottomTabBarProps } from 'expo-router/js-tabs';
@@ -67,10 +67,34 @@ describe('FloatingTabBar', () => {
     expect(barStyle().bottom).toBe(48);
   });
 
-  it('renders nothing on History, which draws the bar inline itself', async () => {
-    await render(<FloatingTabBar {...props(1).bar} />);
+  it.each([0, 48])(
+    'floats on History exactly where it floats on Home (bottom inset %i)',
+    async (bottom) => {
+      insets.bottom = bottom;
+      await render(<FloatingTabBar {...props(0).bar} />);
+      const home = barStyle();
 
-    expect(screen.queryByTestId('tab-bar')).toBeNull();
+      await render(<FloatingTabBar {...props(1).bar} />);
+      const history = barStyle();
+
+      expect(history).toEqual(home);
+      expect(history.position).toBe('absolute');
+      expect(history.bottom).toBe(Math.max(bottom, Layout.canvas.safeBottom));
+      expect(history.start).toBe(Layout.tabBar.inset);
+      expect(history.end).toBe(Layout.tabBar.inset);
+    }
+  );
+
+  it('marks History selected on History and routes its Home cell home', async () => {
+    const { navigation, bar } = props(1);
+    await render(<FloatingTabBar {...bar} />);
+
+    expect(screen.getByRole('tab', { name: Copy.history.title }).props.accessibilityState).toEqual({ selected: true });
+    await act(async () => {
+      fireEvent.press(screen.getByRole('tab', { name: Copy.home.title }));
+    });
+    expect(navigation.emit).toHaveBeenCalledWith({ type: 'tabPress', target: 'index-key', canPreventDefault: true });
+    expect(navigation.navigate).toHaveBeenCalledWith('index', undefined);
   });
 
   it('emits tabPress and navigates to the other tab', async () => {

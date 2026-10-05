@@ -632,6 +632,10 @@ export const Copy = {
     // list — kept under `result` here to match the key's actual namespace.
     loadingFromHistory: 'Loading result…',
     disclaimer: {
+      // NEW key, not in the deck — captain's 2026-10-03 device test: the disclaimer folds to this
+      // one line and opens to `footer` on a tap (components/result-disclaimer.tsx). `footer`
+      // itself is unchanged; it leads with this same sentence.
+      summary: 'This is not medical advice',
       footer:
         'This is not medical advice. PACE assesses visible running form and flags movement patterns that research associates with elevated injury risk. It does not diagnose injuries or conditions. Form assessment from a photo or short video is an estimate, not a laboratory measurement. If you have pain, swelling or a persistent problem, or before making a significant change to how you run, consult a doctor or a qualified sports physiotherapist.',
     },

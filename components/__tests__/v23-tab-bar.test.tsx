@@ -14,13 +14,13 @@ import { StyleSheet } from 'react-native';
 
 import { V23TabBar } from '@/components/v23-tab-bar';
 import { Copy } from '@/constants/copy';
-import { Ink, Layout } from '@/constants/v23-theme';
+import { Layout } from '@/constants/v23-theme';
 
 function barStyle() {
   return StyleSheet.flatten(screen.getByTestId('tab-bar').props.style) as Record<string, unknown>;
 }
 
-describe('V23TabBar floating mode', () => {
+describe('V23TabBar placement', () => {
   it('is absolutely positioned and inset with start/end, never left/right', async () => {
     await render(<V23TabBar testID="tab-bar" active="home" onPressHome={() => {}} onPressHistory={() => {}} />);
 
@@ -38,20 +38,6 @@ describe('V23TabBar floating mode', () => {
     );
 
     expect(barStyle().bottom).toBe(48);
-  });
-});
-
-describe('V23TabBar inline mode', () => {
-  it('reserves layout space as an opaque strip — not absolute, not inset', async () => {
-    await render(
-      <V23TabBar testID="tab-bar" mode="inline" active="history" onPressHome={() => {}} onPressHistory={() => {}} />
-    );
-
-    const style = barStyle();
-    expect(style.position).toBeUndefined();
-    expect(style).not.toHaveProperty('start');
-    expect(style).not.toHaveProperty('end');
-    expect(style.backgroundColor).toBe(Ink.bgRaised);
   });
 });
 

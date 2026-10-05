@@ -41,8 +41,8 @@
  * own choice), not a `ScrollView` mapping every row eagerly.
  *
  * NOT A TAB SCREEN. Compare is a pushed root route reached from History's "Compare two analyses"
- * button, so — unlike `app/(tabs)/history.tsx` — it draws no `<V23TabBar>`; there is nothing for
- * this screen to lay the inline bar into.
+ * button, so — unlike the two tabs, over which the navigator floats `<V23TabBar>` — it has no tab
+ * bar.
  */
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

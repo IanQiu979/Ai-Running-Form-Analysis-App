@@ -17,11 +17,12 @@
  * covers the long-content case for free, because the list is a virtualized `FlatList`, not a
  * `ScrollView` mapping every row eagerly.
  *
- * THE TAB BAR IS PART OF THE SCROLL. The page says "tab bar sits at the end of the scroll, not
- * floating": the navigator (`app/(tabs)/_layout.tsx`) renders no bar on this tab, and this screen
- * lays the inline `<V23TabBar>` out itself — as the list's footer in the ready state, and pinned
- * under the centred column in the loading / error / empty states. So the list needs no bottom
- * clearance for a floating bar; the footer's own margin pays the bottom inset.
+ * THE TAB BAR FLOATS, EXACTLY WHERE IT FLOATS ON HOME. V23-09 laid the bar out inline at the end
+ * of this screen's scroll; the captain's 2026-10-03 device test found it sat higher than Home's and
+ * moved with the list, so since 2026-10-05 the navigator (`app/(tabs)/_layout.tsx`) draws the same
+ * floating bar over this tab as over Home, in every state. This screen draws no bar of its own; it
+ * only pads its content — the list's scroll and the centred loading / error / empty column — by
+ * `bottomClearance` so nothing ends up under the bar.
  *
  * NO BUSINESS LOGIC HERE (CLAUDE.md: "No business rules in the client"): this screen does not
  * decide which rows are deletable, does not compute a tier/quota gate on the list, and does not
@@ -42,7 +43,6 @@ import { SquareButton } from '@/components/ui/square-button';
 import { SquareIconButton } from '@/components/ui/square-icon-button';
 import { TopBar } from '@/components/ui/top-bar';
 import { SettingsIcon } from '@/components/ui/v23-icons';
-import { V23TabBar } from '@/components/v23-tab-bar';
 import { Copy } from '@/constants/copy';
 import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import {
@@ -84,10 +84,17 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
   const safeTop = Math.max(insets.top, Layout.canvas.safeTop);
   const safeBottom = Math.max(insets.bottom, Layout.canvas.safeBottom);
   const headerStyle = useMemo(() => [styles.header, { paddingTop: safeTop }], [safeTop]);
-  // Both bars pay the bottom inset themselves (the page's 34): the list's bar as the scroll's
-  // last item, the pinned bar as the column's last child.
-  const listBarStyle = useMemo(() => [styles.listBar, { marginBottom: safeBottom }], [safeBottom]);
-  const pinnedBarStyle = useMemo(() => [styles.pinnedBar, { marginBottom: safeBottom }], [safeBottom]);
+  // The navigator's floating tab bar stands on the bottom inset; content stops `Space.xl` above
+  // its top edge — the same 24 pt the inline bar used to keep from the rows and the centred column.
+  const bottomClearance = safeBottom + Layout.tabBar.height + Space.xl;
+  const listContentStyle = useMemo(
+    () => [styles.listContent, { paddingBottom: bottomClearance }],
+    [bottomClearance]
+  );
+  const centerBlockStyle = useMemo(
+    () => [styles.centerBlock, { paddingBottom: bottomClearance }],
+    [bottomClearance]
+  );
 
   const [state, setState] = useState<ScreenState>({ status: 'loading' });
   // Keyed by analysis id -> resolved frame-strip URLs. Separate from `state` so a thumbnail
@@ -226,21 +233,6 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
     router.push('/capture');
   }
 
-  function goHome() {
-    router.navigate('/');
-  }
-
-  const tabBar = (style: typeof listBarStyle | typeof pinnedBarStyle) => (
-    <V23TabBar
-      mode="inline"
-      active="history"
-      onPressHome={goHome}
-      onPressHistory={() => {}}
-      style={style}
-      testID="history-tab-bar"
-    />
-  );
-
   return (
     <View style={styles.screen}>
       {/* Page: `padding:59px 24px 0; gap:16px` — the chrome row (only the Settings control, at
@@ -264,46 +256,37 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
       </View>
 
       {state.status === 'loading' && (
-        <>
-          <View style={styles.centerBlock}>
-            {/* Not drawn on the page: the quietest faithful wait state — the same indicator
-                `SquareButton busy` uses, and a live-region caption that says what is happening. */}
-            <ActivityIndicator color={Ink.ink2} testID="history-loading" />
-            <Text style={styles.caption} accessibilityLiveRegion="polite">
-              {Copy.history.loading}
-            </Text>
-          </View>
-          {tabBar(pinnedBarStyle)}
-        </>
+        <View style={centerBlockStyle} testID="history-center">
+          {/* Not drawn on the page: the quietest faithful wait state — the same indicator
+              `SquareButton busy` uses, and a live-region caption that says what is happening. */}
+          <ActivityIndicator color={Ink.ink2} testID="history-loading" />
+          <Text style={styles.caption} accessibilityLiveRegion="polite">
+            {Copy.history.loading}
+          </Text>
+        </View>
       )}
 
       {state.status === 'error' && (
-        <>
-          <View style={styles.centerBlock}>
-            <Text style={styles.caption} accessibilityLiveRegion="polite">
-              {Copy.history.error.loadFailed}
-            </Text>
-            <SquareButton variant="link" label={Copy.history.error.retry} onPress={retry} />
-          </View>
-          {tabBar(pinnedBarStyle)}
-        </>
+        <View style={centerBlockStyle} testID="history-center">
+          <Text style={styles.caption} accessibilityLiveRegion="polite">
+            {Copy.history.error.loadFailed}
+          </Text>
+          <SquareButton variant="link" label={Copy.history.error.retry} onPress={retry} />
+        </View>
       )}
 
       {state.status === 'ready' && state.items.length === 0 && (
-        <>
-          <View style={styles.centerBlock}>
-            {/* Captain's 2026-09-20 polish pass: no boxed card — the title is the screen's single
-                centred focus, with its one secondary line beneath. */}
-            <Text style={styles.emptyTitle}>{Copy.history.empty.title}</Text>
-            <Text style={styles.emptyBody}>{Copy.history.empty.body}</Text>
-            {/* `secondary` (the 1 px `line` border), as the page draws it — `accent` is the one
-                primary CTA per screen and this is not it. */}
-            <View style={styles.emptyCta}>
-              <SquareButton variant="secondary" label={Copy.history.empty.cta} onPress={goAnalyze} />
-            </View>
+        <View style={centerBlockStyle} testID="history-center">
+          {/* Captain's 2026-09-20 polish pass: no boxed card — the title is the screen's single
+              centred focus, with its one secondary line beneath. */}
+          <Text style={styles.emptyTitle}>{Copy.history.empty.title}</Text>
+          <Text style={styles.emptyBody}>{Copy.history.empty.body}</Text>
+          {/* `secondary` (the 1 px `line` border), as the page draws it — `accent` is the one
+              primary CTA per screen and this is not it. */}
+          <View style={styles.emptyCta}>
+            <SquareButton variant="secondary" label={Copy.history.empty.cta} onPress={goAnalyze} />
           </View>
-          {tabBar(pinnedBarStyle)}
-        </>
+        </View>
       )}
 
       {state.status === 'ready' && state.items.length > 0 && (
@@ -311,7 +294,8 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
           data={state.items}
           keyExtractor={(item) => item.id}
           style={styles.list}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={listContentStyle}
+          testID="history-list"
           ListHeaderComponent={
             state.items.length >= 2 ? (
               // The Compare entry point. The page does not draw it, but it is live functionality
@@ -326,7 +310,6 @@ function HistoryScreenContent({ userId }: { userId: string | undefined }) {
               />
             ) : null
           }
-          ListFooterComponent={tabBar(listBarStyle)}
           renderItem={({ item }) => (
             <HistoryRow
               item={item}
@@ -414,24 +397,11 @@ const styles = StyleSheet.create({
   list: {
     flex: 1,
   },
-  // Page: `padding:24px 24px 0; gap:16px`. No bottom clearance — the bar is the last item.
+  // Page: `padding:24px 24px 0; gap:16px`. The bottom clears the floating tab bar, at the render
+  // site.
   listContent: {
     paddingTop: Space.xl,
     paddingHorizontal: Layout.gutter,
     gap: Space.lg,
-  },
-  // Page: the list's bar is `margin:24px -8px 34px`. The FlatList's own 16 pt `gap` already
-  // separates the last row from the footer, so the footer pays only the remaining 8 of the
-  // page's 24 (`Space.xl - Space.lg`). The -8 bleeds the bar past the 24 gutter so it sits 16
-  // from the edge (`Layout.tabBar.inset`), where Home's floating bar sits too. The bottom 34 is
-  // the live inset, applied at the render site.
-  listBar: {
-    marginTop: Space.xl - Space.lg,
-    marginHorizontal: -(Layout.gutter - Layout.tabBar.inset),
-  },
-  // Page (empty artboard): `margin:24px 16px 34px` under the centred column.
-  pinnedBar: {
-    marginTop: Space.xl,
-    marginHorizontal: Layout.tabBar.inset,
   },
 });
