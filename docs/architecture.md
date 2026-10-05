@@ -1042,8 +1042,8 @@ above is still what those screens are built on and both font sets load at startu
 - **Two primitives on those tokens:** `components/ui/square-button.tsx` (primary / secondary /
   link, 56 pt, square, `busy` spinner at the same height) and `components/ui/text-field.tsx`
   (56 pt input; `error` turns the border `danger` and draws the message beneath it).
-- **2026-10-05 reshape (captain's device test) — read this first; the bullets below describe the
-  2026-09-20 flow it changed.** The entry scroll is hero → the story's intro → the Get started
+- **2026-10-05 reshape (captain's device test) — read this first; the bullets below give the
+  detail that carried over from the 2026-09-20 flow.** The entry scroll is hero → the story's intro → the Get started
   form, every step a scroll and the same reveal on each; there is no "Get started" link and no
   push to `/sign-in` from it. The four pillar sections moved to the optional `app/(auth)/pillars.tsx`
   (same `<PillarStory>` sections, paged, tappable; Back and an end-of-story "Get started" both
@@ -1063,8 +1063,8 @@ above is still what those screens are built on and both font sets load at startu
   choice, the Terms line, the health-data / future-uploads row and the Turnstile step appear
   together on the first field focus and stay (visual only — every gate still reads the ticks).
   The eyebrow is gone. `docs/change_log.md` 2026-10-05 has the full list.
-- **The signed-out group walks hero → story → sign-in, and since 2026-09-20 the first two are one
-  scroll.** `app/(auth)/_layout.tsx` declares `welcome` / `sign-in` (plus the two password-reset
+- **The signed-out group: `welcome` (one scroll since 2026-09-20), the optional `pillars`, and
+  `sign-in`.** `app/(auth)/_layout.tsx` declares `welcome` / `pillars` / `sign-in` (plus the two password-reset
   screens; `welcome` is the initial route — never `index`, see `docs/change_log.md` 2026-09-13;
   the 2026-09-13 `details` route is deleted) with a 250 ms fade and
   paints its own card `Ink.bg`; `app/_layout.tsx` applies the same fade to the root Stack, so the
@@ -1073,11 +1073,12 @@ above is still what those screens are built on and both font sets load at startu
   is deleted — it would have drawn over the hero — as are the 2026-09-04
   `<StrideWireframeHero>` (`components/stride-wireframe-hero.tsx`, `lib/stride-wireframe.ts`),
   sign-in's "about" scroll content and `Copy.auth.wordmark` / `valueProp` / `about` /
-  `cta.email`. A returning signed-out user scrolls the whole flow: no tap until "Get started" at
-  its end, and no scroll until the hero has held (4 s).
-- **`app/(auth)/welcome.tsx` — the entry flow: hero, story, sign-up entry in one paged scroll
-  (2026-09-20, the captain's device-test decision).** A plain `ScrollView` with `pagingEnabled`;
-  every section is exactly the viewport tall (the scroll view's own measured height, the window's
+  `cta.email`. A returning signed-out user scrolls the whole flow: no tap until the form at its
+  end, and no scroll until the hero has held (4 s).
+- **`app/(auth)/welcome.tsx` — the entry flow: hero, intro, Get started in one snapping scroll
+  (2026-09-20, reshaped 2026-10-05).** A plain `ScrollView` snapping to the section tops (see the
+  reshape bullet above; `app/(auth)/pillars.tsx` is the one still `pagingEnabled`); every section
+  but Get started (`minHeight`) is exactly the viewport tall (the scroll view's own measured height, the window's
   until it reports), so a swipe lands on one section at a time. The scroll is `scrollEnabled`
   only once the hero has held, and the "Scroll down" cue (label over the pulsing chevron, at the
   live bottom inset) is mounted only then, fading in over `Motion.duration.storyFade` — the cue is
@@ -1098,13 +1099,14 @@ above is still what those screens are built on and both font sets load at startu
   2026-09-14). Reduced motion pins `t` at the end frame with the cue visible at once. The hero is
   one accessible image carrying one label (`Copy.entry.hero.a11yLabel`).
 - **`components/pillar-story.tsx` — the story (2026-09-20; replaces the V23-03 details page and
-  its 2×2 grid).** An intro section (the page's Display title, H2 sentence and its one paragraph
+  its 2×2 grid; split 2026-10-05 into `<StoryIntro>` for `welcome` and `<PillarStory>` for
+  `pillars`).** An intro section (the page's Display title, H2 sentence and its one paragraph
   — the "What it reads" label came off so a section holds at most three type sizes), then one
   screen-height section per pillar in `PACE_PILLARS` order: the pillar's `components/pillar-box.tsx`
   large and centred (side = 42 % of the section height, capped by the 345 pt column) with its
   one-line description beneath; "Tap a pillar for details" (`Copy.entry.details.hint`, `ink2`)
-  above the first box only; the link-variant "Get started" (`Copy.entry.details.cue`) pinned to
-  the end of the last section, pushing sign-in. Items mount at the first frame of `v23rise`
+  above the first box only; the link-variant "Get started" (`Copy.entry.pillars.backToStart`)
+  pinned to the end of the last section, going back to the form. Items mount at the first frame of `v23rise`
   (opacity 0, 12 pt low) and rise once their section is reached, over `Motion.duration.storyRise`
   (1000 ms) staggered `Motion.stagger.story` (120 ms) in reading order on the arrive curve —
   slower and further apart than the grid's 600 / 60 ms. An item mounting into an already-revealed
@@ -1116,7 +1118,9 @@ above is still what those screens are built on and both font sets load at startu
   open, since the card carries the same sentence. The box's own 2026-09-13 `delayMs` arrival
   is gone — the section owns the rise. The pillar copy's metric ranges are the pages'
   starting numbers, pending Ian's confirmation.
-- **`app/(auth)/sign-in.tsx` — V23-06, rebuilt on the same auth logic.** Eyebrow + Display title,
+- **The Get started form (`components/auth-form.tsx`, hosted by `welcome` and `app/(auth)/sign-in.tsx`
+  since 2026-10-05) — V23-06, rebuilt on the same auth logic.** Display title (the eyebrow came
+  off 2026-10-05),
   two `TextField`s with field-level errors (the `danger` artboard), primary / secondary
   `SquareButton`s, and a footer that flips modes; **sign-up is the default mode**. In sign-up
   mode the age choice (`components/age-band-choice.tsx`) and a 12 pt Terms + Privacy checkbox
@@ -1145,7 +1149,7 @@ above is still what those screens are built on and both font sets load at startu
   `Type.h1` + `SquareButton`s. `lib/analyzing-machine.ts` is untouched except
   `ANALYZING_STEP_KEYS = ['uploading', 'finding']`.
 - **Copy.** `Copy.entry.*` (hero and details) is the pages' wording verbatim and is not in
-  `docs/design/copy-deck.md`; `Copy.auth.eyebrow` / `title` / `consent.*` / `*.switchPrompt` /
+  `docs/design/copy-deck.md`; `Copy.auth.title` / `consent.*` / `*.switchPrompt` /
   `*.switchLink`, `Copy.analyzing.step.uploading` / `.finding` and `Copy.analyzing.done` are new.
   Deliberate deviations from the pages, flagged for the captain: "I am 16+" not "I'm 16+" (the
   tone rule; that line itself was replaced by `Copy.auth.ageBand.*` + an age-free agreement on
@@ -1964,7 +1968,7 @@ RLS.
 | `DELETE /functions/v1/analysis/:id` | JWT | — | `{ deleted: true, alreadyDeleted: boolean }` (also `{ deleted: true, orphansRemaining: true }`, issue #132) or `404 not_found` / `403 not_yours` / `409 in_progress` / `503 purge_failed` | **Built, Deno-tested, and DEPLOYED** (issue #57, 2026-07-12; confirmed live during this batch's 2026-07-13 verification — every earlier "not deployed" note about this function elsewhere in this doc and in `docs/status.md` was stale and is being corrected). `409 in_progress` (2026-09-06, not yet deployed) refuses a row still `'reserved'` with a model call in flight — deleting it then would refund spend; `lib/history.ts` surfaces that code and its retry-after-it-finishes message. Purges the Storage prefix first, then soft-deletes the row (never the reverse — a purge failure must never look like a successful delete); idempotent, always re-attempts the purge regardless of the row's current `deleted_at`. **Redeployed 2026-07-26 from the current repo code, so issue #132's second-purge/`orphans_remaining` behavior is now live** — that deploy also carried the shared-key parse fix (`docs/status.md` Known Issue #35). |
 | `POST /functions/v1/delete-account` | JWT | — | `200 { deleted: true, purgedObjectCount, consentEventsPurged }` (also `200` with `orphansRemaining: true` added — see below) or `503 { error, code }` for `purge_failed` / `rows_failed` / `auth_delete_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-07-26, verified live** (issue #58, 2026-07-13; response contract fixed post-review, same date; deployed with #128 — see `docs/status.md` Known Issue #35). The client (`lib/delete-account.ts`) has called the real function since PR #122 (2026-07-13, `docs/status.md` Known Issue #23), so the Settings flow reaches it end to end. See "Current" below. Ported from Echo V1's `delete-user/`, because `storage.objects` has no FK to `auth.users` and would otherwise orphan every object. Delete order: storage objects → rows → auth user. No id anywhere in the request: the only account it can delete is the JWT-verified caller's own. **`orphans_remaining` is a `200`, not an error** — by the time it fires, the account is already fully deleted, so there is nothing a non-2xx retry could fix; see "Current" below for the full status/body matrix. |
 | `POST /functions/v1/record-age-band` | JWT | `{ ageBand: '18_plus' \| '13_17', guardianConsent?: boolean }` | `200 { ageBand, guardianConsentRecorded }` or `400 { error, code }` for `invalid_body` / `age_band_required` / `guardian_consent_required`, `401 unauthorized`, `409 age_band_already_recorded`, `500 age_band_unavailable` | **Built, Deno-tested, and DEPLOYED to the live project 2026-09-21** (ships with `20260920120000_guardian_consent.sql`; `docs/auth-config-runbook.md` § 3, `docs/status.md` Known Issue #52). The one-time age choice for an OAuth-created account, called by `components/age-band-gate.tsx` via `lib/age-band.ts`; records for the JWT caller only, through the same service-role `pace_record_age_band` RPC `signup-with-captcha` uses, with the policy version stamped server-side. Write-once: a second call is a `409` and the app closes the gate by re-reading `profiles.age_band`. |
-| `POST /functions/v1/signup-with-captcha` | none (pre-auth) | `{ email, password, captchaToken, ageBand: '18_plus' \| '13_17', guardianConsent?: boolean }` | `200 { session, user }` or `400 { error, code }` for `invalid_body` / `age_band_required` / `guardian_consent_required` / `captcha_invalid` / `email_in_use` / `weak_password_length` / `weak_password_pwned` / `signup_failed`, or `500` for `signup_unavailable` / `no_session` / `age_band_record_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-08-03; the 2026-09-20 age-band revision (`ageBand`/`guardianConsent`, the three new codes) DEPLOYED 2026-09-21 — see "Current — `POST /functions/v1/signup-with-captcha`" below and `docs/auth-config-runbook.md` § 3** (issue #12/Known Issue #12 — see `docs/status.md`). Verifies a Cloudflare Turnstile token server-side, then — only if valid — creates the account. Until 2026-09-19 the deployed version proxied a plain `supabase.auth.signUp()` (publishable key). **Deployed 2026-09-19 as v12, hook enabled the same day (issue #48 residual; `docs/status.md` Known Issue #51):** `auth.admin.createUser` on the secret key + `signInWithPassword` on the publishable key, paired with the `before-user-created` hook that closes raw `/auth/v1/signup` — same wire contract; ordered deploy in `docs/auth-config-runbook.md` § 1. Either way GoTrue's own `minimum_password_length` is enforced unchanged — the admin API runs the same `checkPasswordStrength` (`password_hibp_enabled` is off since 2026-09-12, see "Current — Supabase config" below — `weak_password_pwned` would fire again if it's ever re-enabled). Replaces native `auth.captcha`, which was tried live and reverted the same day for gating sign-in too (project-wide, not per-endpoint). `app/(auth)/sign-in.tsx` calls this in sign-up mode only; sign-in calls `signInWithPassword` directly, untouched. |
+| `POST /functions/v1/signup-with-captcha` | none (pre-auth) | `{ email, password, captchaToken, ageBand: '18_plus' \| '13_17', guardianConsent?: boolean }` | `200 { session, user }` or `400 { error, code }` for `invalid_body` / `age_band_required` / `guardian_consent_required` / `captcha_invalid` / `email_in_use` / `weak_password_length` / `weak_password_pwned` / `signup_failed`, or `500` for `signup_unavailable` / `no_session` / `age_band_record_failed` | **Built, Deno-tested, and DEPLOYED to the live project 2026-08-03; the 2026-09-20 age-band revision (`ageBand`/`guardianConsent`, the three new codes) DEPLOYED 2026-09-21 — see "Current — `POST /functions/v1/signup-with-captcha`" below and `docs/auth-config-runbook.md` § 3** (issue #12/Known Issue #12 — see `docs/status.md`). Verifies a Cloudflare Turnstile token server-side, then — only if valid — creates the account. Until 2026-09-19 the deployed version proxied a plain `supabase.auth.signUp()` (publishable key). **Deployed 2026-09-19 as v12, hook enabled the same day (issue #48 residual; `docs/status.md` Known Issue #51):** `auth.admin.createUser` on the secret key + `signInWithPassword` on the publishable key, paired with the `before-user-created` hook that closes raw `/auth/v1/signup` — same wire contract; ordered deploy in `docs/auth-config-runbook.md` § 1. Either way GoTrue's own `minimum_password_length` is enforced unchanged — the admin API runs the same `checkPasswordStrength` (`password_hibp_enabled` is off since 2026-09-12, see "Current — Supabase config" below — `weak_password_pwned` would fire again if it's ever re-enabled). Replaces native `auth.captcha`, which was tried live and reverted the same day for gating sign-in too (project-wide, not per-endpoint). `components/auth-form.tsx` (the form `sign-in` hosts) calls this in sign-up mode only; sign-in calls `signInWithPassword` directly, untouched. |
 
 **Error contract**: every non-2xx response body is structured `{ error, code }`.
 `supabase.functions.invoke()` wraps non-2xx responses in a generic `FunctionsHttpError` whose
@@ -2892,8 +2896,9 @@ site key from `EXPO_PUBLIC_TURNSTILE_SITE_KEY`, hostname from the optional
 `null` when either half is unusable, which is what makes the screen show its honest "creating an
 account isn't available" notice instead of a challenge that can only fail. That file's header is the
 authoritative explanation of the whole failure mode.
-`app/(auth)/sign-in.tsx` renders it only in sign-up mode, disables the submit button until a token
-arrives, and calls `lib/signup-with-captcha.ts`'s `signUpWithCaptcha` instead of
+`components/auth-form.tsx` (the Get started form, hosted by `welcome` and `sign-in` since
+2026-10-05) renders it only in sign-up mode, once a field has been focused, disables the submit
+button until a token arrives, and calls `lib/signup-with-captcha.ts`'s `signUpWithCaptcha` instead of
 `supabase.auth.signUp` directly; on success it hydrates the on-device session via
 `supabase.auth.setSession` (`lib/session-provider.tsx`'s `onAuthStateChange` treats this
 identically to a session from `signInWithPassword` — no special-casing needed there). Turnstile
@@ -3879,8 +3884,9 @@ deleted with the component.
 Consent is collected ONCE, at account creation, on the same page as the account terms; there is
 no per-upload interstitial any more (captain's decision from device testing, 2026-09-20).
 
-- **Where.** Email: `app/(auth)/sign-in.tsx` in sign-up mode — the Terms + Privacy checkbox, the
-  `components/upload-consent-checkbox.tsx` row, and the age choice all gate Create account
+- **Where.** Email: `components/auth-form.tsx` in sign-up mode — the Terms + Privacy checkbox, the
+  `components/upload-consent-checkbox.tsx` row, and the age choice (drawn on the first field
+  focus since 2026-10-05, but gating whether drawn or not) all gate Create account
   alongside the captcha; the two consent rows are written right after `applySignupSession`.
   Google: the same two checkboxes gate "Continue with Google" BEFORE the browser round trip, and
   the rows are written on `components/age-band-gate.tsx`'s Continue (the first moment the account
