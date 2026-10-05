@@ -18,7 +18,7 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from '
 
 import { AuthForm } from '@/components/auth-form';
 import { ContentWidth } from '@/constants/theme';
-import { Ink, Layout, Motion } from '@/constants/v23-theme';
+import { Ink, Layout, Motion, Space } from '@/constants/v23-theme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 
 export default function SignInScreen() {
@@ -60,11 +60,12 @@ export default function SignInScreen() {
           contentContainerStyle={[
             styles.scrollContent,
             {
-              paddingTop: Math.max(insets.top, Layout.canvas.safeTop),
+              paddingTop: Math.max(insets.top, Layout.canvas.safeTop) + Space.xxl,
               paddingBottom: Math.max(insets.bottom, Layout.canvas.safeBottom),
             },
           ]}
-          keyboardShouldPersistTaps="handled">
+          keyboardShouldPersistTaps="handled"
+          testID="sign-in-scroll">
           <Animated.View style={arrivalStyle}>
             <AuthForm initialMode={params.mode === 'signIn' ? 'signIn' : 'signUp'} />
           </Animated.View>
@@ -89,12 +90,13 @@ const styles = StyleSheet.create({
   },
   // `flex` ONLY on the ScrollView's own style; child layout lives here. The readable column is
   // centred by `alignSelf` so an iPad does not stretch a phone form edge to edge (issue #63).
+  // Top-aligned, as on the entry scroll's Get started: centring would move the field the user
+  // just focused when the sign-up rows below it appear.
   scrollContent: {
     flexGrow: 1,
     width: '100%',
     maxWidth: ContentWidth.readable,
     alignSelf: 'center',
     paddingHorizontal: Layout.gutter,
-    justifyContent: 'center',
   },
 });

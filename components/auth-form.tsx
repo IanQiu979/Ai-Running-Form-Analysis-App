@@ -95,11 +95,15 @@ const FOOTER_PULL = -Space.sm;
 type AuthFormProps = {
   /** Sign-up unless the host knows the user already has an account (see `sign-in.tsx`). */
   initialMode?: AuthFormMode;
+  /** Whether an error may be announced to a screen reader. A host that draws the form off
+   *  screen (the entry scroll, before Get started is reached) passes false until it is in view;
+   *  the error the form is already showing is announced the moment this turns true. */
+  announceErrors?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
-export function AuthForm({ initialMode = 'signUp', style, testID }: AuthFormProps) {
+export function AuthForm({ initialMode = 'signUp', announceErrors = true, style, testID }: AuthFormProps) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -170,7 +174,7 @@ export function AuthForm({ initialMode = 'signUp', style, testID }: AuthFormProp
   // Issue #11: `accessibilityLiveRegion="polite"` on the error Text below is Android-only — a
   // no-op on iOS. This is the iOS-side complement, firing an explicit VoiceOver announcement
   // whenever the displayed error changes. Keep both; they're complementary, not alternatives.
-  useAnnounce(displayedError);
+  useAnnounce(announceErrors ? displayedError : null);
 
   // V23-06's error artboard puts the message under the field it is about. Only the purely
   // local validation strings (issue #17) name a field; a server answer, a captcha failure or a
@@ -415,7 +419,7 @@ export function AuthForm({ initialMode = 'signUp', style, testID }: AuthFormProp
           error={errorField === 'password' ? displayedError : null}
         />
         {displayedError !== null && errorField === 'form' && (
-          <Text style={styles.formError} accessibilityLiveRegion="polite">
+          <Text style={styles.formError} accessibilityLiveRegion={announceErrors ? 'polite' : 'none'}>
             {displayedError}
           </Text>
         )}

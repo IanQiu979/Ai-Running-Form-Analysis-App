@@ -150,6 +150,7 @@ export default function HeroScreen() {
         <GetStartedSection
           sectionHeight={sectionHeight}
           revealed={revealedCount > SECTION.getStarted}
+          announceErrors={reduceMotion || revealedCount > SECTION.getStarted}
           reduceMotion={reduceMotion}
         />
       </ScrollView>
@@ -180,10 +181,12 @@ function useKeyboardShown() {
 function GetStartedSection({
   sectionHeight,
   revealed,
+  announceErrors,
   reduceMotion,
 }: {
   sectionHeight: number;
   revealed: boolean;
+  announceErrors: boolean;
   reduceMotion: boolean;
 }) {
   const insets = useSafeAreaInsets();
@@ -199,7 +202,7 @@ function GetStartedSection({
       ]}
       testID="entry-get-started">
       <Reveal order={0} revealed={revealed} reduceMotion={reduceMotion} style={styles.form}>
-        <AuthForm testID="entry-get-started-form" />
+        <AuthForm announceErrors={announceErrors} testID="entry-get-started-form" />
       </Reveal>
     </View>
   );

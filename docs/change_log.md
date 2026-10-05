@@ -36,7 +36,13 @@ no schema, edge-function, consent-key or server-check change.
 - **The Get started form is one component, `components/auth-form.tsx`,** drawn in the entry
   scroll and by the standalone `/sign-in` route, which now only hosts it (scroll, keyboard
   avoidance, page rise) and still serves update-password's `?mode=signIn`, reset-password's way
-  back and every other navigation to it. Auth paths and every gate are unchanged.
+  back and every other navigation to it. Auth paths and every gate are unchanged. `/sign-in` is
+  now top-aligned like Get started, so the rows appearing on focus never move the focused field.
+- **A session or deep-link error is not announced off screen.** The form is mounted on every
+  signed-out launch, so `AuthForm` takes `announceErrors` (default true, so `/sign-in` is
+  unchanged): the entry scroll passes it only once Get started is reached (or at once under
+  reduced motion), gating both `useAnnounce` and the error's live region, and an error already on
+  screen is announced the moment it turns true. The visible text is unchanged.
 - **The empty sign-up form draws only its title, two fields and the actions.** The age choice
   (with the 13–17 guardian attestation), the Terms + Privacy line, the health-data /
   future-uploads row and the Turnstile step (or its no-key notice) appear together the first

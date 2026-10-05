@@ -11,7 +11,7 @@
  * under Jest (CLAUDE.md § Testing), so a rise is asserted at its first frame, never finished.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Keyboard, StyleSheet, TextInput } from 'react-native';
+import { AccessibilityInfo, Keyboard, Platform, StyleSheet, TextInput } from 'react-native';
 
 import { Copy } from '@/constants/copy';
 import { Motion } from '@/constants/v23-theme';
@@ -75,7 +75,7 @@ jest.mock('@/lib/session-provider', () => ({
   useSession: () => ({
     deepLinkAuthError: null,
     clearDeepLinkAuthError: jest.fn(),
-    corruptedSessionError: null,
+    corruptedSessionError: mockCorruptedSessionError,
     clearCorruptedSessionError: jest.fn(),
   }),
 }));
@@ -90,6 +90,9 @@ jest.mock('@/components/turnstile-widget', () => {
     }),
   };
 });
+
+/** What the mocked session context serves as `corruptedSessionError` — none unless a test sets it. */
+let mockCorruptedSessionError: string | null = null;
 
 const mockUseReducedMotion = jest.fn(() => false);
 jest.mock('@/hooks/use-reduced-motion', () => ({
@@ -131,6 +134,7 @@ beforeEach(() => {
   mockIntroProps.length = 0;
   mockGetStartedRevealed.length = 0;
   mockUseReducedMotion.mockReturnValue(false);
+  mockCorruptedSessionError = null;
 });
 
 describe('entry flow — animated', () => {
@@ -323,5 +327,43 @@ describe('entry flow — reduced motion', () => {
       fireEvent.press(screen.getByRole('button', { name: Copy.entry.pillars.open }));
     });
     expect(mockPush).toHaveBeenCalledWith('/pillars');
+  });
+});
+
+describe('entry flow — a session error waits for Get started to be in view', () => {
+  const originalOS = Platform.OS;
+  const ERROR = 'Your session could not be restored.';
+  let announce: jest.SpyInstance;
+
+  beforeEach(() => {
+    Platform.OS = 'ios';
+    announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    mockCorruptedSessionError = ERROR;
+  });
+
+  afterEach(() => {
+    Platform.OS = originalOS;
+    announce.mockRestore();
+  });
+
+  it('is not announced from the hero, and is announced once Get started is reached', async () => {
+    await render(<HeroScreen />);
+    await reachHold();
+    await act(async () => layoutScroll(H));
+
+    expect(screen.getByText(ERROR, hidden).props.accessibilityLiveRegion).toBe('none');
+    await scrollTo(H);
+    expect(announce).not.toHaveBeenCalled();
+
+    await scrollTo(H * 1.5);
+    expect(announce).toHaveBeenCalledWith(ERROR);
+    expect(screen.getByText(ERROR, hidden).props.accessibilityLiveRegion).toBe('polite');
+  });
+
+  it('is announced at once under reduced motion, where the form is already in place', async () => {
+    mockUseReducedMotion.mockReturnValue(true);
+    await render(<HeroScreen />);
+
+    expect(announce).toHaveBeenCalledWith(ERROR);
   });
 });

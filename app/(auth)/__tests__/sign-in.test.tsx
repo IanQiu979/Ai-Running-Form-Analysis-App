@@ -7,6 +7,7 @@
  * surfaces `Copy.auth.error.captchaExpired` on screen, in signUp mode, without a real WebView.
  */
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
 
 import { Copy } from '@/constants/copy';
 
@@ -17,8 +18,12 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockSearchParams,
 }));
 
+/** What the mocked session context serves as `corruptedSessionError` — none unless a test sets it. */
+let mockCorruptedSessionError: string | null = null;
+
 beforeEach(() => {
   mockSearchParams = {};
+  mockCorruptedSessionError = null;
 });
 
 jest.mock('react-native-safe-area-context', () =>
@@ -47,7 +52,7 @@ jest.mock('@/lib/session-provider', () => ({
   useSession: () => ({
     deepLinkAuthError: null,
     clearDeepLinkAuthError: jest.fn(),
-    corruptedSessionError: null,
+    corruptedSessionError: mockCorruptedSessionError,
     clearCorruptedSessionError: jest.fn(),
   }),
 }));
@@ -611,5 +616,33 @@ describe('sign-in screen: the pillar introductions link', () => {
     await fireEvent.press(view.getByRole('button', { name: Copy.auth.signIn.switchLink }));
     await waitFor(() => expect(view.getByRole('button', { name: Copy.auth.signIn.submit })).toBeTruthy());
     expect(view.queryByRole('button', { name: Copy.entry.pillars.open })).toBeNull();
+  });
+});
+
+describe('sign-in screen: layout and error announcement', () => {
+  const originalOS = Platform.OS;
+
+  afterEach(() => {
+    Platform.OS = originalOS;
+    jest.restoreAllMocks();
+  });
+
+  it('top-aligns the form, so revealing the sign-up rows never moves the focused field', async () => {
+    const view = await render(<SignInScreen />);
+
+    const content = StyleSheet.flatten(view.getByTestId('sign-in-scroll').props.contentContainerStyle);
+    expect(content.justifyContent ?? 'flex-start').toBe('flex-start');
+    expect(content.paddingTop).toBeGreaterThan(0);
+  });
+
+  it('still announces a session error at once, as a polite live region', async () => {
+    Platform.OS = 'ios';
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    mockCorruptedSessionError = 'Your session could not be restored.';
+
+    const view = await render(<SignInScreen />);
+
+    expect(announce).toHaveBeenCalledWith('Your session could not be restored.');
+    expect(view.getByText('Your session could not be restored.').props.accessibilityLiveRegion).toBe('polite');
   });
 });
