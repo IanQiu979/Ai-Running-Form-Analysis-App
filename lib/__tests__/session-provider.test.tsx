@@ -121,7 +121,7 @@ describe('SessionProvider auth-state routing', () => {
   });
 
   it('clears the signed-out user\'s settings snapshot', async () => {
-    const { result } = await renderHook(() => useSession(), { wrapper });
+    await renderHook(() => useSession(), { wrapper });
     await act(async () => {
       emit('SIGNED_IN', fakeSession('outgoing-user'));
     });
@@ -150,7 +150,7 @@ describe('SessionProvider auth-state routing', () => {
   });
 
   it('keeps the settings snapshot for an auth event from the same user', async () => {
-    const { result } = await renderHook(() => useSession(), { wrapper });
+    await renderHook(() => useSession(), { wrapper });
     await act(async () => {
       emit('SIGNED_IN', fakeSession('same-user'));
     });
