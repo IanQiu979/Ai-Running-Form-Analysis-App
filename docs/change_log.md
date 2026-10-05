@@ -117,6 +117,20 @@ Two fixes from the captain's 2026-10-03 iPhone test, approach approved 2026-10-0
   now-unused `mode` prop (floating only). The Maestro `clear-history` subflow taps
   `tab-bar-home` (the navigator's bar) instead of `history-tab-bar-home`.
 
+## 2026-10-05 (Settings keeps a session-scoped display snapshot)
+
+- **Settings now keeps its last successful plan and aggregate consent values in memory per signed-in
+  user** (`lib/settings-cache.ts`). On a later visit, cached rows render immediately while the
+  existing server-authoritative plan and consent reads quietly revalidate on every mount. A
+  successful refresh replaces the cached value — including granted → withdrawn or none — while a
+  failed refresh retains an available cached value without an error flash. With no cache, the
+  existing loading and error states remain.
+- **The snapshot is display-only and short-lived.** It does not persist and does not make client
+  code authoritative for tier, quota, consent, or any other business rule. A successful Settings
+  grant or withdrawal writes its consent result into the snapshot immediately; sign-out, a direct
+  authenticated account switch, and a confirmed account deletion clear the applicable user's
+  snapshot.
+
 ## 2026-10-01 (production deploy — pg_net moved out of `public`, #205)
 
 - **`20261001120000_pg_net_extensions_schema.sql` re-creates pg_net with `schema extensions`**,

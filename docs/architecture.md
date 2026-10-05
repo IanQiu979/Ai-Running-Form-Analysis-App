@@ -147,7 +147,10 @@ lib/
                           # (half a section on screen counts), pure and unit-tested
   supabase.ts             # the Supabase client — see "Current — auth flow" below
   auth.ts
-  session-provider.tsx
+  session-provider.tsx    # session state + the signed-in route guard; also clears the outgoing
+                          # user's in-memory Settings snapshot on sign-out or a direct account swap
+  settings-cache.ts       # per-user, in-memory Settings plan/consent display snapshots; never a
+                          # business-rule source — see "Current — the Settings screen" below
   crypto-polyfill.ts
   hibp.ts                 # client-side check (issue #70) — the control of record since
                           # server-side HIBP went off 2026-09-12, see "Current — Supabase config"
@@ -295,7 +298,11 @@ lib/
                           # caller should use this instead of calling `.invoke()` directly. See
                           # "API"'s Error contract below.
   auth.ts                 # current — browser OAuth (Google), PKCE code exchange
-  session-provider.tsx    # current — session state + Stack.Protected guard source of truth
+  session-provider.tsx    # current — session state + Stack.Protected guard source of truth; clears
+                          # the outgoing user's Settings display snapshot on sign-out or direct
+                          # user replacement
+  settings-cache.ts       # current (2026-10-05) — per-user in-memory plan/consent display
+                          # snapshots for Settings; server reads remain authoritative
   crypto-polyfill.ts      # current — WebCrypto shim; see "Current — auth flow" below
   hibp.ts                 # current (issue #70) — client-side HaveIBeenPwned leaked-password
                           # check via HIBP's keyless range API (only a 5-char hash prefix ever
@@ -438,6 +445,11 @@ lib/
   plain deep link; a module-level `Set` of already-exchanged codes stops the two listeners from
   racing to redeem the same code twice (a real Android double-delivery case, fixed in the M1
   code-review pass).
+- **Settings' display snapshot follows the session identity.** On an auth-state sign-out, or an
+  authenticated event that replaces one user with another, `SessionProvider` drops the outgoing
+  user's in-memory Settings snapshot. A token refresh for the same user keeps it. This only
+  isolates transient screen display state; it does not alter Supabase's session or authorization
+  rules.
 - **`lib/crypto-polyfill.ts` exists because Hermes has no WebCrypto.** Without it,
   `@supabase/auth-js`'s PKCE helper silently falls back from `S256` to the weaker `plain`
   challenge method (a `console.warn`, never a thrown error) — this was Echo V1's real root cause
@@ -3315,11 +3327,23 @@ of session. This screen hosts sign-out and account deletion; it must never be re
 | Concern | Where it lives | State today |
 |---|---|---|
 | Account (email) | `session.user.email` | Real. Falls back to an honest line when a provider returns no email, rather than rendering an empty row. |
-| Plan (tier) | `subscriptions` read, `status = 'active'` | Real, and **display-only** — read, never computed (CLAUDE.md: the client is never the authority on tier). Loading and error are real states; a failed read never silently renders "Free". |
+| Plan (tier) | Server-authoritative quota-status read + `lib/settings-cache.ts` | Real, and **display-only** — read, never computed (CLAUDE.md: the client is never the authority on tier). A later Settings visit can show the signed-in user's in-memory cached plan while its fresh server read resolves; without a cached plan, the existing loading/error states remain. |
 | Sign out | `lib/sign-out.ts` | Real, and correct against all three real outcomes — see below. |
 | Delete account | `lib/delete-account.ts` | Real client, calls the `delete-account` edge function through the shared `invokeFunction()` wrapper (`lib/functions-client.ts`, issue #46, 2026-07-13) rather than `supabase.functions.invoke` directly. ⚠️ The edge function it calls (#58/#121) is built but not yet merged/deployed — see below. |
-| Privacy disclosure + consent withdrawal | `lib/consent.ts` | Real. Restates the pre-upload disclosure (#68) and calls `withdrawConsent`, which had been built and waiting for a caller since #68. |
+| Privacy disclosure + consent state | `lib/consent.ts` + `lib/settings-cache.ts` | Real. Restates the pre-upload disclosure, reads the server-authoritative aggregate consent state, and can grant or withdraw consent. A later Settings visit can show the signed-in user's in-memory cached state while its fresh read resolves; without a cached state, the existing loading/error states remain. |
 | Privacy policy link | `constants/links.ts` (`PRIVACY_POLICY_URL`) | Real since 2026-09-19 (issue #202): the "Full privacy policy" row is a `link` that `Linking.openURL`s the published page. See below. |
+
+**Settings' in-memory display snapshot (2026-10-05).** `lib/settings-cache.ts` keeps an optional
+plan and aggregate consent state in a module-local `Map`, keyed by user ID. It is neither persisted
+nor consulted for entitlement, consent enforcement, or any other business rule. When Settings
+mounts, it initializes each available value from that user's snapshot so the plan and consent rows
+can render immediately, then quietly performs the same existing server-authoritative plan and
+consent reads on every mount. A successful read replaces that cached value, including a consent
+change from granted to withdrawn or none. A refresh failure leaves an already cached value visible
+without flashing an error; a cache miss still uses the ordinary loading then error UI. Successful
+in-Settings consent grants and withdrawals update the cached consent immediately. The snapshot is
+cleared when the user signs out, the authenticated account is directly replaced, or account deletion
+is confirmed successful, so one user's transient display state cannot appear for another.
 
 **`lib/sign-out.ts` — the issue #27 fix, made once, in its final home.** The bug: `signOut()` was
 fire-and-forget, so a failed **global** token revoke left server-side refresh tokens alive while the
