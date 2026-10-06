@@ -5,6 +5,22 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-10-06 (eval grader: #245's tracked residuals closed)
+
+- **`checkNoFalsePrecision` now fails the four constructed wordings #208 tracked as residuals.**
+  Eval-only: no app, prompt or edge-function behavior changed.
+  - A millisecond figure in a window phrase that is the complement of the contact's own duration
+    verb is a contact claim, not the evidence window. Examples: `Ground contact happens in a 240 ms
+    span`, `Each ground contact lasts across a 250 ms window`. The override applies only to figures
+    under 500 ms, which a ground contact could physically last. A ~700 ms window stays exempt
+    whatever verb it hangs off.
+  - A prescription no longer carries across a colon into a clause that states the present rate
+    with its own subject and verb (`Cadence should come up: right now it is about 158 spm`).
+    `Target: roughly 170 spm` and `Goal: a rate that is about 170 spm` still pass.
+- Neither rule keys on negation words. Every existing corpus row and all 14 real recorded
+  results keep their verdicts. The corpus gains 11 rows: the four residuals, a variant of the
+  colon case, and six refusal or prescription wordings that must stay passing.
+
 ## 2026-10-05 (one cache policy for every stored frame)
 
 - **Every stored frame now renders under one cache policy** (`lib/private-frame-image.ts`, drawn

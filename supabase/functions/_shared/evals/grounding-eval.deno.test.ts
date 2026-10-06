@@ -835,6 +835,23 @@ const FALSE_PRECISION_CORPUS: CorpusRow[] = [
   { origin: 'review: a refusal that names the evidence or the runner', text: 'Ground contact cannot be judged here from a ~700 ms window.', expect: 'pass' },
   { origin: 'review: a refusal that names the evidence or the runner', text: 'Your ground contact cannot be timed from a ~700 ms window.', expect: 'pass' },
   { origin: 'review: a refusal that names the evidence or the runner', text: 'I cannot time your ground contact from a ~700 ms burst.', expect: 'pass' },
+
+  // ── #245: the residuals #208 tracked instead of patching ─────────────────────────────────
+  // A window phrase that is the complement of the contact's OWN duration verb ("ground contact
+  // happens in…", "lasts across…") is the contact's span, not the evidence window it is timed from.
+  { origin: '#245 residual: the contact occupies the span', text: 'Ground contact happens in a 240 ms span.', expect: 'fail', fails: ['240 ms'] },
+  { origin: '#245 residual: the contact occupies the span', text: 'Each ground contact lasts across a 250 ms window.', expect: 'fail', fails: ['250 ms'] },
+  { origin: '#245 residual: the contact occupies the span', text: 'Your ground contact happens in a 240 ms span.', expect: 'fail', fails: ['240 ms'] },
+  { origin: '#245: an evidence window whose own clause has a different subject stays exempt', text: 'Ground contact cannot be timed because the frames are from a ~700 ms burst.', expect: 'pass' },
+  { origin: '#245: an evidence window whose own clause has a different subject stays exempt', text: 'Ground contact in a ~700 ms window cannot be timed.', expect: 'pass' },
+  { origin: '#245: an evidence window whose own clause has a different subject stays exempt', text: 'Ground contact is not visible in a ~700 ms window.', expect: 'pass' },
+  { origin: '#245: a figure no contact could last is the window, whatever verb it hangs off', text: 'Ground contact occurs in a ~700 ms window that is too short to time it.', expect: 'pass' },
+  // A colon carries a prescription into the content it introduces, not into a full clause that
+  // states the present rate.
+  { origin: '#245 residual: a colon does not carry a prescription into a statement', text: 'Cadence should come up: right now it is about 158 spm.', expect: 'fail', fails: ['158 spm'] },
+  { origin: '#245 residual: a colon does not carry a prescription into a statement', text: 'Cadence should come up: currently your rate is about 158 spm.', expect: 'fail', fails: ['158 spm'] },
+  { origin: '#245: a colon still carries a prescription into its content', text: 'Cadence should come up: roughly 170 spm is a sensible next step.', expect: 'pass' },
+  { origin: '#245: a colon still carries a prescription into its content', text: 'Goal: a rate that is about 170 spm.', expect: 'pass' },
 ];
 
 Deno.test('#208: every case in the false-precision regression corpus', () => {
