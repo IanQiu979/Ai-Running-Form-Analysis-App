@@ -154,8 +154,14 @@ export interface PaceFrameSet {
 }
 
 /** Called after each frame finishes re-encoding, e.g. to drive a progress bar while the single
- * batch `generateThumbnailsAsync` result is downscaled and saved one frame at a time. */
-export type FrameExtractionProgress = (framesDone: number, framesTotal: number) => void;
+ * batch `generateThumbnailsAsync` result is downscaled and saved one frame at a time.
+ *
+ * `frame` is the frame that step ACCEPTED, or `null` when it was skipped as a collision (see
+ * `extractVideoFrames`) — so a caller can show the runner's real frames as they land
+ * (`app/capture/extracting.tsx`, 2026-10-06) without ever drawing one the final set dropped. The
+ * frames reported here are exactly, and in the same order as, the `PaceFrameSet.frames` the call
+ * resolves with, unless the call then rejects. */
+export type FrameExtractionProgress = (framesDone: number, framesTotal: number, frame: PaceFrame | null) => void;
 
 /**
  * Thrown by `extractFrames` when the fully-extracted frame set would exceed
@@ -371,8 +377,9 @@ async function extractPhotoFrame(
   onProgress?: FrameExtractionProgress,
 ): Promise<PaceFrame[]> {
   const base64 = await downscaleToJpegBase64(input.uri, input.width, input.height);
-  onProgress?.(1, 1);
-  return [{ base64, timestampMs: 0 }];
+  const frame: PaceFrame = { base64, timestampMs: 0 };
+  onProgress?.(1, 1, frame);
+  return [frame];
 }
 
 /**
@@ -487,7 +494,7 @@ async function extractVideoFrames(
 
         settledCount++;
         thumbnail.release();
-        onProgress?.(settledCount, thumbnails.length);
+        onProgress?.(settledCount, thumbnails.length, accepted);
       }
     } finally {
       for (let j = settledCount; j < thumbnails.length; j++) {

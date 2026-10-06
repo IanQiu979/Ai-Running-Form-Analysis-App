@@ -4,7 +4,9 @@
  * `<PrivateFrameImage>` (`components/private-frame-image.tsx`), which reads its whole policy from
  * this file. As of 2026-10-05 those surfaces are: History's three-cell frame deck, the result
  * screen's hero (via `<DuotoneFrame>`), and the result screen's "Frames analyzed" strip and its
- * full-screen viewer. Compare and Home's recent-analysis card render no frames, and the entry
+ * full-screen viewer. Since 2026-10-06 the Preparing and Analysing screens draw the frames that
+ * have not left the device yet, through `<DeviceFrameImage>` (`deviceFrameSource` below) under the
+ * same cache policy. Compare and Home's recent-analysis card render no frames, and the entry
  * flow's hero (`components/stride-hero.tsx`) is a computed line drawing, not user media.
  *
  * THE POLICY:
@@ -90,6 +92,26 @@ export function isSignedPrivateFrameUrl(uri: unknown): uri is string {
  *  signed `media` URL. */
 export function privateFrameSource(uri: string | null | undefined): { uri: string } | null {
   return isSignedPrivateFrameUrl(uri) ? { uri } : null;
+}
+
+/** A raw base64 JPEG as `lib/frames.ts` produces it: the base64 alphabet only, no `data:`
+ *  prefix, no whitespace. */
+const DEVICE_FRAME_BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * The expo-image `source` for a frame that has NOT left the device yet — the Preparing and
+ * Analysing screens' thumbnails, drawn from the in-memory `PaceFrame.base64` that
+ * `lib/frames.ts` extracted (2026-10-06). Rule 1's signed-URL check cannot apply to a frame that
+ * has no URL: this is the one other kind of source a private frame may have, and it is built
+ * here, from bytes, so no caller can pass a `file://`, a remote URL or a ready-made `data:` URI of
+ * its own. It is rendered under the SAME `PRIVATE_FRAME_CACHE_POLICY` (rule 2), so the bytes are
+ * decoded for display and never written to expo-image's memory or disk cache. `null` (draws
+ * nothing) for anything that is not plain base64.
+ */
+export function deviceFrameSource(base64: string | null | undefined): { uri: string } | null {
+  return typeof base64 === 'string' && base64.length > 0 && DEVICE_FRAME_BASE64.test(base64)
+    ? { uri: `data:image/jpeg;base64,${base64}` }
+    : null;
 }
 
 /**

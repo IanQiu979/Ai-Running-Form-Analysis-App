@@ -35,7 +35,8 @@
  * ornament in a corner.
  *
  * What was actually load-bearing in the retired `Arc` token — the geometry a score fill is swept
- * over — survives as `Meter` and is drawn by `<ArcRing>`. Nothing that carried meaning was
+ * over — survives as `Meter` (its ring primitive, `<ArcRing>`, was deleted 2026-10-06 with no
+ * caller left). Nothing that carried meaning was
  * deleted here; a decoration was. If a screen ever needs something in that corner again, it should
  * be something that MEASURES, not something that decorates.
  */

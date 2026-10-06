@@ -39,6 +39,46 @@ describe('DuotoneFrame', () => {
     expect(image.props.source ?? []).toEqual([]);
   });
 
+  // Preparing / Analysing (2026-10-06): a frame that has not left the device yet draws from its
+  // in-memory bytes. `<PrivateFrameImage>` refuses any `data:` URI, so a data-URI source on the
+  // image node is only reachable through `<DeviceFrameImage>`.
+  describe('a frame still on the device (deviceBase64)', () => {
+    const B64 = '/9j/4AAQSkZJRgABAQAAAQABAAD+abc=';
+
+    it('draws the bytes through the device-frame source under the same no-cache policy', async () => {
+      await render(<DuotoneFrame deviceBase64={B64} accessibilityLabel="Frame 2 of 5" testID="frame" />);
+      const image = screen.getByTestId('frame-image', { includeHiddenElements: true });
+      expect(image.props.source).toEqual([{ uri: `data:image/jpeg;base64,${B64}` }]);
+      expect(image.props.cachePolicy).toBe('none');
+    });
+
+    it('carries the text alternative', async () => {
+      await render(<DuotoneFrame deviceBase64={B64} accessibilityLabel="Frame 2 of 5" testID="frame" />);
+      expect(screen.getByLabelText('Frame 2 of 5')).toBeTruthy();
+    });
+
+    it('draws nothing for device bytes that are not plain base64', async () => {
+      await render(
+        <DuotoneFrame deviceBase64={SIGNED} accessibilityLabel="Frame 2 of 5" testID="frame" />
+      );
+      const image = screen.getByTestId('frame-image', { includeHiddenElements: true });
+      expect(image.props.source ?? []).toEqual([]);
+    });
+
+    it.each(['cover', 'contain'] as const)('passes contentFit="%s" through to the image', async (fit) => {
+      await render(
+        <DuotoneFrame deviceBase64={B64} contentFit={fit} accessibilityLabel="Frame 2 of 5" testID="frame" />
+      );
+      const image = screen.getByTestId('frame-image', { includeHiddenElements: true });
+      expect(image.props.contentFit).toBe(fit);
+    });
+  });
+
+  it('passes contentFit through for a stored frame too, defaulting to cover', async () => {
+    await render(<DuotoneFrame uri={SIGNED} accessibilityLabel="your running frame" testID="frame" />);
+    expect(screen.getByTestId('frame-image', { includeHiddenElements: true }).props.contentFit).toBe('cover');
+  });
+
   it('desaturates with a neutral saturation-blend layer', async () => {
     await render(<DuotoneFrame uri={SIGNED} accessibilityLabel="your running frame" testID="frame" />);
     const layer = screen.getByTestId('frame-desaturate', { includeHiddenElements: true });

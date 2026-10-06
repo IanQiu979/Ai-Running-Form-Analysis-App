@@ -411,11 +411,16 @@ export const analyzeFormClient: AnalyzeFormClient = createAnalyzeFormClient();
 // module holding one piece of state," not a library — this follows the same shape.
 // -------------------------------------------------------------------------------------------
 
-let pendingRequest: AnalyzeFormRequest | null = null;
+let pendingRequest: { request: AnalyzeFormRequest; ownerUserId: string } | null = null;
 
-/** Called by the capture/upload flow (#36) immediately before navigating to `/analyzing`. */
-export function setPendingAnalyzeFormRequest(request: AnalyzeFormRequest): void {
-  pendingRequest = request;
+/**
+ * Called by the capture/upload flow (#36) immediately before navigating to `/analyzing`, and by
+ * Home when it resumes a session-expired analysis (`lib/resumable-analysis.ts`). Bound to the user
+ * the request was built for (2026-10-06): the mailbox outlives a navigation that fails to happen,
+ * and a request staged for one account must never be taken under another account's session.
+ */
+export function setPendingAnalyzeFormRequest(request: AnalyzeFormRequest, ownerUserId: string): void {
+  pendingRequest = { request, ownerUserId };
 }
 
 /**
@@ -426,9 +431,17 @@ export function setPendingAnalyzeFormRequest(request: AnalyzeFormRequest): void 
  * looks like from here. Recovering THAT case is issue #64's job, not this screen's; see
  * `app/analyzing.tsx`'s handling of a `null` request, which just backs out rather than pretending
  * to still be waiting on a promise that no longer exists.
+ *
+ * Also `null` — and the request dropped — when `currentUserId` is not the user it was staged for.
  */
-export function takePendingAnalyzeFormRequest(): AnalyzeFormRequest | null {
-  const request = pendingRequest;
+export function takePendingAnalyzeFormRequest(currentUserId: string | null | undefined): AnalyzeFormRequest | null {
+  const pending = pendingRequest;
   pendingRequest = null;
-  return request;
+  if (!pending || !currentUserId || pending.ownerUserId !== currentUserId) return null;
+  return pending.request;
+}
+
+/** Drops whatever is staged. `lib/session-provider.tsx` calls it when the signed-in user changes. */
+export function clearPendingAnalyzeFormRequest(): void {
+  pendingRequest = null;
 }

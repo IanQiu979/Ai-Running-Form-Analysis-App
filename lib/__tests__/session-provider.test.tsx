@@ -24,6 +24,18 @@ import type { Session } from '@supabase/supabase-js';
 import { act, renderHook } from '@testing-library/react-native';
 import type { PropsWithChildren } from 'react';
 
+import {
+  setPendingAnalyzeFormRequest,
+  takePendingAnalyzeFormRequest,
+  type AnalyzeFormRequest,
+} from '../analyze-form';
+import {
+  currentResumeGeneration,
+  discardResumableAnalysis,
+  hasResumableAnalysis,
+  holdForResume,
+  takeResumableAnalysis,
+} from '../resumable-analysis';
 import { SessionProvider, useSession } from '../session-provider';
 import { supabase } from '../supabase';
 
@@ -274,5 +286,118 @@ describe('SessionProvider auth-state routing', () => {
 
     expect(result.current.isLoading).toBe(false);
     expect(result.current.session).toBeNull();
+  });
+});
+
+// Frames that never left the device (2026-10-06): the staged `analyze-form` request
+// (`lib/analyze-form.ts`'s mailbox) and the session-expired resume hold
+// (`lib/resumable-analysis.ts`). Both are exercised through their REAL modules, so these assert
+// what a later take actually gets, not that a function was called.
+describe('SessionProvider and frames that never left the device', () => {
+  function makeRequest(): AnalyzeFormRequest {
+    return { mediaType: 'video', frames: ['QUFBQQ=='], timestamps: [0], idempotencyKey: 'idem-key-1' };
+  }
+
+  function holdFor(request: AnalyzeFormRequest, userId: string) {
+    holdForResume(request, userId, currentResumeGeneration());
+  }
+
+  beforeEach(() => {
+    discardResumableAnalysis();
+    takePendingAnalyzeFormRequest(null);
+  });
+
+  afterAll(() => {
+    discardResumableAnalysis();
+    takePendingAnalyzeFormRequest(null);
+  });
+
+  it("drops the outgoing user's staged request and resume hold when another user's session appears", async () => {
+    await renderHook(() => useSession(), { wrapper });
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('user-a'));
+    });
+    setPendingAnalyzeFormRequest(makeRequest(), 'user-a');
+    holdFor(makeRequest(), 'user-a');
+
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('user-b'));
+    });
+
+    expect(hasResumableAnalysis()).toBe(false);
+    // Taken as the OWNER, so a null here proves the provider cleared it, not the owner binding.
+    expect(takePendingAnalyzeFormRequest('user-a')).toBeNull();
+    expect(takeResumableAnalysis('user-a')).toBeNull();
+  });
+
+  // The expired-session flow: the hold is made, the dead session is signed out, and the runner
+  // signs back in. A SIGNED_OUT alone must not drop the hold it is waiting through.
+  it('keeps the resume hold through a SIGNED_OUT and hands the same request back on the same user\'s sign-in', async () => {
+    await renderHook(() => useSession(), { wrapper });
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('user-a'));
+    });
+    const request = makeRequest();
+    holdFor(request, 'user-a');
+
+    await act(async () => {
+      emit('SIGNED_OUT', null);
+    });
+    expect(hasResumableAnalysis()).toBe(true);
+
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('user-a'));
+    });
+    expect(takeResumableAnalysis('user-a')).toBe(request);
+  });
+
+  it('clears the staged request on a SIGNED_OUT from a signed-in user', async () => {
+    await renderHook(() => useSession(), { wrapper });
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('user-a'));
+    });
+    setPendingAnalyzeFormRequest(makeRequest(), 'user-a');
+
+    await act(async () => {
+      emit('SIGNED_OUT', null);
+    });
+
+    expect(takePendingAnalyzeFormRequest('user-a')).toBeNull();
+  });
+
+  it('drops a resume hold when a DIFFERENT user signs in after the sign-out', async () => {
+    await renderHook(() => useSession(), { wrapper });
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('user-a'));
+    });
+    holdFor(makeRequest(), 'user-a');
+    await act(async () => {
+      emit('SIGNED_OUT', null);
+    });
+
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('user-b'));
+    });
+
+    expect(hasResumableAnalysis()).toBe(false);
+    expect(takeResumableAnalysis('user-a')).toBeNull();
+  });
+
+  it('leaves both untouched on a token refresh for the same user', async () => {
+    await renderHook(() => useSession(), { wrapper });
+    await act(async () => {
+      emit('SIGNED_IN', fakeSession('user-a'));
+    });
+    const staged = makeRequest();
+    const held = makeRequest();
+    setPendingAnalyzeFormRequest(staged, 'user-a');
+    holdFor(held, 'user-a');
+
+    await act(async () => {
+      emit('TOKEN_REFRESHED', fakeSession('user-a'));
+    });
+
+    expect(takePendingAnalyzeFormRequest('user-a')).toBe(staged);
+    expect(takeResumableAnalysis('user-a')).toBe(held);
   });
 });

@@ -14,6 +14,7 @@ import { Copy } from '@/constants/copy';
 import { Font, Ink, Layout, Space, Type } from '@/constants/v23-theme';
 import { fetchHistoryList, type HistoryListItem } from '@/lib/history';
 import { pillarLabel } from '@/lib/pace-readout';
+import { setPendingAnalyzeFormRequest } from '@/lib/analyze-form';
 import { checkPendingAnalysis } from '@/lib/pending-analysis';
 import {
   describeQuota,
@@ -24,6 +25,7 @@ import {
   quotaStatusClient,
   type QuotaStatus,
 } from '@/lib/quota';
+import { takeResumableAnalysis } from '@/lib/resumable-analysis';
 import { useSession } from '@/lib/session-provider';
 import { useAnnounce } from '@/lib/use-announce';
 import { PACE_PILLARS } from '@shared/pace';
@@ -136,6 +138,20 @@ export default function HomeScreen() {
   useEffect(() => {
     if (startupCheckedRef.current || !userId) return;
     startupCheckedRef.current = true;
+
+    // The session-expired resume (2026-10-06, `lib/resumable-analysis.ts`): the runner was signed
+    // out mid-analysis, chose "Sign in and retry", and has just signed back in — Home is where the
+    // guard lands them. The SAME request object goes back to Analyzing (same idempotency key, same
+    // frames), so the server counts it at most once. `takeResumableAnalysis` clears the hold before
+    // it returns and refuses any other account, and the ref above runs this once per mount, so it
+    // can never fire twice. The #140 marker check is skipped on this pass: Analyzing re-arms that
+    // marker for this same key and settles it itself.
+    const resumed = takeResumableAnalysis(userId);
+    if (resumed) {
+      setPendingAnalyzeFormRequest(resumed, userId);
+      router.push('/analyzing');
+      return;
+    }
 
     checkPendingAnalysis(userId).then((outcome) => {
       if (outcome.kind === 'delivered') {

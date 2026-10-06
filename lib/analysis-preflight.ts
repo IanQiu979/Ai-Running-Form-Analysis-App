@@ -38,7 +38,7 @@ import {
   resolveVideoFrameCap,
 } from './extraction-frame-cap';
 import { quotaStatusClient, type QuotaStatusClient, type QuotaStatusResult } from './quota';
-import type { SubscriptionTier } from '@shared/quota-status';
+import type { QuotaStatus, SubscriptionTier } from '@shared/quota-status';
 
 /**
  * One quota round-trip's worth of patience before the pre-flight stops waiting and proceeds as
@@ -74,6 +74,14 @@ export interface AnalysisPreflight {
   gate: AnalysisGate;
   /** Always a usable count, whatever the gate says — see `resolveVideoFrameCap`. */
   frameCap: number;
+  /**
+   * The server's own reading, for DISPLAY only — the Preparing screen's "4 left" row, its tier
+   * badge, and the out-of-analyses panel's used / limit / reset (2026-10-06). `null` whenever the
+   * lookup did not produce a structurally valid reading (any failure, or the timeout), so a caller
+   * can never show a count the server did not state. Nothing may decide anything from it: the gate
+   * above is the decision, and `reserve_analysis` remains the authority.
+   */
+  quota: QuotaStatus | null;
 }
 
 /**
@@ -151,9 +159,13 @@ export async function fetchAnalysisPreflight(
     const outcome = await Promise.race([lookUpWithOneRetry(client), timeout]);
 
     if (outcome === TIMED_OUT) {
-      return { gate: { kind: 'allowed' }, frameCap: FALLBACK_VIDEO_FRAME_CAP };
+      return { gate: { kind: 'allowed' }, frameCap: FALLBACK_VIDEO_FRAME_CAP, quota: null };
     }
-    return { gate: resolveAnalysisGate(outcome), frameCap: resolveVideoFrameCap(outcome) };
+    return {
+      gate: resolveAnalysisGate(outcome),
+      frameCap: resolveVideoFrameCap(outcome),
+      quota: outcome.ok ? outcome.data : null,
+    };
   } finally {
     // Always cleared, including on the fetch-won leg — a stray 4s timer would otherwise keep a
     // React Native timer handle (and this closure) alive after the screen has moved on.

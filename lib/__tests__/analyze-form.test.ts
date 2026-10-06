@@ -30,6 +30,7 @@ import {
   createAnalyzeFormClient,
   createMockAnalyzeFormClient,
   analyzeFormClient,
+  clearPendingAnalyzeFormRequest,
   setPendingAnalyzeFormRequest,
   takePendingAnalyzeFormRequest,
   toAnalyzeFormRequest,
@@ -322,18 +323,38 @@ describe('createMockAnalyzeFormClient', () => {
 
 describe('pending analyze-form request mailbox', () => {
   it('returns null when nothing is pending', () => {
-    expect(takePendingAnalyzeFormRequest()).toBeNull();
+    expect(takePendingAnalyzeFormRequest('user-a')).toBeNull();
   });
 
   it('returns exactly what was set', () => {
-    setPendingAnalyzeFormRequest(sampleRequest);
-    expect(takePendingAnalyzeFormRequest()).toEqual(sampleRequest);
+    setPendingAnalyzeFormRequest(sampleRequest, 'user-a');
+    expect(takePendingAnalyzeFormRequest('user-a')).toEqual(sampleRequest);
   });
 
   // One-shot: a second take (a re-mount, a fast-refresh) must not replay a stale request.
   it('is one-shot — a second take after the first returns null', () => {
-    setPendingAnalyzeFormRequest(sampleRequest);
-    takePendingAnalyzeFormRequest();
-    expect(takePendingAnalyzeFormRequest()).toBeNull();
+    setPendingAnalyzeFormRequest(sampleRequest, 'user-a');
+    takePendingAnalyzeFormRequest('user-a');
+    expect(takePendingAnalyzeFormRequest('user-a')).toBeNull();
+  });
+
+  // 2026-10-06 (threat model, session-expired resume): a request staged for one account must never
+  // be taken under another account's session — and the mismatched take drops it, so a later take
+  // by the right account cannot resurrect it either.
+  it('refuses, and drops, a request staged for a different user', () => {
+    setPendingAnalyzeFormRequest(sampleRequest, 'user-a');
+    expect(takePendingAnalyzeFormRequest('user-b')).toBeNull();
+    expect(takePendingAnalyzeFormRequest('user-a')).toBeNull();
+  });
+
+  it.each([null, undefined, ''])('refuses a take with no signed-in user (%p)', (currentUserId) => {
+    setPendingAnalyzeFormRequest(sampleRequest, 'user-a');
+    expect(takePendingAnalyzeFormRequest(currentUserId)).toBeNull();
+  });
+
+  it('clearPendingAnalyzeFormRequest drops whatever is staged', () => {
+    setPendingAnalyzeFormRequest(sampleRequest, 'user-a');
+    clearPendingAnalyzeFormRequest();
+    expect(takePendingAnalyzeFormRequest('user-a')).toBeNull();
   });
 });

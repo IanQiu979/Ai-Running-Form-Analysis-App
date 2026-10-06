@@ -5,6 +5,78 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-10-06 (Preparing and Analysing rebuilt on V23; session-expired resume)
+
+- **Preparing (`app/capture/extracting.tsx`) and Analysing (`app/analyzing.tsx`) are rebuilt to
+  the captain's Claude Design page "Preparing & Analysing — V23"** on `constants/v23-theme.ts`.
+  Neither screen imports `constants/theme.ts` any more. Each exports a stateless view
+  (`PreparingView`, `AnalysingView`) that draws from state and handlers alone. Shared parts live in
+  `components/loading-parts.tsx`, the pure display decisions in `lib/loading-screens.ts`, the
+  countdown and reset-date formatting in `lib/countdown.ts`, and the new glyphs in
+  `components/ui/v23-icons.tsx`. New tokens: `Type.hero` / `heroOf` / `displayLg` / `displayMd` /
+  `eyebrow` / `lead` / `monoCaption` / `monoMicro` / `monoValue` / `monoClock` /
+  `monoClockLabel` / `countdown`, `Chrome.scan`, `Layout.loading.*` and `Motion.loading`.
+- **Both screens draw the runner's real frames.** `lib/frames.ts`'s progress callback now also
+  passes the frame each step accepted (`null` for a skipped collision), so Preparing shows frames
+  as they are extracted and Analysing shows the frames it is sending. They draw through
+  `<DuotoneFrame deviceBase64>` and the new `components/device-frame-image.tsx`, whose source comes
+  from `deviceFrameSource()` in `lib/private-frame-image.ts`: a `data:` URI built only from
+  validated base64, expo-image `cachePolicy: 'none'`, and the placeholder forced off. The bytes stay
+  in memory. `<PrivateFrameImage>` and its signed-URL-only rule are unchanged. `<DuotoneFrame>`
+  gained `style` and `contentFit` props.
+- **Analysing.** While the model reads, the viewer steps through the frames and a scan line passes
+  over them. No skeleton or joint markers are drawn, because nothing on the device tracks a pose.
+  Under reduced motion the viewer holds one frame and the scan line is not drawn. The Upload /
+  Read / Result track is a projection of the state machine's existing steps. The elapsed clock is
+  `mm:ss`, ticking each second (it was a `mm:ss.t` stopwatch), and stops when the wait ends.
+  `components/laser-sweep.tsx` is removed. Each stop state has its own layout: failed, timeout,
+  session expired, offline, released (`previous_attempt_failed` or a reconciled release), paused,
+  and the zero-pillar cooldown. Every stop state except a timeout says the attempt was not counted;
+  a client timeout does not stop the server, which may still finish and settle. The stuck sign-out
+  notice is a `<ConfirmDialog>` instead of a native `Alert`, and appears only for `stillSignedIn`:
+  after `globalRevokeFailed` the local session is already gone and the runner is sent to sign in.
+- **Preparing.**
+  - A connectivity read now runs before the pre-flight. A definite offline reading stops the
+    screen with nothing extracted or sent; Try again re-runs the pre-flight. A read that cannot
+    answer counts as online.
+  - Out of analyses is now a state on this screen. It used to replace straight to `/paywall`. A
+    paid plan shows used / limit and the reset date from `periodEnd`; Free shows its one analysis
+    for life, with no reset; with no reading, no numbers at all. "See plans" opens `/paywall`.
+  - The cooldown counts down to the second from `blockedUntil` (`MM:SS`, or `H:MM:SS` from an
+    hour). Continue stays disabled until zero and then re-runs the pre-flight, so the server
+    decides whether the pause has lifted. With no `blockedUntil` there is no countdown and no
+    Continue.
+  - `fetchAnalysisPreflight` also returns `quota`, the server's reading or `null` when the lookup
+    failed or timed out. It is for display only: the remaining count, the Elite badge and the
+    out-of-analyses numbers. The gate is still the decision, and `reserve_analysis` the authority.
+- **Session-expired resume (`lib/resumable-analysis.ts`, memory only).** When `analyze-form`
+  answers `unauthorized`, Analysing holds the request for the user who started the attempt, even
+  if the route guard has already unmounted the screen. "Sign in and retry" calls
+  `signOut({ keepResumableAnalysis: true })`. When the same user signs back in within 15 minutes,
+  Home takes the hold and sends the same request object (same idempotency key, same frames) back
+  to `/analyzing`, skipping the #140 marker check on that pass. A different account's sign-in
+  discards it (in `lib/session-provider.tsx` and on take). Cancel, Back, Start new analysis, a
+  delivered result, staging a new analysis and the default `signOut()` all discard it too. Every
+  discard advances an attempt generation, so a 401 that lands after the runner left cannot re-arm
+  the hold.
+- **The `analyze-form` mailbox is bound to its user.**
+  `setPendingAnalyzeFormRequest(request, ownerUserId)` and
+  `takePendingAnalyzeFormRequest(currentUserId)`: a take by any other user, or by no user, returns
+  `null` and drops the request. The session provider clears the mailbox when the signed-in user
+  changes or signs out.
+- **Server unchanged.** New `resume:` cases in
+  `supabase/functions/analyze-form/__tests__/flow.deno.test.ts` show that the same body sent twice
+  makes one model call and one settle, a resubmission while the first is in flight gets `409
+  analysis_in_progress` with no model call, and another account sending the same key gets its own
+  row.
+- **Copy.** `Copy.upload.*` and `Copy.analyzing.*` are rewritten to the page, without
+  contractions. `Copy.analysisPause` and `Copy.offline.blocked` are removed.
+- **Deleted as orphaned:** `components/laser-sweep.tsx`, `components/arc-loader.tsx`,
+  `components/ui/arc-ring.tsx`, `components/ui/eyebrow.tsx`, and their tests.
+- Client-only change: no migration, no edge function change, no deployment. App-switcher and
+  Recents snapshots of these screens are an accepted risk (`docs/status.md` Known Issue #55); the
+  resume's one uncovered sign-out window is Known Issue #56.
+
 ## 2026-10-06 (one frame can never score Cadence or Elasticity — #254)
 
 - **The analysis prompt now tells the model, on every tier, that a single frame never scores

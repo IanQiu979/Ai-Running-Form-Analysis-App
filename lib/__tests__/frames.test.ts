@@ -228,7 +228,8 @@ describe('extractFrames — photo input', () => {
     expect(mockManipulate).toHaveBeenCalledTimes(1);
     expect(mockManipulate).toHaveBeenCalledWith('file://photo.jpg');
     expect(onProgress).toHaveBeenCalledTimes(1);
-    expect(onProgress).toHaveBeenCalledWith(1, 1);
+    // The accepted frame rides along, so Preparing can draw it the moment it lands.
+    expect(onProgress).toHaveBeenCalledWith(1, 1, { base64: 'cGhvdG8=', timestampMs: 0 });
   });
 
   // Case: never upscaled — a photo already under the 1568px cap is re-encoded as-is.
@@ -331,7 +332,7 @@ describe('extractFrames — video input', () => {
 
     expect(onProgress).toHaveBeenCalledTimes(cap);
     for (let i = 0; i < cap; i++) {
-      expect(onProgress).toHaveBeenNthCalledWith(i + 1, i + 1, cap);
+      expect(onProgress).toHaveBeenNthCalledWith(i + 1, i + 1, cap, { base64: `ZnJhbWU${i}`, timestampMs: timestamps[i] });
     }
   });
 
@@ -542,10 +543,17 @@ describe('extractFrames — video input — low-frame-rate footage still produce
     // Only the four accepted frames are ever re-encoded — a skipped frame is dropped before the
     // downscale, so it costs nothing.
     const manipulations = [0, 1, 2, 3].map((i) => queueManipulateResult(`ZnJhbWU${i}`));
+    const onProgress = jest.fn();
 
-    const result = await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, cap);
+    const result = await extractFrames({ mediaType: 'video', uri: 'file://clip.mp4', durationMs }, cap, onProgress);
 
     expect(result.frames.map((frame) => frame.timestampMs)).toEqual([4_650, 4_850, 5_050, 5_250]);
+    // Every step reports progress, but a skipped collision reports `null` — so the frames a caller
+    // was shown are exactly the frames the set resolved with, in the same order.
+    expect(onProgress).toHaveBeenCalledTimes(cap);
+    const reported = onProgress.mock.calls.map((call) => call[2]).filter((frame) => frame !== null);
+    expect(reported).toEqual(result.frames);
+    expect(onProgress.mock.calls.map((call) => call[2] === null)).toEqual([false, true, false, true, false, true, false, true]);
     expect(mockManipulate).toHaveBeenCalledTimes(4);
     // Cleanup is unchanged by the skip: every thumbnail, accepted or skipped, is released exactly
     // once, and so is the player.
