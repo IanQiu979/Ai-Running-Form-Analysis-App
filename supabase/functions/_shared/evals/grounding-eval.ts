@@ -1110,10 +1110,12 @@ const GCT_TERMS = anyOf(
  * ground contact lasts across a 250 ms window"), so the span is the contact's, not the evidence's.
  * Keyed on what the phrase attaches to, not on negation: a refusal attaches it to a measurement
  * verb ("cannot be timed from"), another subject ("the frames are from"), or nothing ("ground
- * contact in a ~700 ms window cannot be timed"), and none of those match. */
+ * contact in a ~700 ms window cannot be timed"), and none of those match. A bare copula is not a
+ * duration verb: "ground contact is in a 300 ms window here, too short to time" locates the contact
+ * inside the evidence, so `is`/`are`/`was`/`were` never reclaim the figure. */
 const CONTACT_OCCUPIES_BEFORE = new RegExp(
   String.raw`(?:${GCT_TERMS.source})(?:\s+(?:time|times|phase|duration))?(?:\s+(?:here|\w+ly))?\s+` +
-    String.raw`(?:last(?:s|ed|ing)?|happen(?:s|ed|ing)?|occur(?:s|red|ring)?|takes?\s+place|took\s+place|spans?|spanned|sits?|sat|falls?|fell|fits?|unfolds?|is|are|was|were)` +
+    String.raw`(?:last(?:s|ed|ing)?|happen(?:s|ed|ing)?|occur(?:s|red|ring)?|takes?\s+place|took\s+place|spans?|spanned|sits?|sat|falls?|fell|fits?|unfolds?)` +
     String.raw`(?:\s+(?:\w+ly|only|just))?\s+(?:from|across|in)\s+(?:a|an|the|this|that)\s+` +
     String.raw`(?:(?:roughly|about|around|approximately|approx\.?)\s+)?~?\s*$`,
   'i'
@@ -1202,6 +1204,10 @@ const STATEMENT_HEAD = new RegExp(
     String.raw`(?:is|was|sits|sat|looks|seems|appears|measures|comes\s+out|lands|runs|stays|hovers)\b|\bit's\b`,
   'i'
 );
+/** …and unless that clause prescribes in its own words ("Cadence should come up: it is reasonable
+ * to target about 170 spm", "Target: cadence is ideally about 170 spm"), where the subject and verb
+ * frame the prescription rather than state the present rate. */
+const COLON_PRESCRIPTION = /\b(?:target(?:s|ing)?|aim(?:s|ing)?|reach(?:es|ing)?|ideally|should|goal)\b/i;
 /** A relative or appositive clause describes its antecedent; it never becomes the main clause's
  * subject ("Your cadence, which is typical for recreational runners, looks like roughly 160 spm"). */
 const RELATIVE_CLAUSE = /^\s*(?:which|who|whom|whose|that)\b/i;
@@ -1332,7 +1338,10 @@ export function classifyNumericClaims(text: string): NumericFigure[] {
         p > 0 &&
         carried === 'prescription' &&
         (HARD_BREAK.test(parts[p - 1]) ||
-          (SOFT_BREAK.test(parts[p - 1]) && STATEMENT_HEAD.test(clause.split(MASK)[0])))
+          (SOFT_BREAK.test(parts[p - 1]) &&
+            STATEMENT_HEAD.test(clause.split(MASK)[0]) &&
+            !PRESCRIPTION_MARKER.test(clause) &&
+            !COLON_PRESCRIPTION.test(clause)))
       ) {
         carried = 'unattributed';
       }

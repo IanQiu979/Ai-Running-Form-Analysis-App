@@ -13,13 +13,15 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     verb is a contact claim, not the evidence window. Examples: `Ground contact happens in a 240 ms
     span`, `Each ground contact lasts across a 250 ms window`. The override applies only to figures
     under 500 ms, which a ground contact could physically last. A ~700 ms window stays exempt
-    whatever verb it hangs off.
+    whatever verb it hangs off, and a bare `is`/`are` is not a duration verb, so `Ground contact
+    is in a 300 ms window here, too short to time` stays exempt too.
   - A prescription no longer carries across a colon into a clause that states the present rate
     with its own subject and verb (`Cadence should come up: right now it is about 158 spm`).
-    `Target: roughly 170 spm` and `Goal: a rate that is about 170 spm` still pass.
+    `Target: roughly 170 spm` and `Goal: a rate that is about 170 spm` still pass, and so does a
+    clause that prescribes in its own words (`Target: cadence is ideally about 170 spm`).
 - Neither rule keys on negation words. Every existing corpus row and all 14 real recorded
-  results keep their verdicts. The corpus gains 11 rows: the four residuals, a variant of the
-  colon case, and six refusal or prescription wordings that must stay passing.
+  results keep their verdicts. The corpus gains 15 rows: the four residuals, a variant of the
+  colon case, and ten refusal or prescription wordings that must stay passing.
 
 ## 2026-10-05 (one cache policy for every stored frame)
 

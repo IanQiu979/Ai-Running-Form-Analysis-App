@@ -852,6 +852,10 @@ const FALSE_PRECISION_CORPUS: CorpusRow[] = [
   { origin: '#245 residual: a colon does not carry a prescription into a statement', text: 'Cadence should come up: currently your rate is about 158 spm.', expect: 'fail', fails: ['158 spm'] },
   { origin: '#245: a colon still carries a prescription into its content', text: 'Cadence should come up: roughly 170 spm is a sensible next step.', expect: 'pass' },
   { origin: '#245: a colon still carries a prescription into its content', text: 'Goal: a rate that is about 170 spm.', expect: 'pass' },
+  { origin: '#245: a colon still carries a prescription into a clause that prescribes in its own words', text: 'Cadence should come up: it is reasonable to target about 170 spm.', expect: 'pass' },
+  { origin: '#245: a colon still carries a prescription into a clause that prescribes in its own words', text: 'Target: cadence is ideally about 170 spm.', expect: 'pass' },
+  { origin: '#245: a bare copula locates the contact inside the evidence window', text: 'Ground contact is in a 300 ms window here, too short to time.', expect: 'pass' },
+  { origin: '#245: a bare copula locates the contact inside the evidence window', text: 'Ground contact time is in the ~400 ms burst, which cannot be timed.', expect: 'pass' },
 ];
 
 Deno.test('#208: every case in the false-precision regression corpus', () => {
