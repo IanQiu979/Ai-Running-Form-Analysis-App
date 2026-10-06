@@ -555,7 +555,9 @@ export const TIER_VERBOSITY: Record<PaceTier, TierVerbosity> = {
       '  the cue and how to apply it. Ground every claim in the certified PACE framework.',
       '- `flags`: raise every injury-risk flag from injury_flags.md whose marker you can actually',
       '  SEE in these frames, on the pillar it belongs to. [] if you see none — an empty array is',
-      '  a fine and common answer, and much better than a stretched one.',
+      '  a fine and common answer, and much better than a stretched one. A flag NEVER makes a',
+      '  pillar assessable: if THE MEDIA rules say a pillar cannot be assessed from this input, that',
+      '  pillar stays `score: null` with `flags: []` and `drills: []`, whatever marker you can see.',
       '- `drills`: 1-2 drills from drills.md per flagged issue, matched to what you saw. Never',
       '  dump the library. Respect the plyometric safety gates in drills.md.',
     ].join('\n'),
@@ -571,7 +573,9 @@ export const TIER_VERBOSITY: Record<PaceTier, TierVerbosity> = {
       '  frames, why it matters for this runner, and what to change; spend the extra room on',
       '  execution nuance and relevant cross-pillar links, including the specific cue and what it',
       '  should feel like. Ground every claim in the certified PACE framework.',
-      '- `flags`: same rule as Pro. A higher tier does not lower the bar for raising one.',
+      '- `flags`: same rule as Pro. A higher tier does not lower the bar for raising one. A flag',
+      '  NEVER makes a pillar assessable: if THE MEDIA rules say a pillar cannot be assessed from',
+      '  this input, it stays `score: null` with `flags: []` and `drills: []`.',
       '- `drills`: same 1-2 per issue as Pro, with a little more detail on execution.',
     ].join('\n'),
   },
@@ -681,6 +685,9 @@ const NOT_ASSESSED_RULES = [
  */
 const TIMESTAMP_RULES = [
   'FRAME TIMESTAMPS ARE APPROXIMATE — READ THIS BEFORE SCORING CADENCE OR ELASTICITY:',
+  '- This section applies ONLY when THE MEDIA rules above allow Cadence and Elasticity to be',
+  '  scored at all. On a single photo or a single frame they do not, and nothing below — not the',
+  '  overstriding signature, not the look of the landing — overrides that.',
   '- The times given with the frames below are NOT a laboratory measurement. Depending on which',
   '  version of the app captured them, each one is either the instant the app ASKED the video',
   '  decoder for, or the decoder\'s own best estimate of the instant it actually decoded — you are',
@@ -868,6 +875,25 @@ function isStrideBurst(frames: PaceFrame[]): boolean {
   return Number.isFinite(span) && span <= MAX_STRIDE_BURST_SPAN_MS;
 }
 
+/**
+ * ISSUE #254. The nightly grounding eval caught a Pro photo scoring Cadence 38/low: the model saw a
+ * plain overstride, raised the certified Overstriding flag "on the pillar it belongs to" (the Pro
+ * dial's wording), and then scored that pillar to go with it — encouraged by `TIMESTAMP_RULES`,
+ * which (correctly, for a burst) tells it to score Cadence PRIMARILY from the overstriding
+ * signature. Free never felt the pull because its flags are always `[]`. This line closes all
+ * three routes in the one place every one-frame request reads, at every tier. The server enforces
+ * the same rule regardless (`analyze-form/flow.ts`'s `normalizeForEvidenceAndTier`), so this is
+ * about the model's own output staying honest, not about what the runner is shown.
+ */
+const ONE_FRAME_MOTION_PILLAR_RULE = [
+  '- This holds on EVERY tier, and it holds even when the frame clearly shows the overstriding',
+  '  signature or a heavy-looking landing: a still that LOOKS like a cadence or elasticity fault',
+  '  is exactly the suggestive pose this rule means. Do not score Cadence or Elasticity, do not',
+  '  raise a flag or prescribe a drill on either (`flags: []`, `drills: []`), and leave their',
+  '  `analysis` null. The server discards any score, band, flag, drill or analysis written on',
+  '  those two pillars for a single frame, so writing one only loses it.',
+].join('\n');
+
 const PHOTO_RULES = [
   'THE MEDIA: A SINGLE PHOTO. One frame, one instant.',
   '- You CAN assess: Posture (trunk lean, head, shoulders, pelvis) and Arm swing POSITION',
@@ -878,6 +904,7 @@ const PHOTO_RULES = [
   '  => Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
   '     "needsVideo"`. This is not a failure — it is the correct, honest result for a photo.',
   '     Tell the runner a short video would unlock those two pillars.',
+  ONE_FRAME_MOTION_PILLAR_RULE,
   '- Arm swing RANGE (the arc) is also motion over time. Judge position only, and say so.',
 ].join('\n');
 
@@ -891,6 +918,7 @@ const SINGLE_FRAME_VIDEO_RULES = [
   '  => Cadence and Elasticity MUST both be `score: null`, `band: null`, `notAssessedReason:',
   '     "needsVideo"`. This is not a failure — it is the correct, honest result for a single',
   '     frame.',
+  ONE_FRAME_MOTION_PILLAR_RULE,
   '- Arm swing RANGE (the arc) is also motion over time. Judge position only, and say so.',
   '- They ALREADY sent a video. NEVER tell them to submit one, and never describe their',
   '  submission as a photo. You are NOT told why only one frame arrived — do not speculate about',

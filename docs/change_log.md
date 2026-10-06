@@ -5,6 +5,26 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-10-06 (one frame can never score Cadence or Elasticity — #254)
+
+- **The analysis prompt now tells the model, on every tier, that a single frame never scores
+  Cadence or Elasticity, even when it shows an overstride.** The nightly grounding eval failed
+  `still-pro`: the model saw the overstride, raised the certified Overstriding flag on Cadence
+  (the Pro rule says to raise a flag "on the pillar it belongs to"), and scored Cadence 38/low.
+  Free never feels that pull because its flags are always `[]`, which is why the identical
+  `still-free` case passed. Three edits in `supabase/functions/_shared/analyze-form-prompt.ts`:
+  - The one-photo and one-frame-video rules now forbid a score, flag, drill or `analysis` on
+    either motion pillar.
+  - The timestamp rules now apply only where the media rules allow those pillars at all.
+  - The Pro and Elite flag rules say a flag never makes a pillar assessable.
+- **No runner-facing change.** The server rule that forces both pillars to not assessed on a
+  one-frame input already shipped with #211. It nulls score, band, feedback, analysis, flags
+  and drills, and recomputes `overall` from the scored pillars. The deployed `analyze-form` (v23)
+  contains it, and production holds no delivered one-frame result with a motion score. The eval
+  grades the model's raw output, before that rule runs, so the eval was the only place the lapse
+  showed. New `flow.deno.test.ts` cases pin the rule on every tier, for photos and one-frame
+  videos, on the valid, retry and salvage paths, for both the delivered and the persisted result.
+
 ## 2026-10-06 (eval grader: #245's tracked residuals closed)
 
 - **`checkNoFalsePrecision` now fails the four constructed wordings #208 tracked as residuals.**

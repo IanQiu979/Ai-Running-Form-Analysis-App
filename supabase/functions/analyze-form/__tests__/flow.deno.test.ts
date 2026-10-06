@@ -3304,3 +3304,132 @@ Deno.test('a one-frame analysis DOES recompute overall — the model computed it
   // anything that survived.
   assertEquals(result.overall.score, 72);
 });
+
+// ===========================================================================
+// ISSUE #254 — A SINGLE FRAME CAN NEVER CARRY A CADENCE OR ELASTICITY SCORE, ON ANY TIER OR PATH.
+//
+// The nightly grounding eval caught the model doing exactly this on a Pro photo: it saw an
+// overstride, raised the certified Overstriding flag "on the pillar it belongs to" (Cadence), and
+// then scored Cadence 38/low to go with it. Free never felt that pull (its flags are always `[]`),
+// which is why the byte-identical `still-free` case passed. The prompt now forbids it explicitly,
+// but prompt compliance is not validation: this matrix pins the server's hard rule on every tier,
+// on both one-frame media, and on the valid, retry and salvage paths alike — the delivered AND the
+// persisted result must carry Cadence/Elasticity as not assessed, and `overall` must be the mean of
+// only the pillars actually scored, never the model's own headline.
+// ===========================================================================
+
+const OVERSTRIDE_FLAG = {
+  pattern: 'Overstriding — foot lands well ahead of the centre of mass',
+  detail: 'The lead foot lands far ahead of the hips with a near-straight knee.',
+};
+const METRONOME_DRILL = { name: 'Metronome Runs', instructions: 'Run to a metronome.' };
+
+/** The #254 response, as the model actually shaped it: Cadence scored off a single still's
+ * overstride, with the flag and drills that pulled it there, and a model `overall` computed over a
+ * pillar the frame cannot support. */
+function fabricatedMotionPillars() {
+  return {
+    posture: scoredPillar(76, 'good'),
+    armSwing: scoredPillar(66, 'mid'),
+    cadence: {
+      ...scoredPillar(38, 'low'),
+      analysis: 'The lead foot lands well ahead of the centre of mass.',
+      flags: [OVERSTRIDE_FLAG],
+      drills: [METRONOME_DRILL],
+    },
+    elasticity: { ...scoredPillar(55, 'mid'), analysis: 'Contact looks heavy.' },
+  };
+}
+
+function reserveAs(tier: 'free' | 'pro' | 'elite') {
+  return () => ({
+    data: { allowed: true, existing: false, id: ANALYSIS_ID, status: 'reserved', tier },
+    error: null,
+  });
+}
+
+const SINGLE_FRAME_PATHS = [
+  {
+    path: 'valid on the first attempt',
+    models: () => [ok({ pillars: fabricatedMotionPillars(), overall: { score: 59, band: 'mid' } })],
+    // mean(76, 66) = 71 — not the model's 59, which counted Cadence and Elasticity.
+    overall: { score: 71, band: 'good' },
+    isFallback: false,
+    attempts: 1,
+  },
+  {
+    path: 'valid on the retry',
+    models: () => [
+      prose(),
+      structuredOk({ pillars: fabricatedMotionPillars(), overall: { score: 59, band: 'mid' } }),
+    ],
+    overall: { score: 71, band: 'good' },
+    isFallback: false,
+    attempts: 2,
+  },
+  {
+    path: 'salvaged as an honest partial',
+    // No `overall` and an unreadable Posture: invalid_shape twice, so the salvage is delivered.
+    models: () => {
+      const pillars = { ...fabricatedMotionPillars(), posture: { garbage: true, safety: NO_SAFETY_SIGNAL } };
+      return [ok({ pillars }), ok({ pillars })];
+    },
+    // Only Arm swing survives with a real score once the motion pillars are forced off.
+    overall: { score: 66, band: 'mid' },
+    isFallback: true,
+    attempts: 2,
+  },
+] as const;
+
+const SINGLE_FRAME_INPUTS = [
+  { label: 'photo', body: ONE_FRAME_PHOTO_BODY, reason: 'needsVideo' },
+  { label: 'one-frame video', body: ONE_FRAME_VIDEO_BODY, reason: 'singleFrameFromVideo' },
+] as const;
+
+for (const tier of ['free', 'pro', 'elite'] as const) {
+  for (const input of SINGLE_FRAME_INPUTS) {
+    for (const scenario of SINGLE_FRAME_PATHS) {
+      Deno.test(`#254: ${tier} ${input.label}, ${scenario.path} — a scored Cadence/Elasticity is forced to not assessed`, async () => {
+        const h = harness([...scenario.models()]);
+        h.rpc.handlers.reserve_analysis = reserveAs(tier);
+
+        const res = await run(h, input.body);
+
+        assertEquals(res.status, 200);
+        assertEquals(h.model.sent.length, scenario.attempts);
+        assertEquals(res.body.isFallback, scenario.isFallback);
+
+        type Pillar = {
+          score: number | null;
+          band: string | null;
+          feedback: string | null;
+          analysis?: string | null;
+          notAssessedReason?: string;
+          flags: unknown[];
+          drills: unknown[];
+        };
+        type Result = { pillars: Record<string, Pillar>; overall: { score: number | null; band: string | null } };
+        const delivered = res.body.result as Result;
+        const settle = h.rpc.to('settle_analysis');
+        assertEquals(settle.length, 1);
+        const persisted = settle[0].args.p_result as Result;
+
+        for (const [where, result] of [['delivered', delivered], ['persisted', persisted]] as const) {
+          for (const id of ['cadence', 'elasticity']) {
+            const pillar = result.pillars[id];
+            assertEquals(pillar.score, null, `${where} ${id} must not carry a score from one frame`);
+            assertEquals(pillar.band, null, `${where} ${id} band`);
+            assertEquals(pillar.analysis, null, `${where} ${id} analysis`);
+            assertEquals(pillar.feedback, null, `${where} ${id} feedback`);
+            assertEquals(pillar.notAssessedReason, input.reason, `${where} ${id} reason`);
+            assertEquals(pillar.flags, [], `${where} ${id} flags`);
+            assertEquals(pillar.drills, [], `${where} ${id} drills`);
+          }
+          assertEquals(result.pillars.armSwing.score, 66, `${where}: a supportable pillar is untouched`);
+          assertEquals(result.overall, scenario.overall, `${where}: overall is the mean of scored pillars only`);
+        }
+        assertEquals(settle[0].args.p_zero_pillar, false);
+      });
+    }
+  }
+}
