@@ -5,6 +5,24 @@ heading followed by a bulleted list of what changed (and why, where it's not obv
 make a behavior-changing commit, add a bullet under today's date — create a new heading at the
 **top** of the file if there isn't one yet for today. Don't rewrite or delete past entries.
 
+## 2026-10-06 (paid-video output budget: measured, locked, and the eval runs at production effort)
+
+- **The grounding eval's paid-video truncation came from its own effort setting, not
+  production's.** Run 37411823324 (`stride-video-pro`) stopped at `max_tokens` with 6,000/6,000
+  output tokens because `.github/workflows/grounding-eval.yml` still forced `--effort medium`.
+  Production sends `low` (`ANALYZE_FORM_EFFORT`, since #206). Re-measured after PR #250 at `low`:
+  Pro video 2,804-3,043 of 6,000 and Elite video 3,496-3,768 of 8,000. The workflow now runs at
+  `ANALYZE_FORM_EFFORT` unless a dispatch names an effort, and it validates that input. It also
+  re-runs when `ai-pricing.ts` or the workflow itself changes.
+- **`MAX_OUTPUT_TOKENS_BY_TIER` is unchanged (4k/6k/8k), and is now tested against measurements.**
+  `ai-pricing.ts` records the measured worst output per tier x medium. New tests fail if a budget
+  loses its headroom, if the headroom-scaled worst case could not be generated inside the 80s
+  attempt timeout, or if `ANALYZE_FORM_EFFORT` moves off the effort the table was measured at. No
+  prompt or generation parameter changed, so `ANALYZE_FORM_ANALYZER_REVISION` is not bumped.
+- **A truncation is still never charged.** The existing flow test now also asserts that the
+  analysis is never settled, that no frame is uploaded, and that the ledger records the real output
+  tokens as `model_error`.
+
 ## 2026-10-06 (Preparing and Analysing rebuilt on V23; session-expired resume)
 
 - **Preparing (`app/capture/extracting.tsx`) and Analysing (`app/analyzing.tsx`) are rebuilt to
