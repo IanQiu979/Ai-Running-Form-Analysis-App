@@ -487,6 +487,46 @@ Deno.test('a photo is instructed to report Cadence and Elasticity as needsVideo,
   }
 });
 
+Deno.test('#254: every one-frame prompt forbids a Cadence/Elasticity score, flag or drill — even off a visible overstride', () => {
+  // The eval caught a Pro photo raising the Overstriding flag on Cadence and scoring it to match.
+  // The rule must reach both one-frame media at every tier, and must not leak into a burst, where
+  // Cadence IS assessable from the overstriding signature.
+  for (const tier of TIERS) {
+    for (const [label, input] of [
+      ['photo', photoInput(tier)],
+      ['one-frame video', videoInput(tier, 1)],
+    ] as const) {
+      const prompt = fullPromptText(input);
+      assertIncludes(
+        prompt,
+        'This holds on EVERY tier, and it holds even when the frame clearly shows the overstriding signature',
+        `${label} prompt for "${tier}" does not close the overstride route to a Cadence score.`
+      );
+      assertIncludes(
+        prompt,
+        'do not raise a flag or prescribe a drill on either (`flags: []`, `drills: []`)',
+        `${label} prompt for "${tier}" does not forbid flags/drills on the motion pillars.`
+      );
+      assertIncludes(
+        prompt,
+        'This section applies ONLY when THE MEDIA rules above allow Cadence and Elasticity to be scored at all.',
+        `${label} prompt for "${tier}" lets the timestamp rules read as licence to score Cadence.`
+      );
+    }
+    assert(
+      !norm(fullPromptText(videoInput(tier))).includes(norm('it holds even when the frame clearly shows the overstriding')),
+      `The one-frame rule leaked into the "${tier}" stride-burst prompt.`
+    );
+  }
+  for (const tier of ['pro', 'elite'] as const) {
+    assertIncludes(
+      fullPromptText(photoInput(tier)),
+      'A flag NEVER makes a pillar assessable',
+      `The "${tier}" flag rule still reads as licence to score the pillar a flag belongs to.`
+    );
+  }
+});
+
 Deno.test('a video prompt still instructs the not-assessed path (angle can kill any pillar)', () => {
   const prompt = fullPromptText(videoInput('pro'));
 
