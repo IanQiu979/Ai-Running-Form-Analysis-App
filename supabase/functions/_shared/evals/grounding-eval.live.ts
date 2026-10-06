@@ -20,7 +20,7 @@
  * npm script, scheduled workflow, never the gate); the mechanism differs only because the runner
  * does.
  *
- *     npm run eval:grounding                 # the four fixtures, once. 4 calls, ~$0.20-0.35.
+ *     npm run eval:grounding                 # the six fixtures, once. 6 calls, ~$0.40-0.60.
  *     npm run eval:grounding -- --dry-run    # what it WOULD cost. Zero calls. Start here.
  *     npm run eval:grounding -- --case still-free
  *     npm run eval:grounding -- --repeat 3   # variance. 3x the cost. Read the note below first.

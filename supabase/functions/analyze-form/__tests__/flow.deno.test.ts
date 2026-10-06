@@ -930,6 +930,15 @@ Deno.test('rule 3: a truncated response (max_tokens) releases with model_error, 
 
   assertEquals(res.status, 503);
   assertEquals(releaseReasonFrom(h.rpc), 'model_error');
+  // Never charged for an empty result (run 37411823324's paid-video truncation): the quota slot
+  // is released, nothing is settled or stored, and the ledger records the real spend as a
+  // provider-side failure rather than a success.
+  assertEquals(h.rpc.to('settle_analysis').length, 0);
+  assertEquals(h.storage.uploads.length, 0);
+  const records = h.rpc.to('record_ai_call');
+  assertEquals(records.length, 1);
+  assertEquals(records[0].args.p_status, 'model_error');
+  assertEquals(records[0].args.p_output_tokens, 4000);
 });
 
 Deno.test('rule 3: a settle that refuses still releases — and uploads NOTHING (#130)', async () => {

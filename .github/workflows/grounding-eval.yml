@@ -1,6 +1,6 @@
 # The PACE grounding eval (issue #42) — M3's gate, run against the live model.
 #
-# THIS WORKFLOW SPENDS MONEY. Every run makes 4 real Anthropic calls (~$0.20-0.35 at list price).
+# THIS WORKFLOW SPENDS MONEY. Every run makes 6 real Anthropic calls (~$0.40-0.60 at list price).
 # That is why it is here and not in `ci.yml`: a paid third-party call in the commit gate would make
 # every unrelated PR slow, flaky, and billed, and a rate-limited failure would block work that has
 # nothing to do with the prompt. Same structural lesson as `hibp-canary.yml` (PR #77).
@@ -25,6 +25,9 @@ on:
       - 'supabase/functions/_shared/knowledge.generated.ts'
       - 'supabase/functions/_shared/pace.ts'
       - 'supabase/functions/_shared/evals/**'
+      # The output budget (max_tokens) and its measured worst case, and this workflow's own effort.
+      - 'supabase/functions/_shared/ai-pricing.ts'
+      - '.github/workflows/grounding-eval.yml'
   # A weekly heartbeat: the prompt can rot without anyone touching it, because the MODEL moves
   # underneath it. Sonnet is not a fixed artefact, and "the analysis silently stopped obeying the
   # certified corpus" is not something any commit would announce.
@@ -36,10 +39,16 @@ on:
         description: 'Runs per case (>1 gives variance; multiplies the cost)'
         required: false
         default: '1'
+      # Empty = the harness default, ANALYZE_FORM_EFFORT — the effort production actually sends.
+      # This used to default to 'medium', a leftover from before production moved to 'low'
+      # (#206, 2026-09-06): at 'medium' a paid four-pillar video spends 6,000+ output tokens, so the
+      # eval went red on a truncation production never sees (run 37411823324). Pick a higher
+      # effort here only as a deliberate experiment; ai-pricing.ts's MEASURED_WORST_OUTPUT_TOKENS
+      # says what each tier's budget was measured against.
       effort:
-        description: 'output_config.effort — low | medium | high | xhigh | max'
+        description: 'output_config.effort — empty = production (ANALYZE_FORM_EFFORT); low | medium | high | xhigh | max'
         required: false
-        default: 'medium'
+        default: ''
 
 concurrency:
   group: grounding-eval
@@ -88,6 +97,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_SHA: ${{ github.sha }}
+          EFFORT_INPUT: ${{ github.event.inputs.effort }}
         run: |
           if [ -z "${ANTHROPIC_API_KEY}" ]; then
             echo "::error::ANTHROPIC_API_KEY is not set, so the grounding eval cannot run. It is UNARMED — the prompt could already have stopped obeying the certified corpus and nothing would notice. Add the ANTHROPIC_API_KEY repo secret to arm it. Failing deliberately rather than passing green: a check that silently does nothing is worse than no check, because it looks like coverage."
@@ -95,7 +105,12 @@ jobs:
             exit 0
           fi
 
-          ARGS="--repeat ${{ github.event.inputs.repeat || '1' }} --effort ${{ github.event.inputs.effort || 'medium' }}"
+          ARGS="--repeat ${{ github.event.inputs.repeat || '1' }}"
+          case "${EFFORT_INPUT}" in
+            '') ;;
+            low|medium|high|xhigh|max) ARGS="${ARGS} --effort ${EFFORT_INPUT}" ;;
+            *) echo "::error::Unknown effort '${EFFORT_INPUT}'."; exit 1 ;;
+          esac
 
           set +e
           npm run eval:grounding -- $ARGS

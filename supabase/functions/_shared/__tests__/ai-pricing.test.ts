@@ -8,6 +8,11 @@
 import {
   AI_MODEL_PRICING,
   MAX_OUTPUT_TOKENS_BY_TIER,
+  MEASURED_OUTPUT_EFFORT,
+  MEASURED_WORST_OUTPUT_TOKENS,
+  OUTPUT_BUDGET_HEADROOM,
+  OUTPUT_VARIANCE_FACTOR,
+  requiredOutputBudget,
   SYSTEM_PROMPT_TOKENS_ESTIMATE,
   TOKENS_PER_FRAME,
   UnknownModelError,
@@ -105,5 +110,45 @@ describe('estimateCostUsd', () => {
 
   it('throws UnknownModelError for a model with no pricing entry, rather than estimating $0', () => {
     expect(() => estimateCostUsd('claude-opus-9', 1, 'free')).toThrow(UnknownModelError);
+  });
+});
+
+describe('MAX_OUTPUT_TOKENS_BY_TIER covers the measured worst case (run 37411823324)', () => {
+  // A paid four-pillar video truncated at max_tokens in the grounding eval after PR #250 deepened
+  // `analysis`. A truncation is a 503 with no result, and the same clip truncates again on retry,
+  // so every tier x medium budget must clear its measured worst case with headroom.
+  const rows = (Object.keys(MEASURED_WORST_OUTPUT_TOKENS) as (keyof typeof MEASURED_WORST_OUTPUT_TOKENS)[]).flatMap(
+    (tier) =>
+      (['photo', 'video'] as const).map((media) => [tier, media, MEASURED_WORST_OUTPUT_TOKENS[tier][media]] as const)
+  );
+
+  it.each(rows)('%s %s: budget >= required headroom over the measured worst case', (tier, _media, sample) => {
+    expect(MAX_OUTPUT_TOKENS_BY_TIER[tier]).toBeGreaterThanOrEqual(requiredOutputBudget(sample));
+  });
+
+  it('applies the full headroom to a production-effort sample and only the spread to a higher-effort one', () => {
+    expect(requiredOutputBudget({ outputTokens: 1000, effort: MEASURED_OUTPUT_EFFORT, source: 't' })).toBe(
+      Math.ceil(1000 * OUTPUT_BUDGET_HEADROOM)
+    );
+    expect(requiredOutputBudget({ outputTokens: 1000, effort: 'medium', source: 't' })).toBe(
+      Math.ceil(1000 * OUTPUT_VARIANCE_FACTOR)
+    );
+    expect(OUTPUT_BUDGET_HEADROOM).toBeGreaterThan(OUTPUT_VARIANCE_FACTOR);
+  });
+
+  it('fails for the budget that truncated: Pro video at the pre-fix eval effort needs more than 6000', () => {
+    // The regression this table exists for, stated as data: at effort `medium` the Pro video
+    // spent all 6,000 tokens and was cut off, so no `medium` budget of 6,000 can be "covered".
+    expect(requiredOutputBudget({ outputTokens: 6000, effort: 'medium', source: 'run 37411823324' })).toBeGreaterThan(
+      MAX_OUTPUT_TOKENS_BY_TIER.pro
+    );
+  });
+
+  it('never covers a photo with less than the same tier spends on a video', () => {
+    for (const tier of Object.keys(MEASURED_WORST_OUTPUT_TOKENS) as (keyof typeof MEASURED_WORST_OUTPUT_TOKENS)[]) {
+      expect(MEASURED_WORST_OUTPUT_TOKENS[tier].photo.outputTokens).toBeLessThanOrEqual(
+        MEASURED_WORST_OUTPUT_TOKENS[tier].video.outputTokens
+      );
+    }
   });
 });

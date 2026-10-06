@@ -88,6 +88,78 @@ export const MAX_OUTPUT_TOKENS_BY_TIER: Record<AnalysisTier, number> = {
   elite: 8000,
 };
 
+// -------------------------------------------------------------------------------------------
+// The measured worst case each budget must cover (2026-10-06, after PR #250's deeper `analysis`)
+// -------------------------------------------------------------------------------------------
+//
+// A truncation (`stop_reason: 'max_tokens'`) is never usable: it releases the reservation as
+// `model_error` and the runner gets a 503 with no result. Because identical evidence costs the
+// same tokens on the next try, an undersized budget fails every retry of the same clip, so a
+// budget must cover the WORST realistic output at the effort production actually sends. These are
+// the largest single-call `output_tokens` (thinking + text) observed per tier x medium, and the
+// effort they were observed at. A sample taken at a HIGHER effort than production is a valid upper
+// bound (higher effort only spends more thinking), never a lower one.
+//
+// Worth knowing before touching any number here:
+//   - PR #250 (Pro 5-7 / Elite 7-9 `analysis` sentences per assessed pillar) roughly doubled Pro
+//     video output at effort `low` (1,374-1,520 -> 2,804-3,043) and grew Elite/8 by ~40%
+//     (2,011-2,614 -> 3,496). See `stride-burst-latency.results.json` for the pre-#250 baseline.
+//   - Run-to-run spread on identical frames is ~±15% (Elite/8, low, N=7: 2,011-2,614).
+//   - At effort `medium` a paid four-pillar video spends 6,000+ tokens in ~70-75s, which is why the
+//     grounding eval's old `--effort medium` default truncated Pro (run 37411823324) while
+//     production (`low`) never did. Raising `max_tokens` cannot rescue `medium`: at the measured
+//     ~80 tokens/s the 80s per-attempt timeout (`MODEL_CALL_TIMEOUT_MS`) caps a single attempt at
+//     ~6,400 tokens, so a bigger budget only turns a fast truncation into a slow timeout. Moving
+//     `ANALYZE_FORM_EFFORT` off `low` therefore means re-measuring this table first.
+//
+// `ai-pricing.test.ts` fails if any budget drops below `requiredOutputBudget` of its measured
+// worst case; `analyze-form-prompt.deno.test.ts` fails if that headroom-scaled worst case could
+// not even be generated inside one attempt's timeout, or if this table's effort stops matching
+// `ANALYZE_FORM_EFFORT`.
+export type MeasuredMedia = 'photo' | 'video';
+
+export interface MeasuredOutput {
+  /** Largest observed `usage.output_tokens` for one call. */
+  outputTokens: number;
+  /** `output_config.effort` the sample ran at — production's or higher. */
+  effort: 'low' | 'medium';
+  /** Where the number came from, so the next person can re-run it. */
+  source: string;
+}
+
+/** The effort every `low` row above was measured at; must equal `ANALYZE_FORM_EFFORT`. */
+export const MEASURED_OUTPUT_EFFORT = 'low' as const;
+
+/** Run-to-run spread on identical frames (Elite/8, low, N=7: max/mean ~1.13). */
+export const OUTPUT_VARIANCE_FACTOR = 1.15;
+
+/** Required budget over a sample taken AT production effort: the spread above, plus ~30% for
+ * prompt drift between re-measurements. A sample taken at a higher effort already sits 1.6-2x
+ * above its `low` equivalent (paid video: 6,000+ vs 3,043, 6,080 vs 3,768), so it needs only
+ * `OUTPUT_VARIANCE_FACTOR` on top — see `requiredOutputBudget`. */
+export const OUTPUT_BUDGET_HEADROOM = 1.5;
+
+/** Measured end-to-end output throughput (tokens / wall-clock second, input processing included)
+ * of the slowest paid-video call: 6,080 tokens in 75.3s (Elite, medium, run 37411823324). */
+export const MEASURED_OUTPUT_TOKENS_PER_SECOND = 80;
+
+export const MEASURED_WORST_OUTPUT_TOKENS: Record<AnalysisTier, Record<MeasuredMedia, MeasuredOutput>> = {
+  free: {
+    // No post-#250 `low` sample yet; the `medium` CI samples are upper bounds.
+    photo: { outputTokens: 1307, effort: 'medium', source: 'grounding eval still-free, run 37411823324' },
+    video: { outputTokens: 2995, effort: 'medium', source: 'grounding eval stride-video-free, run 37411823324' },
+  },
+  pro: {
+    photo: { outputTokens: 2044, effort: 'medium', source: 'grounding eval still-pro, run 37411823324' },
+    video: { outputTokens: 3043, effort: 'low', source: 'grounding eval stride-video-pro, 2026-10-06 (real Arakawa clip: 2,804)' },
+  },
+  elite: {
+    // A photo assesses at most two pillars from one frame, so it never outgrows the tier's video.
+    photo: { outputTokens: 3768, effort: 'low', source: 'bounded by the Elite video row' },
+    video: { outputTokens: 3768, effort: 'low', source: 'grounding eval stride-video-elite 5 frames, 2026-10-06 (real Arakawa clip at 8 frames: 3,496)' },
+  },
+};
+
 export interface TokenEstimate {
   inputTokens: number;
   outputTokens: number;
@@ -160,4 +232,15 @@ export function estimateCostUsd(model: string, frameCount: number, tier: Analysi
     inputTokens: tokens.inputTokens,
     outputTokens: tokens.outputTokens,
   });
+}
+
+/**
+ * The smallest `max_tokens` that covers a measured worst case with headroom: x
+ * `OUTPUT_BUDGET_HEADROOM` for a sample at production effort, x `OUTPUT_VARIANCE_FACTOR` for an
+ * upper-bound sample taken at a higher effort.
+ */
+export function requiredOutputBudget(sample: MeasuredOutput): number {
+  const factor =
+    sample.effort === MEASURED_OUTPUT_EFFORT ? OUTPUT_BUDGET_HEADROOM : OUTPUT_VARIANCE_FACTOR;
+  return Math.ceil(sample.outputTokens * factor);
 }

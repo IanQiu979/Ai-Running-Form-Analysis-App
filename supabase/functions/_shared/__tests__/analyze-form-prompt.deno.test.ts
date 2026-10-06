@@ -37,7 +37,15 @@ import type {
   PaceFrame,
 } from '../analyze-form-prompt.ts';
 import { DRILLS_MD, INJURY_FLAGS_MD, PACE_FRAMEWORK_MD } from '../knowledge.generated.ts';
-import { MAX_OUTPUT_TOKENS_BY_TIER, SYSTEM_PROMPT_TOKENS_ESTIMATE } from '../ai-pricing.ts';
+import {
+  MAX_OUTPUT_TOKENS_BY_TIER,
+  MEASURED_OUTPUT_EFFORT,
+  MEASURED_OUTPUT_TOKENS_PER_SECOND,
+  MEASURED_WORST_OUTPUT_TOKENS,
+  SYSTEM_PROMPT_TOKENS_ESTIMATE,
+  requiredOutputBudget,
+} from '../ai-pricing.ts';
+import { MODEL_CALL_TIMEOUT_MS } from '../../analyze-form/flow.ts';
 import { PACE_FRAME_CAP, PACE_PILLARS, SCORE_BAND_VALUES, isPaceResult } from '../pace.ts';
 import type { PacePillarResult, PaceResult, PaceTier } from '../pace.ts';
 
@@ -421,6 +429,31 @@ Deno.test('`analysis` is the grounded detail field, and is null exactly when a p
           `Tier "${tier}" (${input.media}) is missing the assessed/not-assessed analysis contract.`
         );
       }
+    }
+  }
+});
+
+Deno.test('the output budgets were measured at the effort production sends', () => {
+  // `MEASURED_WORST_OUTPUT_TOKENS` is only evidence for the effort it was sampled at. At `medium`
+  // a paid four-pillar video spends 6,000+ tokens (run 37411823324 truncated Pro there), so moving
+  // ANALYZE_FORM_EFFORT without re-measuring would silently void every budget in that table.
+  assertEquals(ANALYZE_FORM_EFFORT, MEASURED_OUTPUT_EFFORT);
+});
+
+Deno.test('every tier\'s required output budget can be generated inside one attempt\'s timeout', () => {
+  // A budget the model cannot reach before MODEL_CALL_TIMEOUT_MS aborts the call is not headroom:
+  // the analysis times out instead of truncating, and the runner gets the same 503. If a prompt
+  // change grows output past this, raising max_tokens is not the fix — shorten the output or
+  // revisit the timeout.
+  for (const tier of TIERS) {
+    for (const media of ['photo', 'video'] as const) {
+      const required = requiredOutputBudget(MEASURED_WORST_OUTPUT_TOKENS[tier][media]);
+      const seconds = required / MEASURED_OUTPUT_TOKENS_PER_SECOND;
+      assert(
+        seconds * 1000 < MODEL_CALL_TIMEOUT_MS,
+        `${tier} ${media}: ${required} tokens take ~${seconds.toFixed(0)}s at ` +
+          `${MEASURED_OUTPUT_TOKENS_PER_SECOND} tokens/s, past the ${MODEL_CALL_TIMEOUT_MS / 1000}s attempt timeout.`
+      );
     }
   }
 });

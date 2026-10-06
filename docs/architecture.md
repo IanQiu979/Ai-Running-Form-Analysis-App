@@ -3972,6 +3972,20 @@ constants above are therefore validated for both paid tiers, and `max_tokens` wa
 NOT raised: a real burst at low effort uses under a third of the ceiling, and a raise would have to
 move `gate_ai_call`'s reservation with it for no measured benefit. Five calls, $0.42.
 
+**Re-measured 2026-10-06 after PR #250's deeper `analysis`** (Pro 5-7 / Elite 7-9 sentences per
+assessed pillar). At effort `low`, Pro video output roughly doubled (1,374-1,520 -> 2,804-3,043)
+and Elite/8 grew ~40% (2,011-2,614 -> 3,496; Elite/5 synthetic 3,768). Both still sit at about half
+their 6k/8k budgets, so `max_tokens` again stays put. The grounding eval nonetheless went red on a
+Pro video truncation (run 37411823324), because its workflow still forced `--effort medium`, a
+leftover from before the move to `low`. At `medium` a paid four-pillar video spends 6,000+ tokens in
+70-75s. A bigger `max_tokens` cannot fix `medium`: at ~80 tokens/s the 80s attempt timeout caps a
+single attempt near 6,400 tokens, so a larger budget turns a fast truncation into a slow timeout.
+The workflow now runs at `ANALYZE_FORM_EFFORT` unless a dispatch overrides it. The measured worst
+case per tier x medium lives in `ai-pricing.ts` (`MEASURED_WORST_OUTPUT_TOKENS`). `ai-pricing.test.ts`
+fails if a budget drops below 1.5x a production-effort sample (or 1.15x a higher-effort upper
+bound). `analyze-form-prompt.deno.test.ts` fails if that requirement cannot be generated within the
+attempt timeout, or if `ANALYZE_FORM_EFFORT` moves off the effort the table was measured at.
+
 `ANALYZE_FORM_REQUEST_DEADLINE_MS` is 105s from request start. `index.ts` captures that start at
 `Deno.serve` entry before auth and body parsing and passes it to `runAnalyzeForm`; after parsing,
 consent, tier lookup, the first spend gate, and reservation, the effective model deadline is
