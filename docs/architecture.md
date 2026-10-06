@@ -3612,9 +3612,10 @@ and is never merely prompt-guided:
   indistinguishable from it. `feedback` and `analysis` are now coaching only; the prompt tells the
   model the note lives in `safety.note` and must not be repeated in either prose field. No keyword matching is involved in
   either direction, supportable coaching is never deleted because a warning fired, and the field is
-  never tier-gated. `ANALYZE_FORM_ANALYZER_REVISION` is now
-  `analyze-form/2026-10-05-v1`, so a canonical pre-change verdict cannot replay without the fuller
-  analysis field.
+  never tier-gated. `ANALYZE_FORM_ANALYZER_REVISION` was bumped to
+  `analyze-form/2026-10-05-v1` for the fuller analysis field, so a canonical pre-change verdict
+  cannot replay without it; `_shared/analyze-form-fingerprint.ts` owns the current value and why
+  each bump happened.
 - **ABSENT IS INVALID ON A PILLAR THAT DECLARED ANYTHING, and that is what makes the sentence above
   true.** `PACE_RESULT_SCHEMA` marks `safety` `required`, but a schema is a request to the model,
   not a guarantee we may lean on — so `analyze-form-validation.ts` refuses to call a response
