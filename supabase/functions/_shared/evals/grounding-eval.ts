@@ -980,7 +980,8 @@ export function meanSentences(result: PaceResult): string {
  * refusals cite the burst's FRAME SPACING or WINDOW ("at ~100 ms (approximate, unreliable)
  * intervals", "from ~700ms of footage"), which is obedience, not a ground-contact claim. A ms
  * figure that is qualified as an interval/window passes; one in a sentence about ground contact
- * fails; any other ms figure warns.
+ * fails; any other ms figure warns. A window phrase hung off the contact's own duration verb
+ * ("ground contact happens in a 240 ms span") is the contact's span, not the evidence (#245).
  *
  * DELIBERATELY NARROWER THAN THE STRIDE-BURST HARNESS. `stride-burst-latency.live.ts` flags ANY SPM
  * number in a burst result, because `STRIDE_BURST_VIDEO_RULES` forbids the figure outright for that
@@ -1104,6 +1105,25 @@ const GCT_TERMS = anyOf(
   ],
   'i'
 );
+/** The one thing that turns that window back into a contact claim (#245): the window phrase is the
+ * complement of the CONTACT'S OWN duration verb ("ground contact happens in a 240 ms span", "each
+ * ground contact lasts across a 250 ms window"), so the span is the contact's, not the evidence's.
+ * Keyed on what the phrase attaches to, not on negation: a refusal attaches it to a measurement
+ * verb ("cannot be timed from"), another subject ("the frames are from"), or nothing ("ground
+ * contact in a ~700 ms window cannot be timed"), and none of those match. A bare copula is not a
+ * duration verb: "ground contact is in a 300 ms window here, too short to time" locates the contact
+ * inside the evidence, so `is`/`are`/`was`/`were` never reclaim the figure. */
+const CONTACT_OCCUPIES_BEFORE = new RegExp(
+  String.raw`(?:${GCT_TERMS.source})(?:\s+(?:time|times|phase|duration))?(?:\s+(?:here|\w+ly))?\s+` +
+    String.raw`(?:last(?:s|ed|ing)?|happen(?:s|ed|ing)?|occur(?:s|red|ring)?|takes?\s+place|took\s+place|spans?|spanned|sits?|sat|falls?|fell|fits?|unfolds?)` +
+    String.raw`(?:\s+(?:\w+ly|only|just))?\s+(?:from|across|in)\s+(?:a|an|the|this|that)\s+` +
+    String.raw`(?:(?:roughly|about|around|approximately|approx\.?)\s+)?~?\s*$`,
+  'i'
+);
+/** No running ground contact lasts half a second, so a figure that long is the evidence window
+ * ("ground contact occurs in a ~700 ms window that is too short to time it") whatever verb it hangs
+ * off. `CONTACT_OCCUPIES_BEFORE` only reclaims a figure that could physically be a contact time. */
+const MAX_CONTACT_MS = 500;
 
 /** THIS runner. `g` because `firstSubjectMarker` walks every hit to skip comparison objects. */
 const RUNNER_MARKER = anyOf(
@@ -1173,6 +1193,21 @@ const CLAUSE_BREAK = new RegExp(`(${CLAUSE_BREAK_ALTERNATIVES.source})`, 'i');
  * right now it is about 158 spm"). A colon introduces the prescription's own content ("Target:
  * roughly 170 spm") and does not. */
 const HARD_BREAK = /^;$/;
+/** …unless what follows the colon is itself a statement about the present rate, with its own
+ * subject and verb ("Cadence should come up: right now it is about 158 spm", #245). Then the colon
+ * joins two independent clauses exactly as a semicolon would. A relative "that is" or "which is"
+ * ("Goal: a rate that is about 170 spm") describes the prescription's content, so it is not a
+ * subject here. */
+const SOFT_BREAK = /^:$/;
+const STATEMENT_HEAD = new RegExp(
+  String.raw`\b(?:it|this|${CADENCE_NOUN}|rate)\s+(?:(?:currently|now|still|already)\s+)?` +
+    String.raw`(?:is|was|sits|sat|looks|seems|appears|measures|comes\s+out|lands|runs|stays|hovers)\b|\bit's\b`,
+  'i'
+);
+/** …and unless that clause prescribes in its own words ("Cadence should come up: it is reasonable
+ * to target about 170 spm", "Target: cadence is ideally about 170 spm"), where the subject and verb
+ * frame the prescription rather than state the present rate. */
+const COLON_PRESCRIPTION = /\b(?:target(?:s|ing)?|aim(?:s|ing)?|reach(?:es|ing)?|ideally|should|goal)\b/i;
 /** A relative or appositive clause describes its antecedent; it never becomes the main clause's
  * subject ("Your cadence, which is typical for recreational runners, looks like roughly 160 spm"). */
 const RELATIVE_CLAUSE = /^\s*(?:which|who|whom|whose|that)\b/i;
@@ -1253,13 +1288,19 @@ function judgeSpm(figure: RawFigure, sentence: string, subject: ClaimSubject): J
   }
 }
 
+function couldBeContactTime(figure: RawFigure): boolean {
+  return (figure.text.match(/\d+(?:\.\d+)?/g) ?? []).map(Number).some((v) => v < MAX_CONTACT_MS);
+}
+
 function judgeMs(figure: RawFigure, sentence: string, clause: string): Judgement {
   const before = sentence.slice(0, figure.start);
   const namesContact = GCT_TERMS.test(clause);
   if (
     FRAMES_BEFORE.test(before) ||
     (namesContact ? SPACING_AFTER : INTERVAL_AFTER).test(sentence.slice(figure.end)) ||
-    (EVIDENCE_WINDOW_BEFORE.test(before) && EVIDENCE_WINDOW_AFTER.test(sentence.slice(figure.end))) ||
+    (EVIDENCE_WINDOW_BEFORE.test(before) &&
+      EVIDENCE_WINDOW_AFTER.test(sentence.slice(figure.end)) &&
+      !(CONTACT_OCCUPIES_BEFORE.test(before) && couldBeContactTime(figure))) ||
     (!namesContact && INTERVAL_NOUN_BEFORE.test(before))
   ) {
     return { verdict: 'pass', reason: 'the frame spacing or window, not a ground-contact time' };
@@ -1293,7 +1334,17 @@ export function classifyNumericClaims(text: string): NumericFigure[] {
     const parts = masked.split(CLAUSE_BREAK);
     for (let p = 0; p < parts.length; p += 2) {
       const clause = parts[p];
-      if (p > 0 && carried === 'prescription' && HARD_BREAK.test(parts[p - 1])) carried = 'unattributed';
+      if (
+        p > 0 &&
+        carried === 'prescription' &&
+        (HARD_BREAK.test(parts[p - 1]) ||
+          (SOFT_BREAK.test(parts[p - 1]) &&
+            STATEMENT_HEAD.test(clause.split(MASK)[0]) &&
+            !PRESCRIPTION_MARKER.test(clause.split(MASK)[0]) &&
+            !COLON_PRESCRIPTION.test(clause.split(MASK)[0])))
+      ) {
+        carried = 'unattributed';
+      }
       const own = clauseSubject(clause);
       const subjectHere: ClaimSubject = own ?? carried;
       let segmentStart = 0;
