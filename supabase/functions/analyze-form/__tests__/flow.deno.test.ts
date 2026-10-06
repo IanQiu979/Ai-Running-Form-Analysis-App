@@ -489,8 +489,8 @@ Deno.test('canonical result: reserve receives the exact server-derived identity 
 
   assertEquals(res.status, 200);
   assertEquals(h.rpc.to('reserve_analysis')[0].args.p_analysis_identity, {
-    input_fingerprint: 'e81cf6f80daf4d3bc66e8fab1ded3b136b00e949dec335dd6d6677ac9da5e635',
-    analyzer_revision: 'analyze-form/2026-10-05-v1',
+    input_fingerprint: '5b403d6f0b7b60e4a784ef3f701797f513d5708c2d15f4d330d0b79160ec3995',
+    analyzer_revision: 'analyze-form/2026-10-06-v1',
   });
 });
 

@@ -17,7 +17,9 @@ import type { PaceFrame, PaceFrameMediaType, PaceMediaKind } from './analyze-for
  */
 // 2026-10-05: each assessed pillar gains a fuller `analysis` field. A pinned verdict from before
 // this date lacks that detail-panel content, so it may not be reused as the current verdict.
-export const ANALYZE_FORM_ANALYZER_REVISION = 'analyze-form/2026-10-05-v1' as const;
+// 2026-10-06: one-frame prompts forbid a Cadence/Elasticity score, flag or drill (#254); timestamp and
+// Pro/Elite flag wording tightened.
+export const ANALYZE_FORM_ANALYZER_REVISION = 'analyze-form/2026-10-06-v1' as const;
 
 export interface AnalyzeFormIdentity {
   input_fingerprint: string;
