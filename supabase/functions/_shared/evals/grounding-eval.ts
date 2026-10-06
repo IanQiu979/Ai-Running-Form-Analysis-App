@@ -1340,8 +1340,8 @@ export function classifyNumericClaims(text: string): NumericFigure[] {
         (HARD_BREAK.test(parts[p - 1]) ||
           (SOFT_BREAK.test(parts[p - 1]) &&
             STATEMENT_HEAD.test(clause.split(MASK)[0]) &&
-            !PRESCRIPTION_MARKER.test(clause) &&
-            !COLON_PRESCRIPTION.test(clause)))
+            !PRESCRIPTION_MARKER.test(clause.split(MASK)[0]) &&
+            !COLON_PRESCRIPTION.test(clause.split(MASK)[0])))
       ) {
         carried = 'unattributed';
       }

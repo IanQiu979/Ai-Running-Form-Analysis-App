@@ -20,7 +20,7 @@ make a behavior-changing commit, add a bullet under today's date — create a ne
     `Target: roughly 170 spm` and `Goal: a rate that is about 170 spm` still pass, and so does a
     clause that prescribes in its own words (`Target: cadence is ideally about 170 spm`).
 - Neither rule keys on negation words. Every existing corpus row and all 14 real recorded
-  results keep their verdicts. The corpus gains 15 rows: the four residuals, a variant of the
+  results keep their verdicts. The corpus gains 17 rows: the four residuals, three variants of the
   colon case, and ten refusal or prescription wordings that must stay passing.
 
 ## 2026-10-05 (one cache policy for every stored frame)
