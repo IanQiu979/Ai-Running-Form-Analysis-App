@@ -46,11 +46,21 @@ describe('V23 theme sheet — colour contracts', () => {
 });
 
 describe('V23 theme sheet — type scale', () => {
-  it('uppercases exactly the display, display-small, label and tab roles', () => {
+  it('uppercases exactly the display, label, eyebrow and tab roles', () => {
     const upper = Object.entries(Type)
       .filter(([, style]) => 'textTransform' in style && style.textTransform === 'uppercase')
       .map(([name]) => name);
-    expect(upper.sort()).toEqual(['display', 'displaySm', 'label', 'tab']);
+    expect(upper.sort()).toEqual([
+      'display',
+      'displayLg',
+      'displayMd',
+      'displaySm',
+      'eyebrow',
+      'label',
+      'monoCaption',
+      'monoClockLabel',
+      'tab',
+    ]);
   });
 
   it('sets tabular figures on every numeric role', () => {

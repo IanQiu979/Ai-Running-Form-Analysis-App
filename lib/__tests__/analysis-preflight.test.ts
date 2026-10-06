@@ -142,12 +142,14 @@ describe('fetchAnalysisPreflight', () => {
     jest.useRealTimers();
   });
 
-  it('returns the gate and the frame cap from ONE round trip', async () => {
-    const client = clientResolving(okResult({ tier: 'elite', frameCap: PACE_FRAME_CAP.elite, remaining: 30 }));
+  it('returns the gate, the frame cap and the reading from ONE round trip', async () => {
+    const reading = okResult({ tier: 'elite', frameCap: PACE_FRAME_CAP.elite, remaining: 30 });
+    const client = clientResolving(reading);
 
     await expect(fetchAnalysisPreflight(client)).resolves.toEqual({
       gate: { kind: 'allowed' },
       frameCap: PACE_FRAME_CAP.elite,
+      quota: reading.ok ? reading.data : null,
     });
     expect(client.fetch).toHaveBeenCalledTimes(1);
   });
@@ -169,6 +171,7 @@ describe('fetchAnalysisPreflight', () => {
     await expect(fetchAnalysisPreflight(client)).resolves.toEqual({
       gate: { kind: 'allowed' },
       frameCap: FALLBACK_VIDEO_FRAME_CAP,
+      quota: null,
     });
   });
 
@@ -181,9 +184,10 @@ describe('fetchAnalysisPreflight', () => {
       .mockResolvedValueOnce(errorResult('quota_status_unavailable'))
       .mockResolvedValueOnce(okResult({ tier: 'pro', frameCap: PACE_FRAME_CAP.pro, remaining: 10 }));
 
-    await expect(fetchAnalysisPreflight({ fetch })).resolves.toEqual({
+    await expect(fetchAnalysisPreflight({ fetch })).resolves.toMatchObject({
       gate: { kind: 'allowed' },
       frameCap: PACE_FRAME_CAP.pro,
+      quota: { tier: 'pro', remaining: 10 },
     });
     expect(fetch).toHaveBeenCalledTimes(2);
   });
@@ -196,6 +200,7 @@ describe('fetchAnalysisPreflight', () => {
     await expect(fetchAnalysisPreflight({ fetch })).resolves.toEqual({
       gate: { kind: 'allowed' },
       frameCap: FALLBACK_VIDEO_FRAME_CAP,
+      quota: null,
     });
     expect(fetch).toHaveBeenCalledTimes(2);
   });
@@ -208,6 +213,7 @@ describe('fetchAnalysisPreflight', () => {
     await expect(fetchAnalysisPreflight({ fetch })).resolves.toEqual({
       gate: { kind: 'allowed' },
       frameCap: FALLBACK_VIDEO_FRAME_CAP,
+      quota: null,
     });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
@@ -224,6 +230,7 @@ describe('fetchAnalysisPreflight', () => {
     await expect(pending).resolves.toEqual({
       gate: { kind: 'allowed' },
       frameCap: FALLBACK_VIDEO_FRAME_CAP,
+      quota: null,
     });
   });
 
@@ -246,7 +253,11 @@ describe('fetchAnalysisPreflight', () => {
     const pending = fetchAnalysisPreflight(client);
     await jest.advanceTimersByTimeAsync(QUOTA_WAIT_TIMEOUT_MS - 1_000);
 
-    await expect(pending).resolves.toEqual({ gate: { kind: 'allowed' }, frameCap: PACE_FRAME_CAP.pro });
+    await expect(pending).resolves.toMatchObject({
+      gate: { kind: 'allowed' },
+      frameCap: PACE_FRAME_CAP.pro,
+      quota: { tier: 'pro' },
+    });
   });
 
   // Defence in depth, not a live path: QuotaStatusClient's contract is that it resolves and never
@@ -258,6 +269,7 @@ describe('fetchAnalysisPreflight', () => {
     await expect(fetchAnalysisPreflight(client)).resolves.toEqual({
       gate: { kind: 'allowed' },
       frameCap: FALLBACK_VIDEO_FRAME_CAP,
+      quota: null,
     });
   });
 });

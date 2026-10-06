@@ -24,11 +24,24 @@ const EXEMPT_KEYS = new Set<string>([
 const TEMPLATE_ARGS: Record<string, unknown[]> = {
   'paywall.gate.paid.body': [10, 'Oct 1, 2026'],
   'paywall.purchase.success.title': ['Pro'],
-  'analyzing.step.uploading': ['photo'],
   'capture.recording.timer': [7],
-  'upload.step.extracting': [3, 8],
-  'upload.ready.body': [8],
-  'analysisPause.bodyFor': ['about 2 hours'],
+  'analyzing.phase.uploading.video': [5],
+  'analyzing.phase.finding.video': [5],
+  'analyzing.viewer.frame': [3, 5],
+  'analyzing.frameLabel': [2, 5],
+  'analyzing.kept.video': [5],
+  'upload.badge.frames': [5],
+  'upload.status.extracting': [3, 5],
+  'upload.status.readyVideo': [5],
+  'upload.rows.quotaLeft': [4],
+  'upload.rows.progress': [3, 5],
+  'upload.frame.label': [2, 5],
+  'upload.frame.pending': [4, 5],
+  'upload.frame.skipped': [2, 5],
+  'upload.rows.heroOf': [5],
+  'upload.frame.timestamp': [800],
+  'upload.quota.resetValue': ['1 Nov', 26],
+  'upload.pause.continueIn': ['0:42'],
 };
 
 function collect(node: unknown, path: string, out: Array<[string, string]>): void {

@@ -1,150 +1,160 @@
 /**
- * Extracting (design brief screen 5, "Uploading / Extracting" in the copy deck; issue #36) —
- * runs `lib/frames.ts`'s `extractFrames` against whatever `app/capture/index.tsx` (library pick)
- * or `app/capture/record.tsx` (in-app recording) handed off via route params, with a real,
- * honest progress readout (not theatre). A video's frames are DECODED in one batch
- * `expo-video` `generateThumbnailsAsync` call, so `onProgress` reports the actual Nth of N
- * thumbnails re-encoded after that batch returns — a real count of completed work, not a timer.
+ * Preparing (`/capture/extracting`; issue #36, rebuilt 2026-10-06 to the captain's Claude Design
+ * page "Preparing & Analysing — V23") — the pre-flight, then the on-device frame extraction, with
+ * the runner's REAL frames landing in the strip as they are pulled, then the hand-off to Analysing.
  *
- * THE PRE-FLIGHT: one bounded `quota-status` call (`lib/analysis-preflight.ts`'s
- * `fetchAnalysisPreflight()`), awaited before ANY thumbnail work, answering two things at once.
+ * THE PRE-FLIGHT: one connectivity read, then one bounded `quota-status` call
+ * (`lib/analysis-preflight.ts`'s `fetchAnalysisPreflight()`), both awaited before ANY thumbnail
+ * work. It answers three things at once.
  *
  * 1. MAY THIS RUNNER START AT ALL. Both refusals that can end an analysis — the allowance cap and
  *    issue #6's anti-farm cooldown — live in `reserve_analysis`, which the server does not reach
  *    until frames have been extracted AND submitted. Without this gate a capped or cooling-down
- *    runner filmed, waited through extraction, waited again on the Analyzing screen, and only then
- *    learned they were never eligible. A `cooldown` gate renders the honest paused panel below
- *    (no Retry — retrying cannot succeed until the window clears); an `exhausted` gate replaces
- *    into `/paywall`, the same destination a server 402 already routes to, which states the real
- *    allowance. Everything else — including every lookup failure — proceeds, because the client is
- *    never the authority and a blip must not fabricate a refusal (see that module's fail-open rule).
+ *    runner filmed, waited through extraction, waited again on Analysing, and only then learned
+ *    they were never eligible. A `cooldown` gate renders the paused state (a real countdown from
+ *    `blockedUntil` when the server gave one; at zero, Continue asks the server again — it never
+ *    unlocks on the client's own clock). An `exhausted` gate renders the out-of-analyses state:
+ *    the paid version with the period's reset date, or Free's — one analysis for life, no reset —
+ *    and "See plans" opens `/paywall`. Everything else — including every lookup failure — proceeds,
+ *    because the client is never the authority and a blip must not fabricate a refusal.
  *
  * 2. HOW MANY FRAMES A VIDEO GETS: the caller's own `frameCap`, read off the server, fed to BOTH
  *    the progress total and `extractFrames`, so the caption can never promise a count the
- *    extraction will not produce. It does NOT read `quota.tier` and index a client-side table —
- *    CLAUDE.md: "Tier, quota, frame cap, and analysis are server-only ... the client may display
- *    tier/quota state but is never the authority for it." A failed, unauthorized, or slow lookup
- *    degrades to the free cap on purpose, never to a higher one.
+ *    extraction will not produce (CLAUDE.md: tier, quota and frame cap are server-only). A failed,
+ *    unauthorized, or slow lookup degrades to the free cap on purpose, never to a higher one.
  *
- * A PHOTO NOW TAKES THIS CALL TOO, where it used to skip quota entirely. Its frame count still
- * never depends on the answer (a photo is always exactly one frame at every tier), but its
- * eligibility does, and one bounded round trip is a far better price than a 20-60s analysis wait
- * ending in a refusal.
+ * 3. WHAT TO SHOW: the reading itself (`preflight.quota`) for display only — "4 left", the Elite
+ *    badge, the out-of-analyses numbers. A reading that failed open states no number at all.
  *
- * No client-side "uploading %" step: since issue #88 (live), the client never uploads anything —
- * `analyze-form` writes the frames server-side, after the model call. This screen's whole job
- * ends at a valid, budget-compliant `PaceFrameSet` in memory (the M2 gate: "Both sources hand a
- * valid, budget-compliant frame set to the analysis step on iOS").
+ * OFFLINE: a connectivity read that is definitely offline stops here with the offline state —
+ * nothing has been extracted, nothing sent, and the clip stays on the phone. "Try again" re-runs
+ * the whole pre-flight.
  *
- * WHERE THE FRAME SET GOES (issue #135): the "ready" state hands off to `/analyzing` — the ONE
- * control on that screen mints an idempotency key, builds the wire-shaped `AnalyzeFormRequest`
- * (`lib/analyze-form.ts`'s `toAnalyzeFormRequest`) from the just-extracted `PaceFrameSet`, stages
- * it on that file's one-shot module-level mailbox (`setPendingAnalyzeFormRequest`), and
- * `router.replace`s to `/analyzing`, which already reads that mailbox on mount (issue #80). NOT
- * route params: a request carries multi-megabyte base64 frame data
- * (`PACE_MAX_REQUEST_BODY_BYTES` — up to 5MB), and expo-router search params are serialized into
- * the URL — sound for the small scalar fields this screen already receives via route params
- * (`uri`/`durationMs`/`width`/`height`), not for a payload two to three orders of magnitude
- * larger. The mailbox is the documented seam for exactly this handoff (see this file's own header
- * before this rewrite, `lib/analyze-form.ts`'s module comment, and `docs/architecture.md`'s
- * "Current — the Analyzing screen" section) — a plain module holding one piece of state, the same
- * shape as the existing `lib/consent.ts`/`lib/session-provider.tsx` precedent, not a new
- * dependency. The extraction + progress + error handling above the "ready" branch does not
- * change.
+ * A PHOTO takes the same pre-flight: its frame count never depends on the answer (always one
+ * frame), but its eligibility does.
+ *
+ * No client-side "uploading %" step: since issue #88 the client never uploads anything —
+ * `analyze-form` writes the frames server-side, after the model call. This screen's whole job ends
+ * at a valid, budget-compliant `PaceFrameSet` in memory.
+ *
+ * FRAMES ON SCREEN. Each frame `extractFrames` accepts is reported through its progress callback
+ * and drawn at once through `<DuotoneFrame deviceBase64>` — the app's duotone grade, under the
+ * private-frame no-cache policy (`lib/private-frame-image.ts`). The bytes never leave memory here.
+ *
+ * WHERE THE FRAME SET GOES (issue #135): "Start analysis" mints an idempotency key, builds the
+ * wire-shaped `AnalyzeFormRequest`, stages it on `lib/analyze-form.ts`'s one-shot mailbox (bound to
+ * the signed-in user, 2026-10-06), and `router.replace`s to `/analyzing`. NOT route params: a
+ * request carries megabytes of base64 frame data, and expo-router serializes params into the URL.
+ * Staging a new analysis also drops any session-expired analysis still held for resume
+ * (`lib/resumable-analysis.ts`) — the runner has moved on to this one.
  */
 import * as Crypto from 'expo-crypto';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ArcLoader } from '@/components/arc-loader';
-import { LowPolyField } from '@/components/low-poly-field';
-import { ArcRing } from '@/components/ui/arc-ring';
-import { Eyebrow } from '@/components/ui/eyebrow';
-import { PillButton } from '@/components/ui/pill-button';
-import { ScreenGradient } from '@/components/ui/screen-gradient';
-import { SurfaceCard } from '@/components/ui/surface-card';
-import { Copy } from '@/constants/copy';
 import {
-  Accent,
-  Colors,
-  ContentWidth,
-  FontFamily,
-  FontSize,
-  LineHeight,
-  Semantic,
-  Spacing,
-  Tracking,
-  type ColorScheme,
-  type ThemeColors,
-} from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+  Checklist,
+  FrameStrip,
+  FrameTile,
+  HeaderBack,
+  KeyValueCard,
+  LoadingHeader,
+  NotCounted,
+  Pulse,
+  StopHeadline,
+  StopIconBox,
+  type StopIconName,
+} from '@/components/loading-parts';
+import { SquareButton } from '@/components/ui/square-button';
+import { Copy } from '@/constants/copy';
+import { Ink, Layout, Space, Type } from '@/constants/v23-theme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { fetchAnalysisPreflight, type AnalysisPreflight } from '@/lib/analysis-preflight';
 import { setPendingAnalyzeFormRequest, toAnalyzeFormRequest } from '@/lib/analyze-form';
-import { describeCooldownRemaining } from '@/lib/cooldown-remaining';
+import { checkConnectivity } from '@/lib/connectivity';
+import {
+  daysUntil,
+  formatCountdown,
+  formatCountdownCompact,
+  formatResetDate,
+  msUntil,
+  remainingFraction,
+} from '@/lib/countdown';
 import { FALLBACK_VIDEO_FRAME_CAP } from '@/lib/extraction-frame-cap';
 import {
   extractFrames,
   FrameBudgetExceededError,
   InsufficientFramesError,
+  type PaceFrame,
   type PaceFrameSet,
   type PaceMediaInput,
 } from '@/lib/frames';
+import {
+  preparingBadgeParts,
+  preparingChecklist,
+  preparingHeroIndex,
+  preparingTileStatus,
+  quotaPanel,
+  quotaRemaining,
+  type MediaKind,
+  type PreparingStage,
+} from '@/lib/loading-screens';
 import { checkMediaCaps, type MediaCapViolation } from '@/lib/media-caps';
 import { readFileSizeBytes } from '@/lib/media-file-size';
 import { parseCaptureParams } from '@/lib/parse-capture-params';
+import { discardResumableAnalysis } from '@/lib/resumable-analysis';
+import { useSession } from '@/lib/session-provider';
 import { useAnnounce } from '@/lib/use-announce';
+import type { QuotaStatus } from '@shared/quota-status';
 
-// A photo submission is ALWAYS exactly one frame, at every tier (`docs/architecture.md`: "a photo
-// submission is always exactly 1 frame regardless of tier"), so a photo's frame COUNT never
-// depends on the quota answer. Its ELIGIBILITY does: the photo path takes the same `quota-status`
-// pre-flight round trip as video, so a capped or cooling-down runner is refused up front.
+// A photo submission is ALWAYS exactly one frame, at every tier (`docs/architecture.md`).
 const PHOTO_FRAME_COUNT = 1;
 
-// Mirrors `lib/parse-capture-params.ts`'s private helper of the same name — kept local rather
-// than exported/shared so this file's only-file-touched-by-#147 fix doesn't ripple into that
-// module. Used below to pull scalar values out of route params for a stable useMemo dependency
-// list (see the comment on `media`).
+/** The countdown's tick: the smallest unit it shows. */
+const COUNTDOWN_TICK_MS = 1000;
+
+/** The page draws a photo's single tile one third of the width. */
+const PHOTO_STRIP_COLUMNS = 3;
+
+/** The page's tile shape on this screen. */
+const TILE_ASPECT = 3 / 4;
+
+// Mirrors `lib/parse-capture-params.ts`'s private helper of the same name; used to pull scalar
+// values out of route params for a stable useMemo dependency list (issue #147).
 function firstString(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-type ExtractState =
-  // The pre-flight round trip: may this runner start, and how many frames does their video get.
-  // Deliberately has NO frame numbers to show: the progress caption's total must never name a
-  // count the extraction might not produce, and until this resolves the real total is genuinely
-  // unknown. Bounded by `QUOTA_WAIT_TIMEOUT_MS`, so it cannot outlast one round trip; the
-  // screen's own always-rendered title ("Preparing your analysis") is what describes it. Entered
-  // for a photo too since the gate applies to every submission — see this file's header.
+export type FrameSlot = PaceFrame | 'skipped';
+
+type ErrorKind = 'budgetExceeded' | 'unsupportedFootage' | 'extractionFailed' | 'capViolation';
+
+export type ExtractState =
+  // The pre-flight round trip. Deliberately has NO frame numbers: until it resolves the real total
+  // is genuinely unknown, and the screen must not name a count it might not honour.
   | { status: 'preparing' }
-  | { status: 'extracting'; done: number; total: number }
-  // Carries the full PaceFrameSet, not just a count — goToAnalyzing needs the actual frames to
-  // build the AnalyzeFormRequest; frameCount for display is just `frameSet.frames.length`.
-  | { status: 'ready'; frameSet: PaceFrameSet }
-  | { status: 'error'; kind: 'budgetExceeded' }
-  // `lib/frames.ts`'s InsufficientFramesError — too few distinct frames survived the burst. Like
-  // budgetExceeded and unlike extractionFailed it is deterministic per clip, so it renders no
-  // Retry control: the same footage would collide the same way every time.
-  | { status: 'error'; kind: 'unsupportedFootage' }
-  | { status: 'error'; kind: 'extractionFailed' }
+  // `slots[i]` is step i's outcome: the frame it accepted, or 'skipped' when `lib/frames.ts`
+  // dropped it as a duplicate — so a tile's image and its status always come from the same step.
+  | { status: 'extracting'; done: number; total: number; slots: FrameSlot[] }
+  // `total` is the number of frames actually extracted, which can be fewer than requested when
+  // duplicates were dropped: the hero, segments, badge and rows then state the real count.
+  | { status: 'ready'; frameSet: PaceFrameSet; total: number }
+  | { status: 'error'; kind: Exclude<ErrorKind, 'capViolation'> }
   | { status: 'error'; kind: 'capViolation'; violation: MediaCapViolation }
-  // Issue #6's anti-farm cooldown, caught by the pre-flight before any extraction. NOT an
-  // `error` kind on purpose: nothing failed, so it must never reach `errorCopy`'s failure
-  // wording, and — like budgetExceeded and unsupportedFootage, and unlike extractionFailed — it
-  // renders no Retry, because retrying cannot succeed until the window clears. `blockedUntil` is
-  // carried so the panel can say how long is left.
-  | { status: 'paused'; blockedUntil: string | null };
+  // Issue #6's cooldown. NOT an error: nothing failed. `blockedUntil` drives the countdown.
+  | { status: 'paused'; blockedUntil: string | null }
+  // The allowance is used up. `quota` is the server's reading (null if it stated none).
+  | { status: 'exhausted'; quota: QuotaStatus | null }
+  // The connectivity read was definitely offline before anything started.
+  | { status: 'offline' };
 
 export default function ExtractingScreen() {
   const router = useRouter();
-  // Issue #147's lesson applied to navigation: `useRouter()` is NOT contractually a stable
-  // reference across renders, and the pre-flight effect below must never list it as a dependency —
-  // a fresh object per render would re-run the effect on every pass, which is exactly the render
-  // loop that crashed this screen once already. Held in a ref so the effect can navigate on an
-  // `exhausted` gate without taking a dependency on it.
-  const routerRef = useRef(router);
-  routerRef.current = router;
+  const reduceMotion = useReducedMotion();
+  const { session } = useSession();
+  const userId = session?.user.id ?? null;
   const params = useLocalSearchParams<{
     mediaType?: string;
     uri?: string;
@@ -152,24 +162,14 @@ export default function ExtractingScreen() {
     width?: string;
     height?: string;
   }>();
-  const scheme: ColorScheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const styles = createStyles(colors, scheme);
 
-  // Issue #147: `params` (expo-router's useLocalSearchParams()) is a NEW object reference every
-  // render, so a useMemo keyed on `params` itself recomputes every render, which fed a fresh
-  // `media` into the effect below on every pass and looped it forever ("Maximum update depth
-  // exceeded"). Keying on the parsed scalar strings instead — pulled via `firstString` to also
-  // cover the string[] case for a repeated param — makes the memo (and the effect depending on
-  // `media`) stable across renders that don't actually change the input. Do not go back to
-  // `[params]`.
+  // Issue #147: `params` is a NEW object every render, so the memo keys on the parsed scalar
+  // strings instead — do not go back to `[params]`, it loops the effect below forever.
   const paramUri = firstString(params.uri);
   const paramMediaType = firstString(params.mediaType);
   const paramDurationMs = firstString(params.durationMs);
   const paramWidth = firstString(params.width);
   const paramHeight = firstString(params.height);
-  // Deliberately NOT `params` itself (see the comment above); these primitives are the real,
-  // stable dependency set.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const media = useMemo<PaceMediaInput | null>(() => parseCaptureParams(params), [
     paramUri,
@@ -178,25 +178,13 @@ export default function ExtractingScreen() {
     paramWidth,
     paramHeight,
   ]);
+  const mediaKind: MediaKind = media?.mediaType ?? (paramMediaType === 'photo' ? 'photo' : 'video');
 
   const [state, setState] = useState<ExtractState>({ status: 'preparing' });
+  // The server's reading, kept beside the state so the checklist and badge can show it while
+  // extraction runs. `undefined` until the pre-flight answers; `null` when it stated nothing.
+  const [quota, setQuota] = useState<QuotaStatus | null | undefined>(undefined);
   const [attempt, setAttempt] = useState(0);
-  // Issue #11: the extracting-progress caption below carries `accessibilityLiveRegion="polite"`,
-  // Android-only — this is the iOS complement. The ready/error branches carried no live region on
-  // EITHER platform (a status message that reached no screen reader at all, not just an iOS gap) —
-  // `accessibilityLiveRegion="polite"` is added to those two Texts below to match, so both
-  // platforms get an announcement through that prop + this hook together.
-  useAnnounce(
-    state.status === 'extracting'
-      ? Copy.upload.step.extracting(state.done, state.total)
-      : state.status === 'ready'
-        ? `${Copy.upload.ready.title} ${Copy.upload.ready.body(state.frameSet.frames.length)}`
-        : state.status === 'error'
-          ? `${errorCopy(state).title} ${errorCopy(state).body}`
-          : state.status === 'paused'
-            ? `${Copy.analysisPause.title} ${analysisPauseBody(state.blockedUntil)}`
-            : null
-  );
 
   useEffect(() => {
     if (!media) {
@@ -207,11 +195,10 @@ export default function ExtractingScreen() {
     const input = media;
     let cancelled = false;
     setState({ status: 'preparing' });
+    setQuota(undefined);
 
-    // Pre-flight re-check (defense in depth): app/capture/index.tsx and record.tsx already
-    // checked their own inputs, but this screen is the one place both paths converge, so it's
-    // also the cheapest place to catch anything that slipped through — e.g. a stale/expired
-    // cache uri whose size now reads differently.
+    // Pre-flight re-check (defense in depth): the capture screens checked their own inputs, but
+    // this is the one place both paths converge.
     const violation = checkMediaCaps({
       durationMs: input.mediaType === 'video' ? input.durationMs : null,
       fileSizeBytes: readFileSizeBytes(input.uri),
@@ -221,27 +208,25 @@ export default function ExtractingScreen() {
       return;
     }
 
-    // ONE number drives both the progress total and the extraction itself — that is the whole
-    // structural point of this function. They used to be two independent reads of the same
-    // hardcoded constant, which is precisely the shape that let the caption promise a count the
-    // extraction did not produce. There is now no way to change one without the other.
+    // ONE number drives both the progress total and the extraction itself.
     function startExtraction(frameCount: number) {
-      setState({ status: 'extracting', done: 0, total: frameCount });
+      const slots: FrameSlot[] = [];
+      setState({ status: 'extracting', done: 0, total: frameCount, slots: [] });
 
-      extractFrames(input, frameCount, (done, framesTotal) => {
-        if (!cancelled) setState({ status: 'extracting', done, total: framesTotal });
+      extractFrames(input, frameCount, (done, framesTotal, frame) => {
+        slots[done - 1] = frame ?? 'skipped';
+        if (!cancelled) setState({ status: 'extracting', done, total: framesTotal, slots: [...slots] });
       })
         .then((frameSet) => {
-          if (!cancelled) setState({ status: 'ready', frameSet });
+          if (!cancelled) setState({ status: 'ready', frameSet, total: frameSet.frames.length });
         })
         .catch((error) => {
           if (cancelled) return;
           if (error instanceof FrameBudgetExceededError) {
             setState({ status: 'error', kind: 'budgetExceeded' });
           } else if (error instanceof InsufficientFramesError) {
-            // Checked BEFORE the generic branch: InsufficientFramesError IS a
-            // FrameExtractionError, and the generic branch's copy invites a retry that cannot
-            // succeed for this clip.
+            // Checked BEFORE the generic branch: InsufficientFramesError IS a FrameExtractionError,
+            // and the generic branch's copy invites a retry that cannot succeed for this clip.
             setState({ status: 'error', kind: 'unsupportedFootage' });
           } else {
             setState({ status: 'error', kind: 'extractionFailed' });
@@ -249,337 +234,688 @@ export default function ExtractingScreen() {
         });
     }
 
-    // THE GATE, then the extraction. A refusal here costs the runner one bounded round trip; the
-    // same refusal from `reserve_analysis` costs them the whole extraction plus a 20-60s wait, and
-    // used to arrive dressed as a failure. Only a gate the SERVER stated is honoured — see
+    // THE GATE, then the extraction. Only a gate the SERVER stated is honoured — see
     // `lib/analysis-preflight.ts`'s fail-open rule.
-    function applyPreflight({ gate, frameCap }: AnalysisPreflight) {
+    function applyPreflight({ gate, frameCap, quota: reading }: AnalysisPreflight) {
       if (cancelled) return;
-
+      setQuota(reading);
 
       if (gate.kind === 'cooldown') {
         setState({ status: 'paused', blockedUntil: gate.blockedUntil });
         return;
       }
-
       if (gate.kind === 'exhausted') {
-        // The same destination a server 402 already routes to from `app/analyzing.tsx` — it
-        // re-reads live quota on mount and states the real allowance, so no params are needed and
-        // this screen never has to restate an allowance it is not the authority for.
-        routerRef.current.replace('/paywall');
+        setState({ status: 'exhausted', quota: reading });
         return;
       }
-
-      // A photo is always exactly one frame at every tier, so its count never depends on the
-      // answer even though its eligibility does. A video's cap is the caller's own: the bug this
-      // screen shipped with was hardcoding Free's 1 frame here for everyone, silently degrading
-      // every paying user's analysis (Cadence and Elasticity cannot score off a single still).
       startExtraction(input.mediaType === 'photo' ? PHOTO_FRAME_COUNT : frameCap);
     }
 
-    fetchAnalysisPreflight()
-      // Contractually unreachable (`fetchAnalysisPreflight` folds every failure into a usable
-      // answer), but a rejection escaping here would strand the screen in `preparing` forever.
-      // Failing open keeps the submission working instead of hanging on a spinner.
-      .catch((): AnalysisPreflight => ({ gate: { kind: 'allowed' }, frameCap: FALLBACK_VIDEO_FRAME_CAP }))
-      .then(applyPreflight);
+    checkConnectivity()
+      // A connectivity read that cannot answer is not evidence of being offline.
+      .catch(() => true)
+      .then((online) => {
+        if (cancelled) return;
+        if (!online) {
+          setState({ status: 'offline' });
+          return;
+        }
+        fetchAnalysisPreflight()
+          // Contractually unreachable, but a rejection escaping here would strand the screen.
+          .catch(
+            (): AnalysisPreflight => ({
+              gate: { kind: 'allowed' },
+              frameCap: FALLBACK_VIDEO_FRAME_CAP,
+              quota: null,
+            })
+          )
+          .then(applyPreflight);
+      });
 
     return () => {
       cancelled = true;
     };
   }, [media, attempt]);
 
+  // The cooldown countdown: a 1 s tick while paused with a known, future end. The bar drains from
+  // how much was left when the pause was first shown — the server does not say when it began.
+  const [now, setNow] = useState(() => Date.now());
+  const pauseStartRemainingRef = useRef<number | null>(null);
+  const blockedUntil = state.status === 'paused' ? state.blockedUntil : null;
+  const pauseRemaining = state.status === 'paused' ? msUntil(blockedUntil, now) : null;
+  useEffect(() => {
+    if (state.status !== 'paused' || !blockedUntil) {
+      pauseStartRemainingRef.current = null;
+      return;
+    }
+    const startNow = Date.now();
+    setNow(startNow);
+    pauseStartRemainingRef.current = msUntil(blockedUntil, startNow);
+    const handle = setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      if ((msUntil(blockedUntil, t) ?? 0) <= 0) clearInterval(handle);
+    }, COUNTDOWN_TICK_MS);
+    return () => clearInterval(handle);
+  }, [state.status, blockedUntil]);
+
   function goToSourcePicker() {
     router.replace('/capture');
   }
 
-  /** The paused panel's only control. Home, not the source picker: picking different footage
-   *  cannot lift a cooldown, and Home is where the same countdown is already shown. */
   function goHome() {
     router.replace('/');
   }
 
-  // The one control on the "ready" state (issue #135). Mints a fresh idempotency key for THIS
-  // analysis attempt — `analyze-form` is idempotent on `(user_id, idempotencyKey)`, and every
-  // retry of THIS submission inside app/analyzing.tsx reuses it; a new key here is correct because
-  // tapping this button is a genuinely new, user-initiated submission, not a retry of one.
-  // `Crypto.randomUUID()` (expo-crypto, already a dependency — no new one added) matches this
-  // project's existing WebCrypto usage (lib/crypto-polyfill.ts, lib/secure-storage.ts).
+  function retryFromStart() {
+    setAttempt((n) => n + 1);
+  }
+
+  // The one control on the "ready" state (issue #135). A fresh idempotency key for THIS analysis:
+  // every retry of it inside `app/analyzing.tsx` reuses this key; tapping here is a genuinely new,
+  // user-initiated submission.
   function goToAnalyzing() {
-    if (!media || state.status !== 'ready') return;
+    if (!media || state.status !== 'ready' || !userId) return;
     const idempotencyKey = Crypto.randomUUID();
     const request = toAnalyzeFormRequest(media.mediaType, state.frameSet, idempotencyKey);
-    // Staged on lib/analyze-form.ts's one-shot mailbox, not route params — see this file's header
-    // for why route params are the wrong mechanism for multi-megabyte base64 frame data.
-    setPendingAnalyzeFormRequest(request);
+    discardResumableAnalysis();
+    setPendingAnalyzeFormRequest(request, userId);
     router.replace('/analyzing');
   }
 
+  const announcement = announcementFor(state, mediaKind);
+  useAnnounce(announcement);
+
   return (
-    <ScreenGradient>
-      <SafeAreaView style={styles.safeArea}>
-      {/* ScrollView + flexGrow, not a plain flex:1 View (issue #63) — same Dynamic Type
-          reflow-not-clip pattern as app/(tabs)/index.tsx: the error state stacks a title, body,
-          and up to two buttons, which could otherwise overflow a small phone at the largest
-          accessibility text sizes with no way to reach the second button. */}
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        {/* L2 (v23-ux-audit-r1): this eyebrow used to render unconditionally, so the error state
-            said "Preparing your analysis" and "Couldn't process this clip" at the same time.
-            Skipped in the error branch — its own title below carries `accessibilityRole="header"`
-            instead, so the screen still has exactly one heading, just a failure-appropriate one.
-            The paused branch is skipped for the same two reasons: "Preparing your analysis" would
-            contradict "Analyses are paused for now", and its panel title is that state's heading. */}
-        {state.status !== 'error' && state.status !== 'paused' && (
-          <Eyebrow tone="primary" accessibilityRole="header">
-            {Copy.upload.title}
-          </Eyebrow>
-        )}
-
-        {/* Spinner only, and no numeric caption or progress bar — the total is not known yet and
-            this screen must not name one it might not honour. The always-rendered title above
-            ("Preparing your analysis") already describes this state, so no new copy-deck string is
-            invented for it. Bounded by QUOTA_WAIT_TIMEOUT_MS. */}
-        {state.status === 'preparing' && (
-          <View style={styles.centered}>
-            {/* The same ambient low-poly mark the Analyzing wait uses, for the same reason and
-                under the same rule: it signals "alive", never progress. The progress BAR below
-                is different — that one is real, driven by a known frame count. */}
-            {/* The INDETERMINATE sibling of the extracting ring below: the frame total is not
-                known yet, so this state gets `<ArcLoader>`'s turning rings — which can never be
-                read as progress — rather than a ring at some invented fraction. */}
-            <View style={styles.waitMark}>
-              <ArcLoader size={WAIT_MARK_SIZE * 1.35} style={styles.waitRings} testID="extracting-rings" />
-              <LowPolyField
-                color={colors.text.primary}
-                size={WAIT_MARK_SIZE}
-                testID="extracting-mark"
-              />
-            </View>
-            {/* L1 (v23-ux-audit-r1): neither wait state offered an escape — bounded by
-                QUOTA_WAIT_TIMEOUT_MS so it can't hang forever, but a long extraction otherwise
-                trapped the user on this screen with nothing to press. */}
-            <PillButton variant="ghost" label="Cancel" onPress={goToSourcePicker} />
-          </View>
-        )}
-
-        {state.status === 'extracting' && (
-          <View style={styles.centered}>
-            {/* Cadence Arcs (2026-09-01): the horizontal progress bar became a ring drawn AROUND
-                the mark, so the extraction reads as one object filling rather than as a figure
-                with a bar underneath it. This ring is genuinely DETERMINATE — unlike the wait
-                states' `<ArcLoader>`, it is driven by a real, known frame count, which is exactly
-                the distinction the old bar's own comment drew and this keeps. `animate={false}`
-                is deliberate: springing between progress values would make a determinate readout
-                feel approximate, and `<ArcRing>` re-renders a static ring on every fraction
-                change (see its `staticOffset`). */}
-            <View style={styles.waitMark}>
-              <ArcRing
-                testID="extracting-progress-ring"
-                size={WAIT_MARK_SIZE * 1.35}
-                strokeWidth={Spacing.md}
-                fraction={state.total > 0 ? state.done / state.total : 0}
-                color={Accent.value}
-                style={styles.waitRings}
-              />
-              <LowPolyField color={colors.text.primary} size={WAIT_MARK_SIZE} />
-            </View>
-            <Text style={styles.caption} accessibilityLiveRegion="polite">
-              {Copy.upload.step.extracting(state.done, state.total)}
-            </Text>
-            <PillButton variant="ghost" label="Cancel" onPress={goToSourcePicker} />
-          </View>
-        )}
-
-        {state.status === 'ready' && (
-          <View style={styles.centered}>
-            {/* The SAME ring and the SAME field as the extracting state above, at a full sweep —
-                so preparing -> extracting -> ready reads as one object completing rather than as
-                three unrelated pictures. `fraction={1}` is a statement of fact here (every frame
-                the extraction promised is in memory), not a decoration. */}
-            <View style={styles.waitMark}>
-              <ArcRing
-                size={WAIT_MARK_SIZE * 1.35}
-                strokeWidth={Spacing.md}
-                fraction={1}
-                color={Accent.value}
-                style={styles.waitRings}
-              />
-              <LowPolyField color={colors.text.primary} size={WAIT_MARK_SIZE} />
-            </View>
-            {/* On a `<SurfaceCard>`, matching the panel idiom the other two capture screens use —
-                and, unlike the wash, an opaque surface this screen's body copy is proven against. */}
-            <SurfaceCard style={styles.panel}>
-              <View style={styles.panelStack}>
-                <Text style={styles.resultTitle} accessibilityLiveRegion="polite">
-                  {Copy.upload.ready.title}
-                </Text>
-                <Text style={styles.caption}>{Copy.upload.ready.body(state.frameSet.frames.length)}</Text>
-                <PillButton label={Copy.upload.ready.cta} onPress={goToAnalyzing} style={styles.cta} />
-              </View>
-            </SurfaceCard>
-          </View>
-        )}
-
-        {/* Issue #6's cooldown, caught by the pre-flight before a single frame was extracted.
-            Rendered on the SAME `<SurfaceCard>` panel as the error states — this is a stop, and it
-            should look like one — but with the paused copy rather than a failure title, and with
-            NO Retry: the window has to clear before anything here can succeed, so a Retry would be
-            a button that cannot work. `describeCooldownRemaining` returning null is what selects
-            the no-time-known wording; nothing here invents a countdown. */}
-        {state.status === 'paused' && (
-          <View style={styles.centered}>
-            <SurfaceCard style={styles.panel}>
-              <View style={styles.panelStack}>
-                <Text style={styles.pausedTitle} accessibilityRole="header" accessibilityLiveRegion="polite">
-                  {Copy.analysisPause.title}
-                </Text>
-                <Text style={styles.caption} testID="analysis-paused-body">
-                  {analysisPauseBody(state.blockedUntil)}
-                </Text>
-                <PillButton label={Copy.analysisPause.cta} onPress={goHome} style={styles.cta} />
-              </View>
-            </SurfaceCard>
-          </View>
-        )}
-
-        {state.status === 'error' && (
-          <View style={styles.centered}>
-            <SurfaceCard style={styles.panel}>
-              <View style={styles.panelStack}>
-                <Text style={styles.errorTitle} accessibilityRole="header" accessibilityLiveRegion="polite">
-                  {errorCopy(state).title}
-                </Text>
-                <Text style={styles.caption}>{errorCopy(state).body}</Text>
-                {state.kind === 'extractionFailed' && (
-                  <PillButton label="Retry" onPress={() => setAttempt((n) => n + 1)} style={styles.cta} />
-                )}
-                <PillButton variant="ghost" label="Back" onPress={goToSourcePicker} />
-              </View>
-            </SurfaceCard>
-          </View>
-        )}
-      </ScrollView>
-      </SafeAreaView>
-    </ScreenGradient>
+    <PreparingView
+      state={state}
+      mediaKind={mediaKind}
+      quota={quota}
+      reduceMotion={reduceMotion}
+      pauseRemaining={pauseRemaining}
+      pauseStartRemaining={pauseStartRemainingRef.current}
+      onSourcePicker={goToSourcePicker}
+      onHome={goHome}
+      onRetry={retryFromStart}
+      onStart={goToAnalyzing}
+      onSeePlans={() => router.replace('/paywall')}
+    />
   );
 }
 
-/** The cooldown body, with the time left when the server gave us a usable one and without it when
- *  it did not — never a guessed or zeroed countdown. Read at render time rather than when the
- *  state was set so the phrase does not go stale if the panel is on screen for a while. */
-function analysisPauseBody(blockedUntil: string | null): string {
-  const remaining = describeCooldownRemaining(blockedUntil);
-  return remaining ? Copy.analysisPause.bodyFor(remaining) : Copy.analysisPause.body;
+// -------------------------------------------------------------------------------------------
+// The view: everything this screen draws, from state and handlers alone — no effects, no I/O —
+// so every state renders the same way in the screen, in its tests, and in a screenshot.
+// -------------------------------------------------------------------------------------------
+
+export type PreparingViewProps = {
+  state: ExtractState;
+  mediaKind: MediaKind;
+  /** The pre-flight's reading: `undefined` before it answers, `null` when it stated nothing. */
+  quota: QuotaStatus | null | undefined;
+  reduceMotion: boolean;
+  /** Paused only: ms left (`null` when the server gave no end) and ms left when first shown. */
+  pauseRemaining: number | null;
+  pauseStartRemaining: number | null;
+  onSourcePicker: () => void;
+  onHome: () => void;
+  onRetry: () => void;
+  onStart: () => void;
+  onSeePlans: () => void;
+};
+
+export function PreparingView({
+  state,
+  mediaKind,
+  quota,
+  reduceMotion,
+  pauseRemaining,
+  pauseStartRemaining,
+  onSourcePicker,
+  onHome,
+  onRetry,
+  onStart,
+  onSeePlans,
+}: PreparingViewProps) {
+  const insets = useSafeAreaInsets();
+  const isWorking = state.status === 'preparing' || state.status === 'extracting' || state.status === 'ready';
+  // The badge's count: the extraction's own total once it runs; before that (and on a stop state)
+  // the server's stated cap, when it stated one — never a number of the client's own.
+  const frameTotal =
+    state.status === 'extracting' || state.status === 'ready'
+      ? state.total
+      : mediaKind === 'photo'
+        ? PHOTO_FRAME_COUNT
+        : (quota?.frameCap ?? null);
+  const badge = preparingBadgeParts(mediaKind, frameTotal, quota?.tier ?? null)
+    .map((part) =>
+      part === 'photo'
+        ? Copy.upload.badge.photo
+        : part === 'video'
+          ? Copy.upload.badge.video
+          : part === 'elite'
+            ? Copy.upload.badge.elite
+            : Copy.upload.badge.frames(part.frames)
+    )
+    .join(Copy.upload.badge.separator);
+
+  // Stop states leave for Home; the working states' Cancel goes back to the source picker.
+  const onHeaderBack = isWorking ? onSourcePicker : onHome;
+
+  return (
+    <View style={styles.screen}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: insets.top,
+            paddingBottom: Math.max(insets.bottom, Space.xl),
+          },
+        ]}>
+        <LoadingHeader
+          leading={<HeaderBack label={Copy.upload.cta.back} onPress={onHeaderBack} testID="preparing-back" />}
+          trailing={
+            <Text style={styles.badge} testID="preparing-badge">
+              {badge}
+            </Text>
+          }
+        />
+
+        {isWorking ? (
+          <WorkingBody state={state} mediaKind={mediaKind} quota={quota} reduceMotion={reduceMotion} />
+        ) : (
+          <StopBody
+            state={state}
+            mediaKind={mediaKind}
+            pauseRemaining={pauseRemaining}
+            pauseStartRemaining={pauseStartRemaining}
+          />
+        )}
+
+        <View style={styles.spacer} />
+
+        <View style={styles.actions}>
+          {state.status === 'ready' && (
+            <SquareButton label={Copy.upload.cta.start} onPress={onStart} testID="preparing-start" />
+          )}
+          {(state.status === 'preparing' || state.status === 'extracting' || state.status === 'ready') && (
+            <SquareButton
+              variant="secondary"
+              label={Copy.upload.cta.cancel}
+              onPress={onSourcePicker}
+              testID="preparing-cancel"
+            />
+          )}
+
+          {state.status === 'exhausted' && (
+            <>
+              <SquareButton
+                label={Copy.upload.cta.seePlans}
+                onPress={onSeePlans}
+                testID="preparing-see-plans"
+              />
+              <SquareButton variant="secondary" label={Copy.upload.cta.back} onPress={onHome} />
+            </>
+          )}
+
+          {state.status === 'paused' && (
+            <>
+              {/* With a known end: disabled until it passes, then Continue asks the server again.
+                  With none: no Continue at all — a button whose wait we cannot state would be a
+                  guess. */}
+              {pauseRemaining !== null && (
+                <SquareButton
+                  label={
+                    pauseRemaining > 0
+                      ? Copy.upload.pause.continueIn(formatCountdownCompact(pauseRemaining))
+                      : Copy.upload.pause.continue
+                  }
+                  disabled={pauseRemaining > 0}
+                  disabledTone="fill"
+                  onPress={onRetry}
+                  testID="preparing-continue"
+                />
+              )}
+              <SquareButton variant="secondary" label={Copy.upload.cta.back} onPress={onHome} />
+            </>
+          )}
+
+          {state.status === 'offline' && (
+            <>
+              <SquareButton label={Copy.upload.cta.retry} onPress={onRetry} testID="preparing-retry" />
+              <SquareButton variant="secondary" label={Copy.upload.cta.back} onPress={onHome} />
+            </>
+          )}
+
+          {state.status === 'error' &&
+            (state.kind === 'extractionFailed' ? (
+              // Retrying the same input CAN succeed here (a native-module blip), so Retry stays.
+              <>
+                <SquareButton label={Copy.upload.cta.retry} onPress={onRetry} testID="preparing-retry" />
+                <SquareButton
+                  variant="secondary"
+                  label={mediaKind === 'photo' ? Copy.upload.cta.choosePhoto : Copy.upload.cta.chooseVideo}
+                  onPress={onSourcePicker}
+                />
+              </>
+            ) : (
+              // Deterministic for this clip: the same footage fails the same way, so no Retry.
+              <>
+                <SquareButton
+                  label={mediaKind === 'photo' ? Copy.upload.cta.choosePhoto : Copy.upload.cta.chooseVideo}
+                  onPress={onSourcePicker}
+                  testID="preparing-choose-another"
+                />
+                <SquareButton variant="secondary" label={Copy.upload.cta.back} onPress={onHome} />
+              </>
+            ))}
+
+          {/* Nothing was reserved before a refusal or a failed extraction — the server never saw
+              this clip — so this line is true on every one of these states. */}
+          {(state.status === 'error' || state.status === 'offline') && (
+            <NotCounted label={Copy.upload.notCounted} boxed={false} testID="preparing-not-counted" />
+          )}
+        </View>
+      </ScrollView>
+    </View>
+  );
 }
 
-function errorCopy(state: Extract<ExtractState, { status: 'error' }>): { title: string; body: string } {
-  if (state.kind === 'budgetExceeded') return Copy.upload.error.budgetExceeded;
-  if (state.kind === 'unsupportedFootage') return Copy.upload.error.unsupportedFootage;
-  if (state.kind === 'extractionFailed') return Copy.upload.error.extractionFailed;
-  return state.violation === 'clipTooLong' ? Copy.sourcePicker.error.clipTooLong : Copy.sourcePicker.error.fileTooLarge;
+// -------------------------------------------------------------------------------------------
+// The working states: pre-flight, extracting, ready.
+// -------------------------------------------------------------------------------------------
+
+function WorkingBody({
+  state,
+  mediaKind,
+  quota,
+  reduceMotion,
+}: {
+  state: Extract<ExtractState, { status: 'preparing' | 'extracting' | 'ready' }>;
+  mediaKind: MediaKind;
+  quota: QuotaStatus | null | undefined;
+  reduceMotion: boolean;
+}) {
+  const stage: PreparingStage =
+    state.status === 'preparing' ? 'checking' : state.status === 'extracting' ? 'extracting' : 'ready';
+  const total = state.status === 'preparing' ? (mediaKind === 'photo' ? PHOTO_FRAME_COUNT : null) : state.total;
+  const done = state.status === 'extracting' ? state.done : state.status === 'ready' ? (total ?? 0) : 0;
+  // Step i's outcome. Once ready, the tiles are exactly the extracted set (skips dropped).
+  const slots: FrameSlot[] =
+    state.status === 'extracting' ? state.slots : state.status === 'ready' ? state.frameSet.frames : [];
+
+  const status =
+    state.status === 'preparing'
+      ? Copy.upload.status.checking
+      : state.status === 'ready'
+        ? mediaKind === 'photo'
+          ? Copy.upload.status.readyPhoto
+          : Copy.upload.status.readyVideo(state.frameSet.frames.length)
+        : mediaKind === 'photo'
+          ? Copy.upload.status.photo
+          : Copy.upload.status.extracting(preparingHeroIndex(done, state.total), state.total);
+
+  const remaining = quota === undefined ? undefined : quotaRemaining(quota);
+  const rowValueFor = (key: 'quota' | 'frames' | 'ready'): string => {
+    if (key === 'quota') return remaining == null ? Copy.upload.rows.none : Copy.upload.rows.quotaLeft(remaining);
+    if (key === 'frames') {
+      if (total === null || stage === 'checking') return Copy.upload.rows.none;
+      return Copy.upload.rows.progress(preparingHeroIndex(done, total), total);
+    }
+    return Copy.upload.rows.none;
+  };
+  const items = preparingChecklist(stage).map((row) => ({
+    key: row.key,
+    status: row.status,
+    stateLabel:
+      row.status === 'done'
+        ? Copy.upload.rows.stateDone
+        : row.status === 'now'
+          ? Copy.upload.rows.stateNow
+          : Copy.upload.rows.stateTodo,
+    value: rowValueFor(row.key),
+    label:
+      row.key === 'quota'
+        ? row.status === 'done'
+          ? Copy.upload.rows.quotaChecked
+          : Copy.upload.rows.quotaChecking
+        : row.key === 'frames'
+          ? mediaKind === 'photo'
+            ? Copy.upload.rows.loadingPhoto
+            : Copy.upload.rows.extracting
+          : Copy.upload.rows.ready,
+  }));
+
+  const columns = mediaKind === 'photo' ? PHOTO_STRIP_COLUMNS : total ?? 0;
+
+  return (
+    <View style={styles.body}>
+      <View style={styles.heroBlock}>
+        <Text style={styles.eyebrow} accessibilityRole="header">
+          {mediaKind === 'photo' ? Copy.upload.eyebrow.photo : Copy.upload.eyebrow.video}
+        </Text>
+        {total !== null && stage !== 'checking' ? (
+          // Hidden from the a11y tree: the status line below says the same thing in words.
+          <View
+            style={styles.heroRow}
+            testID="preparing-hero"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants">
+            <Text style={styles.heroNum}>{preparingHeroIndex(done, total)}</Text>
+            <Text style={styles.heroOf}>{Copy.upload.rows.heroOf(total)}</Text>
+          </View>
+        ) : null}
+        <Text style={styles.status} accessibilityLiveRegion="polite" testID="preparing-status">
+          {status}
+        </Text>
+      </View>
+
+      {total !== null && stage !== 'checking' ? (
+        <>
+          <View style={styles.segments} testID="preparing-segments">
+            {Array.from({ length: total }, (_, i) => {
+              const segment = preparingTileStatus(i, done, total);
+              return (
+                <Pulse
+                  key={i}
+                  active={segment === 'now'}
+                  reduceMotion={reduceMotion}
+                  style={[
+                    styles.segment,
+                    segment === 'done' && styles.segmentDone,
+                    segment === 'now' && styles.segmentNow,
+                  ]}
+                />
+              );
+            })}
+          </View>
+
+          <FrameStrip testID="preparing-strip">
+            {Array.from({ length: Math.max(columns, total) }, (_, i) => {
+              if (i >= total) return <View key={i} style={styles.emptyColumn} />;
+              const slot = slots[i];
+              const frame = slot && slot !== 'skipped' ? slot : null;
+              const tile = preparingTileStatus(i, done, total);
+              return (
+                <FrameTile
+                  key={i}
+                  testID={`preparing-tile-${i + 1}`}
+                  base64={frame?.base64 ?? null}
+                  accessibilityLabel={
+                    frame
+                      ? Copy.upload.frame.label(i + 1, total)
+                      : slot === 'skipped'
+                        ? Copy.upload.frame.skipped(i + 1, total)
+                        : Copy.upload.frame.pending(i + 1, total)
+                  }
+                  caption={frame && mediaKind === 'video' ? Copy.upload.frame.timestamp(frame.timestampMs) : undefined}
+                  status={tile}
+                  aspectRatio={TILE_ASPECT}
+                  pulse
+                  reduceMotion={reduceMotion}
+                />
+              );
+            })}
+          </FrameStrip>
+        </>
+      ) : null}
+
+      <Checklist items={items} reduceMotion={reduceMotion} testID="preparing-checklist" />
+    </View>
+  );
 }
 
-/** The waiting field's drawn size, matching app/analyzing.tsx's — the two waits are one moment
- *  split across two screens and should not look like different products. */
-const WAIT_MARK_SIZE = 200;
+// -------------------------------------------------------------------------------------------
+// The stop states: out of analyses, paused, offline, failed.
+// -------------------------------------------------------------------------------------------
 
-function createStyles(colors: ThemeColors, scheme: ColorScheme) {
-  return StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      // Transparent — `<ScreenGradient>` behind it owns the fill.
-      backgroundColor: 'transparent',
-    },
-    // `flex` ONLY. Child-layout props (alignItems/justifyContent/...) are ILLEGAL in a
-    // ScrollView's `style` and throw at render: "ScrollView child layout must be applied
-    // through the contentContainerStyle prop." The readable column is therefore centred by
-    // `alignSelf: 'center'` on the contentContainerStyle below, not from here (issue #63).
-    scroll: {
-      flex: 1,
-    },
-    content: {
-      // flexGrow, not flex — this is now a ScrollView contentContainerStyle (issue #63): fills
-      // the viewport when the content is short, scrolls instead of clipping when it isn't.
-      flexGrow: 1,
-      width: '100%',
-      maxWidth: ContentWidth.readable,
-      alignSelf: 'center',
-      padding: Spacing.xl,
-      gap: Spacing.xl,
-    },
-    centered: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: Spacing.md,
-    },
-    caption: {
-      fontFamily: FontFamily.mono.regular,
-      fontSize: FontSize.sm,
-      lineHeight: FontSize.sm * LineHeight.body,
-      // `text.primary`, because this same style is also used by the extracting caption, which sits
-      // directly on the wash — and the wash carries `text.primary` ONLY (`Gradient`'s contract,
-      // constants/theme.ts). Legal on the ready/error cards too; a surface is proven for both roles.
-      color: colors.text.primary,
-      textAlign: 'center',
-    },
-    // The ready/error panels. `alignSelf: 'stretch'` so the card fills the readable column rather
-    // than shrink-wrapping its longest line.
-    panel: {
-      alignSelf: 'stretch',
-    },
-    // Spacing only — fill, corner, edge and interior padding come from `<SurfaceCard>`. A `gap` on
-    // the card's own `style` would land on its outer shadow node, whose single child is the clip
-    // view, and silently do nothing.
-    panelStack: {
-      gap: Spacing.md,
-    },
-    resultTitle: {
-      fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.xxl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xxl * LineHeight.display,
-      color: colors.text.primary,
-      textAlign: 'center',
-    },
-    // A pause is not a failure, so it does not wear the failure hue: `text.primary` on the same
-    // `<SurfaceCard>`, the treatment the ready panel already uses. The copy underneath carries the
-    // reason; the colour makes no claim the state does not support.
-    pausedTitle: {
-      fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.xxl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xxl * LineHeight.display,
-      color: colors.text.primary,
-      textAlign: 'center',
-    },
-    // `Semantic.error` is proven against the opaque surfaces, NOT against the page gradient
-    // (`Gradient`'s contract) — which is why this title used to take `text.primary` and let the
-    // copy carry the failure. Now that the error block sits on a `<SurfaceCard>`, the hue is on a
-    // backdrop it IS proven against, so the state reads as a failure at a glance as well as in
-    // words. Same treatment as `app/capture/index.tsx`'s `panelTitleError`.
-    errorTitle: {
-      fontFamily: FontFamily.display.bold,
-      fontSize: FontSize.xxl,
-      letterSpacing: Tracking.display,
-      lineHeight: FontSize.xxl * LineHeight.display,
-      color: Semantic.error[scheme],
-      textAlign: 'center',
-    },
-    // The mark and its ring share one centre. The ring is absolute, so adding it did not move the
-    // figure by a point. Replaces `progressTrack`/`progressFill`: the readout this screen's bar
-    // was matched to is a ring now (components/pace-readout.tsx), and the two should still read as
-    // the same object.
-    waitMark: {
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    waitRings: {
-      position: 'absolute',
-    },
-    cta: {
-      alignSelf: 'stretch',
-      marginTop: Spacing.sm,
-    },
-  });
+function StopBody({
+  state,
+  mediaKind,
+  pauseRemaining,
+  pauseStartRemaining,
+}: {
+  state: Extract<ExtractState, { status: 'error' | 'paused' | 'exhausted' | 'offline' }>;
+  mediaKind: MediaKind;
+  pauseRemaining: number | null;
+  pauseStartRemaining: number | null;
+}) {
+  const stop = stopCopy(state, mediaKind);
+  let extra: ReactNode = null;
+
+  if (state.status === 'paused' && pauseRemaining !== null) {
+    const fraction = remainingFraction(pauseRemaining, pauseStartRemaining ?? pauseRemaining);
+    extra = (
+      <View style={styles.countdownCard} testID="preparing-countdown">
+        <View style={styles.countdownRow}>
+          <Text style={styles.countdown} accessibilityLabel={`${formatCountdown(pauseRemaining)} ${Copy.upload.pause.remaining}`}>
+            {formatCountdown(pauseRemaining)}
+          </Text>
+          <Text style={styles.countdownLabel}>{Copy.upload.pause.remaining}</Text>
+        </View>
+        <View style={styles.drainTrack}>
+          <View style={[styles.drainFill, { width: `${fraction * 100}%` }]} />
+        </View>
+      </View>
+    );
+  }
+
+  if (state.status === 'exhausted') {
+    const panel = quotaPanel(state.quota);
+    if (panel.kind === 'paid') {
+      const date = formatResetDate(panel.resetsAt);
+      const days = daysUntil(panel.resetsAt);
+      const rows: { key: string; label: string; value: string }[] = [
+        { key: 'used', label: Copy.upload.quota.used, value: Copy.upload.rows.progress(panel.used, panel.limit) },
+      ];
+      if (date && days !== null) {
+        rows.push({ key: 'resets', label: Copy.upload.quota.resets, value: Copy.upload.quota.resetValue(date, days) });
+      }
+      extra = <KeyValueCard rows={rows} testID="preparing-quota-panel" />;
+    } else if (panel.kind === 'free') {
+      extra = (
+        <KeyValueCard
+          testID="preparing-quota-panel"
+          rows={[
+            { key: 'used', label: Copy.upload.quota.used, value: Copy.upload.rows.progress(panel.used, panel.limit) },
+            { key: 'plan', label: Copy.upload.quota.plan, value: Copy.upload.quota.freePlanValue },
+          ]}
+        />
+      );
+    }
+  }
+
+  return (
+    <View style={styles.stopBody} testID={`preparing-stop-${stop.id}`}>
+      <StopIconBox name={stop.icon} danger={stop.danger} />
+      <StopHeadline eyebrow={stop.eyebrow} title={stop.title} body={stop.body} danger={stop.danger} />
+      {extra}
+    </View>
+  );
 }
+
+type StopCopy = { id: string; icon: StopIconName; danger: boolean; eyebrow: string; title: string; body: string };
+
+function stopCopy(
+  state: Extract<ExtractState, { status: 'error' | 'paused' | 'exhausted' | 'offline' }>,
+  mediaKind: MediaKind
+): StopCopy {
+  switch (state.status) {
+    case 'exhausted': {
+      const free = quotaPanel(state.quota).kind === 'free';
+      return {
+        id: 'quota',
+        icon: 'quota',
+        danger: false,
+        eyebrow: Copy.upload.quota.eyebrow,
+        title: Copy.upload.quota.title,
+        body: free ? Copy.upload.quota.freeBody : Copy.upload.quota.paidBody,
+      };
+    }
+    case 'paused':
+      return {
+        id: 'paused',
+        icon: 'clock',
+        danger: false,
+        eyebrow: Copy.upload.pause.eyebrow,
+        title: Copy.upload.pause.title,
+        body: Copy.upload.pause.body,
+      };
+    case 'offline':
+      return {
+        id: 'offline',
+        icon: 'wifi',
+        danger: false,
+        eyebrow: Copy.upload.offline.eyebrow,
+        title: Copy.upload.offline.title,
+        body: mediaKind === 'photo' ? Copy.upload.offline.photo : Copy.upload.offline.video,
+      };
+    case 'error': {
+      const e = Copy.upload.error;
+      switch (state.kind) {
+        case 'extractionFailed':
+          return {
+            id: 'extractionFailed',
+            icon: 'alert',
+            danger: true,
+            eyebrow: e.extractionFailed.eyebrow,
+            title: mediaKind === 'photo' ? e.extractionFailed.titlePhoto : e.extractionFailed.titleVideo,
+            body: e.extractionFailed.body,
+          };
+        case 'budgetExceeded':
+          return { id: 'budgetExceeded', icon: 'alert', danger: true, ...e.budgetExceeded };
+        case 'unsupportedFootage':
+          return { id: 'unsupportedFootage', icon: 'alert', danger: true, ...e.unsupportedFootage };
+        case 'capViolation':
+          return state.violation === 'clipTooLong'
+            ? { id: 'clipTooLong', icon: 'alert', danger: true, eyebrow: e.clipTooLong.eyebrow, ...Copy.sourcePicker.error.clipTooLong }
+            : { id: 'fileTooLarge', icon: 'alert', danger: true, eyebrow: e.fileTooLarge.eyebrow, ...Copy.sourcePicker.error.fileTooLarge };
+      }
+    }
+  }
+}
+
+/** What a screen reader hears when the state changes (issue #11's iOS complement to the live
+ *  regions). Progress is announced per frame; a stop state by its title and body. */
+function announcementFor(state: ExtractState, mediaKind: MediaKind): string | null {
+  switch (state.status) {
+    case 'preparing':
+      return Copy.upload.status.checking;
+    case 'extracting':
+      return mediaKind === 'photo'
+        ? Copy.upload.status.photo
+        : Copy.upload.status.extracting(preparingHeroIndex(state.done, state.total), state.total);
+    case 'ready':
+      return mediaKind === 'photo' ? Copy.upload.status.readyPhoto : Copy.upload.status.readyVideo(state.frameSet.frames.length);
+    default: {
+      const stop = stopCopy(state, mediaKind);
+      return `${stop.title}. ${stop.body}`;
+    }
+  }
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: Ink.bg,
+  },
+  // `flex` ONLY — child-layout props are illegal on a ScrollView's `style` (issue #63).
+  scroll: {
+    flex: 1,
+  },
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: Layout.loading.gutter,
+  },
+  badge: {
+    ...Type.monoCaption,
+    color: Ink.ink2,
+  },
+  body: {
+    gap: Space.lg + Space.xs,
+    paddingTop: Space.xs,
+  },
+  heroBlock: {
+    gap: Layout.loading.stackGap,
+  },
+  eyebrow: {
+    ...Type.eyebrow,
+    color: Ink.ink2,
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: Space.xs,
+  },
+  heroNum: {
+    ...Type.hero,
+    color: Ink.ink,
+  },
+  heroOf: {
+    ...Type.heroOf,
+    color: Ink.ink2,
+  },
+  status: {
+    ...Type.lead,
+    color: Ink.ink2,
+  },
+  segments: {
+    flexDirection: 'row',
+    gap: Layout.loading.segmentGap,
+  },
+  segment: {
+    flex: 1,
+    height: Layout.loading.segment,
+    backgroundColor: Ink.line,
+  },
+  segmentDone: {
+    backgroundColor: Ink.ink,
+  },
+  segmentNow: {
+    backgroundColor: Ink.ink2,
+  },
+  emptyColumn: {
+    flex: 1,
+  },
+  stopBody: {
+    gap: Space.lg + Space.xs,
+    paddingTop: Space.md,
+  },
+  countdownCard: {
+    gap: Layout.loading.stackGap,
+    padding: Space.lg,
+    backgroundColor: Ink.bgRaised,
+    borderWidth: Layout.hairline,
+    borderColor: Ink.line,
+  },
+  countdownRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  countdown: {
+    ...Type.countdown,
+    color: Ink.ink,
+  },
+  countdownLabel: {
+    ...Type.monoCaption,
+    color: Ink.ink2,
+  },
+  drainTrack: {
+    height: Layout.loading.track,
+    backgroundColor: Ink.line,
+  },
+  drainFill: {
+    height: Layout.loading.track,
+    backgroundColor: Ink.ink,
+  },
+  spacer: {
+    flexGrow: 1,
+    minHeight: Space.xl,
+  },
+  actions: {
+    gap: Layout.loading.stackGap,
+    paddingTop: Space.md,
+  },
+});

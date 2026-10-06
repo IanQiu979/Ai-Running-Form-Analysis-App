@@ -171,8 +171,12 @@ function RootLayoutNav() {
 
             {/* Capture flow (design brief screens 3-5, issue #36) — record or pick, then extract. */}
             <Stack.Screen name="capture" options={{ headerShown: false }} />
-            {/* Screen 6 — Analyzing (issue #80) — the wait on analyze-form. */}
-            <Stack.Screen name="analyzing" options={{ headerShown: false }} />
+            {/* Screen 6 — Analyzing (issue #80) — the wait on analyze-form. No swipe-back: leaving
+                must go through the screen's own Back/Cancel, which drops a session-expired
+                analysis held for resume (`lib/resumable-analysis.ts`); a gesture would skip that
+                and let the frames be resubmitted on the next sign-in. Android's hardware back is
+                routed to the same handler inside the screen. */}
+            <Stack.Screen name="analyzing" options={{ headerShown: false, gestureEnabled: false }} />
             {/* result/[id] — the PACE readout (issue #56) — the payload. */}
             <Stack.Screen name="result/[id]" options={{ headerShown: false }} />
             {/* Screen 11 — Settings (issue #53). A pushed top-level route, not a tab, per

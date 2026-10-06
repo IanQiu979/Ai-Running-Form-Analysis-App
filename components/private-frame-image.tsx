@@ -15,5 +15,14 @@ type PrivateFrameImageProps = Omit<ImageProps, 'source' | 'cachePolicy' | 'place
 };
 
 export function PrivateFrameImage({ uri, ...rest }: PrivateFrameImageProps) {
-  return <Image {...rest} source={privateFrameSource(uri)} cachePolicy={PRIVATE_FRAME_CACHE_POLICY} />;
+  // `placeholder` forced off after the spread, as in `<DeviceFrameImage>`: expo-image on iOS writes
+  // a placeholder to its disk cache whatever `cachePolicy` says.
+  return (
+    <Image
+      {...rest}
+      source={privateFrameSource(uri)}
+      cachePolicy={PRIVATE_FRAME_CACHE_POLICY}
+      placeholder={undefined}
+    />
+  );
 }

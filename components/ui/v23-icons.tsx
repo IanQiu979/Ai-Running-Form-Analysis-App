@@ -136,3 +136,81 @@ export function CheckIcon({ color = Ink.onAccent, size = 10, testID }: IconProps
     </Svg>
   );
 }
+
+// --- The Preparing / Analysing pages (2026-10-06). Traced from those pages' inline SVGs: a 24 pt
+// viewBox, square caps, stroke 1.75 at the 24 pt state-icon size and 2 at the 16 pt row size. ---
+
+type StateIconProps = IconProps & { strokeWidth?: number };
+
+/** Those pages' Back control: a single chevron. 22 pt. */
+export function ChevronLeftIcon({ color = Ink.ink, size = 22, testID }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.75} strokeLinecap="square" testID={testID} {...HIDDEN}>
+      <Path d="M15 5l-7 7 7 7" />
+    </Svg>
+  );
+}
+
+/** A done checklist row, and the "Not counted against your quota" line. 16 pt. */
+export function TickIcon({ color = Ink.ink, size = 16, strokeWidth = 2, testID }: StateIconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="square" testID={testID} {...HIDDEN}>
+      <Path d="M5 12.5l4.5 4.5L19 7.5" />
+    </Svg>
+  );
+}
+
+/** Out of analyses: a gauge at its stop. */
+export function GaugeIcon({ color = Ink.ink, size = 24, strokeWidth = 1.75, testID }: StateIconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="square" testID={testID} {...HIDDEN}>
+      <Path d="M4 17a8 8 0 1 1 16 0" />
+      <Path d="M12 17l4-5" />
+      <Path d="M4 20h16" />
+    </Svg>
+  );
+}
+
+/** A pause or a timeout. */
+export function ClockIcon({ color = Ink.ink, size = 24, strokeWidth = 1.75, testID }: StateIconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="square" testID={testID} {...HIDDEN}>
+      <Circle cx="12" cy="12" r="8.5" />
+      <Path d="M12 7.5V12l3 2" />
+    </Svg>
+  );
+}
+
+/** No connection: a struck-through signal. */
+export function WifiOffIcon({ color = Ink.ink, size = 24, strokeWidth = 1.75, testID }: StateIconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="square" testID={testID} {...HIDDEN}>
+      <Path d="M3 3l18 18" />
+      <Path d="M8.5 16a5 5 0 0 1 7 0" />
+      <Path d="M5 12.5a10 10 0 0 1 4-2.4" />
+      <Path d="M15.5 10.4A10 10 0 0 1 19 12.5" />
+      <Path d="M12 19.5h.01" />
+    </Svg>
+  );
+}
+
+/** A failure: a warning triangle. */
+export function AlertIcon({ color = Ink.danger, size = 24, strokeWidth = 1.75, testID }: StateIconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="square" strokeLinejoin="miter" testID={testID} {...HIDDEN}>
+      <Path d="M12 3.5l9 16.5H3z" />
+      <Path d="M12 10v4.5" />
+      <Path d="M12 17.2h.01" />
+    </Svg>
+  );
+}
+
+/** A session that ended: a padlock. */
+export function LockIcon({ color = Ink.ink2, size = 16, strokeWidth = 2, testID }: StateIconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="square" testID={testID} {...HIDDEN}>
+      <Rect x="5" y="11" width="14" height="9" />
+      <Path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </Svg>
+  );
+}

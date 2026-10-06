@@ -81,6 +81,9 @@ export const Chrome = {
    *  `filter: brightness(.4)` on the content; a 60 % black scrim over the same content lands on
    *  the same luminance without a filter primitive RN does not have. */
   scrim: 'rgba(10,10,10,0.6)',
+  /** The Preparing/Analysing pages' scan line over the frame viewer: `ink` at 55 %. Decorative —
+   *  it signals "reading", never carries text. */
+  scan: 'rgba(245,245,245,0.55)',
 } as const;
 
 // -------------------------------------------------------------------------------------------
@@ -284,6 +287,99 @@ export const Type = {
     letterSpacing: 0.96,
     fontVariant: ['tabular-nums'],
   },
+  // --- The Preparing / Analysing pages (2026-10-06, Claude Design "Preparing & Analysing — V23").
+  // Set on those pages themselves rather than on the type-scale column, like `clock` above. ---
+  /** The Preparing hero's current frame: 112 · Barlow Condensed 800 · tabular. The page sets
+   *  `line-height: .8`; RN clips a glyph whose line box is shorter than its ascent, so the box is
+   *  the cap height plus a little, and the numeral sits on the same baseline as `heroOf`. */
+  hero: {
+    fontFamily: Font.condensed.extraBold,
+    fontSize: 112,
+    lineHeight: 100,
+    fontVariant: ['tabular-nums'],
+  },
+  /** The hero's "/5": 48 · Barlow Condensed 700 · tabular, in `ink2`. */
+  heroOf: {
+    fontFamily: Font.condensed.bold,
+    fontSize: 48,
+    lineHeight: 46,
+    fontVariant: ['tabular-nums'],
+  },
+  /** A stop-state title (out of analyses, offline, failed): 48/46 · Barlow Condensed 800 ·
+   *  uppercase. The page sets `line-height: .95`. */
+  displayLg: {
+    fontFamily: Font.condensed.extraBold,
+    fontSize: 48,
+    lineHeight: 46,
+    textTransform: 'uppercase',
+  },
+  /** The Analysing phase title ("Finding your stride"): 44/42 · Barlow Condensed 800 · uppercase. */
+  displayMd: {
+    fontFamily: Font.condensed.extraBold,
+    fontSize: 44,
+    lineHeight: 42,
+    textTransform: 'uppercase',
+  },
+  /** Eyebrow 12/16 · Inter Tight 600 · uppercase · +12 % (1.44 pt). "Preparing your video",
+   *  "Quota reached", "Analysis". */
+  eyebrow: {
+    fontFamily: Font.tight.semiBold,
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 1.44,
+    textTransform: 'uppercase',
+  },
+  /** Lead 15/21 · Inter Tight 400. A loading page's status line and a stop state's body. */
+  lead: {
+    fontFamily: Font.tight.regular,
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  /** Mono caption 11/14 · platform mono · uppercase · +6 % (0.66 pt). The source badge, the
+   *  viewer's frame label, the Upload / Read / Result track. */
+  monoCaption: {
+    fontFamily: Font.mono,
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 0.66,
+    textTransform: 'uppercase',
+  },
+  /** Mono micro 9/12 · platform mono. A frame tile's index or timestamp. */
+  monoMicro: {
+    fontFamily: Font.mono,
+    fontSize: 9,
+    lineHeight: 12,
+  },
+  /** Mono value 12/16 · platform mono. A checklist row's value ("4 LEFT", "3 / 5"). */
+  monoValue: {
+    fontFamily: Font.mono,
+    fontSize: 12,
+    lineHeight: 16,
+    fontVariant: ['tabular-nums'],
+  },
+  /** The Analysing elapsed clock: 14/18 · platform mono · tabular. */
+  monoClock: {
+    fontFamily: Font.mono,
+    fontSize: 14,
+    lineHeight: 18,
+    fontVariant: ['tabular-nums'],
+  },
+  /** The clock's "Elapsed" / "Stopped at" label: 10/12 · platform mono · uppercase · +8 %. */
+  monoClockLabel: {
+    fontFamily: Font.mono,
+    fontSize: 10,
+    lineHeight: 12,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  /** The cooldown countdown: 40/44 · platform mono · tabular · −2 % (−0.8 pt). */
+  countdown: {
+    fontFamily: Font.mono,
+    fontSize: 40,
+    lineHeight: 44,
+    letterSpacing: -0.8,
+    fontVariant: ['tabular-nums'],
+  },
 } as const satisfies Record<string, TextStyle>;
 
 // -------------------------------------------------------------------------------------------
@@ -350,6 +446,35 @@ export const Layout = {
   radius: 0,
   /** Hairline weight. */
   hairline: 1,
+  /** The Preparing / Analysing pages (2026-10-06): a 20 pt gutter (the pages are drawn at
+   *  375 pt, so the wider gutter would cost the frame strip a column's width on an iPhone SE),
+   *  a 56 pt header, and the frame viewer's height (video / photo). */
+  loading: {
+    gutter: 20,
+    headerHeight: 56,
+    viewer: { video: 250, photo: 330 },
+    /** The progress segments over the frame strip, and the track under the Analysing page. */
+    segment: 4,
+    track: 2,
+    /** Gap between frame tiles, and between progress segments. */
+    tileGap: 6,
+    segmentGap: 4,
+    /** A stop state's icon box. */
+    iconBox: 48,
+    /** A checklist row, the countdown card's padding, and the row's leading glyph slot. */
+    row: 44,
+    rowGlyph: 16,
+    rowMark: 8,
+    activeMark: 5,
+    /** A checklist / key-value row's side padding, and the page's 10 pt and 6 pt inner gaps. */
+    rowPadding: 14,
+    stackGap: 10,
+    noteGap: 6,
+    /** A tile caption's offset from the tile's bottom edge. */
+    captionInset: 3,
+    /** Analysing's stop states draw the kept frames dimmed: present, but no longer the subject. */
+    keptOpacity: 0.6,
+  },
 } as const;
 
 // -------------------------------------------------------------------------------------------
@@ -393,6 +518,11 @@ export const Motion = {
   pageShift: 12,
   /** Home's pillar ticker: one full loop of the strip every 18 s, linear, forever (V23-07). */
   marqueeLoop: 18000,
+  /** The Preparing / Analysing pages (2026-10-06). `pulse`: the in-progress marker breathes
+   *  between full and `pulseFloor` opacity; `scan`: one pass of the scan line over the frame
+   *  viewer (it runs back and forth); `frameCycle`: how long each frame holds in the viewer while
+   *  reading. All three stop under reduced motion. */
+  loading: { pulse: 1800, pulseFloor: 0.35, scan: 2800, frameCycle: 1400 },
 } as const;
 
 /** Every foreground role that is allowed to carry text a user must read. Exported so the

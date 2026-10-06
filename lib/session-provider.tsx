@@ -16,7 +16,9 @@ import { Copy } from '@/constants/copy';
 import { onAppForeground, startAppStateSync } from './app-state';
 import { createSessionFromUrl } from './auth';
 import { mapAuthError } from './auth-errors';
+import { clearPendingAnalyzeFormRequest } from './analyze-form';
 import { purgePrivateFrameImageCaches } from './private-frame-image';
+import { discardResumableAnalysisUnlessOwnedBy } from './resumable-analysis';
 import { onSessionRestoreFailure } from './secure-storage';
 import { clearSettingsSnapshot } from './settings-cache';
 import { supabase } from './supabase';
@@ -164,6 +166,17 @@ export function SessionProvider({ children }: PropsWithChildren) {
       // user's frames in an image cache (`lib/private-frame-image.ts`, rule 3).
       if (event === 'SIGNED_OUT' || (outgoingUserId && incomingUserId && incomingUserId !== outgoingUserId)) {
         purgeFrameCachesWithRetry();
+      }
+      // The same rule for frames that never left the device (2026-10-06): an analysis staged for,
+      // or held to resume for, one account is dropped the moment a session for ANOTHER account
+      // appears — before any screen of theirs can mount and take it. A SIGNED_OUT on its own does
+      // not drop the resume hold: an expired session signing out is exactly what that hold waits
+      // through (`lib/resumable-analysis.ts`); a user-initiated sign-out drops it in `lib/sign-out.ts`.
+      if (outgoingUserId && incomingUserId !== outgoingUserId) {
+        clearPendingAnalyzeFormRequest();
+      }
+      if (incomingUserId) {
+        discardResumableAnalysisUnlessOwnedBy(incomingUserId);
       }
       currentSessionRef.current = newSession;
       // Issue #81. PASSWORD_RECOVERY fires when the emailed recovery link's exchange lands a

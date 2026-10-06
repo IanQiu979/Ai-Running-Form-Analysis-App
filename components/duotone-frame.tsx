@@ -33,8 +33,9 @@
  * belongs to the hero box rather than to the image. (The drawn annotation marks that used to sit
  * here were removed 2026-09-20 — captain's phone test.)
  */
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
+import { DeviceFrameImage } from '@/components/device-frame-image';
 import { PrivateFrameImage } from '@/components/private-frame-image';
 import { Ink } from '@/constants/v23-theme';
 
@@ -52,29 +53,59 @@ function supportsBlendModes(): boolean {
   return Platform.OS !== 'android' || Number(Platform.Version) >= ANDROID_BLEND_MODE_MIN_API;
 }
 
-type DuotoneFrameProps = {
-  /** Signed URL of the stored frame (`lib/private-frame-image.ts`). Anything else draws nothing. */
-  uri: string;
-  /** The hero frame must carry a text alternative (`Copy.result.hero.altText`). */
+/**
+ * Where the frame comes from — exactly one of the two private-frame sources
+ * (`lib/private-frame-image.ts`): a STORED frame by its signed URL (the result screen), or a frame
+ * that has NOT left the device yet by its in-memory base64 bytes (the Preparing and Analysing
+ * screens, 2026-10-06). Both draw under the same no-cache policy; the grade is identical.
+ */
+type DuotoneFrameSource = { uri: string; deviceBase64?: never } | { deviceBase64: string; uri?: never };
+
+type DuotoneFrameProps = DuotoneFrameSource & {
+  /** Every frame carries a text alternative (`Copy.result.hero.altText`, "Frame 2 of 5"). */
   accessibilityLabel: string;
+  /** Replaces the default full-width 3:4 box — a thumbnail tile sizes itself. */
+  style?: StyleProp<ViewStyle>;
+  /** `cover` (default) bleeds the frame; `contain` shows the whole frame (Analysing's viewer).
+   *  Under `contain` the blend and wash layers also cover the letterbox, which sits on a neutral
+   *  grey surface — desaturating grey is a no-op, so only the wash's slight darkening shows. */
+  contentFit?: 'cover' | 'contain';
   testID?: string;
 };
 
-export function DuotoneFrame({ uri, accessibilityLabel, testID }: DuotoneFrameProps) {
+export function DuotoneFrame({
+  uri,
+  deviceBase64,
+  accessibilityLabel,
+  style,
+  contentFit = 'cover',
+  testID,
+}: DuotoneFrameProps) {
+  const imageTestID = testID ? `${testID}-image` : undefined;
   return (
     <View
-      style={styles.container}
+      style={[styles.container, style ?? styles.defaultBox]}
       testID={testID}
       accessible
       accessibilityRole="image"
       accessibilityLabel={accessibilityLabel}>
-      <PrivateFrameImage
-        uri={uri}
-        style={StyleSheet.absoluteFill}
-        contentFit="cover"
-        accessible={false}
-        testID={testID ? `${testID}-image` : undefined}
-      />
+      {deviceBase64 !== undefined ? (
+        <DeviceFrameImage
+          base64={deviceBase64}
+          style={StyleSheet.absoluteFill}
+          contentFit={contentFit}
+          accessible={false}
+          testID={imageTestID}
+        />
+      ) : (
+        <PrivateFrameImage
+          uri={uri ?? ''}
+          style={StyleSheet.absoluteFill}
+          contentFit={contentFit}
+          accessible={false}
+          testID={imageTestID}
+        />
+      )}
       {supportsBlendModes() ? (
         <View
           testID={testID ? `${testID}-desaturate` : undefined}
@@ -97,9 +128,13 @@ export function DuotoneFrame({ uri, accessibilityLabel, testID }: DuotoneFramePr
 
 const styles = StyleSheet.create({
   container: {
+    overflow: 'hidden',
+  },
+  // The result hero's box. A caller passing `style` sizes the frame itself instead — a tile, or
+  // Analysing's viewer — and must not inherit a 3:4 height that would overflow it.
+  defaultBox: {
     width: '100%',
     aspectRatio: FRAME_ASPECT_RATIO,
-    overflow: 'hidden',
   },
   // Any colour with zero saturation works; `Ink.bg` is a neutral grey (R = G = B).
   desaturate: {

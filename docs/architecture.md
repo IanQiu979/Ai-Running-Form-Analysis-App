@@ -62,8 +62,6 @@ components/              # result-disclaimer.tsx (2026-07-12, issue #68) and, si
   ui/circle-icon-button.tsx # the circular icon control — a screen's top-bar back/settings, and
                           # (2026-08-08) the per-pillar info button and detail-modal close control
                           # on the result screens' PaceReadout.
-  ui/eyebrow.tsx          # the tracked uppercase micro-label — the redesign's main sub-display
-                          # hierarchy tool.
   ui/square-button.tsx    # V23-01 PRIMITIVES (2026-09-13), on constants/v23-theme.ts: the 56 pt
   ui/text-field.tsx       # square button (primary / secondary / link, optional trailing glyph,
                           # `disabledTone`) and the 56 pt input with an inline `danger` error.
@@ -73,9 +71,10 @@ components/              # result-disclaimer.tsx (2026-07-12, issue #68) and, si
   ui/confirm-dialog.tsx   # the scrim + card confirm that replaced every native Alert on the six
   ui/v23-icons.tsx        # lane-2 screens; the pages' own SVG glyphs, traced. See "Current —
                           # V23 lane 2" below. pill-button / surface-card / glass-frost /
-                          # screen-gradient / circle-icon-button / eyebrow / arc-ring /
-                          # arc-loader remain only for the screens no page covers yet
-                          # (extracting, password reset, offline banner). `app/compare.tsx` was
+                          # screen-gradient / circle-icon-button remain only for the screens no
+                          # page covers yet (password reset, offline banner); eyebrow, arc-ring
+                          # and arc-loader were deleted 2026-10-06 when Preparing moved to V23
+                          # (see "Current — Preparing & Analysing" below). `app/compare.tsx` was
                           # re-cut to V23 2026-09-21 (change-list item 5) — the panel's old
                           # `<DeltaRing>` (`components/compare/delta-ring.tsx`) is deleted;
                           # `components/compare/pace-delta-panel.tsx` now draws a plain
@@ -95,13 +94,18 @@ components/              # result-disclaimer.tsx (2026-07-12, issue #68) and, si
                           # (auth)/welcome and (auth)/sign-in.
   pillar-box.tsx          # V23-04 (2026-09-13): one P/A/C/E square, closed or open, with the
                           # 320 ms height-clip expand — one per story section since 2026-09-20.
-  laser-sweep.tsx         # V23-05 (2026-09-13): the Analyzing screen's glowing 2 pt line
-                          # sweeping top to bottom every 3.2 s.
+  loading-parts.tsx       # 2026-10-06: the parts Preparing and Analysing share — header, frame
+                          # tile, checklist, stop-state icon box and headline, the "not counted"
+                          # line, the pulse and the scan line. Replaces the deleted
+                          # laser-sweep.tsx (V23-05's sweeping line) and arc-loader.tsx.
+  device-frame-image.tsx  # 2026-10-06: the only way to draw a frame that has not left the device
+                          # (in-memory base64); the sibling of private-frame-image.tsx. See
+                          # "Current — media pipeline" -> "Rendering stored frames" below.
   kinetic-text.tsx        # per-word reveal. Splits a sentence into one Text per word but keeps
                           # ONE accessible node carrying the whole string — see its header.
   marquee.tsx             # the standing PACE-pillar ticker on Home.
-  low-poly-field.tsx      # the morphing triangle mark used by Extracting and the password-check
-                          # wait. Removed from sign-in 2026-09-01.
+  low-poly-field.tsx      # the morphing triangle mark used by the password-check wait. Removed
+                          # from sign-in 2026-09-01 and from Extracting 2026-10-06.
                           # Per-vertex SVG since 2026-08-02, when the captain lifted the
                           # react-native-svg ban annotation-lines.tsx used to carry: a pose is
                           # three independent vertices, so a facet genuinely reshapes. Each facet
@@ -118,16 +122,18 @@ components/              # result-disclaimer.tsx (2026-07-12, issue #68) and, si
   # (2026-09-14, lane 2); see "Current — V23 lane 2" below.
 constants/theme.ts        # design brief §2 tokens (done 2026-07-11): light+dark, score-band
                           # palette, spacing/radii/type scales; M1 added
-                          # ControlHeight/ControlWidth/HitTarget/Opacity. As of 2026-09-21 only
-                          # extracting, the password-reset screens, the offline banner and the
-                          # Turnstile widget still import it — plus `ScoreBandLabel`, which is
-                          # copy and is read from here by the V23 screens (including
-                          # `app/compare.tsx`, re-cut 2026-09-21) until it moves.
+                          # ControlHeight/ControlWidth/HitTarget/Opacity. As of 2026-10-06
+                          # (extracting moved off it) only the password-reset screens, the
+                          # offline banner and the Turnstile widget still import it — plus
+                          # `ScoreBandLabel`, which is copy and is read from here by the V23
+                          # screens (including `app/compare.tsx`, re-cut 2026-09-21) until it
+                          # moves.
 constants/v23-theme.ts    # THE V23-01 THEME SHEET (2026-09-13): Ink / Font / Type / Space /
                           # Layout / Motion / Chrome, dark only. Consumed by the entry flow,
                           # Analyzing and (2026-09-14, lane 2) Home / Result / History / Capture /
-                          # Paywall / Settings; see "Current — V23 entry flow" and "Current — V23
-                          # lane 2" below.
+                          # Paywall / Settings, and (2026-10-06) Preparing; see "Current — V23
+                          # entry flow", "Current — V23 lane 2" and "Current — Preparing &
+                          # Analysing" below.
 constants/copy.ts         # strings lifted verbatim from docs/design/copy-deck.md — sign-in and
                           # Home's copy live here first (M1); more screens' copy lands with them.
                           # Copy.entry.* (2026-09-13) is the V23 pages' wording, not the deck's.
@@ -149,8 +155,10 @@ lib/
   auth.ts
   session-provider.tsx    # session state + the signed-in route guard; also clears the outgoing
                           # user's in-memory Settings snapshot on sign-out or a direct account swap
-                          # and purges the private-frame image caches
+                          # and purges the private-frame image caches; since 2026-10-06 also drops
+                          # a staged analyze-form request and another account's resume hold
   private-frame-image.ts  # the one cache policy for stored frames (signed URLs, no image cache)
+                          # and, since 2026-10-06, for in-memory device frames (deviceFrameSource)
   settings-cache.ts       # per-user, in-memory Settings plan/consent display snapshots; never a
                           # business-rule source — see "Current — the Settings screen" below
   crypto-polyfill.ts
@@ -261,12 +269,15 @@ app/
                           # "Current — Past Analyses" below. Second Tabs.Screen alongside Home
                           # (`app/(tabs)/_layout.tsx`).
   capture/                  # current (issue #36) — source picker, in-app record, frame
-                          # extraction; see "Current — capture screens (issue #36)" below
+                          # extraction; see "Current — capture screens (issue #36)" below.
+                          # capture/extracting is Preparing since 2026-10-06, see "Current —
+                          # Preparing & Analysing".
   analyzing                 # current (issue #80, 2026-07-12) — Screen 6, the analyze-form wait
                           # screen; top-level route (not nested under (tabs)/capture), guarded
                           # the same as (tabs). See "Current — the Analyzing screen" below;
-                          # restyled to V23-05 (stopwatch + laser sweep) 2026-09-13, see
-                          # "Current — V23 entry flow".
+                          # restyled to V23-05 2026-09-13, rebuilt as Analysing 2026-10-06 (real
+                          # frames, scan line, mm:ss clock), see "Current — Preparing &
+                          # Analysing".
   result/[id]                # current (issue #56) — the PACE readout. `app/analyzing.tsx`
                           # navigates to `result/[id]` (singular, matching this table);
                           # docs/design/motion-consult.md's nav-param example was corrected to
@@ -380,8 +391,16 @@ lib/
                           # `analyzeFormClient` binds it and calls the deployed analyze-form
                           # function through lib/functions-client.ts's invokeFunction), a
                           # dev/test-only mock that throws unless __DEV__, and the mailbox
-                          # app/analyzing.tsx reads from. See "Current — the Analyzing screen"
-                          # below.
+                          # app/analyzing.tsx reads from (bound to its owning user id since
+                          # 2026-10-06). See "Current — the Analyzing screen" and "Current —
+                          # Preparing & Analysing" below.
+  resumable-analysis.ts    # current (2026-10-06) — the session-expired resume hold: memory only,
+                          # account-bound, 15-minute TTL, attempt-generation guard. See "Current —
+                          # Preparing & Analysing" below.
+  loading-screens.ts       # current (2026-10-06) — Preparing/Analysing's pure display decisions
+                          # (checklist, stop state, Upload/Read/Result track); decides nothing.
+  countdown.ts             # current (2026-10-06) — Preparing's cooldown countdown and reset-date
+                          # formatting, clock-injected.
   analyzing-machine.ts     # current (issue #80, 2026-07-12) — the Analyzing screen's pure,
                           # unit-tested wait-state reducer + caption-pacing function; no I/O.
   # pace.ts is NOT here — moved to supabase/functions/_shared/pace.ts by issue #90 (2026-07-12),
@@ -409,8 +428,9 @@ lib/
                           # single-result screen. See "Current — Past Analyses" below.
   connectivity.ts           # current (issue #93, 2026-07-13) — useIsOffline() (live hook,
                           # components/offline-banner.tsx) and checkConnectivity() (one-shot
-                          # pre-flight check, exported but NOT yet called by analyzing.tsx or
-                          # capture/index.tsx — see "Current — connectivity" below).
+                          # pre-flight check, called by analyzing.tsx before each submit and,
+                          # since 2026-10-06, by capture/extracting.tsx before its pre-flight —
+                          # see "Current — connectivity" below).
   app-state.ts              # current (issues #10/#64, 2026-07-13) — the app's ONE AppState
                           # listener; re-arms Supabase's token refresh on foreground and exposes
                           # onAppForeground() as a pub/sub seam other modules subscribe to instead
@@ -1172,8 +1192,12 @@ above is still what those screens are built on and both font sets load at startu
   the field's `accessibilityHint` (issue #9). Validation → HIBP → captcha → `signUpWithCaptcha` →
   `applySignupSession`, `signInWithPassword` and `signInWithGoogle` are byte-for-byte the paths
   described under "Current — auth flow" and "Current — `POST /functions/v1/signup-with-captcha`".
-- **`app/analyzing.tsx` — V23-05.** Supersedes the `<ArcLoader>` sentence in "Current — the
-  Analyzing screen" above; everything else in that section still holds. The wait is a `mm:ss.t`
+- **`app/analyzing.tsx` — V23-05. SUPERSEDED 2026-10-06** by "Current — Preparing & Analysing"
+  below: the stopwatch is now an `mm:ss` clock, `components/laser-sweep.tsx` is deleted, and the
+  wait is drawn around the runner's frames with a scan line (not drawn under reduced motion). The
+  300 ms hold on `succeeded` before `router.replace` is unchanged. What V23-05 shipped, kept as a
+  record: it superseded the `<ArcLoader>` sentence in "Current — the Analyzing screen" above;
+  everything else in that section still holds. The wait is a `mm:ss.t`
   stopwatch (`formatStopwatch`, ticking every 100 ms from the start of the current attempt, so
   Retry restarts it), the `ANALYZING` label, one status line on the machine's existing step pacing
   — `Copy.analyzing.step.uploading(mediaType)` → `.finding` → the `longWait` fade — and
@@ -1199,7 +1223,7 @@ above is still what those screens are built on and both font sets load at startu
   `app/(auth)/__tests__/entry-hero.test.tsx` (rewritten for the 2026-09-20 scroll; the deleted
   `details.test.tsx` is succeeded by `components/__tests__/pillar-story.test.tsx`), the updated
   `sign-in*.test.tsx` and `app/__tests__/analyzing.test.tsx`; component tests for `stride-hero`,
-  `pillar-box`, `pillar-story` and `laser-sweep`.
+  `pillar-box`, `pillar-story` and `laser-sweep` (the last deleted with its component 2026-10-06).
 
 ## Current — V23 lane 2: Home, Result, History, Capture, Paywall, Settings (2026-09-14)
 
@@ -1275,9 +1299,10 @@ focus refreshes, `ActiveFlag`s, quota derivation, consent phases, delete/sign-ou
 - **Capture** (`app/capture/index.tsx`, `app/capture/record.tsx`, `components/framing-guide.tsx`).
   Since 2026-09-20 there is no consent gate at capture — Upload and Record go straight to the
   picker/camera (see "Consent merged into sign-up" below). The framing guide is the page's dashed
-  box + ground line. `app/capture/extracting.tsx` has no page and is
-  still on `constants/theme.ts` — the one Cold Read screen a user now crosses between two V23
-  screens.
+  box + ground line. `app/capture/extracting.tsx` had no page then and stayed on
+  `constants/theme.ts` — the one Cold Read screen a user crossed between two V23 screens.
+  **Superseded 2026-10-06:** it is now Preparing, on `constants/v23-theme.ts`; see "Current —
+  Preparing & Analysing" below.
 - **Paywall** (`app/paywall.tsx`, `components/paywall/tier-card.tsx`) and **Settings**
   (`app/settings.tsx`). Since 2026-09-20 the paywall renders a confirmed current tier's card first
   (`orderedTierKeys`, labelled "Current plan"), the other tiers following in ladder order; the
@@ -1313,6 +1338,105 @@ it depended on (`components/compare/delta-ring.tsx`, now deleted) had no V23 equ
 forward, since the redesign replaced rings with the readout's own 2 px score bar; the panel now
 draws one `<SquareCard>` with a plain letter/name/delta-sentence row per pillar instead. The
 not-assessed honesty rule (`lib/compare.ts`, unchanged) is unaffected either way.
+
+## Current — Preparing & Analysing (2026-10-06)
+
+**On `fm/v23-loading-screens-r1`.** `app/capture/extracting.tsx` (Preparing) and
+`app/analyzing.tsx` (Analysing) rebuilt to the captain's Claude Design page "Preparing &
+Analysing — V23", on `constants/v23-theme.ts`; neither imports `constants/theme.ts`. This
+supersedes the visual descriptions in "Current — capture screens", "Current — the Analyzing
+screen" and the V23-05 bullet under "Current — V23 entry flow". The analyzing state machine
+(`lib/analyzing-machine.ts`), the timeout and same-key Retry rules, and the #64 / #140 recovery
+paths are unchanged. Full narrative: `docs/change_log.md`'s 2026-10-06 entry.
+
+- **Structure.** Each screen keeps its effects and I/O in the default export and draws through an
+  exported, stateless view (`PreparingView`, `AnalysingView`) that takes state and handlers only,
+  so every state renders the same way in the screen, its tests and a screenshot. Shared parts are
+  `components/loading-parts.tsx` (header, frame tile and strip, checklist, stop-state icon box and
+  headline, the "not counted" line, the pulse, the scan line). Every display decision — checklist
+  rows, which stop state a failure maps to, which Upload / Read / Result step is lit, whether a
+  stop is retryable or uncounted — is a pure function in `lib/loading-screens.ts`, which decides
+  nothing and invents no progress. `lib/countdown.ts` formats the cooldown and reset date. The
+  page's tokens are `Type.hero` … `Type.countdown`, `Chrome.scan`, `Layout.loading.*` and
+  `Motion.loading` in `constants/v23-theme.ts`.
+- **Preparing, in order.** The media-cap re-check, then one connectivity read
+  (`checkConnectivity()`; a read that cannot answer counts as online), then the bounded
+  `quota-status` pre-flight (`fetchAnalysisPreflight()`), all before any thumbnail work.
+  - Definitely offline: the offline state, nothing extracted or sent; Try again re-runs the whole
+    pre-flight.
+  - `cooldown` gate: the paused state. With a `blockedUntil`, a live countdown (`MM:SS`, `H:MM:SS`
+    from an hour) and a draining bar measured from when the screen first saw the pause (the server
+    does not say when the window opened). Continue is disabled until zero and then re-runs the
+    pre-flight, so the server decides whether the pause has lifted; nothing unlocks on the
+    client's clock. With no `blockedUntil`, no countdown and no Continue.
+  - `exhausted` gate: the out-of-analyses state on this screen, with "See plans" to `/paywall`.
+    Paid: used / limit and the reset date from `periodEnd`. Free: one analysis for life, no reset.
+    No reading: no numbers.
+  - Otherwise extraction runs with the server's `frameCap` (photos: one frame), and the screen shows
+    the frames as `lib/frames.ts` accepts them. `AnalysisPreflight.quota` (the server's reading, or
+    `null` on any failure or timeout) is display only: the remaining count on the checklist, the
+    Elite badge, the out-of-analyses numbers. The gate is the decision, and `reserve_analysis`
+    remains the authority.
+  - "Start analysis" mints the idempotency key, discards any resume hold, stages the request on
+    the user-bound mailbox and replaces to `/analyzing`. Back goes to the source picker from a
+    working state, and Home from a stop state.
+- **Analysing.** The four phases (Uploading, Finding your stride, Still analyzing, Done) come from
+  the machine's existing caption pacing and `succeeded`; the Upload / Read / Result track projects
+  the same steps. The elapsed clock is `mm:ss`, one tick a second, counting the current attempt; it
+  stops when the wait ends ("Stopped at") and Retry restarts it. While reading, the viewer steps
+  through the frames every `Motion.loading.frameCycle` and a scan line passes over the frame only.
+  No skeleton or joint markers are drawn: nothing on the device tracks a pose, and the screen must
+  not imply it. Under reduced motion the viewer holds one frame and the scan line is not mounted.
+  `succeeded` holds Done for 300 ms before `router.replace` to the result. Stop states, one layout
+  each: failed, timeout, session expired (`unauthorized`), offline, released
+  (`previous_attempt_failed` or a reconciled release; Start new analysis to `/capture`), paused
+  (`too_many_failed_attempts`), and the zero-pillar cooldown. Retry is offered only for failed,
+  timeout and offline. "Not counted against your quota" is shown on every stop except a timeout,
+  because a client timeout does not stop the server. A 402 `quota_exceeded` still goes straight to
+  `/paywall` and draws no stop state.
+- **Real frames.** Both screens draw the in-memory frames through `<DuotoneFrame deviceBase64>` →
+  `components/device-frame-image.tsx`, under the policy in "Current — media pipeline" →
+  "Frames that have not left the device". `<DuotoneFrame>` takes `style` (a tile or viewer sizes
+  itself instead of the default 3:4 box) and `contentFit` (`contain` for Analysing's viewer).
+- **The session-expired resume (`lib/resumable-analysis.ts`).** When `analyze-form` answers
+  `unauthorized`, Analysing calls `holdForResume(request, userId, generation)` for the user who
+  started the attempt. It does so even if the route guard has already unmounted the screen,
+  because auth-js may end the session itself. "Sign in and retry" calls
+  `signOut({ keepResumableAnalysis: true })`; a `stillSignedIn` result shows a `<ConfirmDialog>`,
+  and any other result leaves the guard to send the runner to sign in. After sign-in, Home's
+  once-per-mount startup check calls `takeResumableAnalysis(userId)` before the #140 marker check.
+  If it returns the request, Home stages that same object (same idempotency key, same frames) and pushes
+  `/analyzing`, skipping the marker check on that pass; Analysing re-arms the marker for the same
+  key. The hold is:
+  - **Memory only.** Module state, never written to storage, gone with the process.
+  - **Account-bound.** A take by any other user, or none, discards it, and
+    `lib/session-provider.tsx` calls `discardResumableAnalysisUnlessOwnedBy` as soon as a session
+    for another user appears, before any of their screens mount.
+  - **One-shot, 15 minutes.** The take clears the hold before returning; an older hold is dropped
+    (`RESUME_HOLD_TTL_MS`).
+  - **Discarded on** a delivered result, Cancel / Back / Start new analysis, staging a new
+    analysis on Preparing, and every `signOut()` that does not pass `keepResumableAnalysis`
+    (Settings). A plain `SIGNED_OUT` event does not discard it, because an expired session
+    signing out is what the hold waits through.
+  - **Generation-guarded.** Every discard advances a counter that each Analysing attempt captures
+    at start; a 401 arriving after the runner walked away quotes a stale generation and cannot
+    re-arm the hold.
+
+  Sending the same body again is safe because `analyze-form` is idempotent on
+  `(user_id, idempotencyKey)` and refuses changed frames under one key. The server did not change;
+  the `resume:` cases in `supabase/functions/analyze-form/__tests__/flow.deno.test.ts` prove the
+  resubmission after a delivery replays it (one model call, one settle), a resubmission while the
+  first is in flight gets `409 analysis_in_progress` with no model call, and another account
+  sending the same key gets its own row. The one uncovered window, a `SIGNED_OUT` between staging
+  and Analysing taking the request, is `docs/status.md` Known Issue #56.
+- **The `analyze-form` mailbox is user-bound.** `setPendingAnalyzeFormRequest(request, ownerUserId)`
+  stores the owner; `takePendingAnalyzeFormRequest(currentUserId)` returns the request only to that
+  user and drops it otherwise. `lib/session-provider.tsx` calls `clearPendingAnalyzeFormRequest()`
+  whenever the outgoing user is replaced or signs out, since the mailbox outlives a navigation that
+  never happens.
+- **Accepted risk.** The OS app-switcher snapshot (iOS) and Recents thumbnail (Android) can capture
+  a frame while Preparing or Analysing, or Result and History, is on screen. That is an app-wide
+  decision, not handled here: `docs/status.md` Known Issue #55.
 
 ## Current — app icon & splash assets (done 2026-07-12, closes GitHub issue #26)
 
@@ -1625,7 +1749,10 @@ app/capture/
   # (Copy.analysisPause, no Retry — retrying cannot succeed until the window clears); an
   # exhausted allowance replaces into /paywall. Every lookup FAILURE proceeds: the client is
   # never the authority, and a blip must not fabricate a claim about someone's account. See
-  # docs/status.md Known Issue #44.
+  # docs/status.md Known Issue #44. SUPERSEDED IN PART 2026-10-06 (see "Current — Preparing &
+  # Analysing"): an offline check now runs first, the cooldown is a live countdown whose
+  # Continue re-runs the pre-flight, Copy.analysisPause is deleted, and an exhausted allowance is
+  # an in-screen state with "See plans" instead of a replace into /paywall.
   record.tsx    # Capture (screen 4): expo-camera's CameraView, mode="video" + mute (audio is
                 # never captured — app.json's expo-camera/expo-image-picker plugins already had
                 # microphonePermission: false and recordAudioAndroid: false from M1; unchanged),
@@ -1674,6 +1801,10 @@ app/capture/
                 # a generic extraction failure (`upload.error.extractionFailed`, Retry + Back)
                 # as distinct, real states, not a raw alert. On success: `upload.ready.*` (NEW
                 # copy — see below) and "Done" back to Home.
+                # VISUALS SUPERSEDED 2026-10-06: the spinner, rings and LowPolyField are gone;
+                # the screen is Preparing (real frames in a strip, a three-row checklist), and
+                # its success state hands off to /analyzing. See "Current — Preparing &
+                # Analysing".
 ```
 
 **Where the frame set goes: nowhere yet, honestly.** `analyze-form` (M4, issue #44) and the
@@ -1757,6 +1888,9 @@ labelled "Planned" — both are now live; see "Current — `analyze-form` edge f
 - **`app/analyzing.tsx`** — a top-level route (registered in `app/_layout.tsx`'s signed-in
   `Stack.Protected` group, not nested under `(tabs)` or `capture/`). Its waiting state renders the
   existing indeterminate `<ArcLoader>` rings alone; `<LowPolyField>` no longer mounts there.
+  (Superseded by V23-05 on 2026-09-13 and again on 2026-10-06; `<ArcLoader>` is deleted. The
+  current visuals, stop states and the user-bound mailbox are in "Current — Preparing &
+  Analysing". The timeout and same-key Retry rules below still hold.)
   Client-side timeout
   (`ANALYZING_TIMEOUT_MS`, 120s) does NOT cancel the underlying `submit()` call — the server
   settles the analysis and releases/keeps quota regardless of whether this screen is still
@@ -2005,7 +2139,8 @@ function was told to upload media it never receives).
     expo-image wholesale is safe because nothing else in the app renders through it.
   - **Surfaces:** History's three-cell deck (`components/history/history-row.tsx`), the result
     hero (`components/duotone-frame.tsx`), and the result strip and its viewer
-    (`components/analyzed-frames-strip.tsx`). Compare and Home's recent-analysis card render no
+    (`components/analyzed-frames-strip.tsx`). Preparing and Analysing draw device frames, not
+    stored ones (next sub-bullet). Compare and Home's recent-analysis card render no
     frames. The entry flow's hero (`components/stride-hero.tsx`) is a line drawing computed from
     `lib/stride-hero.ts`, not user media and not an image load, so the policy does not apply to
     it; the app icon and splash are bundled assets. The result hero moved off a
@@ -2015,6 +2150,17 @@ function was told to upload media it never receives).
     that the layer is not mounted (it would paint as an opaque sheet) and the frame shows in colour
     under the same wash. Hero copies that older builds left in `NSURLCache` or Fresco are out of
     expo-image's reach: `docs/status.md` Known Issue #54.
+  - **Frames that have not left the device (2026-10-06).** Preparing's strip and Analysing's
+    viewer and strip draw the in-memory `PaceFrame.base64` through
+    `components/device-frame-image.tsx` (`<DuotoneFrame deviceBase64>`), not
+    `<PrivateFrameImage>`. Its source comes only from `deviceFrameSource()` in
+    `lib/private-frame-image.ts`, which accepts plain base64 (no `data:` prefix, no whitespace) and
+    builds the `data:image/jpeg;base64,…` URI itself, so a caller cannot pass a `file://`, a remote
+    URL or a ready-made data URI; anything else draws nothing. It uses the same
+    `PRIVATE_FRAME_CACHE_POLICY`, and `placeholder` is forced off after the prop spread, because
+    expo-image on iOS writes a placeholder to its disk cache whatever `cachePolicy` says. The
+    signed-URL rule above is unchanged for stored frames. Snapshots the OS takes of these screens
+    are outside this policy: `docs/status.md` Known Issue #55.
   - **Origin pinned.** `isSignedPrivateFrameUrl` also requires the URL to start with
     `EXPO_PUBLIC_SUPABASE_URL` and its path to be plain segments (no `.`/`..`, nothing
     percent-encoded). `jest.setup.js` supplies that origin to the suite when no `.env` exists.
@@ -4142,6 +4288,11 @@ while offline is told immediately rather than watching a spinner fail. The other
 section used to name, `app/capture/index.tsx`, needs no gate: it makes no network request at all —
 frame extraction is on-device, and the frames travel as base64 inside the `analyze-form` request
 body from the analyzing screen (see "Uploaded media" in `CLAUDE.md` § Secrets & env).
+
+**2026-10-06:** `app/capture/extracting.tsx` (Preparing) now also calls `checkConnectivity()`,
+before its `quota-status` pre-flight, and stops on a definite offline reading. Both screens draw
+their offline state from `Copy.upload.*` / `Copy.analyzing.*`; `Copy.offline.blocked` is deleted.
+See "Current — Preparing & Analysing".
 
 **One connectivity library, deliberately.** `@react-native-community/netinfo` is the single source
 of truth here, locked by the `connectivity dependency contract` block in

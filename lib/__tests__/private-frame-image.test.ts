@@ -8,6 +8,7 @@ import { Image } from 'expo-image';
 
 import {
   PRIVATE_FRAME_CACHE_POLICY,
+  deviceFrameSource,
   isSignedPrivateFrameUrl,
   privateFrameSource,
   purgePrivateFrameImageCaches,
@@ -110,6 +111,39 @@ describe('privateFrameSource', () => {
     expect(privateFrameSource('https://example.com/frame.jpg')).toBeNull();
     expect(privateFrameSource(null)).toBeNull();
     expect(privateFrameSource(undefined)).toBeNull();
+  });
+});
+
+// The one other source a private frame may have: bytes that have not left the device yet
+// (Preparing / Analysing). The source is BUILT from plain base64 here, so a caller can never hand
+// expo-image a URL, a file path or a ready-made data URI of its own.
+describe('deviceFrameSource', () => {
+  const B64 = '/9j/4AAQSkZJRgABAQAAAQABAAD+abc=';
+
+  it('wraps plain base64 JPEG bytes as a data URI', () => {
+    expect(deviceFrameSource(B64)).toEqual({ uri: `data:image/jpeg;base64,${B64}` });
+  });
+
+  it('accepts base64 with no padding and with double padding', () => {
+    expect(deviceFrameSource('QUFB')).toEqual({ uri: 'data:image/jpeg;base64,QUFB' });
+    expect(deviceFrameSource('QQ==')).toEqual({ uri: 'data:image/jpeg;base64,QQ==' });
+  });
+
+  it.each([
+    ['the empty string', ''],
+    ['null', null],
+    ['undefined', undefined],
+    ['a remote URL', 'https://x'],
+    ['a local file', 'file:///x'],
+    ['a ready-made data URI', 'data:image/png;base64,AAAA'],
+    ['a signed media URL', SIGNED],
+    ['base64 with a space', 'QUFB QUFB'],
+    ['base64 with a newline', 'QUFB\nQUFB'],
+    ['base64 with a trailing newline', 'QUFB\n'],
+    ['a relative path', '../x'],
+    ['base64 with padding in the middle', 'QQ==QUFB'],
+  ])('refuses %s', (_label, value) => {
+    expect(deviceFrameSource(value)).toBeNull();
   });
 });
 

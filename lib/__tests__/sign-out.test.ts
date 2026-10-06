@@ -16,6 +16,14 @@
  * failure that actually left the user fully signed in everywhere, with every other test in this
  * file still green.
  */
+import type { AnalyzeFormRequest } from '../analyze-form';
+import {
+  currentResumeGeneration,
+  discardResumableAnalysis,
+  hasResumableAnalysis,
+  holdForResume,
+  takeResumableAnalysis,
+} from '../resumable-analysis';
 import { signOut } from '../sign-out';
 import { supabase } from '../supabase';
 
@@ -101,5 +109,66 @@ describe('signOut', () => {
     // this would still be false at the point the promise resolved.
     expect(settled).toBe(true);
     expect(result).toEqual({ ok: true });
+  });
+});
+
+// The session-expired resume hold (`lib/resumable-analysis.ts`, 2026-10-06), exercised through the
+// REAL module: a runner who chose to sign out wants nothing of theirs resubmitted on the next
+// sign-in, so the hold is dropped — before the network call, and whatever that call returns. Only
+// the Analyzing screen's "Sign in and retry" keeps it, because it signs out in order to resume.
+describe('signOut and a held resumable analysis', () => {
+  const USER = 'user-a';
+  const request: AnalyzeFormRequest = {
+    mediaType: 'photo',
+    frames: ['QUFBQQ=='],
+    timestamps: [0],
+    idempotencyKey: 'idem-key-1',
+  };
+
+  beforeEach(() => {
+    discardResumableAnalysis();
+    holdForResume(request, USER, currentResumeGeneration());
+  });
+
+  afterAll(() => {
+    discardResumableAnalysis();
+  });
+
+  it('drops the hold by default, before the sign-out call is made', async () => {
+    let heldWhenCalled: boolean | null = null;
+    mockSignOut.mockImplementation(async () => {
+      heldWhenCalled = hasResumableAnalysis();
+      return { error: null };
+    });
+
+    await signOut();
+
+    expect(heldWhenCalled).toBe(false);
+    expect(takeResumableAnalysis(USER)).toBeNull();
+  });
+
+  it('drops the hold even when the sign-out call returns an error', async () => {
+    mockSignOut.mockResolvedValue({ error: { message: 'network down' } as never });
+    mockGetSession.mockResolvedValue({ data: { session: { access_token: 'still-here' } } } as never);
+
+    await expect(signOut()).resolves.toEqual({ ok: false, reason: 'stillSignedIn' });
+    expect(takeResumableAnalysis(USER)).toBeNull();
+  });
+
+  it('drops the hold even when the sign-out call throws', async () => {
+    mockSignOut.mockRejectedValue(new Error('offline'));
+    mockGetSession.mockResolvedValue({ data: { session: null } } as never);
+
+    await signOut();
+
+    expect(takeResumableAnalysis(USER)).toBeNull();
+  });
+
+  it('keeps the very same request for the same user with keepResumableAnalysis', async () => {
+    mockSignOut.mockResolvedValue({ error: null });
+
+    await expect(signOut({ keepResumableAnalysis: true })).resolves.toEqual({ ok: true });
+
+    expect(takeResumableAnalysis(USER)).toBe(request);
   });
 });

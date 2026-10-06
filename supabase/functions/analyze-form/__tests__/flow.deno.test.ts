@@ -3433,3 +3433,93 @@ for (const tier of ['free', 'pro', 'elite'] as const) {
     }
   }
 }
+
+// ===========================================================================
+// THE SESSION-EXPIRED RESUME (2026-10-06, `lib/resumable-analysis.ts`). The client keeps the exact
+// request a 401 answered — same idempotency key, same frames — and sends it again after the runner
+// signs back in. A 401 is returned by `index.ts` before `runAnalyzeForm` is ever entered (no gate,
+// no reserve, no model call), so the resumed submission is the first the flow sees. These tests
+// prove the other half: however many times that same body arrives under the same caller, the
+// model runs once and the analysis is charged once.
+// ===========================================================================
+
+/** A `reserve_analysis` / `settle_analysis` pair that remembers rows by `(user, key)`, like the
+ *  real `analyses` table does — so a second submission meets the first one's row. */
+function statefulReserve(h: Harness) {
+  const rows = new Map<string, { id: string; status: string; result?: unknown; is_fallback?: boolean }>();
+  const byId = new Map<string, string>();
+  let seq = 0;
+  h.rpc.handlers.reserve_analysis = (args) => {
+    const key = `${args.p_user_id}:${args.p_idempotency_key}`;
+    const row = rows.get(key);
+    if (row) {
+      return {
+        data: { allowed: true, existing: true, id: row.id, status: row.status, tier: 'pro', result: row.result, is_fallback: row.is_fallback },
+        error: null,
+      };
+    }
+    seq += 1;
+    const id = `${ANALYSIS_ID.slice(0, -2)}${String(seq).padStart(2, '0')}`;
+    rows.set(key, { id, status: 'reserved' });
+    byId.set(id, key);
+    return { data: { allowed: true, existing: false, id, status: 'reserved', tier: 'pro' }, error: null };
+  };
+  h.rpc.handlers.settle_analysis = (args) => {
+    const key = byId.get(String(args.p_analysis_id));
+    const row = key ? rows.get(key) : undefined;
+    if (row) {
+      row.status = 'delivered';
+      row.result = args.p_result;
+      row.is_fallback = args.p_is_fallback as boolean;
+    }
+    return { data: { ok: true }, error: null };
+  };
+  return rows;
+}
+
+Deno.test('resume: the same body resubmitted after a delivery replays it — one model call, one charge', async () => {
+  const h = harness([ok()]);
+  const rows = statefulReserve(h);
+
+  const first = await run(h, VIDEO_BODY);
+  const resumed = await run(h, structuredClone(VIDEO_BODY));
+
+  assertEquals(first.status, 200);
+  assertEquals(resumed.status, 200);
+  assertEquals(resumed.body.analysisId, first.body.analysisId, 'the resume lands on the SAME analysis');
+  assertEquals(h.model.sent.length, 1, 'the model ran exactly once across both submissions');
+  assertEquals(h.rpc.to('settle_analysis').length, 1, 'the analysis was settled (charged) exactly once');
+  assertEquals(rows.size, 1, 'one row for one idempotency key');
+  // The replay's gate reservation is released at $0, never billed as a second call.
+  const records = h.rpc.to('record_ai_call');
+  assertEquals(records.at(-1)?.args.p_status, 'cancelled');
+});
+
+Deno.test('resume: a resubmission while the first is still in flight is refused, not run twice', async () => {
+  const h = harness([ok()]);
+  const rows = statefulReserve(h);
+  // The first submission reserved but has not settled yet (its model call is still running).
+  rows.set(`${CALLER}:${VIDEO_BODY.idempotencyKey}`, { id: ANALYSIS_ID, status: 'reserved' });
+
+  const resumed = await run(h, VIDEO_BODY);
+
+  assertEquals(resumed.status, 409);
+  assertEquals(resumed.body.code, 'analysis_in_progress');
+  assertEquals(h.model.sent.length, 0, 'no second paid call against an in-flight reservation');
+  assertEquals(h.rpc.to('release_analysis').length, 0, 'and the in-flight reservation is left alone');
+});
+
+Deno.test('resume: the key is scoped to the caller — another account submitting it starts its own row', async () => {
+  // Defence in depth only: the client discards a hold when a different account signs in, so this
+  // body never reaches the server under another user. If it did, the first caller's analysis is
+  // neither replayed to nor charged against the second.
+  const h = harness([ok(), ok()]);
+  statefulReserve(h);
+
+  const owner = await run(h, VIDEO_BODY, CALLER);
+  const other = await run(h, VIDEO_BODY, ATTACKER_TARGET);
+
+  assertEquals(owner.status, 200);
+  assertEquals(other.status, 200);
+  assertNotEquals(other.body.analysisId, owner.body.analysisId, "another account never receives the owner's analysis");
+});

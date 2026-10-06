@@ -467,80 +467,143 @@ export const Copy = {
   },
   // Screen 6 — Analyzing (issue #80). `title` and `longWait` are the deck's; the status lines
   // are V23-05's (2026-09-13): "Uploading your photo" / "Finding your stride" / "Done".
+  // Analysing (2026-10-06, Claude Design "Preparing & Analysing — V23", captain-approved). Same
+  // meaning as the page, rewritten to this file's rules: no contractions, no exclamation marks.
+  // The step names follow `lib/analyzing-machine.ts`'s honest pacing (uploading -> finding, then
+  // the one-shot long-wait line); nothing here claims progress the machine does not track.
   analyzing: {
-    title: 'Analyzing',
-    step: {
-      // The page says "photo". A video submission never uploads the video — only the frames
-      // extracted on the device leave it (CLAUDE.md, Ruling 1) — so that branch names the frames
-      // rather than claiming an upload the app deliberately does not make.
-      uploading: (mediaType: 'photo' | 'video') =>
-        mediaType === 'video' ? 'Uploading your frames' : 'Uploading your photo',
-      finding: 'Finding your stride',
+    // The top bar's eyebrow while the analysis runs.
+    title: 'Analysis',
+    clock: {
+      elapsed: 'Elapsed',
+      stoppedAt: 'Stopped at',
     },
-    // Shown once the result has landed, for V23-05's 300 ms hold before the result fades in.
-    done: 'Done',
-    longWait: 'Still analyzing. A full read takes a moment.',
+    phase: {
+      uploading: {
+        title: 'Uploading',
+        // A video submission never uploads the video — only the frames extracted on the device
+        // leave it (CLAUDE.md, Ruling 1) — so the video line names the frames.
+        photo: 'Uploading your photo.',
+        video: (frameCount: number) => `Uploading your ${frameCount} frames.`,
+      },
+      finding: {
+        title: 'Finding your stride',
+        photo: 'Reading your running form in your photo.',
+        video: (frameCount: number) => `Reading your running form across all ${frameCount} frames.`,
+      },
+      longWait: {
+        title: 'Still analyzing',
+        body: 'A full read takes a moment.',
+      },
+      done: {
+        title: 'Done',
+        body: 'Opening your result.',
+      },
+    },
+    // The frame viewer's corner labels. The scan line is the only motion over the frame: no pose
+    // tracking runs on the device, so nothing here names joints or points.
+    viewer: {
+      photo: 'Photo',
+      frame: (index: number, total: number) =>
+        `Frame ${String(index).padStart(2, '0')} / ${String(total).padStart(2, '0')}`,
+      sending: 'Sending',
+      reading: 'Reading',
+      complete: 'Read complete',
+    },
+    // Upload / Read / Result — the track along the bottom of the page.
+    track: {
+      upload: 'Upload',
+      read: 'Read',
+      result: 'Result',
+    },
+    frameLabel: (index: number, total: number) => `Frame ${index} of ${total}`,
+    kept: {
+      photo: 'Your photo is ready to retry',
+      video: (frameCount: number) => `${frameCount} frames ready to retry`,
+    },
+    notCounted: 'Not counted against your quota',
     error: {
       failed: {
-        // Design polish pass: the deck's "Your analysis didn't go through" wraps to two lines
-        // at `FontSize.xxl` in `app/analyzing.tsx`'s ErrorPanel — shortened to fit one line
-        // without losing the "your analysis, not a system-wide failure" framing. Deviates from
-        // docs/design/copy-deck.md; that doc is updated to match in the same pass.
-        title: 'Analysis failed',
-        body: 'The analysis service did not return a usable result. This attempt was not counted against your quota. Try again.',
+        eyebrow: 'Analysis failed',
+        title: 'That read did not finish',
+        // The "not counted" line is drawn beside this only when the server sent a failure code of
+        // its own (released before it returned, docs/architecture.md step 9) — never for a lost
+        // response or an unreadable 200 (`lib/loading-screens.ts`'s `stopIsUncounted`).
+        photo: 'Something went wrong on our side while reading your photo. Retry sends the same photo again.',
+        video: 'Something went wrong on our side while reading your frames. Retry sends the same frames again.',
       },
       timeout: {
-        title: 'Analysis timed out',
-        body: 'The read exceeded the time limit. This attempt was not counted against your quota. Try again.',
+        eyebrow: 'Timed out',
+        title: 'This took too long',
+        // NO "not counted" line on this state: a client-side timeout does not stop the server,
+        // which may still finish and settle the analysis. What IS guaranteed is that Retry reuses
+        // the same idempotency key, so a finished analysis is replayed rather than charged twice.
+        photo: 'The analysis did not finish in time. Retry sends the same photo again. If the first attempt finished after all, Retry opens that result with no second charge.',
+        video: 'The analysis did not finish in time. Retry sends the same frames again. If the first attempt finished after all, Retry opens that result with no second charge.',
       },
-      // NEW — not in the deck. L7 (v23-ux-audit-r1): a session that expired mid-wait used to
-      // collapse into the same generic "service didn't return a usable result" copy as a real
-      // server error, even though the honest, actionable difference (sign in again, not just
-      // retry) is already known client-side via the server's own `unauthorized` error code.
+      // The session ended mid-analysis. The frames are kept on this device, the runner signs in,
+      // and the same analysis resumes (`lib/resumable-analysis.ts`). A 401 is answered before
+      // anything is reserved, so "not counted" is true.
       unauthorized: {
-        title: 'Signed out',
-        body: 'Your session ended before the analysis could finish. This attempt was not counted against your quota. Sign in and try again.',
+        eyebrow: 'Session expired',
+        title: 'Sign in to continue',
+        // The frames are kept for 15 minutes, in memory only (`RESUME_HOLD_TTL_MS`), so the promise
+        // is bounded in the copy rather than broken silently.
+        photo: 'You were signed out during the analysis. Sign in again within 15 minutes and the analysis continues with the same photo.',
+        video: 'You were signed out during the analysis. Sign in again within 15 minutes and the analysis continues with the same frames.',
+        cta: 'Sign in and retry',
       },
-      // NEW (not in docs/design/copy-deck.md): both released-reservation dead ends — the server's
-      // 409 `previous_attempt_failed`, and issue #64's `released` phase found by foreground
-      // reconciliation. Retrying reuses the same idempotency key, which `reserve_analysis` answers
-      // with the same already-released row — so a Retry in either case can only ever fail the same
-      // way. Wording mirrors the server's own message ("Start a new analysis to try again").
+      // Issue #93's pre-flight read: the connectivity check came back offline BEFORE the call, so
+      // "nothing was sent" is true by construction.
+      offline: {
+        eyebrow: 'No connection',
+        title: 'You are offline',
+        photo: 'There is no connection, so nothing was sent. Reconnect, then retry with the same photo.',
+        video: 'There is no connection, so nothing was sent. Reconnect, then retry with the same frames.',
+      },
+      // 409 `analysis_in_progress`: an earlier attempt under this key is still running. Retry
+      // replays it once it settles; nothing new is started.
+      inProgress: {
+        eyebrow: 'Still running',
+        title: 'The first attempt is still running',
+        body: 'An earlier attempt for these frames is still being read. Retry in a moment to open its result. A second analysis is not started.',
+      },
+      // 410 `analysis_deleted`: delivered, then deleted. Nothing to replay under this key.
+      deleted: {
+        eyebrow: 'Analysis deleted',
+        title: 'That analysis was deleted',
+        body: 'This analysis finished and was then deleted. Start a new analysis to read your form again.',
+      },
+      // Both released-reservation dead ends — the server's 409 `previous_attempt_failed`, and
+      // issue #64's `released` phase found by foreground reconciliation. Retrying reuses the same
+      // idempotency key, which `reserve_analysis` answers with the same released row, so the only
+      // way forward is a new analysis.
       previousAttemptFailed: {
-        // Design polish pass: "That analysis didn't finish" wraps to two lines at `FontSize.xxl`
-        // — shortened to fit one line down to the narrowest supported width (iPhone SE/mini,
-        // 375pt). Deviates from docs/design/copy-deck.md; updated there too.
-        title: 'Analysis stopped',
-        body: 'An earlier attempt stopped before completing. It was not counted against your quota. Start a new analysis to try again.',
+        eyebrow: 'Analysis stopped',
+        title: 'That attempt stopped',
+        body: 'An earlier attempt stopped before it completed. Start a new analysis to try again.',
+      },
+      // The server's 429 `too_many_failed_attempts` (issue #6), reached here only when it beat the
+      // Preparing screen's pre-flight. Nothing failed and nothing was counted.
+      paused: {
+        eyebrow: 'Pause',
+        title: 'Analyses paused',
+        body: 'Recent analyses could not be scored, so new ones are paused for now. This pause does not use an analysis.',
       },
       zeroPillarCooldown: {
-        title: 'No readable frames',
+        eyebrow: 'No readable frames',
+        title: 'Nothing could be read',
         body: '{message} Try again at {time}.',
         bodyUnknownTime: '{message} Try again in a few minutes.',
         // The lead sentence normally comes from the server (its 429 owns the one-sentence style
-        // rule). This is the local stand-in for the one case that would otherwise render NOTHING:
-        // a body carrying this `code` with a blank `error`. The panel excludes itself from the
-        // generic retryable branch, so an empty body there is not a worse message — it is no
-        // panel and no CTA at all, on a screen whose other exits are gone. Deliberately says only
-        // what the code itself already tells us, and never guesses a time.
+        // rule). This is the local stand-in for a body carrying this `code` with a blank `error`,
+        // which would otherwise render a panel with no text. It never guesses a time.
         fallbackMessage: 'The last clip could not be read.',
       },
       cta: {
-        // The deck says "Reuse shared.cta.retry" / "shared.cta.cancel" — no Copy.shared
-        // namespace exists in this codebase yet. Every screen shipped so far (Home's
-        // `quota.error.retry`, the since-deleted ConsentGate's `cta.secondary`) has likewise duplicated the
-        // literal string under its own key rather than introducing one; following that
-        // established precedent here instead of unilaterally adding an app-wide namespace
-        // from this screen's issue (out of scope per issue #80: "do NOT reorganize
-        // constants/copy.ts").
         retry: 'Retry',
         startNew: 'Start new analysis',
-        cancel: 'Cancel',
-        // NEW — not in the deck. Distinct from `retry`: the `unauthorized` panel's primary
-        // action signs the user out (via lib/sign-out.ts) rather than resubmitting under the
-        // same expired session, so it needs its own label. Reuses `settings.signOut.cta`'s
-        // wording rather than inventing new phrasing for the same action.
-        signOut: 'Sign out',
+        back: 'Back',
         backHome: 'Back to Home',
       },
     },
@@ -1348,96 +1411,126 @@ export const Copy = {
   // frames server-side, after the model call. The deck's own "Ambiguities" #2 already flags
   // this order as superseded by the Ruling-1 pipeline; this file follows the live contract,
   // extraction only.
+  // Preparing (2026-10-06, Claude Design "Preparing & Analysing — V23", captain-approved) — the
+  // pre-flight, the on-device frame extraction, and the stop states the pre-flight can end in.
+  // Same meaning as the page, rewritten to this file's rules (no contractions).
   upload: {
-    title: 'Preparing analysis',
-    step: {
-      extracting: (current: number, total: number) => `Extracting frames ${current} / ${total}`,
+    badge: {
+      separator: ' · ',
+      photo: 'Photo',
+      video: 'Video',
+      elite: 'Elite',
+      frames: (count: number) => `${count} ${count === 1 ? 'frame' : 'frames'}`,
     },
-    // NEW — not in the deck (which only specs the network-upload failure copy below). This is
-    // `lib/frames.ts`'s FrameBudgetExceededError surfaced honestly: the fully-extracted frame
-    // set is over the analyze-form request budget. Retrying with the same clip would produce
-    // the same result, so there is no retry CTA here — only a way back to choose differently.
+    eyebrow: {
+      photo: 'Preparing your photo',
+      video: 'Preparing your video',
+    },
+    status: {
+      // The pre-flight round trip: no frame count is named until the server has stated it.
+      checking: 'Checking your quota.',
+      photo: 'Getting your photo ready to analyze.',
+      extracting: (current: number, total: number) => `Pulling frame ${current} of ${total} from your video.`,
+      readyPhoto: 'Your photo is ready to analyze.',
+      readyVideo: (frameCount: number) => `${frameCount} frames are ready to analyze.`,
+    },
+    rows: {
+      quotaChecking: 'Checking quota',
+      quotaChecked: 'Quota checked',
+      // Shown only when the server stated a number. A lookup that failed open states nothing.
+      quotaLeft: (remaining: number) => `${remaining} left`,
+      extracting: 'Extracting frames',
+      loadingPhoto: 'Loading your photo',
+      ready: 'Ready for analysis',
+      progress: (done: number, total: number) => `${done} / ${total}`,
+      // The hero's "/5" beside the current frame.
+      heroOf: (total: number) => `/${total}`,
+      // A screen reader hears each row's state as well as its label and value.
+      stateDone: 'done',
+      stateNow: 'in progress',
+      stateTodo: 'not started',
+      // A row with no value yet.
+      none: '—',
+    },
+    frame: {
+      label: (index: number, total: number) => `Frame ${index} of ${total}`,
+      pending: (index: number, total: number) => `Frame ${index} of ${total}, not extracted yet`,
+      // A step whose frame was dropped as a duplicate of the one before it (`lib/frames.ts`).
+      skipped: (index: number, total: number) => `Frame ${index} of ${total}, skipped as a duplicate`,
+      timestamp: (ms: number) => `${(ms / 1000).toFixed(2)}s`,
+    },
+    cta: {
+      cancel: 'Cancel',
+      back: 'Back',
+      // Reuses `home.cta.analyze`'s wording: starting an analysis of what is now ready.
+      start: 'Start analysis',
+      retry: 'Try again',
+      choosePhoto: 'Choose another photo',
+      chooseVideo: 'Choose another video',
+      seePlans: 'See plans',
+    },
+    // The pre-flight found the allowance used up. Nothing was extracted or uploaded.
+    quota: {
+      eyebrow: 'Quota reached',
+      title: 'You are out of analyses',
+      paidBody: 'You have used every analysis in this period. Nothing was uploaded.',
+      // Free is ONE analysis for life (`QuotaStatus.isLifetime`): no period, no reset date.
+      freeBody: 'The free plan includes one analysis, and it does not reset. Nothing was uploaded.',
+      used: 'Used',
+      resets: 'Resets',
+      resetValue: (date: string, days: number) => `${date} · ${days} ${days === 1 ? 'day' : 'days'}`,
+      plan: 'Plan',
+      freePlanValue: 'Free · no reset',
+    },
+    // Issue #6's anti-farm cooldown, caught before any extraction. A pause, not a failure: nothing
+    // failed and nothing was counted, and no upgrade lifts it.
+    pause: {
+      eyebrow: 'Pause',
+      title: 'Analyses paused',
+      body: 'Recent analyses could not be scored, so new ones are paused for now. This pause does not use an analysis.',
+      remaining: 'Remaining',
+      continueIn: (time: string) => `Continue in ${time}`,
+      // At zero this asks the server again; the pause lifts only when the server says so.
+      continue: 'Continue',
+    },
+    offline: {
+      eyebrow: 'No connection',
+      title: 'You are offline',
+      photo: 'A connection is needed to check your quota before preparing. Your photo stays on this phone.',
+      video: 'A connection is needed to check your quota before preparing. Your video stays on this phone.',
+    },
+    notCounted: 'Not counted against your quota',
     error: {
+      // Any extraction failure that retrying CAN fix (a native-module error). `title`/`body` are
+      // also shown by `app/capture/index.tsx` for a pick with no readable dimensions.
+      extractionFailed: {
+        eyebrow: 'Extraction failed',
+        title: 'Could not read this file',
+        titlePhoto: 'Could not read this photo',
+        titleVideo: 'Could not read this video',
+        body: 'Frames could not be pulled from this file. It may be damaged or in a format that cannot be opened.',
+      },
+      // `lib/frames.ts`'s FrameBudgetExceededError: deterministic for this clip, so no retry.
       budgetExceeded: {
+        eyebrow: 'Clip too large',
         title: 'Clip too large to analyze',
         body: 'The extracted frames exceed the data limit for one analysis. Use a shorter clip or a lower-resolution recording.',
       },
-      // NEW — not in the deck. `lib/frames.ts`'s InsufficientFramesError: the clip decoded, but
-      // too few of its frames landed on genuinely different instants to read motion from. Like
-      // budgetExceeded and unlike extractionFailed, this is deterministic for a given clip — the
-      // same footage through the same pipeline collides identically — so there is no retry CTA,
-      // only a way back to choose different footage. Worded for a runner, not a decoder: no
-      // "frame rate", no "fps", no "decoder".
+      // `lib/frames.ts`'s InsufficientFramesError: deterministic for this clip, so no retry.
+      // Worded for a runner, not a decoder.
       unsupportedFootage: {
+        eyebrow: 'Clip unsuitable',
         title: 'Clip unsuitable for full analysis',
         body: 'Consecutive frames are too similar to show movement, which usually indicates the clip was re-recorded or exported from another app. Use a clip recorded directly from the camera at normal speed.',
       },
-      // NEW — not in the deck. Any other extraction failure (a corrupt file, a native-module
-      // error) — distinct from budgetExceeded because retrying the same input CAN succeed here.
-      extractionFailed: {
-        title: 'Clip could not be processed',
-        body: 'Frame extraction failed. Try again or select a different clip.',
-      },
-    },
-    // NEW — not in the deck. Was a genuine stopping point ("Done" -> Home) until issue #135
-    // wired this screen's one control to hand off into `/analyzing` — reuses `home.cta.analyze`'s
-    // exact wording ("Start analysis") rather than inventing a distinct label for what is, from
-    // the user's point of view, the same action: starting an analysis of what's now ready.
-    ready: {
-      title: 'Frames ready',
-      body: (frameCount: number) => `${frameCount} frame${frameCount === 1 ? '' : 's'} extracted and ready for analysis.`,
-      cta: 'Start analysis',
+      clipTooLong: { eyebrow: 'Clip too long' },
+      fileTooLarge: { eyebrow: 'File too large' },
     },
   },
-  // Cross-cutting — Offline (issue #93). Lifted verbatim from copy-deck.md's own "Cross-cutting —
-  // Offline" section, NOT from Screen 5's `upload.offline.*` table — that table is explicitly
-  // marked "Not implemented" (the #36 update note: there is no client-upload network step left to
-  // drop offline mid-way through, issue #88). These are the two states that DO have a live
-  // implementation: `banner` for `components/offline-banner.tsx` (mounted globally,
-  // `app/_layout.tsx`), and `blocked` for the pre-flight gate a network-dependent action (an
-  // `analyze-form` submit) shows instead of attempting the call while offline. `blocked.body`'s
-  // "nothing has been sent yet" is load-bearing copy, not decoration — brief §5's rule is "never
-  // claim 'saved' when it isn't," and this is the one state guaranteed to be shown BEFORE any
-  // network attempt, so it's the one place that claim is always true by construction.
+  // Cross-cutting — Offline (issue #93). `banner` is `components/offline-banner.tsx` (mounted
+  // globally, `app/_layout.tsx`). The pre-flight "offline" stop states moved to `upload.offline`
+  // and `analyzing.error.offline` with the 2026-10-06 redesign.
   offline: {
     banner: 'Offline. Capture is available; upload and analysis require a connection.',
-    blocked: {
-      title: 'Offline',
-      body: 'This requires an internet connection. Reconnect and try again. Nothing has been sent.',
-      // Deck says "Reuse shared.cta.retry" — no Copy.shared namespace exists (see the note at
-      // `analyzing.error.cta` above); every other reuse of this string duplicates it by value
-      // instead, so this matches that established convention rather than introducing the first
-      // shared namespace here.
-      cta: 'Retry',
-    },
-  },
-  // Cross-cutting — the anti-farm COOLDOWN (issue #6's `too_many_failed_attempts`). NEW, not in
-  // the deck. Shared by three surfaces that all report the same fact, so they cannot drift apart:
-  // `app/capture/extracting.tsx`'s pre-flight refusal, `app/analyzing.tsx`'s panel for a server
-  // 429 that beat the pre-flight, and (for the caption only) Home.
-  //
-  // WHAT THIS COPY IS FIXING. This state used to render `analyzing.error.failed` — "Your analysis
-  // failed / The analysis service didn't return a usable result" — beside a Retry button. Every
-  // part of that was wrong: nothing failed, the service was never called, and Retry resubmitted
-  // into the identical refusal. So:
-  //   - the TITLE names a pause, not a failure;
-  //   - the BODY says what actually happened (several recent analyses could not be scored, which
-  //     is precisely what `pace_is_farming_signal` counts) and states the time left when the
-  //     server gave us one — `body` is the honest fallback when it did not;
-  //   - "nothing was counted against your quota" is literally true here: a refused reserve never
-  //     creates a row, so there is nothing to count;
-  //   - there is NO retry CTA, because retrying cannot succeed until the window clears. The one
-  //     control leaves for Home, which shows the same countdown.
-  // Deliberately does NOT offer an upgrade: `analyze-form` maps this to 429 rather than 402 for
-  // exactly that reason — selling a plan to someone we just throttled would be both wrong and
-  // useless, since a purchase does not lift this window for the tier they are already on.
-  analysisPause: {
-    title: 'Analyses paused',
-    bodyFor: (remaining: string) =>
-      `Several recent analyses could not be scored, so new ones are paused for ${remaining}. Nothing was counted against your quota.`,
-    body: 'Several recent analyses could not be scored, so new ones are paused for a short period. Nothing was counted against your quota.',
-    // Reuses `settings.back`/`paywall.back`'s wording by value, this file's established convention
-    // for a shared string (see `analyzing.error.cta`'s note on the absent Copy.shared namespace).
-    cta: 'Back to Home',
   },
 } as const;

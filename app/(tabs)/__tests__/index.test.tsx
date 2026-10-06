@@ -9,7 +9,15 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 
 import { Copy } from '@/constants/copy';
 import { Ink } from '@/constants/v23-theme';
+import { takePendingAnalyzeFormRequest, type AnalyzeFormRequest } from '@/lib/analyze-form';
+import { checkPendingAnalysis } from '@/lib/pending-analysis';
 import { quotaStatusClient, type QuotaStatus } from '@/lib/quota';
+import {
+  currentResumeGeneration,
+  discardResumableAnalysis,
+  hasResumableAnalysis,
+  holdForResume,
+} from '@/lib/resumable-analysis';
 
 import HomeScreen from '../index';
 
@@ -150,5 +158,94 @@ describe('HomeScreen quota secondary line', () => {
     expect(notice).not.toHaveTextContent(/^Renews /);
     expect(notice).toHaveStyle({ color: Ink.ink2 });
     await waitFor(() => expect(screen.queryByTestId('home-quota-renews')).toBeNull());
+  });
+});
+
+/**
+ * The session-expired resume (2026-10-06, `lib/resumable-analysis.ts`): Home is where the auth
+ * guard lands a runner who signed back in after "Sign in and retry". Driven through the REAL resume
+ * hold and the REAL `analyze-form` mailbox, so what is asserted is what Analyzing would actually
+ * take — the very same request object, staged for this user — not that a helper was called.
+ * `useSession` is mocked above to user `user-1`.
+ */
+describe('HomeScreen session-expired resume', () => {
+  const mockCheckPendingAnalysis = checkPendingAnalysis as jest.Mock;
+
+  function makeRequest(): AnalyzeFormRequest {
+    return {
+      mediaType: 'video',
+      frames: ['QUFBQQ==', 'QkJCQg=='],
+      timestamps: [0, 250],
+      idempotencyKey: 'idem-resume-1',
+    };
+  }
+
+  function holdFor(request: AnalyzeFormRequest, userId: string) {
+    holdForResume(request, userId, currentResumeGeneration());
+  }
+
+  function analyzingPushes(): unknown[][] {
+    return mockPush.mock.calls.filter(([href]) => href === '/analyzing');
+  }
+
+  beforeEach(() => {
+    mockPush.mockClear();
+    mockCheckPendingAnalysis.mockClear();
+    discardResumableAnalysis();
+    takePendingAnalyzeFormRequest(null);
+  });
+
+  afterAll(() => {
+    discardResumableAnalysis();
+    takePendingAnalyzeFormRequest(null);
+  });
+
+  it('sends a same-user hold back to /analyzing once, staging the identical request for that user', async () => {
+    const request = makeRequest();
+    const frames = request.frames;
+    holdFor(request, 'user-1');
+
+    await render(<HomeScreen />);
+
+    expect(analyzingPushes()).toHaveLength(1);
+    const staged = takePendingAnalyzeFormRequest('user-1');
+    expect(staged).toBe(request);
+    expect(staged?.frames).toBe(frames);
+    expect(staged?.idempotencyKey).toBe('idem-resume-1');
+    expect(hasResumableAnalysis()).toBe(false);
+    // The #140 marker check is skipped on the resume pass — Analyzing settles that key itself.
+    expect(mockCheckPendingAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("never resumes another account's hold, and drops it", async () => {
+    holdFor(makeRequest(), 'user-2');
+
+    await render(<HomeScreen />);
+
+    expect(analyzingPushes()).toHaveLength(0);
+    expect(hasResumableAnalysis()).toBe(false);
+    expect(takePendingAnalyzeFormRequest('user-1')).toBeNull();
+    expect(takePendingAnalyzeFormRequest('user-2')).toBeNull();
+    // With nothing to resume, the ordinary startup check runs.
+    expect(mockCheckPendingAnalysis).toHaveBeenCalledWith('user-1');
+  });
+
+  it('runs the ordinary startup check, and pushes nothing, when there is no hold', async () => {
+    await render(<HomeScreen />);
+
+    expect(analyzingPushes()).toHaveLength(0);
+    expect(mockCheckPendingAnalysis).toHaveBeenCalledTimes(1);
+    expect(mockCheckPendingAnalysis).toHaveBeenCalledWith('user-1');
+  });
+
+  it('does not push twice across a re-render or a second mount', async () => {
+    holdFor(makeRequest(), 'user-1');
+
+    const { rerender, unmount } = await render(<HomeScreen />);
+    await rerender(<HomeScreen />);
+    await unmount();
+    await render(<HomeScreen />);
+
+    expect(analyzingPushes()).toHaveLength(1);
   });
 });

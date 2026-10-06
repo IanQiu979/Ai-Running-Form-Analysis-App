@@ -49,6 +49,7 @@
  * "you're safe" regression the first version of this fix nearly shipped, are exactly the kind that
  * stay green in a happy-path test.
  */
+import { discardResumableAnalysis } from './resumable-analysis';
 import { supabase } from './supabase';
 
 /**
@@ -71,7 +72,20 @@ export type SignOutResult =
  * below to find out which real state they left the user in. Callers do not need a try/catch, and
  * must not treat this as a promise that can fail.
  */
-export async function signOut(): Promise<SignOutResult> {
+export type SignOutOptions = {
+  /**
+   * Keep a session-expired analysis held for resume (`lib/resumable-analysis.ts`). ONLY the
+   * Analyzing screen's "Sign in and retry" passes this — it signs the expired session out
+   * precisely so the runner can sign back in and pick the same analysis up. Every other sign-out
+   * (Settings) is the runner leaving, and drops the kept frames.
+   */
+  keepResumableAnalysis?: boolean;
+};
+
+export async function signOut({ keepResumableAnalysis = false }: SignOutOptions = {}): Promise<SignOutResult> {
+  // Dropped BEFORE the call, whatever it returns: a runner who chose to sign out wants nothing of
+  // theirs resubmitted on the next sign-in, even if the revoke itself then fails.
+  if (!keepResumableAnalysis) discardResumableAnalysis();
   const succeeded = await attemptSignOut();
   if (succeeded) {
     return { ok: true };

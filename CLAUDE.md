@@ -189,15 +189,15 @@ clean `typecheck && lint && test`. Never force-push without explicit user approv
   (2026-09-14).** That file is the V23-01 theme sheet — dark only, flat `Ink`/`Font`/`Type`/
   `Space`/`Layout`/`Motion`/`Chrome` exports, square corners, no wash, no glass, no score bands —
   and it is what the entry flow (`app/(auth)/welcome`, `pillars` and `sign-in`, with
-  `components/pillar-story.tsx` and `components/auth-form.tsx`), `app/analyzing.tsx` and, since
-  lane 2, Home, Result, History, Capture, Paywall and
-  Settings are built on. Its
+  `components/pillar-story.tsx` and `components/auth-form.tsx`), since lane 2 Home, Result,
+  History, Capture, Paywall and Settings, and since 2026-10-06 Preparing
+  (`app/capture/extracting.tsx`) and Analysing (`app/analyzing.tsx`) are built on. Its
   primitives are `<SquareButton>`, `<TextField>`, `<SquareCard>`, `<SquareIconButton>`, `<TopBar>`,
   `<ConfirmDialog>` (every confirm/notice on those screens — never a native `Alert`), the traced
   glyphs in `components/ui/v23-icons.tsx` and `<V23TabBar>` (floating, at the same place over Home
   and History). `constants/theme.ts` remains only for the screens no page covers yet
-  (`app/capture/extracting.tsx`, the password-reset screens, the offline
-  banner, the Turnstile widget) and for `ScoreBandLabel`, which is copy. The sheet's contrast
+  (the password-reset screens, the offline banner, the Turnstile widget) and for
+  `ScoreBandLabel`, which is copy. The sheet's contrast
   contract is proven in `constants/__tests__/v23-theme-contrast.test.ts` — read it before putting
   text on `ink3`, which is deliberately under AA and is for placeholders, disabled controls and
   the one secondary line a page draws in it. See `docs/architecture.md`'s "Current — V23 entry
@@ -250,6 +250,9 @@ default — copy an existing test rather than writing one from memory:
   an act scope open, and the following test's `await render(...)` produces an empty tree ("Unable
   to find an element with testID"), which reads like a missing component and is not one. Wrap
   every press as `await act(async () => { fireEvent.press(node); })`.
+- **`screen.unmount()` and `screen.rerender()` return promises here — await them.** An
+  un-awaited one leaves an act scope open and every later test fails with "overlapping act()
+  calls", which reads like a broken suite rather than one missing `await`.
 - **Reanimated animations do not advance under Jest here.** A `withTiming`/`withSpring` shared
   value stays at its start value no matter how far you wind fake timers, and installing fake
   timers *before* `await render(...)` makes the render produce an empty tree instead. So a motion
